@@ -18,11 +18,10 @@ import { usePermitsByProject } from '../hooks/usePermitsByProject';
 import { useAllPermitCycleReviewers } from '../hooks/useAllPermitCycleReviewers';
 import { effectiveStage } from '../lib/permitStage';
 import { PERMITS_RAIL_WIDTH } from '../lib/overviewCardLayout';
-import { STAGE_LABEL } from '../lib/stageLabel';
+import { STAGE_FULL_LABEL, STAGE_ORDER } from '../lib/stageLabel';
 import { isSubPermit, subPermitBadgeLabel } from '../lib/subPermit';
 import { useUpdateProject } from '../hooks/useUpdateProject';
 import type {
-  PermitCycle,
   PermitCycleReviewer,
   PermitWithCycles,
   Project,
@@ -753,13 +752,86 @@ function ProjectPageChrome({
 // stage-appropriate key date with urgency-driven color, and a drag handle.
 // Order is persisted as projects.permit_order (number[]). Permits without
 // an explicit order are appended after ordered ones, alphabetical fallback.
-const STAGE_DOT_COLOR: Record<Stage, string> = {
-  de: 'var(--color-de)',
-  pm: 'var(--color-pm)',
-  co: 'var(--color-co)',
-  ap: 'var(--color-jv)',
-  is: 'var(--color-is)',
+/**
+ * ★★★ fix-508 §E — THE STAGE COLOUR MOVES FROM THE CARD TO THE GROUP HEADER.
+ *
+ * It was a 7px dot on every card. Grouped by phase, a dot on each card in a
+ * `Corrections` group is the same fact repeated once per row — so the colour
+ * says it once, at the top, where it labels the group it belongs to. This is
+ * the same treatment fix-65 gave `✓ ISSUED (2)`, generalised to all five
+ * buckets, which is what §E asks for in as many words.
+ */
+function PhaseGroupHeader({ stage, count }: { stage: Stage; count: number }) {
+  return (
+    <div
+      className="px-3 py-1.5 text-[10px] font-extrabold uppercase tracking-wider flex items-center justify-between gap-1.5 border-y"
+      style={{
+        background: STAGE_GROUP_BG[stage],
+        color: STAGE_GROUP_FG[stage],
+        borderTopColor: STAGE_GROUP_BORDER[stage],
+        borderBottomColor: STAGE_GROUP_BORDER[stage],
+      }}
+      data-testid={`permits-sidebar-phase-${stage}`}
+      data-phase-count={String(count)}
+    >
+      <span>{STAGE_FULL_LABEL[stage]}</span>
+      <span>({count})</span>
+    </div>
+  );
+}
+
+/**
+ * ★★★ fix-508 §G — THE HEADER'S INK IS THE MIX, NOT THE RAW TOKEN.
+ *
+ * §G's standing contract is fix-407's: **≥ 4.5:1, measured**. Measured in
+ * Chrome, `--color-<stage>` on `--color-<stage>-bg` comes to **3.32:1** — so
+ * the four new phase headers would have shipped under the floor, and the
+ * ISSUED divider fix-65 built has been under it since 2026-05-27.
+ *
+ * ★★★ THE RECIPE ALREADY EXISTS AND IS NOT BEING REINVENTED: fix-407 §4 mixes
+ *     **65% of the token with 35% of `#1a2540`** for exactly this problem, and
+ *     `STAGE_CHIP` in lib/planOfRecord is built from it. Two of the five hexes
+ *     below come out identical to the ones that file publishes (`#214daf`,
+ *     `#965a1a`), which is the check that the recipe was applied and not
+ *     approximated. Measured on the tint each one sits on:
+ *
+ *       de  #214daf  6.27      pm  #0c6e5b  5.45      co  #965a1a  5.00
+ *       ap  #5a33b0  6.98      is  #0e6b8a  5.38
+ *
+ * ★ So this fixes a pre-existing failure as well as avoiding a new one. Stated
+ *   rather than folded in silently: the ISSUED divider's colour changes here
+ *   and it is not cosmetic drift, it is the first time it has been legible.
+ */
+const STAGE_GROUP_FG: Record<Stage, string> = {
+  de: '#214daf',
+  pm: '#0c6e5b',
+  co: '#965a1a',
+  ap: '#5a33b0',
+  is: '#0e6b8a',
 };
+
+/** ★ The five tints, matching the `--color-<stage>-bg` tokens the pipeline
+ *  cards and the issued divider already use. */
+const STAGE_GROUP_BG: Record<Stage, string> = {
+  de: 'var(--color-de-bg)',
+  pm: 'var(--color-pm-bg)',
+  co: 'var(--color-co-bg)',
+  ap: 'var(--color-jv-bg)',
+  is: 'var(--color-is-bg)',
+};
+
+const STAGE_GROUP_BORDER: Record<Stage, string> = {
+  de: 'var(--color-de-border)',
+  pm: 'var(--color-pm-border)',
+  co: 'var(--color-co-border)',
+  ap: 'var(--color-jv-border)',
+  is: 'var(--color-is-border)',
+};
+
+// ★ fix-508 §E: `STAGE_DOT_COLOR` is gone with the dot it painted. Its five
+//   raw tokens live on in `STAGE_GROUP_FG` above — mixed to fix-407's ink so
+//   the group header that replaced the dot clears 4.5:1, which the raw token
+//   never did.
 
 function PermitsSidebar({
   permits,
@@ -873,6 +945,45 @@ function PermitsSidebar({
     return { activeSorted: active, issuedSorted: issued };
   }, [permits, order, reviewersByPermit]);
 
+  /**
+   * ★★★ fix-508 §E (P-184) — THE ACTIVE BAND BECOMES PHASE GROUPS.
+   *
+   * The status suffix left each card's type line and became a group header
+   * with a count, in the shape fix-65's `✓ ISSUED (2)` already established and
+   * in the Pipeline's own words (`STAGE_FULL_LABEL`). Four groups where there
+   * was one flat list: **Design & Engineering · Permitting · Corrections ·
+   * Approved**, then the redesigns band, then Issued.
+   *
+   * ★★ fix-421's RULING IS PRESERVED INSIDE THE ORDER, not worked around:
+   *    *"issued should be at the bottom, redesign should be above that, and
+   *    then all the other active and ongoing permits should be above that."*
+   *    `STAGE_ORDER` ends in `is`, and the rail renders REDESIGNS between the
+   *    fourth group and it. Its band and its tests are untouched.
+   *
+   * ★ THE ORDER WITHIN A GROUP IS STILL `permit_order`, so drag-reorder keeps
+   *   working exactly as fix-65 built it — `active` is already sorted, and
+   *   partitioning a sorted list leaves each part sorted. A drop still writes
+   *   the whole project's order, so dragging across a group boundary is
+   *   possible and simply re-files the card under its own phase on the next
+   *   render, which is the honest outcome: the phase is DERIVED from the
+   *   permit, not chosen by where it was dropped.
+   */
+  const activeGroups = useMemo(() => {
+    const byStage = new Map<Stage, PermitWithCycles[]>();
+    for (const p of activeSorted) {
+      const s = effectiveStage(p, p.permit_cycles ?? [], reviewersByPermit.get(p.id) ?? null);
+      const list = byStage.get(s) ?? [];
+      list.push(p);
+      byStage.set(s, list);
+    }
+    // ★ `is` is excluded here: an issued permit is in `issuedSorted` by
+    //   construction (that is how `activeSorted` was partitioned), so a group
+    //   for it would always be empty and the real one renders at the bottom.
+    return STAGE_ORDER.filter((s) => s !== 'is')
+      .map((stage) => ({ stage, permits: byStage.get(stage) ?? [] }))
+      .filter((g) => g.permits.length > 0);
+  }, [activeSorted, reviewersByPermit]);
+
   function commitOrder(nextActiveIds: number[]) {
     if (!project.updated_at) return;
     // Persist the canonical order across BOTH groups so a permit moving
@@ -974,10 +1085,15 @@ function PermitsSidebar({
           </div>
         ) : (
           <>
-            {/* fix-65: ACTIVE group. Drag-reorder lives here.
-                fix-194: each parent renders its sub-permit children nested
-                directly beneath it. */}
-            {activeSorted.map((p) => (
+            {/* ★★★ fix-508 §E — ONE GROUP PER PHASE, each with a coloured
+                header and a count, in the shape fix-65's `✓ ISSUED (2)`
+                established. Drag-reorder still lives here (fix-65) and
+                sub-permits still nest under their parent (fix-194); what
+                changed is that the flat list is now four lists. */}
+            {activeGroups.map((group) => (
+              <Fragment key={group.stage}>
+                <PhaseGroupHeader stage={group.stage} count={group.permits.length} />
+                {group.permits.map((p) => (
               <Fragment key={p.id}>
                 <SidebarRow
                   permit={p}
@@ -1010,6 +1126,8 @@ function PermitsSidebar({
                   />
                 ))}
               </Fragment>
+                ))}
+              </Fragment>
             ))}
           </>
         )}
@@ -1027,18 +1145,18 @@ function PermitsSidebar({
             ★ fix-421 BAND 3 — the bottom, by Bobby's instruction. */}
         {issuedSorted.length > 0 && (
           <>
-                <div
-                  className="px-3 py-1.5 text-[10px] font-extrabold uppercase tracking-wider flex items-center gap-1.5 border-y"
-                  style={{
-                    background: 'var(--color-is-bg)',
-                    color: 'var(--color-is)',
-                    borderTopColor: 'var(--color-is-border)',
-                    borderBottomColor: 'var(--color-is-border)',
-                  }}
-                  data-testid="permits-sidebar-issued-divider"
-                >
-                  <span aria-hidden="true">✓</span>
-                  <span>Issued ({issuedSorted.length})</span>
+                {/* ★★★ fix-508 §E — THE ISSUED DIVIDER IS NOW ONE OF FIVE, and
+                    it renders through the SAME component as the other four.
+                    fix-65 invented this shape — a tinted, counted, bordered
+                    band — and §E generalises it to every phase; leaving this
+                    one hand-rolled would be the drift `OverviewCard` was
+                    created to end, one file over.
+                    ★ It keeps its own `data-testid` so fix-65's and fix-421's
+                      band-order tests still name the thing they were written
+                      about. The ✓ goes: four headers without a glyph and one
+                      with reads as an exception nobody meant. */}
+                <div data-testid="permits-sidebar-issued-divider">
+                  <PhaseGroupHeader stage="is" count={issuedSorted.length} />
                 </div>
                 <div
                   style={{ background: 'var(--color-is-bg)' }}
@@ -1441,7 +1559,6 @@ function SidebarRow({
 }) {
   const cycles = permit.permit_cycles ?? [];
   const stage = effectiveStage(permit, cycles, reviewers);
-  const { label: keyLabel, date: keyDate } = pickKeyDate(permit, cycles, stage);
   const displayLabel =
     permit.type === 'Building Permit' && permit.nickname
       ? `Building Permit — ${permit.nickname}`
@@ -1500,7 +1617,6 @@ function SidebarRow({
   // The pre-fix urgency-driven date color is gone too — the card's own
   // bg tint / left-border (stage color) already signals stage, and the
   // sub-event line is text-only secondary detail.
-  const stageBreadcrumb = STAGE_LABEL[stage];
 
   return (
     <div
@@ -1530,31 +1646,23 @@ function SidebarRow({
       }}
       data-testid={`permits-sidebar-row-${permit.id}`}
     >
+      {/* ★★★ fix-508 §E (P-184) — LINE 1 IS THE PERMIT TYPE, AND ONLY THE TYPE.
+          Two things left this line and both went somewhere better:
+          · the STAGE SUFFIX became the phase GROUP HEADER above the card, with
+            a count. fix-104 put it here as a breadcrumb — *"Building Permit
+            FIRST, currently in Permitting"* — which is exactly right for a flat
+            list and redundant the moment the list is grouped BY that stage. It
+            was also the widest thing in the rail: `Building Permit ·
+            Corrections` needs 173px of a 161px row.
+          · the COLOUR DOT went with it, to the same header. A per-card dot in a
+            group whose header is already that colour is the same fact twice. */}
       <div className="flex items-center gap-1.5 min-w-0">
         <span
-          className="inline-block flex-shrink-0 rounded-full"
-          style={{
-            width: 7,
-            height: 7,
-            background: STAGE_DOT_COLOR[stage],
-          }}
-        />
-        {/* fix-104: type · stage breadcrumb. The type stays bold (it's
-            still the row's primary identity); the stage gets the muted
-            text-dim treatment so the eye reads "Building Permit FIRST,
-            currently in Permitting" — not two competing labels. */}
-        <span
-          className="text-[11px] truncate flex-1 min-w-0"
+          className="text-[11px] font-bold text-text truncate flex-1 min-w-0"
+          title={displayLabel}
           data-testid={`permits-sidebar-type-${permit.id}`}
         >
-          <span className="font-bold text-text">{displayLabel}</span>
-          <span
-            className="text-dim font-normal"
-            data-testid={`permits-sidebar-stage-${permit.id}`}
-          >
-            {' · '}
-            {stageBreadcrumb}
-          </span>
+          {displayLabel}
         </span>
         {draggable && (
           <span
@@ -1568,6 +1676,7 @@ function SidebarRow({
       {/* fix-169: land-use phase badge — only for *-LU permits, answers
           "why hasn't this issued?" on the overview. Null for everything else. */}
       <LandUsePhaseBadge permit={permit} />
+      {/* ★ LINE 2 — the permit number, and the portal link on it. */}
       <div className="text-[10px] truncate">
         {permit.num ? (
           permit.portal_url ? (
@@ -1602,64 +1711,36 @@ function SidebarRow({
         )}
       </div>
       {permit.struct_address && (
-        // fix-35 Bug 1a: structure address so multiple BPs on one project
-        // are distinguishable.
+        // ★ LINE 3 — fix-35 Bug 1a: structure address, so multiple BPs on one
+        //   project are distinguishable. This is the `SFR 1` / `CCR` line.
         <div
-          className="text-[10px] text-dim truncate"
+          className="text-[10px] text-muted truncate"
           title={permit.struct_address}
           data-testid={`permits-sidebar-addr-${permit.id}`}
         >
           {permit.struct_address}
         </div>
       )}
-      {keyDate && (
-        // fix-104: sub-event line — lowercase label, normal weight,
-        // muted color. No more "CORRECTIONS YYYY-MM-DD" reading like
-        // the primary stage; this is now "Corrections: 2026-05-26"
-        // in plain secondary text. The label string still comes from
-        // pickKeyDate so the precedence (per-stage) is unchanged.
-        <div
-          className="text-[10px] text-dim font-mono mt-0.5"
-          data-testid={`permits-sidebar-sub-event-${permit.id}`}
-        >
-          {keyLabel}: {keyDate}
-        </div>
-      )}
+      {/* ★★★ fix-508 §E — THE DATE LINE IS GONE, AND IT IS NOT LOST.
+          fix-104 added `Target: 2026-10-16` / `Corrections: …` / `Issued: …`
+          as a sub-event line under each card. **Schedule Health carries every
+          one of those dates**, in named columns, four inches to the right on
+          the same screen — and it carries them for the whole lineage rather
+          than one per card. Bobby asked for three lines with a real hierarchy;
+          a fourth line repeating a table that is already on screen is what was
+          stopping the three from reading as a hierarchy at all.
+          ★★ AND `pickKeyDate` GOES WITH IT, because this was its ONLY caller.
+             I wrote "it stays, other surfaces call it" and then checked: they
+             do not. `git grep` finds the function, this line, and two comments
+             in ProjectDetail.test.tsx. Leaving a dead 30-line precedence ladder
+             behind with a comment claiming it is live is worse than either
+             keeping it honestly or deleting it — so it is deleted, and its
+             rule is recorded here: it picked a per-stage date (Issued /
+             Approved / Corrections / Resubmitted / City Target / Submitted /
+             Target) mirroring v1's index.html:3554-3577. Schedule Health prints
+             every one of those in a named column. */}
     </div>
   );
 }
 
-// Stage-appropriate "key date" + short label, mirrors v1's index.html
-// :3554-3577 logic.
-function pickKeyDate(
-  permit: PermitWithCycles,
-  cycles: PermitCycle[],
-  stage: Stage,
-): { label: string; date: string | null } {
-  const sortedCycles = [...cycles].sort((a, b) => a.cycle_index - b.cycle_index);
-  const c0 = sortedCycles[0];
-  const latest = sortedCycles[sortedCycles.length - 1];
-
-  if (stage === 'is') {
-    if (permit.actual_issue) return { label: 'Issued', date: permit.actual_issue };
-    if (permit.approval_date) return { label: 'Approved', date: permit.approval_date };
-  }
-  if (stage === 'ap' && permit.approval_date) {
-    return { label: 'Approved', date: permit.approval_date };
-  }
-  if (stage === 'co' && latest) {
-    if (latest.corr_issued) return { label: 'Corrections', date: latest.corr_issued };
-    if (latest.resubmitted) return { label: 'Resubmitted', date: latest.resubmitted };
-    if (c0?.submitted) return { label: 'Submitted', date: c0.submitted };
-  }
-  if (stage === 'pm' && latest) {
-    if (latest.city_target) return { label: 'City Target', date: latest.city_target };
-    if (latest.submitted) return { label: 'Submitted', date: latest.submitted };
-    if (c0?.submitted) return { label: 'Submitted', date: c0.submitted };
-  }
-  // de stage (or anything fallthrough): submitted on cycle 0, else target_submit
-  if (c0?.submitted) return { label: 'Submitted', date: c0.submitted };
-  if (permit.target_submit) return { label: 'Target', date: permit.target_submit };
-  return { label: 'Target', date: null };
-}
 

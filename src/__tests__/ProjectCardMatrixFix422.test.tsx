@@ -230,8 +230,15 @@ describe('fix-422 §D: the five cards, re-shared against the real row', () => {
     expect(proj.floorReason).toContain('DERIVED');
     expect(proj.floorReason).toMatch(/matrix/i);
     // ★★★ AND THE FLOOR IS STILL A DERIVATION, so the two cannot disagree.
+    // ★★★ AND fix-508 §B/§C HAND THE FLOOR OVER, without touching the rule.
+    //     §C shrinks the matrix to 267 (289 of card); §B's Site/Dates pair —
+    //     which can no longer wrap at 1600, by ruling — binds at 330. fix-422's
+    //     claim is that the floor is DERIVED from what the card must hold and
+    //     is never typed beside it, and that is what this asserts.
     expect(proj.minPx).toBe(PROJECT_CARD_MIN_WIDTH);
-    expect(proj.minPx).toBe(UNIT_MATRIX_TRANSPOSED_WIDTH + OVERVIEW_CARD_CHROME);
+    expect(proj.minPx).toBeGreaterThanOrEqual(
+      UNIT_MATRIX_TRANSPOSED_WIDTH + OVERVIEW_CARD_CHROME,
+    );
   });
 
   it('★★★ every floor states whether it is HARD or SOFT, and why', () => {
@@ -258,20 +265,32 @@ describe('fix-422 §D: the five cards, re-shared against the real row', () => {
     // place to find room; taking it puts Project ahead of it EVERYWHERE, so it
     // was measured and refused.
     const por = OVERVIEW_CARD_COLUMNS.find((c) => c.key === 'por')!;
+    // ★★★ SUPERSEDED by fix-508 (D-2026-09-09): the RANK is retired and the
+    //     FLOOR replaces it. fix-422's refusal to take width from this card is
+    //     kept because its arithmetic was right; what changed is that Team is
+    //     now allowed PAST it on share, which is the thing Bobby's original
+    //     complaint was about. The floor half still holds at every width where
+    //     floors decide.
     for (const c of OVERVIEW_CARD_COLUMNS) {
       if (c.key !== 'por') {
-        expect(por.pct).toBeGreaterThan(c.pct);
         expect(por.minPx).toBeGreaterThan(c.minPx);
       }
     }
     // ★ fix-506 §A put the Plan of Record FIRST, so the index is looked up.
     const porIdx = OVERVIEW_CARD_COLUMNS.findIndex((c) => c.key === 'por');
+    const teamIdx = OVERVIEW_CARD_COLUMNS.findIndex((c) => c.key === 'team');
     for (const vw of [1280, 1440, 1600, 1920, 2560]) {
       for (const r of ['expanded', 'collapsed'] as const) {
-        const w = resolveOverviewWidths(overviewRowWidthAt(vw, r));
-        expect(w[porIdx]).toBe(Math.max(...w));
+        const row = overviewRowWidthAt(vw, r);
+        const w = resolveOverviewWidths(row);
+        // Where the FLOORS decide, the Plan of Record is still the widest.
+        if (row < OVERVIEW_ROW_MIN_WIDTH) expect(w[porIdx]).toBe(Math.max(...w));
       }
     }
+    // ★★ Where the SHARES decide, Team is — the ruling, pinned so a later edit
+    //    that quietly restores the rank fails here rather than on a screenshot.
+    const wide = resolveOverviewWidths(overviewRowWidthAt(1920));
+    expect(wide[teamIdx]).toBeGreaterThan(wide[porIdx]);
   });
 
   it('★★★ SUPERSEDED: the row stopped needing a lever, because it lost two cards', () => {
@@ -291,13 +310,19 @@ describe('fix-422 §D: the five cards, re-shared against the real row', () => {
     expect(OVERVIEW_CARD_COLUMNS.some((c) => c.key === 'consultants')).toBe(false);
     expect(team.pct).toBeGreaterThan(15);
 
+    // ★ fix-508: 389px of free space at 1920 rather than 481 — the Plan of
+    //   Record's floor took 118 of it. Still an unwrapped row with room, which
+    //   is the claim; the threshold moves with the floors it is measuring.
     const free = overviewRowWidthAt(1920, 'expanded') - OVERVIEW_ROW_MIN_WIDTH;
-    expect(free).toBeGreaterThan(400);
-    // ★★ …and every card is genuinely above its floor at 1920, which was the
-    //    thing fix-422 could not say.
+    expect(free).toBeGreaterThan(380);
+    // ★★ …and every card is at or above its floor at 1920, which was the thing
+    //    fix-422 could not say. ★ fix-508: the Plan of Record sits exactly ON
+    //    its floor there, because that floor IS the width its picture uses —
+    //    35.5% of 1,365 is 485 and the floor is 486, so the track freezes. That
+    //    is the floor doing its job, not a card being squeezed.
     const w = resolveOverviewWidths(overviewRowWidthAt(1920, 'expanded'));
     OVERVIEW_CARD_COLUMNS.forEach((c, i) => {
-      expect(w[i], c.key).toBeGreaterThan(c.minPx);
+      expect(w[i], c.key).toBeGreaterThanOrEqual(c.minPx);
     });
   });
 
@@ -319,9 +344,13 @@ describe('fix-422 §D: the five cards, re-shared against the real row', () => {
     const por = OVERVIEW_CARD_COLUMNS.find((c) => c.key === 'por')!;
     const proj = OVERVIEW_CARD_COLUMNS.find((c) => c.key === 'proj')!;
     expect(por.minPx).toBeGreaterThan(proj.minPx);
-    expect(por.minPx - proj.minPx).toBe(14); // the smallest margin that holds
-    // ★ Still 14 after fix-506 §A re-derived both — the margin is declared, not
-    //   a coincidence of two independent numbers.
+    // ★★★ SUPERSEDED by fix-508: the 14px pin is GONE. It made the Plan of
+    //     Record's floor a function of its neighbour's, so shrinking the units
+    //     matrix would have narrowed a card that has nothing to do with it.
+    //     The floor is the width the card's own capped thumbnail uses now, and
+    //     the gap over Project is a consequence rather than a declaration —
+    //     which is why this asserts the ORDER and not the margin.
+    expect(por.minPx - proj.minPx).toBeGreaterThan(14);
 
     // (iii) …so the condition for the fallback IS met, and it is stated rather
     //       than quietly absorbed: below a 1706px window (ribbon expanded) the
@@ -350,8 +379,13 @@ describe('fix-422 §D: the five cards, re-shared against the real row', () => {
     //     15px pillbox scrollbar this module had never counted — the EIGHTH box
     //     against fix-422's seven. Net 35px of extra row at every viewport, and
     //     1440-expanded now fits by a single pixel.
-    expect(overviewMinViewport('expanded')).toBe(1439);
-    expect(overviewRowFitsAt(1440, 'expanded')).toBe(true);
+    // ★★★ AND fix-508 MOVES IT BACK UP, 1439 → 1531, by a FLOOR rather than by
+    //     chrome: the Plan of Record's rises to the width its capped thumbnail
+    //     uses (368 → 486), replacing fix-417's retired rank. 1440 wraps again;
+    //     1600 and 1920 — the widths Bobby works at — still fit, which is the
+    //     claim fix-422 wanted and the one that has to survive.
+    expect(overviewMinViewport('expanded')).toBe(1531);
+    expect(overviewRowFitsAt(1440, 'expanded')).toBe(false);
     expect(overviewRowFitsAt(1600, 'expanded')).toBe(true);
     expect(overviewRowFitsAt(1920, 'expanded')).toBe(true);
   });

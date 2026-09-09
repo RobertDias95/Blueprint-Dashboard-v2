@@ -346,7 +346,11 @@ describe('fix-320 #1: the Milestones card reads in ONE date format', () => {
     renderHeader();
     const card = screen.getByTestId('project-data-body');
     const boxes = Array.from(card.querySelectorAll('[data-milestone-value]')) as HTMLElement[];
-    expect(boxes.length).toBe(9);
+    // ★ fix-508 §D adds the **ACQ date** to the Dates tab — the input that left
+    //   Schedule Health when Target Approval became derived. Nine rows → ten.
+    //   fix-311's rule is that every date on the card resolves to ONE shared
+    //   component, which is the assertion below; the count moves with the card.
+    expect(boxes.length).toBe(10);
     expect(
       new Set(boxes.map((b) => b.className.replace(' cursor-default', ''))).size,
     ).toBe(1);

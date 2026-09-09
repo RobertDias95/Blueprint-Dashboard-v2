@@ -319,7 +319,10 @@ describe('fix-311: one presentation for every date on the card', () => {
     const boxes = valueBoxes();
     // The eight briefed rows plus the Consultant date, which the brief adds
     // between DD start and DD end — nine boxes, one component.
-    expect(boxes).toHaveLength(9);
+    // ★ fix-508 §D makes it TEN: the `ACQ date` input, which moved here from
+    //   Schedule Health when Target Approval became a derived value. It is the
+    //   same shared component, which is the whole point of the assertion below.
+    expect(boxes).toHaveLength(10);
 
     // ★ Same component ⇒ same box class string and same inline style, read off
     // the rendered DOM and compared row to row. Editable rows differ ONLY in

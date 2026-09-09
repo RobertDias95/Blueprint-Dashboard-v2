@@ -75,12 +75,48 @@
 //    it is better on BOTH axes: measured, a stacked pair makes the Project card
 //    780px tall on `233 31st Ave E`, 17px MORE than the wrapped-band Team it
 //    would have been saving.
+//
+// ===========================================================================
+// ★★★ fix-508 — AND THE 38px DEFICIT WAS A CONSEQUENCE OF THE DRAWING
+// ===========================================================================
+//
+// fix-507 reported the deficit honestly and priced three levers for closing it:
+// a narrower rail, a smaller consultant pill, a tighter Site/Dates pair. **Two
+// further fix-508 briefs were written around those levers and both were
+// voided**, because all three were pricing against a number that was about to
+// stop existing.
+//
+// ★★★ THE PAIR NEEDED 475 BECAUSE THE DATES CARD WAS A TWO-BY-TWO QUADRANT
+//     GRID — two label tracks and two date tracks side by side, 296px of box.
+//     §B makes it ONE COLUMN: **156**. The pair goes **475 → 320**, and the
+//     deficit is not closed so much as withdrawn.
+//
+//     → [[do-not-brief-a-layout-that-is-still-being-redesigned]]. A width
+//       deficit measured against a component that is being redrawn in the same
+//       ticket is not a fact about the shell; it is a fact about the drawing.
+//
+// ★★ SO THE FLOORS BELOW MOVE IN A DIRECTION NO fix-507 LEVER COULD HAVE
+//    REACHED, and none of its three levers was taken: the rail stays at 190
+//    (§E changes it for readability only), the pill floor falls out of §F1's
+//    reshape rather than being cut, and the pair shrank by being redrawn.
+//
+// ★★★ WHAT BINDS THE PROJECT CARD ALSO CHANGES HANDS. The units matrix has set
+//     that floor since fix-422; §C's padding takes it 332 → 267 and the pair —
+//     which can no longer wrap at 1600, by ruling — passes it on the way down.
+//     See `PROJECT_CARD_MIN_WIDTH`.
 
 /** `OverviewCard`'s body padding (`px-2.5` = 20) plus 1px of border a side.
  *  ★ Importing `overviewCardLayout.OVERVIEW_CARD_CHROME` would be circular —
  *  that module derives its floors from this one — so the two are declared
  *  apart and asserted equal by the fix-506 suite. */
 export const PROJECT_CARD_CHROME = 22;
+
+/** `OverviewSection`'s body padding alone (`px-2.5` = 20), without the card's
+ *  border. ★ Every box INSIDE the card pays this and not the border — the
+ *  border is the card's, once. fix-506 wrote `PROJECT_CARD_CHROME - 2` at three
+ *  call sites to say the same thing; naming it stops the next reader having to
+ *  work out which 2 was being taken off and why. */
+export const SECTION_BODY_PADDING = PROJECT_CARD_CHROME - 2;
 
 // ---------------------------------------------------------------------------
 // §C — SITE DATA
@@ -115,22 +151,59 @@ export const SITE_VALUE_MIN = 89;
  * it is a second span that wraps rather than a `whitespace-nowrap` chip, so it
  * fails softly; the floor still has to hold it or every derived lot size prints
  * on two lines.
+ *
+ * ★★★ fix-508 §A TAKES THE SUFFIX OFF THE FACE, so this row stops binding.
+ *     Re-measured in Chrome with ` derived` gone, every Site row at its widest
+ *     REALISABLE content:
+ *
+ *         Lot        `100 × varies`      134   ← binds
+ *         Zone       `MIO-37-LR3`        119   ← the widest that EXISTS today
+ *         Lot        `100 × 125`         116
+ *         Lot size   `11,504 sf`         116
+ *         Tags · Corner · Alley · Units   ≤ 80
+ *
+ * ★★ AND `100 × varies` IS REACHABLE BUT UNOCCUPIED. `lotSizeView` prints
+ *    `varies` when a project has a typed lot size and exactly one of width /
+ *    depth — measured on prod 2026-09-09, **zero projects are in that state**.
+ *    The floor covers it anyway (fix-422's rule is the widest content the card
+ *    CAN hold, not the widest it happens to hold today), and the number that
+ *    would bind without it is recorded above so a later ticket can price it.
  */
-export const SITE_WIDEST_ROW_MEASURED = 147;
+export const SITE_WIDEST_ROW_MEASURED = 134;
 
-/** What the Site data box needs before it truncates. ★ The card's 1px border
- *  is counted once for the whole card, not once per box inside it. */
+/** ★ The widest Site row that any project actually has today — `Zone
+ *  MIO-37-LR3`. Recorded beside the floor, not used as it: the gap between
+ *  these two is what the `varies` state costs, and it is 15px. */
+export const SITE_WIDEST_ROW_ON_PROD = 119;
+
+/**
+ * What the Site data box needs before it truncates.
+ *
+ * ★★★ fix-508 §A: **169 → 154**, and it is MEASURED now rather than summed.
+ *     fix-506 built it from label + gap + value, which double-counts nothing
+ *     but also cannot see that the binding row is a mono pair with a chip in
+ *     it. The row is measured whole; the box adds the section's own `px-2.5`.
+ */
 export const SITE_DATA_MIN_WIDTH =
-  SITE_LABEL_WIDTH + SITE_LABEL_GAP + SITE_VALUE_MIN + PROJECT_CARD_CHROME - 2;
+  SITE_WIDEST_ROW_MEASURED + SECTION_BODY_PADDING;
 
 // ---------------------------------------------------------------------------
-// §B — THE DATES CARD
+// ★★★ fix-508 §B — THE DATES CARD BECOMES ONE VERTICAL COLUMN
 // ---------------------------------------------------------------------------
 //
-// Two columns by two rows, exactly as the mock:
+// fix-506 drew it as the mock's two-by-two quadrant grid:
 //
 //     GO date · Closing              |  SD start · SD end
 //     DD start · Consultant · DD end |  Accepted · ACQ target · Est. approval
+//
+// ★★★ AND THAT SHAPE IS WHY THE PAIR NEEDED 475. Two label tracks and two date
+//     tracks side by side is **296px** of box before anything else; one column
+//     of the same rows is **156**. Two earlier fix-508 briefs were written to
+//     find 77px so the pair could sit side by side — by tightening the pair and
+//     by narrowing the permits rail into deeper truncation — and both were
+//     voided, because the 296 they were pricing against is the grid this
+//     section deletes. **The deficit was a consequence of the drawing, not of
+//     the shell.** [[do-not-brief-a-layout-that-is-still-being-redesigned]]
 //
 // ★ Read-only text (fix-506 makes the overview read-only), so these are label
 //   widths and mono DATE widths — not `MILESTONE_DATE_INPUT_MIN`. That is the
@@ -138,37 +211,46 @@ export const SITE_DATA_MIN_WIDTH =
 //   native date input costs 100px and cannot reflow (fix-423's finding); a
 //   printed `07/06/2026` costs 60.
 
-/** The left column's label track. ★ `Consultant` is the longest of GO date /
- *  Closing / DD start / Consultant / DD end. The mock gives both columns 70px;
- *  the left one does not need it. */
-export const DATES_LABEL_WIDTH_LEFT = 56;
-
-/** The right column's label track. ★ Sized for `Est. approval`, and it must
- *  hold `Approved` too — which is shorter, so §I's flip never re-flows the
- *  card. */
-export const DATES_LABEL_WIDTH_RIGHT = 70;
+/**
+ * The one label column.
+ *
+ * ★★★ MEASURED, AND §D IS WHAT SETS IT: `Estimated intake` is **66px** at the
+ *     card's 9px label face — the longest of GO date (34) · Closing (30) · SD
+ *     start (32) · SD end (29) · DD start (33) · Consultant (43) · DD end (31)
+ *     · Estimated intake (66) · Target Approval (63) · Est. approval (51).
+ *
+ * ★★ AND ITS FLIPPED FORMS ARE SHORTER, WHICH IS THE POINT OF CHECKING BOTH:
+ *    `Accepted intake` is 64 and `Approved` is 40, so neither flip can re-flow
+ *    the card. fix-506 made the same check for `Est. approval → Approved`.
+ */
+export const DATES_LABEL_WIDTH = 66;
 
 /** The `gap-2` between a label and its date. */
 export const DATES_LABEL_GAP = 8;
 
-/** ★ `07/06/2026` at the card's 10.5px tabular mono. Measured — and this is
- *  what a printed date costs against the 100px an editable one does. */
-export const DATES_VALUE_MIN = 60;
+/**
+ * ★ `07/06/2026` at the card's 10.5px tabular mono — and this is what a printed
+ *   date costs against the 100px an editable one does.
+ *
+ * ★★ fix-508 §B RE-MEASURED IT AND IT IS **62**, NOT 60. The rendered row at
+ *    the new label width comes to 136px in Chrome; 66 of label and 8 of gap
+ *    leave 62. fix-506's 60 was never wrong by much and never bound — the
+ *    two-column grid's own 14px column gap hid it — but this floor is now the
+ *    thing deciding whether the pair fits at 1600, so a 2px optimism in it is
+ *    a date wrapping under its label at exactly the width where the layout is
+ *    supposed to hold.
+ */
+export const DATES_VALUE_MIN = 62;
 
-/** The mock's `.dgrid{column-gap:14px}` between the two quadrant columns. */
-export const DATES_COLUMN_GAP = 14;
-
-/** What the Dates box needs before a date wraps under its label. */
+/**
+ * What the Dates box needs before a date wraps under its label.
+ *
+ * ★★★ **296 → 156.** One label track and one value track, plus the section's
+ *     own `px-2.5`. Confirmed in Chrome against a rendered row at these exact
+ *     labels: 136 of row, 156 of box.
+ */
 export const DATES_CARD_MIN_WIDTH =
-  DATES_LABEL_WIDTH_LEFT +
-  DATES_LABEL_GAP +
-  DATES_VALUE_MIN +
-  DATES_COLUMN_GAP +
-  DATES_LABEL_WIDTH_RIGHT +
-  DATES_LABEL_GAP +
-  DATES_VALUE_MIN +
-  PROJECT_CARD_CHROME -
-  2;
+  DATES_LABEL_WIDTH + DATES_LABEL_GAP + DATES_VALUE_MIN + SECTION_BODY_PADDING;
 
 /** The `gap-2.5` between Site data and Dates when they sit side by side. */
 export const SITE_DATES_GAP = 10;
@@ -297,20 +379,81 @@ export const SITE_DATES_RESPONSIVE_CSS: string = [
 //    on 9, and 6 on two of them (including 403 W Dravus St, the brief's own
 //    measurement project). Six is what the floor is built for.
 
-/** The attribute column. ★ `Roof deck` and `Size (sf)` are the longest of the
- *  eight attribute names, at 9.5px. */
-export const UNIT_MATRIX_LABEL_COL = 62;
+// ---------------------------------------------------------------------------
+// ★★★ fix-508 §C — AND IT SHRINKS, IN BOTH DIRECTIONS
+// ---------------------------------------------------------------------------
+//
+// Bobby: *"shrink the Units section as well, the WIDTH and the height of it,
+// because that's a lot of airy space."* Everything fix-507 §E won is kept — the
+// table fills its box, the headers are `Unit 1 … Unit n`, `Type` is a row, and
+// there is one type step up at four units or fewer. What changes is the
+// padding and, through it, the FLOOR.
+//
+// ★★★ AND THIS IS WHY THE FLOOR MOVING MATTERS FAR BEYOND THE MATRIX.
+//     `PROJECT_CARD_MIN_WIDTH` is derived from it, and Project's floor is what
+//     decides how much of a 1600px row is left for the Team card once the Plan
+//     of Record takes its new 486. Shrinking the matrix is not cosmetic here;
+//     it is the width that pays for Team's three-column grid.
+//
+// ★★ THE TYPE STEP IS UNTOUCHED — §C's stated bound, and P-189 is making this
+//    card MORE legible, not less. Every number below is padding and column
+//    width at the same 10px `normal` face.
+//
+// Measured in Chrome at that face:
+//
+//     value, widest (`1,850` · `31.75`)            24
+//     column header `Unit 6`, whole                38
+//     column header `Unit 6`, wrapped — `Unit`     28   ← what the floor holds
+//     attribute label `Roof deck`                  47
+//     corner header `Units`                        35
+
+/** Cell padding, left and right. ★ fix-507 shipped 6; §C takes it to 4. */
+export const UNIT_MATRIX_CELL_PAD_X = 4;
+
+/** Cell padding, top and bottom. ★ fix-507 shipped 5 (8 at the `big` step);
+ *  §C takes them to 3 and 6. Ten rows, so this is 40px of card height. */
+export const UNIT_MATRIX_CELL_PAD_Y = 3;
+
+/**
+ * The attribute column.
+ *
+ * ★★★ **62 → 51**, and it is derived now: `Roof deck` is the widest of the
+ *     nine attribute names at **47px**, plus one side of cell padding (the
+ *     other side is flush with the card's own). fix-506 typed 62 for "`Roof
+ *     deck` and `Size (sf)` at 9.5px" — 15px of slack that nobody had measured
+ *     out.
+ *
+ * ★ An attribute label must never truncate: fix-422's `RD` lesson is that an
+ *   abbreviated header with a hover tooltip is unreadable to anyone tabbing or
+ *   on a tablet.
+ */
+export const UNIT_MATRIX_LABEL_COL = 47 + UNIT_MATRIX_CELL_PAD_X;
 
 /**
  * One unit-type column.
  *
- * ★ It holds two different widest things and the larger wins: a value —
- * `1,850` in tabular mono at 10.5px — and the HEADER, which is the type name.
- * `Cottages` is the longest registry value; off-registry free text ellipsises,
- * exactly as `UNIT_ROW_COLUMNS.label` already rules. 45px with the cell's
- * `px-2` either side.
+ * ★ fix-506 sized this for a HEADER that was the type NAME. fix-507 §E made the
+ *   header an ordinal (`Unit 1 … Unit n`) and moved the type into a row, and
+ *   left the 45 behind — so the number has been describing a header that no
+ *   longer exists for a whole ticket.
+ *
+ * ★★★ **45 → 36**, derived from what the column must hold AT THE FLOOR:
+ *
+ *       the widest value, `1,850` / `31.75`      24
+ *       `Unit 6` on one line                     38
+ *       `Unit 6` wrapped, widest line — `Unit`   28   ← this one
+ *
+ *     **The ordinal is allowed to wrap at the floor, and never to truncate.**
+ *     That is the whole difference between 36 and 50, and it is a deliberate,
+ *     stated degradation: two short lines reading `Unit` / `6` identify the
+ *     column exactly as well as one line does, where `Uni…` would not. Above
+ *     the floor — which is every width from a 1600 viewport up — the table
+ *     stretches and the header sits on one line.
+ *
+ * ★ The `Type` VALUE (`Detached`, 43) truncates with a `title`, as
+ *   `UNIT_ROW_COLUMNS.label` already rules; it is prose, not identity.
  */
-export const UNIT_MATRIX_TYPE_COL = 45;
+export const UNIT_MATRIX_TYPE_COL = 28 + 2 * UNIT_MATRIX_CELL_PAD_X;
 
 /** How many type columns the floor is built to hold without clipping. ★ Prod's
  *  maximum today is 6; a seventh wraps the row rather than truncating the card,
@@ -367,31 +510,78 @@ export function unitMatrixIsBig(typeCount: number): boolean {
   return typeCount <= UNIT_MATRIX_BIG_MAX_TYPES;
 }
 
-/** The two type steps, read straight off the mock's final `.v8` block
- *  (`overview_book_v14.html:286-290`). */
+/**
+ * The two type steps, read straight off the mock's final `.v8` block
+ * (`overview_book_v14.html:286-290`).
+ *
+ * ★★★ fix-508 §C REDUCES THE PADDING AND NOT THE TYPE. Bobby: *"shrink the
+ *     Units section as well, the width and the height of it, because that's a
+ *     lot of airy space"* — and §C's stated bound is that the type step must
+ *     not go below `normal`, because P-189 is making this card MORE legible,
+ *     not less. So the faces are untouched at 10 / 11 and every number that
+ *     moved is padding:
+ *
+ *         normal   padY 5 → 3   padX 6 → 4
+ *         big      padY 8 → 6   padX 6 → 4
+ *
+ * ★★ THE HEIGHT SAVING IS TEN ROWS DEEP: nine attribute rows plus the header,
+ *    so 2px off each side of each row is **40px of card**. The width saving is
+ *    what re-derives `UNIT_MATRIX_TYPE_COL` and, through it, the Project floor.
+ */
 export const UNIT_MATRIX_TYPE_STEPS = {
-  normal: { cell: 10, header: 10, padY: 5, padX: 6 },
-  big: { cell: 11, header: 10.5, padY: 8, padX: 6 },
+  normal: {
+    cell: 10,
+    header: 10,
+    padY: UNIT_MATRIX_CELL_PAD_Y,
+    padX: UNIT_MATRIX_CELL_PAD_X,
+  },
+  big: {
+    cell: 11,
+    header: 10.5,
+    padY: UNIT_MATRIX_CELL_PAD_Y * 2,
+    padX: UNIT_MATRIX_CELL_PAD_X,
+  },
 } as const;
 
 // ---------------------------------------------------------------------------
 // THE CARD'S FLOOR
 // ---------------------------------------------------------------------------
 
+/** ★ fix-508 STOP (b): the pair must sit side by side at 1600 with REAL
+ *  margin, not by a pixel. Eight is the brief's number and it is declared here
+ *  so the floor below and the test read the same one. */
+export const SITE_DATES_SIDE_BY_SIDE_MARGIN = 8;
+
 /**
- * ★★★ WHAT THE PROJECT CARD NEEDS, AND WHY IT IS A `max` OF TWO THINGS.
+ * ★★★ WHAT THE PROJECT CARD NEEDS — AND fix-508 §B SWAPS WHICH HALF BINDS.
  *
- * The matrix spans the card's full width, so it binds directly. The Site/Dates
- * pair binds only at its STACKED width — because it wraps — which is
- * `DATES_CARD_MIN_WIDTH`, the wider of the two boxes. If the pair could not
- * wrap this would be `SITE_DATES_SIDE_BY_SIDE_MIN` and the row would not fit at
- * 1600; that difference is the whole of §A's argument.
+ * fix-506's version was a `max` of the matrix against the pair's STACKED width,
+ * because the pair wrapped: *"If the pair could not wrap this would be
+ * SITE_DATES_SIDE_BY_SIDE_MIN and the row would not fit at 1600."*
+ *
+ * ★★★ IT CAN NO LONGER WRAP AT 1600 — that is Bobby's ruling and §B's whole
+ *     subject — so the side-by-side sum IS the floor now. What makes that
+ *     affordable is that the sum itself collapsed: the single-column Dates card
+ *     takes the pair from **475 to 320**, so the floor the fix-506 comment
+ *     called impossible is 34px SMALLER than the one it shipped.
+ *
+ *         matrix, six type columns + card chrome    267 + 22 = 289
+ *         the pair + the card's border + margin     320 +  2 +  8 = 330  ← binds
+ *
+ * ★★ AND THE MATRIX STOPPED BINDING, which is worth saying out loud because it
+ *    has bound since fix-422. §C's padding takes it 332 → 267; the pair passes
+ *    it on the way down. **354 → 330.**
+ *
+ * ★ The margin is in the floor rather than in the test alone, so the card can
+ *   never render at exactly the width where the pair fits and nothing else
+ *   does — a breakpoint met to the pixel is one rounding error from stacking.
  */
-export const PROJECT_CARD_MIN_WIDTH =
-  Math.max(
-    UNIT_MATRIX_TRANSPOSED_WIDTH,
-    Math.max(SITE_DATA_MIN_WIDTH, DATES_CARD_MIN_WIDTH),
-  ) + PROJECT_CARD_CHROME;
+export const PROJECT_CARD_MIN_WIDTH = Math.max(
+  UNIT_MATRIX_TRANSPOSED_WIDTH + PROJECT_CARD_CHROME,
+  SITE_DATES_SIDE_BY_SIDE_MIN +
+    PROJECT_CARD_BORDER +
+    SITE_DATES_SIDE_BY_SIDE_MARGIN,
+);
 
 // ---------------------------------------------------------------------------
 // §E — THE PLAN OF RECORD CARD
@@ -466,6 +656,54 @@ export const POR_IMAGE_MAX_HEIGHT = Math.round(
   POR_IMAGE_WIDTH_AT_REFERENCE / PLAN_SHEET_MODAL_ASPECT,
 );
 
+// ===========================================================================
+// ★★★ fix-508 — fix-417's RANK IS RETIRED AND REPLACED BY A FLOOR
+// ===========================================================================
+//
+// **D-2026-09-09-plan-of-record-keeps-a-floor-not-a-rank.** Bobby has retired
+// *"the Design plan of record should be the widest of the boxes"* — the rank —
+// and replaced it with a floor. **Team being wider than the Plan of Record is
+// expected now, not a violation.** Two reasons, both his, recorded here because
+// the reasoning is the part that has to survive:
+//
+// ★★★ 1. THE RANK WAS SHORTHAND FOR A GRIEVANCE THAT IS NOW SETTLED. His
+//        original complaint (P-071, 2026-08-26) was *"the Design plan of record
+//        should be the widest of the boxes, BUT the team and builder owner info
+//        is way too slim"* — Team was being crushed to ~100px. The rank was how
+//        he expressed that; the grievance was Team. fix-508 gives Team the 20%
+//        it takes off Project, which settles it. **Enforcing the rank now would
+//        defend the shorthand against the thing it was shorthand FOR.**
+//
+// ★★★ 2. PAST ~485 THE CARD STOPS USING THE WIDTH. fix-507b caps the thumbnail
+//        at `POR_IMAGE_MAX_HEIGHT`, derived at this very width, and the box is
+//        a FIXED height with `object-fit: contain`. Verified in Chrome at eight
+//        card widths from 380 to 620: the box is 300px at every one of them.
+//        So at 485 the sheet exactly fills it; wider and the sheet letterboxes
+//        left and right, narrower and the drawing itself shrinks. **Extra width
+//        past the floor buys white space.**
+//
+// ★★ THE FLOOR STAYS BECAUSE fix-417's OWN LINE IS STILL TRUE — a declared
+//    share with no floor is a suggestion (a bare `Nfr` track is `minmax(auto,
+//    Nfr)`). Below ~485 the drawing genuinely shrinks, and that is what a floor
+//    is for. What is retired is the ORDERING, not the mechanism.
+
+/**
+ * ★★★ THE CARD WIDTH AT WHICH THE MODAL SHEET EXACTLY FILLS THE CAPPED BOX.
+ *
+ * Derived by inverting `POR_IMAGE_MAX_HEIGHT` — the two constants now check
+ * each other, which is the point of not typing it a second time.
+ *
+ * ★ IT COMES BACK **486**, NOT 485, and the 1px is real rather than a rounding
+ *   smudge: the cap rounded UP (463 / 1.54525 = 299.63 → 300), so the width
+ *   that renders exactly 300 is 300 × 1.54525 + 22 = 485.6. Reported as asked;
+ *   the floor takes the derived number, because a floor that is one pixel
+ *   generous letterboxes by nothing and a floor one pixel mean shrinks the
+ *   drawing.
+ */
+export const PLAN_OF_RECORD_CARD_MIN =
+  Math.round(POR_IMAGE_MAX_HEIGHT * PLAN_SHEET_MODAL_ASPECT) +
+  PROJECT_CARD_CHROME;
+
 // ---------------------------------------------------------------------------
 // §F — THE COMPACT CONSULTANT PILL
 // ---------------------------------------------------------------------------
@@ -511,18 +749,51 @@ export const CONSULTANT_PILL_CHROME_COMPACT = 18;
 /**
  * What one pill in the grid needs.
  *
- * ★ The DISCIPLINE is not in this sum. The mock's `.pill .d` is a caption on
- *   its own line above `.pill .firm`, which is the flex row holding the firm
- *   and the status apart — so the brief's *"discipline · firm · status on one
- *   line"* is a grouping, and the mock (which wins on layout) draws it as two.
- *   Counting the discipline as a third item on that line would put the pill at
- *   174 and the Team floor 68px above what 1600 can give.
+ * ★★★ fix-508 §F1 — THREE LINES, AND THE FLOOR FALLS 140 → 96.
+ *
+ *     Bobby's reason is a measurement, not a preference: *"if you have six
+ *     consultants you can't read their name because it gets cut off."* The firm
+ *     name shared line two with a 58px status button, so on a six-consultant
+ *     project it was ellipsised to nothing. Now:
+ *
+ *         line 1   discipline · status      side by side
+ *         line 2   THE FIRM NAME            the pill's full width
+ *         line 3   sent · received          side by side
+ *
+ * ★★★ AND THE FLOOR IS WHAT CANNOT REFLOW, WHICH IS NOW ONLY THE DATES.
+ *     fix-506's sum had a `status + gap + firm` term precisely because those
+ *     two shared a line; §F1 separates them, so that term is gone. What is left
+ *     is the pair of printed dates on line 3 — two fixed-width mono values side
+ *     by side, the one thing on the pill that cannot ellipsise.
+ *
+ * ★★ EVERYTHING ELSE ON THE PILL IS TEXT THAT ELLIPSISES, and that is the
+ *    honest reading rather than a convenient one:
+ *      · the FIRM gets the full width now, so at any pill ≥ 78 it clears
+ *        `CONSULTANT_FIRM_MIN` (60) — Bobby's complaint is fixed by the
+ *        arrangement, not by the floor;
+ *      · the DISCIPLINE is a caption over a status word that names the same
+ *        consultant, and it truncates with a title (`Landscape` is the widest
+ *        in use at 91px, `Civil` the narrowest at 46).
+ *
+ *    Flooring the pill at line 1 instead — the widest in-use discipline plus
+ *    the status button, 91 + 6 + 58 + 18 = **173** — was measured and refused:
+ *    it would put three pills at 519px against the 477 the Team card gets even
+ *    after fix-508's re-share, so the band would wrap at every width and the
+ *    reshape would cost the height it was meant to save.
  */
 export const CONSULTANT_PILL_COMPACT_MIN =
-  Math.max(
-    2 * CONSULTANT_DATE_TEXT_MIN + CONSULTANT_DATE_TEXT_GAP,
-    CONSULTANT_STATUS_BUTTON_WIDTH + CONSULTANT_DATE_TEXT_GAP + CONSULTANT_FIRM_MIN,
-  ) + CONSULTANT_PILL_CHROME_COMPACT;
+  2 * CONSULTANT_DATE_TEXT_MIN +
+  CONSULTANT_DATE_TEXT_GAP +
+  CONSULTANT_PILL_CHROME_COMPACT;
+
+/** ★ What the pill would need if the discipline could not truncate — measured
+ *  and NOT used, so the next person can see the trade rather than re-run it.
+ *  `Landscape` (91) is the widest discipline in use on prod. */
+export const CONSULTANT_PILL_UNTRUNCATED_MIN =
+  91 +
+  CONSULTANT_DATE_TEXT_GAP +
+  CONSULTANT_STATUS_BUTTON_WIDTH +
+  CONSULTANT_PILL_CHROME_COMPACT;
 
 /**
  * ★★★ THE CONSULTANT BAND'S FLOOR IS **ONE** PILL, AND THAT IS DELIBERATE.

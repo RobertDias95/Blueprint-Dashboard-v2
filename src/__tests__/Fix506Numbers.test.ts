@@ -55,22 +55,25 @@ describe('fix-506 — the STEP 0 numbers, derived', () => {
     // ★ THE FLOORS DID NOT MOVE. fix-507 re-shared the row and narrowed the
     //   chrome; neither touches what the three cards need at their narrowest,
     //   which is the number fix-506 actually won.
-    expect(OVERVIEW_ROW_MIN_WIDTH).toBe(904);
-    // ★ The WRAP POINT moved with the chrome: 1474 → 1439 expanded, 1318 →
-    //   1283 collapsed.
-    expect(overviewMinViewport('expanded')).toBe(1439);
-    expect(overviewMinViewport('collapsed')).toBe(1283);
+    // ★★★ AND fix-508 MOVED IT AGAIN, UPWARDS — 904 → 996. Not a re-measure:
+    //     the Plan of Record's floor stopped being *"14px above Project's"* and
+    //     became the width its own capped thumbnail uses (486), which is the
+    //     fix-417 rank being retired in favour of a floor
+    //     (D-2026-09-09-plan-of-record-keeps-a-floor-not-a-rank).
+    expect(OVERVIEW_ROW_MIN_WIDTH).toBe(996);
+    expect(overviewMinViewport('expanded')).toBe(1531);
+    expect(overviewMinViewport('collapsed')).toBe(1375);
   });
 
   it('★★★ 1600 fits on ONE line — the brief’s "must not clip" requirement', () => {
     expect(overviewRowWidthAt(1600)).toBeGreaterThanOrEqual(OVERVIEW_ROW_MIN_WIDTH);
     const [por, proj, team] = resolveOverviewWidths(overviewRowWidthAt(1600));
-    // ★ fix-507 §A/§B: the row at 1600 is 1065 rather than 1015, and the new
-    //   shares clear every floor there, so nothing freezes — 371 / 366 / 308
-    //   where fix-506 rendered 368 / 354 / 288 on two frozen tracks.
-    expect(Math.round(por)).toBe(371);
-    expect(Math.round(proj)).toBe(366);
-    expect(Math.round(team)).toBe(308);
+    // ★ fix-508: 486 / 330 / 229 at 1600 — the Plan of Record and Project both
+    //   on their floors, Team taking what is left. The point fix-506 was making
+    //   survives whole: 1600 runs on ONE line.
+    expect(Math.round(por)).toBe(486);
+    expect(Math.round(proj)).toBe(330);
+    expect(Math.round(team)).toBe(229);
     // ★ …and Project's body still holds the six-column matrix, with room now.
     expect(Math.round(proj) - 22).toBeGreaterThanOrEqual(UNIT_MATRIX_TRANSPOSED_WIDTH);
   });
@@ -83,14 +86,16 @@ describe('fix-506 — the STEP 0 numbers, derived', () => {
     //     the card that has to be wide enough for it. 485 / 478 / 403 at 1920,
     //     measured in Chrome. What the mock still rules — PoR the widest — is
     //     asserted below, unchanged.
+    // ★★★ fix-508 RE-SHARES IT AGAIN AND RETIRES THE RANK. Bobby's P-193:
+    //     Project 20% narrower, the freed width to Team. 486 / 382 / 497, and
+    //     TEAM is the widest card now — expected, not a violation
+    //     (D-2026-09-09). See Fix508Numbers for why the rank was shorthand for
+    //     a grievance this ticket settles directly.
     const [por, proj, team] = resolveOverviewWidths(overviewRowWidthAt(1920));
-    expect(Math.round(por)).toBe(485);
-    expect(Math.round(proj)).toBe(478);
-    expect(Math.round(team)).toBe(403);
-    // ★★ The Plan of Record is the widest card, which is Bobby's fix-417
-    //    ruling and the thing this row was re-shared to honour.
-    expect(por).toBeGreaterThan(proj);
-    expect(por).toBeGreaterThan(team);
+    expect(Math.round(por)).toBe(486);
+    expect(Math.round(proj)).toBe(382);
+    expect(Math.round(team)).toBe(497);
+    expect(team).toBeGreaterThan(por);
   });
 
   it('★★★ THE GATE: 475 was right, and fix-507 §A/§B paid it rather than wrapping', () => {
@@ -98,9 +103,13 @@ describe('fix-506 — the STEP 0 numbers, derived', () => {
     //     in Chrome row by row: the widest Site row (`Lot size 4,400 sf
     //     derived`) needs 147 + 20 of section padding, and the Dates card's two
     //     quadrant columns need 124 + 14 + 138 + 20. 169 and 296, to the pixel.
-    expect(SITE_DATA_MIN_WIDTH).toBe(169);
-    expect(DATES_CARD_MIN_WIDTH).toBe(296);
-    expect(SITE_DATES_SIDE_BY_SIDE_MIN).toBe(475);
+    // ★★★ AND fix-508 §B WITHDREW THE GATE RATHER THAN PAYING IT. The 296 is
+    //     the two-by-two quadrant grid; one column of the same rows is 156, and
+    //     the pair falls 475 → 320. The measurement above was right about the
+    //     card it measured — that card no longer exists.
+    expect(SITE_DATA_MIN_WIDTH).toBe(154);
+    expect(DATES_CARD_MIN_WIDTH).toBe(156);
+    expect(SITE_DATES_SIDE_BY_SIDE_MIN).toBe(320);
 
     // ★★★ THE PAIR LOSES THE BORDER, NOT THE PADDING, and fix-506's helper had
     //     it the other way. `SiteAndDates` is the Project card's DIRECT child,
@@ -121,24 +130,30 @@ describe('fix-506 — the STEP 0 numbers, derived', () => {
     //     §A's rail and §B's re-share make it **476**, so the pair sits side by
     //     side at 1920 and the fallback becomes a declared breakpoint instead
     //     of the only state.
-    expect(projBodyAt(1920)).toBe(476);
+    expect(projBodyAt(1920)).toBe(380);
     expect(projBodyAt(1920)).toBeGreaterThanOrEqual(SITE_DATES_SIDE_BY_SIDE_MIN);
     // ★★ THE FLOOR IS STILL THE WIDER BOX, NOT THE SUM, and that has not
     //    changed with the arrangement: the pair STACKS below the breakpoint
     //    rather than clipping, so what the card must never be narrower than is
     //    296, not 475. Making the sum a floor would put the row minimum at
     //    1,047 and 1600 would clip — the gate fix-506's STEP 0 stopped on.
-    expect(PROJECT_CARD_MIN_WIDTH).toBe(354);
-    // ★ …and 1600 is where it still stacks. See Fix507Numbers for the deficit.
-    expect(projBodyAt(1600)).toBeLessThan(SITE_DATES_SIDE_BY_SIDE_MIN);
+    // ★★★ INVERTED BY fix-508 §B: the pair can no longer wrap at 1600 (Bobby's
+    //     ruling), so the side-by-side sum IS the floor — and what makes that
+    //     affordable is that the sum collapsed to 320. The floor is 34px SMALLER
+    //     than the one fix-506 shipped while holding a REQUIREMENT fix-506
+    //     called impossible.
+    expect(PROJECT_CARD_MIN_WIDTH).toBe(330);
+    // ★ …and 1600 now FITS it, with the ruled 8px of margin.
+    expect(projBodyAt(1600)).toBeGreaterThanOrEqual(SITE_DATES_SIDE_BY_SIDE_MIN);
   });
 
   it('★★ the transposed matrix, at the counts that exist on prod', () => {
     // 2 types on 59 projects, 3 on 22, 4 on 9, 6 on two — including
     // 403 W Dravus St, the brief's own measurement project.
-    expect(unitMatrixWidthFor(2)).toBe(152);
-    expect(unitMatrixWidthFor(4)).toBe(242);
-    expect(unitMatrixWidthFor(6)).toBe(332);
+    // ★ fix-508 §C shrank the padding: 152/242/332 → 123/195/267.
+    expect(unitMatrixWidthFor(2)).toBe(123);
+    expect(unitMatrixWidthFor(4)).toBe(195);
+    expect(unitMatrixWidthFor(6)).toBe(267);
     expect(UNIT_MATRIX_TRANSPOSED_WIDTH).toBe(unitMatrixWidthFor(6));
   });
 

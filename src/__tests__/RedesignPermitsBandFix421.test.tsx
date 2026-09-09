@@ -322,9 +322,12 @@ describe('fix-421 §B: a redesign\'s permits are permits', () => {
     // say; fix-151\'s line said the same words but nothing else.
     renderPage();
     const card = screen.getByTestId('permits-sidebar-row-10321');
-    expect(screen.getByTestId('permits-sidebar-stage-10321').textContent).toContain(
-      'Corrections',
-    );
+    // ★★★ fix-508 §E: the STAGE BREADCRUMB left the card and became a phase
+    //     group header with a count. Bobby's *"just like the other permits"* is
+    //     stronger for it — a redesign card is now identical to a parent card,
+    //     down to having no breadcrumb of its own. The stage is still SHOWN,
+    //     one line up, which is what this asserted.
+    expect(screen.queryByTestId('permits-sidebar-stage-10321')).toBeNull();
     expect(within(card).getByTestId('permits-sidebar-type-10321').textContent).toContain(
       'PPR',
     );

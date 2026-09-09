@@ -147,15 +147,22 @@ export interface PlanOfRecordSetButton {
 export function planOfRecordSetButtons(
   stage: PlanOfRecordStage | null | undefined,
 ): readonly PlanOfRecordSetButton[] {
+  // ★★★ fix-508 §H (P-186) — MARKETING'S TWO ARE RENAMED, and the rename says
+  //     what each set IS rather than which folder it came from. The internal
+  //     one is the SITE PLAN — the single sheet with the site on it, which is
+  //     what anybody clicking it is after — and the external one is the
+  //     marketing set. `variant` is untouched: it is the storage vocabulary
+  //     (`marketing_internal` / `marketing_external` page objects) and renaming
+  //     a label must not rename a path.
   if (stage === 'marketing') {
     return [
-      { variant: 'internal', label: 'Marketing · Internal' },
-      { variant: 'external', label: 'Marketing · External' },
+      { variant: 'internal', label: 'Site Plan' },
+      { variant: 'external', label: 'Marketing' },
     ];
   }
   if (stage === 'schematic') return [{ variant: 'internal', label: 'Schematic' }];
   if (stage === 'design_guidance') {
-    return [{ variant: 'internal', label: 'Design guidance' }];
+    return [{ variant: 'internal', label: 'Design Guidance' }];
   }
   return [];
 }
@@ -171,7 +178,11 @@ export function planOfRecordSetCaption(
   stage: PlanOfRecordStage | null | undefined,
   variant: PlanOfRecordVariant,
 ): string {
-  if (stage === 'marketing') return `Marketing plan (${variant})`;
+  // ★ fix-508 §H: the caption names the same set as the button above it, which
+  //   is fix-507 §F's rule and the reason both come from this one file.
+  if (stage === 'marketing') {
+    return variant === 'external' ? 'Marketing set' : 'Site plan';
+  }
   if (stage === 'schematic') return 'Schematic set';
   if (stage === 'design_guidance') return 'Design guidance set';
   return stageLabel(stage);

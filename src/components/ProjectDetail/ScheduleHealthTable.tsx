@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useMemo } from 'react';
 import { approvalDisplay } from '../../lib/approvalDisplay';
 import { effectiveStage } from '../../lib/permitStage';
 import { STAGE_LABEL } from '../../lib/stageLabel';
@@ -12,7 +12,13 @@ import {
   holdsByProjectId,
 } from '../../hooks/useProjectHolds';
 import { hasActiveHold } from '../../lib/holdOverlap';
-import { useUpdateProjectWithPermits } from '../../hooks/useUpdateProjectWithPermits';
+// ★ fix-508 §D/§H: the ACQ-target INPUT left this file with fix-63's cell —
+//   `useUpdateProjectWithPermits` and `pushToast` went with it, because the
+//   only write on this table was that one box.
+import {
+  TARGET_APPROVAL_DRIVER_LABEL,
+  targetApproval,
+} from '../../lib/targetApproval';
 import {
   computeLearnedSchedule,
   filterHeldLearningSamples,
@@ -20,7 +26,7 @@ import {
 } from '../../lib/scheduleBenchmarks';
 import { computeProjectedApproval } from '../../lib/projectedApproval';
 import { derivePermitStatus } from '../../lib/permitStatus';
-import { pushToast } from '../../stores/toastStore';
+
 import type {
   PermitCycle,
   PermitCycleReviewer,
@@ -159,8 +165,15 @@ export default function ScheduleHealthTable({ permits }: Props) {
             <Th>Stage</Th>
             <Th>Permit Status</Th>
             <Th>Data Source</Th>
-            <Th>Estimated Approval</Th>
-            <Th>ACQ Target</Th>
+            {/* ★★★ fix-508 §H (P-195) — TWO RENAMES, AND THE SECOND IS A
+                CONTRACT. `ESTIMATED APPROVAL` → `PERMIT APPROVAL`, because the
+                column shows the ACTUAL approval date once the city approves and
+                only projects before that. `ACQ TARGET` → `TARGET APPROVAL` —
+                **not `Target`** — because it and the Dates card's new row are
+                the same fact and two names for one fact is exactly what P-179
+                is about. */}
+            <Th>Permit Approval</Th>
+            <Th>Target Approval</Th>
             <Th>Schedule Health</Th>
           </tr>
         </thead>
@@ -422,12 +435,25 @@ function Row({
           <span className="text-dim">—</span>
         )}
       </td>
-      {/* 7. ACQ Target — fix-63: inline-editable (was read-only display). */}
+      {/* ★★★ 7. Target Approval — fix-508 §D/§H: DERIVED AND READ-ONLY NOW.
+          fix-63 made this cell an inline `<input type="date">` writing
+          `permits.expected_issue`, and the blue on the column was that input's
+          affordance rather than a colour choice. §D makes Target Approval the
+          LATEST of the ACQ date, the closing date and the GO date plus six
+          months — so `expected_issue` is one of three candidates, not the
+          answer, and a box that edits the answer would be writing a number
+          nothing reads.
+          ★★★ SO THE INPUT MOVED, IT WAS NOT DELETED: `expected_issue` is the
+              ACQ DATE and it is edited in Project Data's Dates tab, beside the
+              other project dates. One surface writes it, every surface derives
+              from it — [[P-179-pipeline-stage-and-draw-schedule-disagree]]
+              applied before it bites rather than after.
+          ★ And the blue goes with the input, because it was never decoration. */}
       <td
         className="px-2 py-2 align-middle text-center border-l"
         style={borderL}
       >
-        <AcqTargetCell permit={permit} project={projectForOcc} />
+        <TargetApprovalCell permit={permit} project={projectForOcc} />
       </td>
       {/* 8. Schedule Health */}
       <td className="px-2 py-2 align-middle text-center border-l" style={borderL}>
@@ -438,122 +464,59 @@ function Row({
 }
 
 // ============================================================
-// fix-63: ACQ Target inline-edit cell.
-//
-// Owns its own local draft + mutation so the Schedule Health table can
-// keep its prop tree narrow (each row writes one permit; the surrounding
-// Row component already pulled the project for the OCC token).
+// ★★★ fix-508 §D/§H — TARGET APPROVAL, DERIVED AND READ-ONLY
 // ============================================================
+//
+// fix-63 made this cell an inline `<input type="date">` on `expected_issue`,
+// so Acquisitions could retarget from the surface that shows schedule drift
+// without opening Project Settings. That was right while the column WAS
+// `expected_issue`.
+//
+// ★★★ §D CHANGES WHAT THE COLUMN IS. Target Approval is the LATEST of the ACQ
+//     date, the closing date, and the GO date plus six calendar months —
+//     computed in `lib/targetApproval`, printed here and on the Dates card from
+//     the same function so the two surfaces cannot disagree.
+//
+// ★★★ AND AN EDITABLE DERIVED VALUE IS THE DEFECT P-179 NAMES. A box here
+//     would write `expected_issue` while the number on screen came from a
+//     `max` over three dates — type a date earlier than the closing and the
+//     cell would refuse to show what you typed. Two surfaces writing one number
+//     by different rules; the input moves to the ACQ date in Project Data,
+//     which is the one place it is authored.
+//
+// ★ THE BLUE GOES WITH IT (§H). It was the input's affordance, never a colour
+//   choice, so a read-only cell that kept it would be promising a click.
 
-function AcqTargetCell({
+function TargetApprovalCell({
   permit,
   project,
 }: {
   permit: PermitWithCycles;
   project: Project | null;
 }) {
-  const stored = permit.expected_issue ?? '';
-  const [draft, setDraft] = useState(stored);
-  // React 19 in-render setState pattern (see
-  // https://react.dev/reference/react/useState#storing-information-from-previous-renders).
-  // useState(prop) only initializes ONCE, so a permit switch (different
-  // row) or a save→invalidate→refetch (same row, new expected_issue) would
-  // otherwise leave `draft` stale. Track a snapshot of the most-recent
-  // permit.expected_issue we've reflected; if the prop has moved under
-  // us, reset the draft synchronously in the same commit. Comparing on
-  // (permit.id, stored) means a save-success refetch IS picked up (same
-  // id, new stored value) and a row swap is too (different id; the prop
-  // generally differs as well, but we don't take that for granted).
-  const [snapshot, setSnapshot] = useState<{ id: number; value: string }>({
-    id: permit.id,
-    value: stored,
-  });
-  if (snapshot.id !== permit.id || snapshot.value !== stored) {
-    setSnapshot({ id: permit.id, value: stored });
-    setDraft(stored);
+  const target = targetApproval(project, permit);
+  if (!target.date) {
+    return (
+      <span className="text-dim" data-testid={`schedule-health-target-approval-${permit.id}`}>
+        —
+      </span>
+    );
   }
-
-  const mut = useUpdateProjectWithPermits();
-  // Both OCC tokens must be present for the RPC. permit.updated_at is
-  // virtually always there (it's NOT NULL on the table); project might
-  // be missing if the joined Project query hasn't landed yet (loading)
-  // or returned null for a deleted parent — disable in that case.
-  const occMissing = !permit.updated_at || !project?.updated_at;
-
-  async function commit() {
-    if (!permit.updated_at || !project?.updated_at) return;
-    const next = draft.trim() || null;
-    const current = permit.expected_issue ?? null;
-    if (next === current) return;
-    try {
-      const result = await mut.mutateAsync({
-        projectId: permit.project_id,
-        projectExpectedUpdatedAt: project.updated_at,
-        // Empty patch — the project row isn't actually written. The RPC
-        // skips the project update when p_project_patch is `{}`.
-        projectPatch: {},
-        permitUpserts: [
-          {
-            id: permit.id,
-            expected_updated_at: permit.updated_at,
-            // The RPC casts NULLIF(elem->>'expected_issue','')::date,
-            // so passing null lands as NULL on the column (clear).
-            expected_issue: next,
-          },
-        ],
-        permitDeletes: [],
-      });
-      if (result.conflict) {
-        // out_conflict_kind will typically be 'permit' here (this row's
-        // updated_at moved). The whole edit rolled back atomically — the
-        // user reloads + retries. Keep `draft` as-typed so they don't
-        // lose input. Same copy as fix-62 + the ProjectSettings modal.
-        pushToast(
-          'This project was modified elsewhere — reload and retry.',
-          'warn',
-        );
-        return;
-      }
-      // useUpdateProjectWithPermits.onSuccess invalidates the permits +
-      // permitsByProject queries → fresh permit.expected_issue + new
-      // updated_at land on the next render. The snapshot block above
-      // resyncs `draft` from that fresh prop in the same commit.
-    } catch {
-      // hook-level onError already toasted.
-    }
-  }
-
-  function onKeyDown(e: React.KeyboardEvent<HTMLInputElement>) {
-    if (e.key === 'Enter') {
-      e.preventDefault();
-      // Commit directly — relying on blur() to indirectly fire onBlur is
-      // flaky in jsdom (and a redundant onBlur is a no-op anyway because
-      // commit() short-circuits when next === current).
-      void commit();
-    } else if (e.key === 'Escape') {
-      e.preventDefault();
-      setDraft(stored);
-      e.currentTarget.blur();
-    }
-  }
-
   return (
-    <input
-      type="date"
-      value={draft}
-      onChange={(e) => setDraft(e.target.value)}
-      onBlur={() => void commit()}
-      onKeyDown={onKeyDown}
-      disabled={occMissing || mut.isPending}
-      className="text-[10px] font-mono font-bold text-text border rounded outline-none w-full px-1 py-0.5 disabled:opacity-50"
-      style={{
-        background: 'var(--color-bg)',
-        borderColor: 'var(--color-border)',
-      }}
-      title="ACQ Target (team-owned target issue date)"
-      data-testid={`schedule-health-acq-target-${permit.id}`}
-      aria-label={`ACQ Target for ${permit.type ?? 'permit'} ${permit.num ?? permit.id}`}
-    />
+    <span
+      className="text-[10px] font-mono font-bold text-text"
+      // ★ The DRIVER is in the title, not on the face. Bobby's ruling is that
+      //   the Project Overview shows the date and nothing else; this is not the
+      //   overview, and a reader comparing drift against a target is the one
+      //   person who needs to know which of the three set it.
+      title={`Target Approval — the latest of the ACQ date, the closing date, and the GO date plus 6 months. Set here by ${
+        TARGET_APPROVAL_DRIVER_LABEL[target.driver ?? 'acq']
+      }. Edit the ACQ date in Project Data.`}
+      data-testid={`schedule-health-target-approval-${permit.id}`}
+      data-driver={target.driver ?? undefined}
+    >
+      {target.date}
+    </span>
   );
 }
 

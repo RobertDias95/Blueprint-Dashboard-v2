@@ -71,6 +71,7 @@ const refsPermits = vi.hoisted(() => ({ current: [] as unknown[] }));
 const refsProjects = vi.hoisted(() => ({ current: [] as unknown[] }));
 
 import ScheduleHealthTable from '../components/ProjectDetail/ScheduleHealthTable';
+import { renderProjectData } from '../test/renderProjectData';
 
 function projectFixture(over: Partial<Project> = {}): Project {
   return {
@@ -146,13 +147,21 @@ function permitFixture(over: Partial<PermitWithCycles> = {}): PermitWithCycles {
 function renderTable(permits: PermitWithCycles[], projects?: Project[]) {
   refsPermits.current = permits as unknown[];
   refsProjects.current = (projects ?? [projectFixture()]) as unknown[];
-  const queryClient = new QueryClient({
-    defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
-  });
-  const wrapper = ({ children }: { children: ReactNode }) => (
-    <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>
+  // ★★★ fix-508 §D — THE EDITOR MOVED; EVERY CONTRACT BELOW DID NOT.
+  //     fix-63 put this input on Schedule Health. §D makes that column a
+  //     DERIVED Target Approval — the latest of the ACQ date, the closing date
+  //     and the GO date plus six months — so an input there would write one of
+  //     three candidates while displaying the answer (P-179). The control is
+  //     Project Data's `ACQ date` row now, writing the same column through the
+  //     same RPC with the same two OCC tokens.
+  //     ★ So this suite mounts the new home and keeps its assertions
+  //       word-for-word. That is the point: if the move changed how the write
+  //       works, these would fail.
+  return renderProjectData(
+    (refsProjects.current[0] ?? projectFixture()) as Project,
+    permits,
+    'dates',
   );
-  return render(<ScheduleHealthTable permits={permits} />, { wrapper });
 }
 
 beforeEach(() => {
@@ -166,11 +175,11 @@ beforeEach(() => {
   } as never);
 });
 
-describe('<ScheduleHealthTable /> ACQ Target inline edit (fix-63)', () => {
+describe('fix-63 ACQ date inline edit — moved to Project Data by fix-508 §D', () => {
   it('renders the ACQ Target cell as an editable date input pre-populated from expected_issue', () => {
     const p = permitFixture({ id: 501, expected_issue: '2026-08-01' });
     renderTable([p]);
-    const input = screen.getByTestId('schedule-health-acq-target-501') as HTMLInputElement;
+    const input = screen.getByTestId('pd-acq-date') as HTMLInputElement;
     expect(input.tagName).toBe('INPUT');
     expect(input.type).toBe('date');
     expect(input.value).toBe('2026-08-01');
@@ -179,7 +188,7 @@ describe('<ScheduleHealthTable /> ACQ Target inline edit (fix-63)', () => {
   it('renders empty input when expected_issue is null', () => {
     const p = permitFixture({ id: 502, expected_issue: null });
     renderTable([p]);
-    const input = screen.getByTestId('schedule-health-acq-target-502') as HTMLInputElement;
+    const input = screen.getByTestId('pd-acq-date') as HTMLInputElement;
     expect(input.value).toBe('');
   });
 
@@ -203,7 +212,7 @@ describe('<ScheduleHealthTable /> ACQ Target inline edit (fix-63)', () => {
     } as Partial<PermitWithCycles>);
     renderTable([p], [project]);
 
-    const input = screen.getByTestId('schedule-health-acq-target-501') as HTMLInputElement;
+    const input = screen.getByTestId('pd-acq-date') as HTMLInputElement;
     fireEvent.change(input, { target: { value: '2026-09-15' } });
     fireEvent.blur(input);
 
@@ -238,7 +247,7 @@ describe('<ScheduleHealthTable /> ACQ Target inline edit (fix-63)', () => {
     const p = permitFixture({ id: 501, expected_issue: '2026-08-01' });
     renderTable([p]);
 
-    const input = screen.getByTestId('schedule-health-acq-target-501') as HTMLInputElement;
+    const input = screen.getByTestId('pd-acq-date') as HTMLInputElement;
     fireEvent.change(input, { target: { value: '' } });
     fireEvent.blur(input);
 
@@ -252,7 +261,7 @@ describe('<ScheduleHealthTable /> ACQ Target inline edit (fix-63)', () => {
   it('no-op blur (unchanged value) does NOT call the mutation', () => {
     const p = permitFixture({ id: 501, expected_issue: '2026-08-01' });
     renderTable([p]);
-    const input = screen.getByTestId('schedule-health-acq-target-501') as HTMLInputElement;
+    const input = screen.getByTestId('pd-acq-date') as HTMLInputElement;
     fireEvent.blur(input);
     expect(mutateAsync).not.toHaveBeenCalled();
   });
@@ -268,7 +277,7 @@ describe('<ScheduleHealthTable /> ACQ Target inline edit (fix-63)', () => {
     const p = permitFixture({ id: 501, expected_issue: '2026-08-01' });
     renderTable([p]);
 
-    const input = screen.getByTestId('schedule-health-acq-target-501') as HTMLInputElement;
+    const input = screen.getByTestId('pd-acq-date') as HTMLInputElement;
     fireEvent.change(input, { target: { value: '2026-10-31' } });
     fireEvent.blur(input);
 
@@ -291,7 +300,7 @@ describe('<ScheduleHealthTable /> ACQ Target inline edit (fix-63)', () => {
     const p = permitFixture({ id: 501, expected_issue: '2026-08-01' });
     renderTable([p]);
 
-    const input = screen.getByTestId('schedule-health-acq-target-501') as HTMLInputElement;
+    const input = screen.getByTestId('pd-acq-date') as HTMLInputElement;
     fireEvent.change(input, { target: { value: '2027-01-15' } });
     fireEvent.keyDown(input, { key: 'Enter' });
 
@@ -305,7 +314,7 @@ describe('<ScheduleHealthTable /> ACQ Target inline edit (fix-63)', () => {
   it('Esc resets to the stored value and does NOT save', () => {
     const p = permitFixture({ id: 501, expected_issue: '2026-08-01' });
     renderTable([p]);
-    const input = screen.getByTestId('schedule-health-acq-target-501') as HTMLInputElement;
+    const input = screen.getByTestId('pd-acq-date') as HTMLInputElement;
     fireEvent.change(input, { target: { value: '2026-12-31' } });
     expect(input.value).toBe('2026-12-31');
     fireEvent.keyDown(input, { key: 'Escape' });
@@ -314,38 +323,54 @@ describe('<ScheduleHealthTable /> ACQ Target inline edit (fix-63)', () => {
   });
 
   it('input is disabled when project.updated_at is missing (no OCC token)', () => {
-    // No project rows for refsProjects → projectsById.get(...) is undefined,
-    // occMissing flips true.
+    // ★ fix-508 §D: the row takes the project as a PROP now rather than looking
+    //   it up in a `projectsById` map, so "no OCC token" is expressed as a
+    //   project whose `updated_at` is missing rather than as an absent row. The
+    //   contract — no token, no write, and the control says so — is identical.
     const p = permitFixture({
       id: 501,
       project_id: 'p-missing',
       expected_issue: '2026-08-01',
     });
-    renderTable([p], []);
-    const input = screen.getByTestId('schedule-health-acq-target-501') as HTMLInputElement;
+    renderTable([p], [projectFixture({ id: 'p-missing', updated_at: null as unknown as string })]);
+    const input = screen.getByTestId('pd-acq-date') as HTMLInputElement;
     expect(input.disabled).toBe(true);
   });
 
-  it('cell sits between Estimated Approval and Schedule Health in the row', () => {
+  it('★★★ SUPERSEDED: column 7 is a DERIVED Target Approval, and it does not edit', () => {
+    // ★★★ fix-63 pinned the column ORDER around an input. §D keeps the order
+    //     and takes the input out: the cell prints `targetApproval()` — the
+    //     latest of the ACQ date, the closing date and the GO date plus six
+    //     calendar months — read-only, so the blue that was its editable
+    //     affordance goes with it (§H).
     const p = permitFixture({ id: 501, expected_issue: '2026-08-01' });
-    renderTable([p]);
+    const projects = [projectFixture({ id: 'p-sh-1', closing_date: null, go_date: null })];
+    refsPermits.current = p ? [p] as unknown[] : [];
+    refsProjects.current = projects as unknown[];
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
+    });
+    const wrapper = ({ children }: { children: ReactNode }) => (
+      <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>
+    );
+    render(<ScheduleHealthTable permits={[p]} />, { wrapper });
     const row = screen.getByTestId('schedule-health-row-501');
     const tds = within(row).getAllByRole('cell');
     // Columns: 1 Permit Type, 2 Reviewers, 3 Stage, 4 Permit Status,
-    // 5 Data Source, 6 Estimated Approval, 7 ACQ Target, 8 Schedule Health.
+    // 5 Data Source, 6 Permit Approval, 7 Target Approval, 8 Schedule Health.
     expect(tds.length).toBe(8);
-    // ACQ Target lives in column 7 (index 6).
-    expect(
-      within(tds[6]).getByTestId('schedule-health-acq-target-501'),
-    ).toBeInTheDocument();
-    // The ACQ Target cell is sandwiched between cols 6 and 8 — verify
-    // those neighbors are NOT the ACQ Target cell (catches a refactor
-    // that swaps column order).
-    expect(within(tds[5]).queryByTestId('schedule-health-acq-target-501')).toBeNull();
-    expect(within(tds[7]).queryByTestId('schedule-health-acq-target-501')).toBeNull();
-    // Column 8 is the Schedule Health badge — one of the status labels
-    // ("In Progress" appears when the projection mock returns null, which
-    // it does here since we don't drive the learner).
+    const cell = within(tds[6]).getByTestId('schedule-health-target-approval-501');
+    expect(cell).toBeInTheDocument();
+    // ★★ NOT an input any more — the assertion that would fail if somebody put
+    //    the box back without re-reading §D.
+    expect(cell.tagName).toBe('SPAN');
+    expect(within(tds[6]).queryByRole('textbox')).toBeNull();
+    expect(tds[6].querySelector('input')).toBeNull();
+    // ★ With no closing date and no GO date, the ACQ date is the only candidate
+    //   — so the derived answer IS `expected_issue`, which is the continuity
+    //   check that the column still means what it meant.
+    expect(cell.textContent).toBe('2026-08-01');
+    expect(cell.getAttribute('data-driver')).toBe('acq');
     expect(tds[7].textContent).toMatch(/On Track|At Risk|Behind|In Progress/);
   });
 
@@ -364,7 +389,7 @@ describe('<ScheduleHealthTable /> ACQ Target inline edit (fix-63)', () => {
     // the input no longer mirrors permit.expected_issue.
     const p = permitFixture({ id: 501, expected_issue: '2026-08-01' });
     renderTable([p]);
-    const input = screen.getByTestId('schedule-health-acq-target-501') as HTMLInputElement;
+    const input = screen.getByTestId('pd-acq-date') as HTMLInputElement;
     expect(input.value).toBe(p.expected_issue);
   });
 });

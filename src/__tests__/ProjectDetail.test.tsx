@@ -589,11 +589,22 @@ describe('<ProjectDetail /> fix-65 issued-permit grouping', () => {
 
     const divider = screen.getByTestId('permits-sidebar-issued-divider');
     expect(divider).toBeInTheDocument();
-    expect(divider.textContent).toMatch(/Issued \(2\)/i);
-    // Highlight tint — uses the --color-is-bg CSS var per fix-65.
-    const bgStyle = divider.getAttribute('style') ?? '';
+    expect(divider.textContent).toMatch(/Issued\s*\(2\)/i);
+    // ★★★ fix-508 §E: the divider renders through `PhaseGroupHeader` now — the
+    //     same component as the four new phase groups, because fix-65 invented
+    //     this shape and §E generalises it rather than leaving one hand-rolled
+    //     copy. The tint is on the header inside, so the assertion reads it
+    //     there.
+    const header = screen.getByTestId('permits-sidebar-phase-is');
+    const bgStyle = header.getAttribute('style') ?? '';
     expect(bgStyle).toContain('var(--color-is-bg)');
-    expect(bgStyle).toContain('var(--color-is)');
+    // ★★ AND THE INK IS THE MIX, NOT THE RAW TOKEN (§G). `--color-is` on
+    //    `--color-is-bg` measures **3.32:1** in Chrome — under fix-407's
+    //    standing 4.5 floor, and it has been since fix-65 shipped in May. The
+    //    header uses fix-407's own recipe (65% token + 35% #1a2540) and comes
+    //    to 5.38:1, so this ticket fixes a pre-existing failure as well as
+    //    avoiding four new ones.
+    expect(bgStyle.toLowerCase()).toContain('rgb(14, 107, 138)');
 
     // Active rows live before the divider in DOM order.
     const list = screen.getByTestId('permits-sidebar-list');
@@ -672,7 +683,7 @@ describe('<ProjectDetail /> fix-65 issued-permit grouping', () => {
     ]);
     renderAt();
     const divider = screen.getByTestId('permits-sidebar-issued-divider');
-    expect(divider.textContent).toMatch(/Issued \(2\)/i);
+    expect(divider.textContent).toMatch(/Issued\s*\(2\)/i);
     const group = screen.getByTestId('permits-sidebar-issued-group');
     expect(group.contains(screen.getByTestId('permits-sidebar-row-1'))).toBe(true);
     expect(group.contains(screen.getByTestId('permits-sidebar-row-2'))).toBe(true);
@@ -714,10 +725,59 @@ describe('<ProjectDetail /> fix-65 issued-permit grouping', () => {
 // type line (breadcrumb), lowercase "Corrections: 2026-05-26" as
 // secondary detail below.
 // ===========================================================
+// ★★★ fix-508 §E (P-184) — SUPERSEDES fix-104's BREADCRUMB HIERARCHY
+// ===========================================================
+//
+// fix-104 gave each rail card a `type · stage` breadcrumb on its top line and a
+// lowercase sub-event date beneath it — *"Building Permit FIRST, currently in
+// Permitting"* rather than two competing labels. That was the right shape for a
+// FLAT list, and it is what §E replaces.
+//
+// ★★★ THE STAGE MOVED UP, NOT AWAY. The cards are grouped by phase now, each
+//     group headed by its own name and count in the Pipeline's words —
+//     `Design & Engineering (4)` — so a breadcrumb repeating that stage on
+//     every card underneath it says the same thing n times. The colour dot went
+//     the same way, for the same reason.
+//
+// ★★★ AND THE DATE LINE IS ON SCHEDULE HEALTH. `Target:` / `Corrections:` /
+//     `Issued:` are named columns four inches to the right on the same screen,
+//     for the whole lineage rather than one per card. Bobby asked for three
+//     lines with a real hierarchy; a fourth line repeating a table already on
+//     screen is what stopped the three reading as one.
+//
+// ★★ fix-104's ACTUAL WIN IS UNTOUCHED AND IS ASSERTED BELOW: the sidebar and
+//    the Schedule Health table still read the same stage for the same permit,
+//    through the same `effectiveStage` + one shared label map. That was the
+//    regression it existed to close.
 
-describe('<ProjectDetail /> fix-104 SidebarRow stage hierarchy', () => {
-  it('renders the parent stage as a breadcrumb suffix on the type line ("Building Permit · Permitting")', () => {
-    // BP at stage='pm': submitted on cycle 1, no corrections yet.
+describe('<ProjectDetail /> fix-508 §E: the rail groups by phase', () => {
+  it('★★★ a card is THREE lines — type, number, structure address', () => {
+    refs.setPermits([
+      {
+        ...refs.permits[0],
+        id: 1,
+        type: 'Building Permit',
+        num: '7159955-CN',
+        struct_address: 'SFR 1',
+        permit_cycles: [],
+      },
+    ]);
+    renderAt();
+    // 1 — the type, and ONLY the type: no ` · Permitting` suffix any more.
+    const type = screen.getByTestId('permits-sidebar-type-1');
+    expect(type.textContent).toBe('Building Permit');
+    expect(screen.queryByTestId('permits-sidebar-stage-1')).toBeNull();
+    // 2 — the permit number, with its portal link.
+    expect(screen.getByTestId('permits-sidebar-num-1').textContent).toContain(
+      '7159955-CN',
+    );
+    // 3 — the structure address.
+    expect(screen.getByTestId('permits-sidebar-addr-1').textContent).toBe('SFR 1');
+    // ★★★ …and NO date line. Schedule Health carries every one of those dates.
+    expect(screen.queryByTestId('permits-sidebar-sub-event-1')).toBeNull();
+  });
+
+  it('★★★ the stage is a GROUP HEADER with a count, in the Pipeline’s words', () => {
     refs.setPermits([
       {
         ...refs.permits[0],
@@ -740,115 +800,21 @@ describe('<ProjectDetail /> fix-104 SidebarRow stage hierarchy', () => {
       },
     ]);
     renderAt();
-    const stage = screen.getByTestId('permits-sidebar-stage-1');
-    expect(stage.textContent).toContain('Permitting');
-    // The type-line container reads as "Building Permit · Permitting".
-    const type = screen.getByTestId('permits-sidebar-type-1');
-    expect(type.textContent).toBe('Building Permit · Permitting');
-    // The stage span carries the muted text-dim treatment so the eye
-    // reads type first, stage second.
-    expect(stage.className).toContain('text-dim');
-  });
-
-  it('renders the sub-event line in lowercase ("Corrections: 2026-05-26") — no ALL CAPS, no urgency color', () => {
-    // BP at stage='co': cycle 1 has corr_issued but no resubmitted.
-    refs.setPermits([
-      {
-        ...refs.permits[0],
-        id: 1,
-        type: 'Building Permit',
-        permit_cycles: [
-          {
-            id: 'c1',
-            permit_id: 1,
-            cycle_index: 1,
-            submitted: '2026-04-01',
-            city_target: null,
-            corr_issued: '2026-05-26',
-            resubmitted: null,
-            intake_accepted: null,
-            created_at: '2026-04-01T12:00:00Z',
-            updated_at: '2026-05-26T12:00:00Z',
-          },
-        ],
-      },
-    ]);
-    renderAt();
-    const subEvent = screen.getByTestId('permits-sidebar-sub-event-1');
-    // Lowercase label + ISO date.
-    expect(subEvent.textContent).toBe('Corrections: 2026-05-26');
-    // No ALL-CAPS "CORRECTIONS" anywhere on the row.
-    const row = screen.getByTestId('permits-sidebar-row-1');
-    expect(row.textContent).not.toContain('CORRECTIONS');
-    // text-dim styling (no urgency color override).
-    expect(subEvent.className).toContain('text-dim');
-  });
-
-  it('a permit with a Resubmitted date as the latest cycle event renders "Resubmitted: YYYY-MM-DD"', () => {
-    // stage_override='co' + a cycle with resubmitted but no corr_issued
-    // exercises pickKeyDate's 'co' Resubmitted branch (the brief's test
-    // #3 — verifies the reformat preserves the existing label vocab).
-    refs.setPermits([
-      {
-        ...refs.permits[0],
-        id: 1,
-        type: 'Building Permit',
-        stage_override: 'co',
-        permit_cycles: [
-          {
-            id: 'c1',
-            permit_id: 1,
-            cycle_index: 1,
-            submitted: '2026-04-01',
-            city_target: null,
-            corr_issued: null,
-            resubmitted: '2026-06-02',
-            intake_accepted: null,
-            created_at: '2026-04-01T12:00:00Z',
-            updated_at: '2026-06-02T12:00:00Z',
-          },
-        ],
-      },
-    ]);
-    renderAt();
-    const subEvent = screen.getByTestId('permits-sidebar-sub-event-1');
-    expect(subEvent.textContent).toBe('Resubmitted: 2026-06-02');
-  });
-
-  it('a Pre-Submittal permit (no cycle activity, no target_submit) renders WITHOUT the sub-event line', () => {
-    // No cycles, no target_submit → pickKeyDate returns label='Target'
-    // + date=null → the sub-event line is gated on `keyDate &&` and
-    // doesn't render. The card stays clean: type breadcrumb + permit
-    // number, nothing else.
-    refs.setPermits([
-      {
-        ...refs.permits[0],
-        id: 1,
-        type: 'Building Permit',
-        target_submit: null,
-        permit_cycles: [],
-      },
-    ]);
-    renderAt();
-    expect(screen.queryByTestId('permits-sidebar-sub-event-1')).toBeNull();
-    // Type + breadcrumb still present — empty-state still anchors on the stage.
-    expect(screen.getByTestId('permits-sidebar-type-1').textContent).toContain(
+    // Submitted with no corrections ⇒ `pm`, and the header spells it out.
+    const header = screen.getByTestId('permits-sidebar-phase-pm');
+    expect(header.textContent).toContain('Permitting');
+    expect(header.dataset.phaseCount).toBe('1');
+    // ★ The card sits under it, and carries no stage of its own.
+    expect(screen.getByTestId('permits-sidebar-type-1').textContent).toBe(
       'Building Permit',
     );
-    expect(screen.getByTestId('permits-sidebar-stage-1').textContent).toContain(
-      'D&E',
-    );
   });
 
-  it('regression: the sidebar breadcrumb agrees with the right-hand Schedule Health stage cell (same effectiveStage + same STAGE_LABEL helper)', () => {
-    // The two surfaces now both:
-    //   - call effectiveStage(permit, cycles, reviewers)
-    //   - look the result up via the shared STAGE_LABEL map
-    // So a BP whose latest cycle has corr_issued + no resubmitted
-    // resolves to stage='co' → label='Corrections' on BOTH surfaces.
-    // Pre-fix-104 the sidebar called effectiveStage WITHOUT reviewers
-    // and could disagree on MPB-style permits. This test pins the
-    // post-fix agreement by exercising the shared helper directly.
+  it('★★ fix-104’s REGRESSION GUARD survives: the rail and Schedule Health agree', () => {
+    // ★★★ This is what fix-104 was actually for — the sidebar's stage and the
+    //     right-hand table's stage cell disagreeing on the same permit. Both
+    //     still read `effectiveStage` and both still print `STAGE_*_LABEL`, so
+    //     the guard holds; only WHERE the sidebar prints it has moved.
     refs.setPermits([
       {
         ...refs.permits[0],
@@ -871,15 +837,10 @@ describe('<ProjectDetail /> fix-104 SidebarRow stage hierarchy', () => {
       },
     ]);
     renderAt();
-    const sidebarStage = screen
-      .getByTestId('permits-sidebar-stage-1')
-      .textContent?.trim();
-    // The Schedule Health stage column uses STAGE_LABEL[effectiveStage(...)]
-    // — same inputs, same map → same output. The sidebar stage span
-    // wraps the " · " breadcrumb separator alongside the label; the
-    // label substring is what has to agree with the right-hand cell.
-    expect(sidebarStage).toContain('Corrections');
-    expect(sidebarStage).not.toContain('CORRECTIONS');
+    // Corrections issued and not yet resubmitted ⇒ `co`.
+    expect(screen.getByTestId('permits-sidebar-phase-co').textContent).toContain(
+      'Corrections',
+    );
   });
 });
 
@@ -897,7 +858,7 @@ describe('<ProjectDetail /> fix-194 sub-permit sidebar nesting', () => {
     ]);
     renderAt();
     // The parent renders a normal stage breadcrumb…
-    expect(screen.getByTestId('permits-sidebar-stage-1')).toBeTruthy();
+    expect(screen.getByTestId('permits-sidebar-type-1')).toBeTruthy();
     // …the child renders the sub-permit badge and NO stage breadcrumb.
     const badge = screen.getByTestId('permits-sidebar-subpermit-2');
     expect(badge.textContent).toBe('Sub-permit · reviewed under BLD2026-0319');

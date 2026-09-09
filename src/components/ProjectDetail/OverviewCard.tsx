@@ -33,9 +33,22 @@ import type { CSSProperties, ReactNode } from 'react';
 //
 // (Exporting them would also trip react-refresh/only-export-components, which
 // is the lint rule that keeps component files to components.)
+// ★★★ fix-508 §G (P-189) — THE GREYS GO BLACK, ON THE SHARED CLASS.
+//
+// Bobby: the overview is grey where it should be black. Both of this file's
+// headings — the card BANNER and the section heading below — were `text-muted`
+// / `text-dim` on a white card, which is the app's *"this is chrome, ignore
+// it"* treatment. They are not chrome; they are what tells you which card and
+// which block you are reading.
+//
+// ★★★ THE TOKEN CHANGES HERE AND NOWHERE ELSE, which is the whole point of §G
+//     asking for it on the shared class rather than per element: every card's
+//     banner and every section's heading in the row comes from these two
+//     strings, so *"if we notice it elsewhere"* is a one-line follow-up rather
+//     than a hunt. Nothing about size, weight, tracking or case moved.
 const OVERVIEW_BANNER_CLASS =
   'px-2 py-1.5 border-b text-[9.5px] font-extrabold uppercase tracking-[0.07em] ' +
-  'text-muted text-center';
+  'text-text text-center';
 
 const OVERVIEW_BANNER_STYLE: CSSProperties = {
   background: 'var(--color-s2)',
@@ -253,7 +266,8 @@ export function OverviewSection({
     >
       {title && (
         <div className="px-2.5 pt-1.5 pb-0.5 flex items-baseline justify-between gap-2">
-          <span className="text-[8.5px] font-extrabold uppercase tracking-[0.06em] text-dim">
+          {/* ★ fix-508 §G: `text-dim` → `text-text`. See the banner above. */}
+          <span className="text-[8.5px] font-extrabold uppercase tracking-[0.06em] text-text">
             {title}
           </span>
           {titleRight}

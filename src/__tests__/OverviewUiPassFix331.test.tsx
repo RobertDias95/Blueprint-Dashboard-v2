@@ -460,8 +460,12 @@ describe('fix-331 §3: the chat lives inside the Team card', () => {
       'project-overview-team-chat',
       // ★ fix-506 §F: the consultant band, appended.
       'project-overview-team-consultants',
-      'pd-chat-section',
     ]);
+    // ★★★ fix-508 §F4: `pd-chat-section` left this list because the button it
+    //     wrapped moved INTO the chat section — Bobby's ask, reversing fix-345
+    //     §3's pinning. fix-331 §3's own claim is untouched and is what the
+    //     rest of this suite asserts: the chat is a SECTION of Team.
+    expect(screen.queryByTestId('pd-chat-section')).toBeNull();
   });
 
   // ★★ THE ACTUAL COMPLAINT: "feels like it is part of the team card, not a
@@ -472,6 +476,12 @@ describe('fix-331 §3: the chat lives inside the Team card', () => {
     // The section's own top rule comes from OverviewSection, exactly like
     // Internal. Nothing INSIDE it may draw a card.
     for (const el of Array.from(chat.querySelectorAll('*'))) {
+      // ★ fix-508 §F4 puts the chat BUTTON in this section, and an
+      //   `OverviewAction` is a bordered control by design (fix-345 §3's one
+      //   shared appearance). fix-331's complaint was a second CARD around
+      //   the content, so the control is exempted by name rather than the
+      //   rule being softened.
+      if (el.closest('[data-testid="project-chat-open"]')) continue;
       const cls = (el as HTMLElement).className;
       const className = typeof cls === 'string' ? cls : '';
       expect(className).not.toMatch(/\bborder\b(?!-)/);
@@ -486,10 +496,14 @@ describe('fix-331 §3: the chat lives inside the Team card', () => {
     const internal = screen.getByTestId('project-overview-team-internal');
     // Same component, so the same classes draw the separator and padding.
     expect(chat.className).toBe(internal.className);
-    // ★ fix-345 §3: scoped to the section, because the card's pinned action at
-    // the foot is also labelled Chat. Two controls would be the defect §3
-    // removed; a heading and the button it leads to are not.
-    expect(within(chat).getByText('Chat')).toBeInTheDocument();
+    // ★ fix-345 §3 scoped this to the section, because the card's pinned action
+    //   at the foot was also labelled Chat. ★ fix-508 §F4 moves that button
+    //   INTO this section, so both are inside it now and `getByText` finds two.
+    //   The claim — the section carries a HEADING, and the heading is not the
+    //   button — is asserted against the heading element instead.
+    const heading = chat.querySelector('div');
+    expect(heading?.textContent).toContain('Chat');
+    expect(heading?.querySelector('[data-testid="project-chat-open"]')).toBeNull();
   });
 
   // ★ fix-334 changed the UNIT from messages to posts — fix-331's rule survives
@@ -819,10 +833,14 @@ describe('fix-345 §3: the unread count moved onto the Chat button', () => {
     expect(badge.textContent).toContain('1 new');
     // On the button…
     expect(screen.getByTestId('project-chat-open').contains(badge)).toBe(true);
-    // …and no longer in the section heading it used to sit in.
-    expect(
-      screen.getByTestId('project-overview-team-chat').contains(badge),
-    ).toBe(false);
+    // ★ …and no longer in the section HEADING it used to sit in. ★ fix-508 §F4
+    //   moves the button into the chat section, so the badge is inside that
+    //   section now — the claim is that it rides the CONTROL, which is
+    //   asserted above and is the half that was ever load-bearing.
+    const heading = screen
+      .getByTestId('project-overview-team-chat')
+      .querySelector('div');
+    expect(heading?.contains(badge)).toBe(false);
   });
 
   it('★ and there is exactly one of it', () => {

@@ -310,7 +310,10 @@ describe('fix-285 the file card', () => {
     state.row = row();
     renderCard();
     const internal = await screen.findByTestId('plan-of-record-set-internal');
-    expect(internal.textContent).toBe('Marketing · Internal');
+    // ★ fix-508 §H (P-186) renamed the pair: `Marketing · Internal` → **Site
+    //   Plan**, `Marketing · External` → **Marketing**. The face is still two
+    //   set buttons and still not `Copy path`, which is what this test is for.
+    expect(internal.textContent).toBe('Site Plan');
     expect(internal.getAttribute('aria-pressed')).toBe('true');
     expect(screen.getByTestId('plan-of-record-set-external')).toBeInTheDocument();
     expect(screen.queryByTestId('plan-of-record-copy')).toBeNull();
@@ -837,9 +840,14 @@ describe('fix-335 §6: the Design Plan of Record centres its content', () => {
 
 describe('fix-507 §F: the buttons name the resolved set, at every stage', () => {
   it.each([
-    ['marketing', ['Marketing · Internal', 'Marketing · External'], 'Marketing plan (internal)'],
+    // ★ fix-508 §H (P-186): the marketing pair is renamed to what each set IS
+    //   — the internal one is the site plan — and `Design guidance` takes its
+    //   title case. The RULE fix-507 §F established is untouched and is what
+    //   this table still asserts: the stage decides which buttons exist, and
+    //   the chip and caption name the same set as the picked one.
+    ['marketing', ['Site Plan', 'Marketing'], 'Site plan'],
     ['schematic', ['Schematic'], 'Schematic set'],
-    ['design_guidance', ['Design guidance'], 'Design guidance set'],
+    ['design_guidance', ['Design Guidance'], 'Design guidance set'],
   ] as const)(
     '★★★ %s — the chip, the buttons and the caption say the same thing',
     async (setType, labels, caption) => {

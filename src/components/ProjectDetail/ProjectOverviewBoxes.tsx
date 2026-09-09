@@ -12,10 +12,10 @@ import { useProjectedApprovalFor } from '../../hooks/useProjectedApprovalFor';
 //   fourth time that rule has moved a helper (fix-403, fix-408, fix-499).
 import { formatUsDate } from '../../lib/dateUtils';
 import { parkingKindCode } from '../../lib/unitParking';
+// ★ fix-508 §D: Target Approval and the ONE definition of "accepted".
+import { intakeDisplay, targetApproval } from '../../lib/targetApproval';
 import {
-  DATES_COLUMN_GAP,
-  DATES_LABEL_WIDTH_LEFT,
-  DATES_LABEL_WIDTH_RIGHT,
+  DATES_LABEL_WIDTH,
   SITE_DATES_PAIR_CLASS,
   SITE_DATES_SITE_CLASS,
   SITE_LABEL_WIDTH,
@@ -80,8 +80,12 @@ function Field({
 }) {
   return (
     <div className="flex items-baseline gap-2 py-[1.5px]" data-testid={testId} title={title}>
+      {/* ★★★ fix-508 §G (P-189) — FIELD LABELS ARE `--color-text`. One class,
+          every row of Site data and every row of the Dates card. The value
+          beside it stays `font-semibold`, so the two are still told apart by
+          WEIGHT rather than by one of them being faded out. */}
       <span
-        className="text-[9px] text-dim flex-none"
+        className="text-[9px] text-text flex-none"
         style={{ width: labelWidth }}
       >
         {label}
@@ -163,16 +167,31 @@ export function SiteDataBox({
             <span className="text-dim">—</span>
           )}
         </Field>
-        <Field label="Lot size" labelWidth={SITE_LABEL_WIDTH} testId="pd-site-lot-size-row">
+        <Field
+          label="Lot size"
+          labelWidth={SITE_LABEL_WIDTH}
+          testId="pd-site-lot-size-row"
+          title={
+            lot.sizeDerived
+              ? 'Computed from the lot width × depth — no size was typed for this project.'
+              : undefined
+          }
+        >
           {lot.sizeSf != null ? (
             <span className="font-mono tabular-nums whitespace-nowrap">
+              {/* ★★★ fix-508 §A — THE ` derived` SUFFIX LEAVES THE FACE, and
+                  fix-488's rule is NOT being overturned, it is being moved. A
+                  size the card computed from W×D is still not the same claim as
+                  one somebody typed; what changed is that Bobby does not want
+                  that distinction spending a line of the narrowest card on the
+                  row. The `title` below carries it, and P-192 — *"lot size is
+                  derived when it should not be"* — is where the RULE about when
+                  a size may be derived at all is being decided. This ticket
+                  touches no write path.
+                  ★ It was also the row that set the Site box's floor: 147px
+                    with the suffix, 116 without, which is 15 of the 20 §A
+                    gives back. */}
               {lot.sizeText}
-              {/* ★ fix-488's rule kept: a size the card DERIVED from W×D is not
-                  the same claim as one somebody typed, and the reader can see
-                  which is which. */}
-              {lot.sizeDerived && (
-                <span className="text-dim font-sans font-normal"> derived</span>
-              )}
             </span>
           ) : (
             <span className="text-dim">—</span>
@@ -188,10 +207,15 @@ export function SiteDataBox({
         <Field label="Alley" labelWidth={SITE_LABEL_WIDTH} testId="pd-site-alley-row">
           {project.alley ? project.alley : <span className="text-dim">—</span>}
         </Field>
+        {/* ★★★ fix-508 §A — THE COUNT LOSES ITS `big` TREATMENT. fix-506 drew
+            it at `text-sm font-extrabold` from the mock's `f('Units','6','big')`;
+            the mock's own v8 hierarchy, which the same ticket adopted, is
+            *"labels bold, values the same face regular, no special cases"* —
+            and this was the special case. It is a number like every other
+            number on the card, and the matrix underneath already spells out
+            what it counts. */}
         <Field label="Units" labelWidth={SITE_LABEL_WIDTH} testId="pd-site-units-row">
-          <span className="text-sm font-extrabold" data-testid="pd-site-units-count">
-            {unitCount}
-          </span>
+          <span data-testid="pd-site-units-count">{unitCount}</span>
         </Field>
         {/* ★ The row renders only when there IS a source. The mock's
             `+ Reuse a plan` affordance opens the Project Data modal's Reuse-of
@@ -237,20 +261,34 @@ export function SiteDataBox({
 }
 
 // ---------------------------------------------------------------------------
-// §B — THE DATES CARD
+// ★★★ fix-508 §B/§D — THE DATES CARD, ONE COLUMN
 // ---------------------------------------------------------------------------
 
 /**
- * ★★★ ONE CARD REPLACES THREE SECTIONS — Key dates, the DD window and Permit
- *     intake. Bobby's layout, quadrant by quadrant:
+ * ★★★ ONE CARD REPLACED THREE SECTIONS (fix-506) — Key dates, the DD window and
+ *     Permit intake. fix-508 §B turns the two-by-two quadrant grid it drew them
+ *     in into ONE VERTICAL COLUMN, in the same order, top to bottom:
  *
- *         GO date · Closing              |  SD start · SD end
- *         DD start · Consultant · DD end |  Accepted · ACQ target · Est. approval
+ *         GO date · Closing · SD start · SD end · DD start · Consultant ·
+ *         DD end · Estimated intake · Target Approval · Est. approval
  *
- * ★★ THE RIGHT-HAND BOTTOM QUADRANT IS THE BUILDING PERMIT'S FLOW, and it
- *    carries **no "Building Permit" heading** — Bobby removed it on 09-08. No
- *    BP on the project and its three rows read `—` with the labels unchanged,
- *    which is why the labels are rendered outside the null check.
+ * ★★★ AND THIS IS THE CHANGE THAT PAID FOR THE WHOLE TICKET. Two label tracks
+ *     and two date tracks side by side is **296px** of box; one of each is
+ *     **156**. The Site/Dates pair went 475 → 320, which is what let the
+ *     Project card give Bobby his 20% without the pair falling back to stacked
+ *     — two earlier fix-508 briefs were written to find that 77px by tightening
+ *     the pair and narrowing the permits rail, and both were voided because the
+ *     296 they priced against is this grid.
+ *     [[do-not-brief-a-layout-that-is-still-being-redesigned]]
+ *
+ * ★★ THE QUADRANT RULES WENT WITH IT. They existed to make four groups read as
+ *    four groups rather than as twelve rows; a single column has one group and
+ *    reads top to bottom, so a dashed rule between arbitrary pairs of rows
+ *    would be decoration claiming to be structure.
+ *
+ * ★★ NO "Building Permit" HEADING, unchanged from fix-506 — Bobby removed it on
+ *    09-08. A project with no BP renders the same rows with `—`, which is why
+ *    the labels sit outside the null check.
  */
 export function DatesBox({
   project,
@@ -271,137 +309,144 @@ export function DatesBox({
   const projected = useProjectedApprovalFor(bp);
   const approval = approvalDisplay(projected, 'datesCard');
 
+  // ★★★ fix-508 §D — the two new rows, both computed in `lib/targetApproval`.
+  const intake = intakeDisplay(bp);
+  const target = targetApproval(project, bp);
+
   return (
     <OverviewSection title="Dates" testId="pd-dates-card">
-      <div
-        className="grid"
-        style={{
-          gridTemplateColumns: `minmax(0,1fr) minmax(0,1fr)`,
-          columnGap: DATES_COLUMN_GAP,
-        }}
-        data-testid="pd-dates-grid"
-      >
-        {/* top-left */}
-        <Quadrant testId="pd-dates-q1" rule="right bottom">
-          <Field label="GO date" labelWidth={DATES_LABEL_WIDTH_LEFT} testId="pd-date-go">
-            <DateText value={project.go_date} />
-          </Field>
-          <Field label="Closing" labelWidth={DATES_LABEL_WIDTH_LEFT} testId="pd-date-closing">
-            <DateText value={project.closing_date} />
-          </Field>
-        </Quadrant>
+      <div className="flex flex-col" data-testid="pd-dates-grid">
+        <DateField label="GO date" testId="pd-date-go" value={project.go_date} />
+        <DateField label="Closing" testId="pd-date-closing" value={project.closing_date} />
+        <DateField
+          label="SD start"
+          testId="pd-date-sd-start"
+          value={sd?.start}
+          title="Schematic design start — derived from DD start, not stored"
+        />
+        <DateField
+          label="SD end"
+          testId="pd-date-sd-end"
+          value={sd?.end}
+          title="Schematic design ends where DD begins — derived from DD start"
+        />
+        <DateField label="DD start" testId="pd-date-dd-start" value={bp?.dd_start} />
+        <DateField
+          label="Consultant"
+          testId="pd-date-consultant"
+          value={consultantDate}
+          title={`Target external send — ${VENDOR_SEND_LEAD_DAYS} days before DD end. Same date the consultant forecast quotes.`}
+        />
+        <DateField label="DD end" testId="pd-date-dd-end" value={bp?.dd_end} />
 
-        {/* top-right */}
-        <Quadrant testId="pd-dates-q2" rule="bottom">
-          <Field label="SD start" labelWidth={DATES_LABEL_WIDTH_RIGHT} testId="pd-date-sd-start"
-            title="Schematic design start — derived from DD start, not stored">
-            <DateText value={sd?.start} />
-          </Field>
-          <Field label="SD end" labelWidth={DATES_LABEL_WIDTH_RIGHT} testId="pd-date-sd-end"
-            title="Schematic design ends where DD begins — derived from DD start">
-            <DateText value={sd?.end} />
-          </Field>
-        </Quadrant>
-
-        {/* bottom-left */}
-        <Quadrant testId="pd-dates-q3" rule="right">
-          <Field label="DD start" labelWidth={DATES_LABEL_WIDTH_LEFT} testId="pd-date-dd-start">
-            <DateText value={bp?.dd_start} />
-          </Field>
-          <Field label="Consultant" labelWidth={DATES_LABEL_WIDTH_LEFT} testId="pd-date-consultant"
-            title={`Target external send — ${VENDOR_SEND_LEAD_DAYS} days before DD end. Same date the consultant forecast quotes.`}>
-            <DateText value={consultantDate} />
-          </Field>
-          <Field label="DD end" labelWidth={DATES_LABEL_WIDTH_LEFT} testId="pd-date-dd-end">
-            <DateText value={bp?.dd_end} />
-          </Field>
-        </Quadrant>
-
-        {/* bottom-right — the Building Permit's flow, unheaded */}
-        <Quadrant testId="pd-dates-q4" rule="">
-          {/* ★★ `permits.intake_date`, which is what the brief names — NOT
-              cycle 0's `intake_accepted`, which is what the Milestones card
-              this replaces read. Measured on prod: of 229 building permits 193
-              carry `intake_date` and 190 carry the cycle-0 value, they disagree
-              on 3, and exactly ONE permit has the cycle value without the
-              permit one. So this is the better-covered of the two and the swap
-              costs a single row its date. */}
-          <Field label="Accepted" labelWidth={DATES_LABEL_WIDTH_RIGHT} testId="pd-date-accepted"
-            title="Intake accepted on the Building Permit — scraped from the portal">
-            <DateText value={bp?.intake_date} />
-          </Field>
-          <Field label="ACQ target" labelWidth={DATES_LABEL_WIDTH_RIGHT} testId="pd-date-acq-target"
-            title="The team's target issue date. Editable in Project Data and on Schedule Health.">
-            <span className="font-mono tabular-nums" style={{ color: 'var(--color-de)' }}>
-              {bp?.expected_issue ? formatUsDate(bp.expected_issue) : <span className="text-dim">—</span>}
-            </span>
-          </Field>
-          {/* ★★★ THE FLIP. `Est. approval` becomes `Approved` with the real
-              date the moment the city approves — the same determination
-              Schedule Health's column 6 prints, read through the one helper
-              that owns the words. */}
-          <Field
-            label={approval.label}
-            labelWidth={DATES_LABEL_WIDTH_RIGHT}
-            testId="pd-date-approval"
-            title={
-              approval.isActual
-                ? 'The city has approved this permit — the real date.'
-                : 'Projected from this permit type and jurisdiction. Same number as Schedule Health.'
+        {/* ★★★ fix-508 §D — `Estimated intake` FLIPS TO `Accepted intake`.
+            The same shape as `Est. approval → Approved` below it, deliberately:
+            two rows that mean "the plan, then the fact" should not read as two
+            different mechanisms. Until the city accepts, it prints the team's
+            target submit — the city accepts what is submitted, so that IS the
+            estimate. `intakeIsAccepted` is the ONE definition, in
+            lib/targetApproval, because P-182 and P-180 both need it next. */}
+        <Field
+          label={intake.label}
+          labelWidth={DATES_LABEL_WIDTH}
+          testId="pd-date-intake"
+          title={
+            intake.isActual
+              ? 'The city has accepted this intake — the real date.'
+              : 'The team’s target submit. The city accepts what is submitted, so this is the intake estimate.'
+          }
+        >
+          <span
+            className="font-mono tabular-nums"
+            data-testid="pd-date-intake-value"
+            data-actual={intake.isActual ? 'true' : 'false'}
+            style={
+              intake.isActual
+                ? undefined
+                : { color: 'var(--color-muted)', borderBottom: '1px dashed var(--color-border)' }
             }
           >
-            <span
-              className="font-mono tabular-nums"
-              data-testid="pd-date-approval-value"
-              data-actual={approval.isActual ? 'true' : 'false'}
-              style={
-                approval.isActual
-                  ? undefined
-                  : {
-                      color: 'var(--color-muted)',
-                      borderBottom: '1px dashed var(--color-border)',
-                    }
-              }
-            >
-              {approval.date ? formatUsDate(approval.date) : <span className="text-dim">—</span>}
-            </span>
-          </Field>
-        </Quadrant>
+            {intake.date ? formatUsDate(intake.date) : <span className="text-dim">—</span>}
+          </span>
+        </Field>
+
+        {/* ★★★ fix-508 §D — `ACQ target` IS REPLACED BY `Target Approval`, and
+            the change is not the name. It was `permits.expected_issue` printed
+            straight through; it is now the LATEST of the ACQ date, the closing
+            date, and the GO date plus six calendar months.
+            ★★★ AND THE ROW SHOWS THE DATE AND NOTHING ELSE — Bobby's ruling, in
+                as many words: no driver, no badge, no tooltip naming which of
+                the three won. Project Details is where the driver is named, and
+                `targetApproval()` returns it for exactly that reason. */}
+        <Field
+          label="Target Approval"
+          labelWidth={DATES_LABEL_WIDTH}
+          testId="pd-date-target-approval"
+        >
+          <span
+            className="font-mono tabular-nums"
+            data-testid="pd-date-target-approval-value"
+            data-driver={target.driver ?? undefined}
+          >
+            {target.date ? formatUsDate(target.date) : <span className="text-dim">—</span>}
+          </span>
+        </Field>
+
+        {/* ★★★ THE FLIP. `Est. approval` becomes `Approved` with the real date
+            the moment the city approves — the same determination Schedule
+            Health's column 6 prints, read through the one helper that owns the
+            words. */}
+        <Field
+          label={approval.label}
+          labelWidth={DATES_LABEL_WIDTH}
+          testId="pd-date-approval"
+          title={
+            approval.isActual
+              ? 'The city has approved this permit — the real date.'
+              : 'Projected from this permit type and jurisdiction. Same number as Schedule Health.'
+          }
+        >
+          <span
+            className="font-mono tabular-nums"
+            data-testid="pd-date-approval-value"
+            data-actual={approval.isActual ? 'true' : 'false'}
+            style={
+              approval.isActual
+                ? undefined
+                : {
+                    color: 'var(--color-muted)',
+                    borderBottom: '1px dashed var(--color-border)',
+                  }
+            }
+          >
+            {approval.date ? formatUsDate(approval.date) : <span className="text-dim">—</span>}
+          </span>
+        </Field>
       </div>
     </OverviewSection>
   );
 }
 
-/** ★ The mock's dashed quadrant rules (`.dgrid .dq`), which are what make four
- *  groups read as four groups rather than as twelve rows. */
-function Quadrant({
-  children,
+/** ★ One printed date row. Every row in the single column is this shape, so the
+ *  label track and the value face are declared once rather than at ten call
+ *  sites — fix-311's rule, applied to the card that replaced that one. */
+function DateField({
+  label,
   testId,
-  rule,
+  value,
+  title,
 }: {
-  children: ReactNode;
+  label: string;
   testId: string;
-  rule: string;
+  value: string | null | undefined;
+  title?: string;
 }) {
-  const right = rule.includes('right');
-  const bottom = rule.includes('bottom');
   return (
-    <div
-      data-testid={testId}
-      className="flex flex-col"
-      style={{
-        paddingRight: right ? 10 : undefined,
-        paddingBottom: bottom ? 5 : undefined,
-        marginBottom: bottom ? 3 : undefined,
-        borderRight: right ? '1px dashed var(--color-border)' : undefined,
-        borderBottom: bottom ? '1px dashed var(--color-border)' : undefined,
-      }}
-    >
-      {children}
-    </div>
+    <Field label={label} labelWidth={DATES_LABEL_WIDTH} testId={testId} title={title}>
+      <DateText value={value} />
+    </Field>
   );
 }
-
 // ---------------------------------------------------------------------------
 // §D — THE TRANSPOSED UNITS MATRIX
 // ---------------------------------------------------------------------------
