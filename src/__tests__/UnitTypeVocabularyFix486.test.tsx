@@ -392,7 +392,10 @@ describe('fix-486 §D: work_scope is gone from the type, the row and the parse',
  */
 const REGISTRY_READERS = [
   'src/components/LibraryMatrix.tsx',
-  'src/components/ProjectDetail/ProjectDetailHeader.tsx',
+  // ★ fix-506 §G: the unit editor moved to `ProjectDataEditors` — the overview
+  //   is read-only and this is the Project Data modal's Units tab. fix-486's
+  //   rule is about which files READ the registry, and this is still one.
+  'src/components/ProjectDetail/ProjectDataEditors.tsx',
   'src/components/ProjectDetail/ProjectSettingsModal.tsx',
   'src/components/Settings/AdminProjectsTab.tsx',
   'src/components/wizard/Step1ProjectInfo.tsx',

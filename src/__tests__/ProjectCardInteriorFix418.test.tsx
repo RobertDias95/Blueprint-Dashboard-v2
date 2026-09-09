@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
-import { render, screen } from '@testing-library/react';
+import { renderProjectData } from '../test/renderProjectData';
+import { render, screen, cleanup } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import type { ReactElement, ReactNode } from 'react';
@@ -264,7 +265,11 @@ describe('fix-418 §B (inverted by fix-486): the whitelist now REMOVES it', () =
   it('★★★ no unit row offers a work control at all any more', () => {
     // ★ fix-418 §B1's inverse. The control was Remodel-only, so a Remodel row
     //   is the one that proves it is gone rather than merely out of scope.
-    renderHeader();
+    // ★ fix-506 §G: the unit ROWS are the Project Data modal's Units tab now;
+    //   the overview prints a read-only matrix. Asserted on the editor, which
+    //   is where a work control could come back.
+    cleanup();
+    renderProjectData(makeProject(), [], 'units');
     expect(screen.queryByTestId('pd-unit-work-scope')).toBeNull();
     expect(screen.queryByTestId('pd-unit-work-chip')).toBeNull();
     expect(screen.getAllByTestId('pd-unit-row')[0].dataset.remodel).toBeUndefined();
@@ -284,10 +289,17 @@ describe('fix-418 §A (retired by fix-422): what the reshape must still honour',
     // ★ …which is the shape fix-331 §1 distributes height across natively. The
     //   `flex-1` fix-418 needed on its wrapper is not needed any more, because
     //   there is no wrapper.
+    // ★★★ fix-506 §B/§C RE-CUT THE INTERIOR AND KEPT fix-418'S RULE. The card
+    //     holds a `flex-wrap` PAIR (Site data beside Dates) and the units
+    //     matrix. The pair is NOT a fix-418-style wrapper: fix-418's mistake
+    //     was a `<div>` between the card and a STACK of sections, which
+    //     swallowed the height distribution; this is one of the card's own
+    //     children, beside the matrix, and each box inside it carries its own
+    //     sections. `OverviewCard` distributes across what it directly holds,
+    //     which is the property this asserts.
     const card = screen.getByTestId('pd-project-card');
-    for (const id of ['pd-project-proposal', 'pd-project-site', 'pd-project-units']) {
-      expect(screen.getByTestId(id).parentElement).toBe(card);
-    }
+    expect(screen.getByTestId('pd-units-matrix').parentElement).toBe(card);
+    expect(card).toContainElement(screen.getByTestId('pd-site-dates-pair'));
   });
 
   it('★★★ NO horizontal scroller came back with the horizontal layout', () => {

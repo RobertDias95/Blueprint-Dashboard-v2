@@ -73,7 +73,7 @@ vi.mock('../stores/toastStore', () => ({ pushToast: vi.fn() }));
 // ordering, same links; one surface further in.
 import ProjectDataModal from '../components/ProjectDetail/ProjectDataModal';
 
-type Project = Parameters<typeof ProjectDetailHeader>[0]['project'];
+type Project = Parameters<typeof ProjectDataModal>[0]['project'];
 
 function projectFixture(over: Partial<Record<string, unknown>> = {}): Project {
   return {

@@ -288,7 +288,11 @@ vi.mock('../hooks/useProjectConsultants', () => ({
 }));
 
 
-const ProjectDetailHeader = (await import('../components/ProjectDetail/ProjectDetailHeader'))
+// ★★★ fix-506 §G (P-140): the DD window rows are the Project Data modal's
+//     **Dates** tab. fix-310's ruling is about the WORDS ("Draw window" →
+//     "DD window", with the DB vocabulary untouched underneath), and the
+//     components carrying them are byte-for-byte what shipped.
+const ProjectDataModal = (await import('../components/ProjectDetail/ProjectDataModal'))
   .default;
 
 const T = 'test-tenant-uuid';
@@ -329,7 +333,14 @@ function renderHeader() {
     </QueryClientProvider>
   );
   return render(
-    <ProjectDetailHeader project={project} permits={[bp]} bp={bp} />,
+    <ProjectDataModal
+      project={project}
+      permits={[bp]}
+      bp={bp}
+      initialTab="dates"
+      onClose={() => {}}
+      onOpenSettings={() => {}}
+    />,
     { wrapper },
   );
 }
@@ -356,7 +367,7 @@ beforeEach(() => {
 describe('fix-310: the DD dates still write, and the section is renamed', () => {
   it('the Milestones card section reads DD window', () => {
     renderHeader();
-    const card = screen.getByTestId('pd-milestones-card');
+    const card = screen.getByTestId('project-data-body');
     expect(within(card).getByText('DD window')).toBeInTheDocument();
     expect(within(card).queryByText('Draw window')).toBeNull();
   });
@@ -383,7 +394,7 @@ describe('fix-310: the DD dates still write, and the section is renamed', () => 
   // sweep cannot have quietly disturbed the layout it renamed into.
   it('fix-309 survives: Key dates is GO then Closing, and SD sits above DD', () => {
     renderHeader();
-    const card = screen.getByTestId('pd-milestones-card');
+    const card = screen.getByTestId('project-data-body');
     const keyDates = within(card).getByText('Key dates').closest('section') as HTMLElement;
     const text = keyDates.textContent ?? '';
     expect(text.indexOf('GO Date')).toBeLessThan(text.indexOf('Closing'));

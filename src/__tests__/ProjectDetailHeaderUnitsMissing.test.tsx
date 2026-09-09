@@ -4,6 +4,7 @@ import { render, screen } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import type { ReactNode } from 'react';
 import { useAuthStore } from '../stores/authStore';
+import type { Project } from '../lib/database.types';
 
 // fix-88: amber "⚠ missing" badge in the Proposal cell when project.units
 // is null or 0. Bobby spotted 2724 Walnut Ave SW had the Proposal section

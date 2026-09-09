@@ -236,24 +236,31 @@ describe('fix-441 §B (P-019) — the Builder/Owner card stops stretching', () =
   //     finding is about the CELL — a card with the least to say must not be
   //     stretched to the row's height — not about Builder/Owner, whose column
   //     was taken over. Both halves are still required together.
-  it('★★★ the short cell alone drops height:100% and takes align-self:start', () => {
+  it('★★★ SUPERSEDED by fix-506 §A: the exception is gone with the card', () => {
+    // ★★★ fix-441 §B (P-019) LET ONE CELL STOP AT ITS OWN CONTENT. Bobby,
+    //     2026-08-29: the Builder/Owner card is allowed to be shorter than its
+    //     neighbours — it had the least to say of the five and was carrying the
+    //     most empty space under fix-309 #55's equal-height band. fix-475 moved
+    //     the exception to CONSULTANTS for the same reason: a list-shaped card
+    //     with two consultants on it must not stretch to the Plan of Record's
+    //     height.
+    //
+    // ★★★ BOTH OF THOSE CARDS ARE RETIRED. Builder/Owner is a Team section and
+    //     the consultant pills are a band across Team's foot, so there is no
+    //     list-shaped card left to except — and fix-309 #55 applies whole again,
+    //     with no exception that can spread by accident. That is a better
+    //     outcome than the exception, and it is what fix-441 wanted all along.
     const src = code(headerSrc);
-    expect(src).toMatch(
-      /\[OVERVIEW_CELL_ATTR\]: 'consultants'[\s\S]{0,120}alignSelf: 'start'/,
-    );
-    // ★★ BOTH halves, and either alone is a no-op: with the grid's default
-    //    `stretch` the height is imposed whatever the inline style says, and
-    //    with `start` but `height: 100%` the percentage resolves against the
-    //    row box and stretches it back.
-    const builderCell = /\[OVERVIEW_CELL_ATTR\]: 'consultants'[\s\S]{0,200}?>/.exec(src)?.[0] ?? '';
-    expect(builderCell).not.toContain("height: '100%'");
+    expect(src).not.toContain("'consultants'");
+    expect(src).not.toContain("'builder'");
+    expect(src).not.toContain("alignSelf: 'start'");
   });
 
-  it('★★★ NOTHING ELSE MOVES — the other four cells keep height:100%', () => {
+  it('★★★ EVERY cell keeps height:100% now', () => {
     const src = code(headerSrc);
-    for (const cell of ['dd', 'proj', 'team', 'por']) {
+    for (const cell of ['por', 'proj', 'team']) {
       const re = new RegExp(
-        `\\[OVERVIEW_CELL_ATTR\\]: '${cell}'[\\s\\S]{0,200}?height: '100%'`,
+        "\\[OVERVIEW_CELL_ATTR\\]: '" + cell + "'[\\s\\S]{0,200}?height: '100%'",
       );
       expect(src, cell).toMatch(re);
     }

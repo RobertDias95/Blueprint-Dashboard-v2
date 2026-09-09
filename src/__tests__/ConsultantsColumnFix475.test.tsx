@@ -6,10 +6,12 @@ import type { ReactNode } from 'react';
 import MIGRATION from '../../migrations/fix_475_consultant_firm_clear_rounds.sql?raw';
 import {
   CONSULTANT_CARD_MIN_WIDTH,
+  CONSULTANT_DATE_INPUT_MIN,
   OVERVIEW_CARD_COLUMNS,
   OVERVIEW_ROW_MIN_WIDTH,
   TEAM_INTERNAL_ROWS,
 } from '../lib/overviewCardLayout';
+import { CONSULTANT_PILL_COMPACT_MIN } from '../lib/projectCardLayout';
 import {
   CONSULTANT_DATE_SLOTS,
   CONSULTANT_STATUSES,
@@ -95,7 +97,12 @@ vi.mock('../hooks/useExternalTeamDirectory', () => ({
   }),
 }));
 
-import ConsultantsCard from '../components/ProjectDetail/ConsultantsCard';
+// ★★★ fix-506 §A/§F: the Consultants CARD is a BAND across the foot of the
+//     Team card now — the row is three cards, and its pills are a grid rather
+//     than a one-per-line list. The pill's own behaviour (the firm prompt, the
+//     status confirm, the date slots, the round history) is what this suite
+//     tests and is unchanged.
+import { ConsultantBand } from '../components/ProjectDetail/ConsultantBand';
 
 function row(over: Partial<ConsultantCurrent> = {}): ConsultantCurrent {
   return {
@@ -128,7 +135,7 @@ function renderCard() {
       <MemoryRouter>{children}</MemoryRouter>
     </QueryClientProvider>
   );
-  return render(<ConsultantsCard projectId={PROJECT} bp={null} />, { wrapper });
+  return render(<ConsultantBand projectId={PROJECT} bp={null} />, { wrapper });
 }
 
 beforeEach(() => {
@@ -145,21 +152,31 @@ beforeEach(() => {
 // §4.1–4.3 — the pill
 // ---------------------------------------------------------------------------
 describe('fix-475 §1 — the Consultants column', () => {
-  it('★★★ no consultants → the button and NOTHING else', () => {
-    // ★ Bobby ruled 2026-09-01 NOT to seed from `external_team`, so a project
-    //   with no consultants has genuinely nothing to say. No placeholder text,
-    //   no seeded disciplines — fix-406's rule, and the empty state the mock
-    //   draws.
+  it('★★★ SUPERSEDED: no consultants → FOUR named empty slots, not one button', () => {
+    // ★★★ fix-475 ruled that a project with no consultants has nothing to say,
+    //     and said nothing: one "+ Add consultant" button, no placeholder text,
+    //     no seeded disciplines. Bobby's v14 is more specific and it is the
+    //     newer ruling: **minimum four slots always**, and Surveyor · Arborist
+    //     · Structural · Civil are the first four in that order — so the grid
+    //     reads the same way on every project.
+    //
+    // ★★ AND THAT IS NOT A PLACEHOLDER RETURNING. An empty slot names the
+    //    discipline it is waiting for, which is information ("no Arborist
+    //    yet") rather than decoration; fix-475's rule was against SEEDING
+    //    a consultant record from `external_team`, and nothing is seeded.
     renderCard();
-    expect(screen.getByTestId('pd-consultant-add')).toBeInTheDocument();
     expect(screen.queryByTestId('pd-consultant-Geotech')).toBeNull();
-    const body = screen.getByTestId('pd-consultants-body');
-    expect(body.textContent).toBe('+ Add consultant');
+    const band = screen.getByTestId('pd-consultant-band');
+    expect(band.dataset.slotCount).toBe('4');
+    expect(band.dataset.split).toBe('2+2');
+    for (const d of ['Surveyor', 'Arborist', 'Structural', 'Civil']) {
+      expect(screen.getByTestId(`pd-consultant-empty-${d}`)).toBeInTheDocument();
+    }
   });
 
   it('★★★ adding one seeds Scheduled with both EST dates and no stamps', () => {
     renderCard();
-    fireEvent.click(screen.getByTestId('pd-consultant-add'));
+    fireEvent.click(screen.getByTestId('pd-consultant-empty-Surveyor'));
     fireEvent.change(screen.getByTestId('pd-consultant-add-discipline'), {
       target: { value: 'Geotech' },
     });
@@ -216,9 +233,11 @@ describe('fix-475 §1 — the Consultants column', () => {
     //    the Confirm test below.
     state.rows = [row({ status: 'Scheduled' })];
     renderCard();
-    fireEvent.change(screen.getByTestId('pd-consultant-status-Geotech'), {
-      target: { value: 'Pending' },
-    });
+    // ★★★ fix-506 §F: the control is a BUTTON, not a `<select>`. P-164 made
+    //     every change open a confirm, and a menu whose every option opens the
+    //     same dialog is a menu pretending to be one. The click ADVANCES along
+    //     `CONSULTANT_STATUSES` and the confirm names where it is going.
+    fireEvent.click(screen.getByTestId('pd-consultant-status-Geotech'));
     expect(state.status).toHaveLength(0);
     expect(state.dates).toHaveLength(0);
     expect(screen.getByTestId('pd-consultant-status-prompt-Geotech')).toBeInTheDocument();
@@ -227,9 +246,11 @@ describe('fix-475 §1 — the Consultants column', () => {
   it('★★★ Confirm writes ONCE, with the status and no date', () => {
     state.rows = [row({ status: 'Scheduled' })];
     renderCard();
-    fireEvent.change(screen.getByTestId('pd-consultant-status-Geotech'), {
-      target: { value: 'Pending' },
-    });
+    // ★★★ fix-506 §F: the control is a BUTTON, not a `<select>`. P-164 made
+    //     every change open a confirm, and a menu whose every option opens the
+    //     same dialog is a menu pretending to be one. The click ADVANCES along
+    //     `CONSULTANT_STATUSES` and the confirm names where it is going.
+    fireEvent.click(screen.getByTestId('pd-consultant-status-Geotech'));
     fireEvent.click(screen.getByTestId('pd-consultant-status-confirm-Geotech'));
     expect(state.status).toHaveLength(1);
     expect(state.status[0]).toMatchObject({
@@ -249,18 +270,18 @@ describe('fix-475 §1 — the Consultants column', () => {
     //     change had already been written before anyone could cancel.
     state.rows = [row({ status: 'Scheduled' })];
     renderCard();
-    fireEvent.change(screen.getByTestId('pd-consultant-status-Geotech'), {
-      target: { value: 'Received' },
-    });
+    fireEvent.click(screen.getByTestId('pd-consultant-status-Geotech'));
     fireEvent.click(screen.getByTestId('pd-consultant-status-cancel-Geotech'));
     expect(state.status).toHaveLength(0);
     expect(state.dates).toHaveLength(0);
     expect(screen.queryByTestId('pd-consultant-status-prompt-Geotech')).toBeNull();
-    // ★★ The select is CONTROLLED on the row, so cancelling needs no revert —
-    //    we simply never wrote, and the next render puts the old value back. A
-    //    local "pending value" would be a second source of truth.
+    // ★★ THE BUTTON READS THE ROW, so cancelling needs no revert — we simply
+    //    never wrote, and the next render puts the old word back. A local
+    //    "pending value" would be a second source of truth for something the
+    //    row already knows. (fix-506 §F: it was a controlled `<select>`; the
+    //    property is the same and the element is a button.)
     expect(
-      (screen.getByTestId('pd-consultant-status-Geotech') as HTMLSelectElement).value,
+      screen.getByTestId('pd-consultant-status-Geotech').textContent,
     ).toBe('Scheduled');
   });
 
@@ -271,9 +292,7 @@ describe('fix-475 §1 — the Consultants column', () => {
     //    dialog asks the real question.
     state.rows = [row({ status: 'Pending', sent: '2026-10-02' })];
     renderCard();
-    fireEvent.change(screen.getByTestId('pd-consultant-status-Geotech'), {
-      target: { value: 'Received' },
-    });
+    fireEvent.click(screen.getByTestId('pd-consultant-status-Geotech'));
     for (const f of CONSULTANT_DATE_SLOTS.Received) {
       expect(
         screen.getByTestId(`pd-consultant-confirm-slot-Geotech-${f}`),
@@ -286,9 +305,11 @@ describe('fix-475 §1 — the Consultants column', () => {
   it('★★ an EDITED date is written after the status, and only that one', () => {
     state.rows = [row({ status: 'Scheduled' })];
     renderCard();
-    fireEvent.change(screen.getByTestId('pd-consultant-status-Geotech'), {
-      target: { value: 'Pending' },
-    });
+    // ★★★ fix-506 §F: the control is a BUTTON, not a `<select>`. P-164 made
+    //     every change open a confirm, and a menu whose every option opens the
+    //     same dialog is a menu pretending to be one. The click ADVANCES along
+    //     `CONSULTANT_STATUSES` and the confirm names where it is going.
+    fireEvent.click(screen.getByTestId('pd-consultant-status-Geotech'));
     const input = screen.getByTestId('pd-consultant-confirm-date-Geotech-est_recd');
     fireEvent.change(input, { target: { value: '2026-11-05' } });
     fireEvent.blur(input);
@@ -310,9 +331,7 @@ describe('fix-475 §1 — the Consultants column', () => {
     ];
     renderCard();
     expect(screen.queryByTestId('pd-consultant-history-Geotech')).toBeNull();
-    fireEvent.change(screen.getByTestId('pd-consultant-status-Geotech'), {
-      target: { value: 'Scheduled' },
-    });
+    fireEvent.click(screen.getByTestId('pd-consultant-status-Geotech'));
     // ★ fix-506 §F: the step back out of Received asks like every other one —
     //   the history opens once it is CONFIRMED, not on the click.
     fireEvent.click(screen.getByTestId('pd-consultant-status-confirm-Geotech'));
@@ -408,18 +427,33 @@ describe('fix-475 §3 — the row minimum did not increase', () => {
     //     ACCIDENT. It did not merely hold — it FELL 46px, because
     //     `builder`'s 190px floor left and a measured 144 replaced it.
     expect(OVERVIEW_ROW_MIN_WIDTH).toBeLessThanOrEqual(1218);
-    expect(OVERVIEW_ROW_MIN_WIDTH).toBe(1172);
+    // ★★★ fix-506 §A: 1,172 → 904. fix-475's PROPERTY — the row minimum must not
+    //     INCREASE — is what this test is for, and it holds by a much wider
+    //     margin now: two whole cards left the line.
+    expect(OVERVIEW_ROW_MIN_WIDTH).toBe(904);
   });
 
-  it('★★★ the Consultants floor is DERIVED and states its reason', () => {
-    const c = OVERVIEW_CARD_COLUMNS.find((x) => x.key === 'consultants')!;
-    expect(c.minPx).toBe(CONSULTANT_CARD_MIN_WIDTH);
-    expect(c.minPx).toBe(144);
-    // ★ Below the 190 it replaces, so §3's stop condition is not met.
-    expect(c.minPx).toBeLessThan(190);
-    // The reason names the measurement rather than asserting a preference.
-    expect(c.floorReason).toContain('103px');
-    expect(c.floorReason).toContain('harness/consultant-column-floor.html');
+  it('★★★ SUPERSEDED: there is no Consultants COLUMN, and the pill is re-measured', () => {
+    // ★★★ fix-475's FINDING IS WHY THE COLUMN COULD GO. It measured a native
+    //     `<input type="date">` at 103px in Chrome and concluded that the
+    //     mock's SIDE-BY-SIDE date pair cost 252px of floor against the 190
+    //     Builder/Owner vacated — so the pair STACKED, trading width the row
+    //     did not have for height a list-shaped card did, and the floor landed
+    //     at 144.
+    //
+    // ★★★ fix-506 §F PUTS THE PAIR BACK SIDE BY SIDE BY MAKING IT TEXT. The
+    //     pills are a GRID across the Team card's foot now — four across at
+    //     eight consultants — so 144 per pill was never going to fit either.
+    //     A printed `05/01` is 36px; the editor that writes it is a floating
+    //     panel, so `BufferedDateInput` keeps its honest 103 and fix-073's rule
+    //     (no raw onChange on a server-committing date) is untouched.
+    expect(OVERVIEW_CARD_COLUMNS.some((x) => x.key === 'consultants')).toBe(false);
+    // ★ The old measurement is still declared, and still 103 — it is what the
+    //   floating panel is sized for.
+    expect(CONSULTANT_DATE_INPUT_MIN).toBe(103);
+    expect(CONSULTANT_CARD_MIN_WIDTH).toBe(144);
+    // ★★ …and the GRID pill is derived from what it actually holds.
+    expect(CONSULTANT_PILL_COMPACT_MIN).toBeLessThan(CONSULTANT_CARD_MIN_WIDTH);
   });
 
   it('★★ Team keeps its 160px floor — the permits rail was NOT touched', () => {
@@ -429,13 +463,17 @@ describe('fix-475 §3 — the row minimum did not increase', () => {
     //     WRAP — so readability stopped depending on the column's width.
     // ★ Bobby offered the permits rail as relief if the floor demanded it. It
     //   did not, so the rail is untouched.
+    // ★★ fix-506 §F moved it by TWO PIXELS, 160 → 162, and the two are the
+    //    difference between the top block's floor and one consultant pill plus
+    //    card chrome. The claim — Team does not inherit a 190px floor, and the
+    //    permits rail is not touched — is unchanged.
     const team = OVERVIEW_CARD_COLUMNS.find((x) => x.key === 'team')!;
-    expect(team.minPx).toBe(160);
+    expect(team.minPx).toBeLessThan(190);
     expect(OVERVIEW_CARD_COLUMNS.map((c) => c.key)).toEqual([
-      'dd', 'proj', 'team', 'por', 'consultants',
+      'por', 'proj', 'team',
     ]);
-    // ★ Five before, five after.
-    expect(OVERVIEW_CARD_COLUMNS).toHaveLength(5);
+    // ★ Five before, THREE after — fix-506 §A.
+    expect(OVERVIEW_CARD_COLUMNS).toHaveLength(3);
   });
 });
 

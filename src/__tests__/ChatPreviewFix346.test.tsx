@@ -255,6 +255,8 @@ describe('fix-346 §1: the Team card reads Internal, Chat, button (fix-479: no E
       // ★ fix-479 §A (P-132): `project-overview-team-external` left this list
       //   with the section itself. The ORDER is still asserted whole.
       'project-overview-team-chat',
+      // ★ fix-506 §F: the consultant band, appended.
+      'project-overview-team-consultants',
       'pd-chat-section',
     ]);
   });
@@ -270,8 +272,16 @@ describe('fix-346 §1: the Team card reads Internal, Chat, button (fix-479: no E
     const internal = ids.indexOf('project-overview-team-internal');
     const chat = ids.indexOf('project-overview-team-chat');
     const button = ids.indexOf('pd-chat-section');
+    // ★★★ fix-506 §F PUTS THE CONSULTANT BAND BETWEEN THE PREVIEW AND THE
+    //     BUTTON, and fix-346's ruling survives it. Bobby's ask was *"internal,
+    //     external, and then here's the chat section, and then the chat
+    //     button"* — the preview below the roster and the button reachable from
+    //     it. The button is still the card's LAST section (fix-345 §3 pins it
+    //     to the floor), which is what "directly above" was really protecting;
+    //     the band is a foot-of-card grid, not something between them in the
+    //     reading order.
     expect(chat).toBeGreaterThan(internal);
-    expect(button).toBe(chat + 1);
+    expect(button).toBe(ids.length - 1);
   });
 
   // ★★★ THE PREVIEW IS NOT DELETED. An earlier draft of the brief said to
@@ -435,8 +445,9 @@ describe('fix-346 §1: fix-345 §3 survives the move', () => {
   // one baseline; that holds whatever is above it.
   it('★★ four sections, three of which share the spare height', () => {
     renderHeader();
-    // ★ fix-479 §A: 5 → 4. External left the card (Bobby, 2026-09-02).
-    expect(teamSectionIds()).toHaveLength(4);
+    // ★ fix-479 §A: 5 → 4, External left the card (Bobby, 2026-09-02).
+    //   fix-506 §F: 4 → 5, the consultant band joined it.
+    expect(teamSectionIds()).toHaveLength(5);
     const distributed = (
       Array.from(
         screen.getByTestId('project-overview-team').querySelectorAll(':scope > section'),
@@ -446,16 +457,19 @@ describe('fix-346 §1: fix-345 §3 survives the move', () => {
     //   is pinned and every other one grows. That is what makes the baseline
     //   hold, and it is what would actually break.
     expect(distributed).toHaveLength(teamSectionIds().length - 1);
-    expect(distributed).toHaveLength(3);
+    expect(distributed).toHaveLength(4);
     for (const s of distributed) expect(s.style.flexGrow).toBe('1');
   });
 
   it('★ all three cards still end with their action, on the same geometry', () => {
     renderHeader();
-    for (const [cardId, sectionId, buttonId] of [
-      ['pd-milestones-card', 'pd-draw-schedule-section', 'pd-draw-schedule-link'],
-      ['pd-project-card', 'pd-connect-section', 'pd-connect-button'],
-      ['project-overview-team', 'pd-chat-section', 'project-chat-open'],
+    // ★★★ fix-506 §A/§B: Milestones is retired and its draw-schedule button is
+    //     at the foot of the Project card's DATES box, beside Connect at the
+    //     foot of Site data — where v14 draws them, above the units matrix. So
+    //     the card that still ENDS in its action is Team; the geometry claim,
+    //     which is what this test is really for, holds for all three.
+    for (const [cardId, sectionId] of [
+      ['project-overview-team', 'pd-chat-section'],
     ] as const) {
       const sections = Array.from(
         screen.getByTestId(cardId).querySelectorAll(':scope > section'),
@@ -464,6 +478,12 @@ describe('fix-346 §1: fix-345 §3 survives the move', () => {
         (sections[sections.length - 1] as HTMLElement).dataset.testid,
         cardId,
       ).toBe(sectionId);
+    }
+    for (const buttonId of [
+      'pd-draw-schedule-link',
+      'pd-connect-button',
+      'project-chat-open',
+    ] as const) {
       const cls = screen.getByTestId(buttonId).className;
       expect(cls, buttonId).toContain('h-[26px]');
       expect(cls, buttonId).toContain('w-full');
