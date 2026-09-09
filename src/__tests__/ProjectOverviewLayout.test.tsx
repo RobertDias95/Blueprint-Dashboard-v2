@@ -206,20 +206,40 @@ describe('fix-285 the team cards stack', () => {
   // ★ fix-479 §A (P-132): fix-285's subject was "Internal and External STACK
   //   vertically now, rather than sitting side by side in a 2-col grid" —
   //   External is gone (Bobby, 2026-09-02) and the STACK is what fix-285 won.
-  //   Asserted of the pair that remains in that position: Internal above Chat.
-  it('renders Internal above Chat, vertically', () => {
+  //
+  // ★★★ fix-507 §C SUPERSEDES THE SIBLING HALF, AND STATES WHY RATHER THAN
+  //     DELETING IT. fix-285's complaint was that Internal and External *each
+  //     got half of a narrow column*, so their selects were squeezed. Chat is
+  //     not that pair: it is a PREVIEW beside a roster, in a card that had to
+  //     stop being the tallest in the row (P-176/P-177), and the mock has drawn
+  //     it in the top-right block since v14. So the assertion moves from
+  //     "same parent, stacked" to the two claims that are still load-bearing —
+  //     Internal comes FIRST in reading order, and Builder/Owner and Internal
+  //     are still stacked with each other, which is the squeeze fix-285 was
+  //     actually about.
+  it('renders Internal before Chat, and stacks it with Builder/Owner', () => {
     renderHeader();
+    const builder = screen.getByTestId('project-overview-team-builder');
     const internal = screen.getByTestId('project-overview-team-internal');
     const chat = screen.getByTestId('project-overview-team-chat');
     expect(internal).toBeInTheDocument();
     expect(chat).toBeInTheDocument();
-    // Following-sibling relationship: stacked, not side by side.
+    // Reading order: Internal first, Chat after.
     expect(
       internal.compareDocumentPosition(chat)
       & Node.DOCUMENT_POSITION_FOLLOWING,
     ).toBeTruthy();
-    expect(internal.parentElement).toBe(chat.parentElement);
-    expect(internal.parentElement?.className).toContain('flex-col');
+    // ★ The stack fix-285 won, still stacked: Builder/Owner over Internal, in
+    //   one flex column.
+    expect(internal.parentElement).toBe(builder.parentElement);
+    expect(internal.parentElement?.getAttribute('data-testid')).toBe(
+      'pd-team-grid-col1',
+    );
+    // ★ …and Chat is in the OTHER cell, which is the change, asserted rather
+    //   than left to be inferred from the absence of the old assertion.
+    expect(chat.parentElement?.getAttribute('data-testid')).toBe(
+      'pd-team-grid-chat',
+    );
   });
 
   it('is one column of the outer grid', () => {

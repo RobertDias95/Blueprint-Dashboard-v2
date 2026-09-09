@@ -2,7 +2,11 @@ import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { renderProjectData } from '../test/renderProjectData';
 import {
   DATES_CARD_MIN_WIDTH,
+  PROJECT_CARD_CLASS,
   SITE_DATA_MIN_WIDTH,
+  SITE_DATES_PAIR_CLASS,
+  SITE_DATES_RESPONSIVE_CSS,
+  SITE_DATES_SIDE_BY_SIDE_CARD_MIN,
 } from '../lib/projectCardLayout';
 import { render, screen, within, cleanup } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
@@ -169,19 +173,41 @@ describe('fix-290 → fix-506: the Site block, and where its editors went', () =
   // ★★ THE FIELDS ARE ALL STILL HERE — as text on the overview, as the same
   //    controls in the modal's Site data tab. Both are asserted.
 
-  it('★★★ Site data and Dates are a WRAPPING pair, so neither is squeezed', () => {
+  it('★★★ SUPERSEDED: the pair is a two-column GRID with a declared breakpoint', () => {
+    // ★★★ fix-506 MADE IT A `flex-wrap` PAIR — side by side wherever it fits,
+    //     stacked where it does not — and the reasoning was sound. What killed
+    //     it is that the "wherever it fits" branch NEVER FIRED: measured in
+    //     Chrome on the shipped app, the Project card's body is 406px at 1920
+    //     against the 475 the pair needs, so every real machine got the
+    //     fallback. That is P-174, and Bobby's ruling 1 closes it — *"Site data
+    //     sits beside Dates on every machine."*
+    //
+    // ★★ SO THE ARRANGEMENT IS THE MOCK'S `.pstrip` NOW, and the fallback is a
+    //    CONTAINER QUERY on the card rather than an accident of wrapping. The
+    //    tracks carry the two boxes' own floors, which is what fix-506's flex
+    //    bases were for — the property survives the mechanism.
     renderHeader();
     const card = screen.getByTestId('pd-project-card');
     const pair = within(card).getByTestId('pd-site-dates-pair');
     const site = within(card).getByTestId('pd-site-dates-site');
     const dates = within(card).getByTestId('pd-site-dates-dates');
-    expect(pair.className).toContain('flex-wrap');
+    expect(pair.className).toContain(SITE_DATES_PAIR_CLASS);
+    expect(pair.className).not.toContain('flex-wrap');
     expect(site.parentElement).toBe(dates.parentElement);
-    // ★ Each declares a BASIS, which is what makes the wrap a floor rather
-    //   than a squeeze — fix-290's failure mode was a `1fr` that could shrink
-    //   to nothing.
-    expect(site.style.flex).toContain(`${SITE_DATA_MIN_WIDTH}px`);
-    expect(dates.style.flex).toContain(`${DATES_CARD_MIN_WIDTH}px`);
+    // ★ The floors are in the STYLESHEET now, generated from the same
+    //   constants — a `?raw` CSS import reads empty under vitest (fix-406), so
+    //   the rule is built in TS and read here from the same source the browser
+    //   gets.
+    expect(SITE_DATES_RESPONSIVE_CSS).toContain(
+      `minmax(${SITE_DATA_MIN_WIDTH}px,1fr) minmax(${DATES_CARD_MIN_WIDTH}px,1.25fr)`,
+    );
+    expect(SITE_DATES_RESPONSIVE_CSS).toContain(
+      `(min-width:${SITE_DATES_SIDE_BY_SIDE_CARD_MIN}px)`,
+    );
+    // ★★ …and the CARD carries the containment context the query needs. Without
+    //    it the rule matches nothing and the pair silently stacks for ever,
+    //    which is exactly the state this ticket exists to end.
+    expect(card.className).toContain(PROJECT_CARD_CLASS);
   });
 
   it('★★★ SUPERSEDED: there is no Proposal section, and its content moved', () => {
@@ -359,11 +385,17 @@ describe('fix-290 a third section costs nothing', () => {
     //   are asserted so the pair is not the only thing keeping this honest.
     renderHeader();
     const team = screen.getByTestId('project-overview-team');
+    // ★★★ fix-507 §C: Chat moved into the grid's second cell, so it is no
+    //     longer Internal's SIBLING. The claim this test is really making —
+    //     every block in the card is the same species, drawn by one component —
+    //     is asserted where it still holds (the className parity, which is the
+    //     half that would actually catch a card growing its own box) and the
+    //     sibling half is asserted of Builder/Owner and Internal, which are
+    //     still stacked in column 1.
     const internal = within(team).getByTestId('project-overview-team-internal');
     const builder = within(team).getByTestId('project-overview-team-builder');
     const chat = within(team).getByTestId('project-overview-team-chat');
     expect(internal.parentElement).toBe(builder.parentElement);
-    expect(internal.parentElement).toBe(chat.parentElement);
     expect(internal.className).toBe(builder.className);
     expect(internal.className).toBe(chat.className);
   });

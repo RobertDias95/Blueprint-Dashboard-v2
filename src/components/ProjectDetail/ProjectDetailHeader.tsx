@@ -37,6 +37,18 @@ import {
 import { OverviewAction, OverviewCard, OverviewSection } from './OverviewCard';
 // ★ fix-506 §B/§C/§D: the read-only interior of the Project card.
 import { SiteAndDates, UnitsMatrix } from './ProjectOverviewBoxes';
+// ★ fix-507 §B/§C: the pair's declared breakpoint, and the Team card's grid.
+import {
+  PROJECT_CARD_CLASS,
+  SITE_DATES_RESPONSIVE_CSS,
+} from '../../lib/projectCardLayout';
+import {
+  TEAM_CARD_CLASS,
+  TEAM_GRID_CHAT_CLASS,
+  TEAM_GRID_CLASS,
+  TEAM_GRID_COLUMN_1_CLASS,
+  TEAM_GRID_CSS,
+} from '../../lib/teamCardLayout';
 import { parseUnitTypes } from '../../lib/unitTypeNaming';
 // ★ fix-506 §F: the pills the Consultants CARD used to hold, now a band
 //   across the foot of Team.
@@ -102,6 +114,13 @@ export default function ProjectDetailHeader({
           CSS import reads EMPTY under vitest (fix-406) and these are exactly
           the numbers that must not drift unasserted. */}
       <style data-testid="pd-overview-row-css">{OVERVIEW_ROW_RESPONSIVE_CSS}</style>
+      {/* ★★★ fix-507 §B/§C — the Site/Dates pair's declared breakpoint and the
+          Team card's three-column grid, generated from their own modules for
+          the same reason as the band above: a `?raw` CSS import is EMPTY under
+          vitest (fix-406), and both of these carry numbers a test has to be
+          able to read. */}
+      <style data-testid="pd-site-dates-css">{SITE_DATES_RESPONSIVE_CSS}</style>
+      <style data-testid="pd-team-grid-css">{TEAM_GRID_CSS}</style>
       {/* fix-285: five columns, two rows. The Design Plan of Record card takes
           the slot between Team and Builder/Owner.
 
@@ -348,28 +367,43 @@ function BuilderOwnerDisclosure({ project }: { project: Project }) {
         ref={btnRef}
         onClick={() => setOpen((v) => !v)}
         aria-expanded={open}
-        className="w-full text-left rounded border px-2 py-1"
+        aria-label={`${open ? 'Collapse' : 'Expand'} builder and owner details`}
+        className="w-full text-left rounded border px-2 py-1 pb-3 relative"
         style={{
           borderColor: 'var(--color-border)',
           background: 'var(--color-s2)',
         }}
         data-testid="pd-builder-disclose"
       >
-        <span
-          className="block text-[9px] font-bold"
-          style={{ color: 'var(--color-muted)' }}
-        >
-          {open ? 'Collapse ⌃' : 'Expand ⌄'}
-        </span>
-        {/* ★ Owner and Business, and nothing else — the two an Acquisitions
-            reader wants before they open anything. An unset one renders the
-            card's normal em dash rather than a blank, so "not recorded" and
-            "still loading" cannot look the same. */}
+        {/* ★★★ fix-507 §C — THE NAME IS THE HEADING AND THE COMPANY IS THE
+            SUBHEADING, and the word `Expand` is gone from the face.
+
+            Bobby: *"their name and then their company name, kind of like in
+            these heading, subheading fonts"*, and the mock's `.bo .car` puts a
+            bare caret in the corner. fix-475 led with a `Expand ⌄` label above
+            the name, which spent the block's strongest line on the CONTROL
+            rather than on the person — in a 142px column that is the whole
+            first line gone.
+
+            ★ The word survives where it is actually needed: `aria-label` still
+              says "Expand builder and owner details", so nothing was taken away
+              from a screen reader — only from the two-line block a reader is
+              scanning for a name. `aria-expanded` is unchanged. */}
         <span className="block text-[11.5px] font-semibold truncate" style={{ color: 'var(--color-text)' }}>
           {owner || '—'}
         </span>
+        {/* ★ An unset one renders the card's normal em dash rather than a
+            blank, so "not recorded" and "still loading" cannot look the same. */}
         <span className="block text-[10.5px] truncate" style={{ color: 'var(--color-muted)' }}>
           {business || '—'}
+        </span>
+        <span
+          className="absolute right-1.5 bottom-0.5 text-[10px] leading-none"
+          style={{ color: 'var(--color-muted)' }}
+          aria-hidden="true"
+          data-testid="pd-builder-caret"
+        >
+          {open ? '⌃' : '⌄'}
         </span>
       </button>
       {open && (
@@ -557,7 +591,13 @@ function ProjectCell({
     )?.start_week ?? null;
 
   return (
-    <OverviewCard title="Project" testId="pd-project-card">
+    // ★★★ fix-507 §B: the card carries the containment context the Site/Dates
+    //     pair's breakpoint queries. `container-type: inline-size` contains the
+    //     INLINE axis only, so the card's height distribution (fix-331 §1) and
+    //     its `h-full` stretch (fix-309 #55) are untouched — and its width has
+    //     never come from its contents anyway, because the row's tracks are
+    //     `minmax(<px>, <fr>)` (fix-417).
+    <OverviewCard title="Project" testId="pd-project-card" className={PROJECT_CARD_CLASS}>
       <SiteAndDates
         project={project}
         bp={bp}
@@ -754,7 +794,36 @@ function TeamCell({
   // frame instead of three — and Consultants can be added as a third section
   // without touching anything here but the JSX.
   return (
-    <OverviewCard title="Team" testId="project-overview-team">
+    <OverviewCard title="Team" testId="project-overview-team" className={TEAM_CARD_CLASS}>
+      {/* ★★★ fix-507 §C (P-176) — BUILDER/OWNER AND INTERNAL RUN DOWN COLUMN 1,
+          CHAT TAKES THE BLOCK TO THEIR RIGHT.
+
+          This is fix-506's stated deviation #1 coming home, and it is the
+          single largest lever on §D: Team is the TALLEST card in the row on
+          both measurement projects (773 / 721 at 1920), and Chat stacked
+          underneath costs its full height where beside costs nothing.
+
+          ★★★ WHAT fix-345 §3 AND fix-331 §1 DO UNDER THIS GRID is answered in
+              full in lib/teamCardLayout — the short version is that the Chat
+              BUTTON's section is still a direct `pinBottom` child of the card
+              (fix-345 untouched), and the grid is itself a GROWING child, so
+              fix-331's distribution still happens, over two children instead of
+              four, with the grid passing its share to the Internal row exactly
+              as the mock's `grid-template-rows:auto 1fr` draws it. The fix-418
+              trap is a wrapper that swallows the growth; this one declares it.
+      */}
+      {/* ★ `flexGrow`/`flexShrink` INLINE as well as in the stylesheet, and
+          deliberately: they are fix-331 §1's contract, three suites read a
+          section's growth off `style.flexGrow`, and a value that lives only in
+          a `<style>` tag is invisible to `element.style` — which is how a
+          wrapper stops participating in the distribution without anything
+          failing (the fix-418 trap). Same value, one source, two readers. */}
+      <div
+        className={TEAM_GRID_CLASS}
+        style={{ flexGrow: 1, flexShrink: 0, minWidth: 0 }}
+        data-testid="pd-team-grid"
+      >
+      <div className={TEAM_GRID_COLUMN_1_CLASS} data-testid="pd-team-grid-col1">
       {/* ★★★ fix-475 (P-116) — BUILDER/OWNER IS TEAM'S TOP SECTION NOW.
           Bobby: *"Owner + Business visible, click to expand to the full card."*
           Its own column became Consultants; the content did not go anywhere.
@@ -895,12 +964,33 @@ function TeamCell({
           asserted by a test that looks for a second bordered container and
           finds none. Moving the section did not move that.
 
-          ★ THE SECTION COUNT IS STILL FOUR, so fix-345 §3's pinning is
-          untouched: the button section still takes no share of the spare height
-          and still lands on the same baseline as Milestones' and Project's. */}
+          ★ fix-507 §C SUPERSEDES THE POSITION, NOT THE REASONING. Bobby has
+          asked for the mock's own arrangement — Chat beside Builder/Owner and
+          Internal rather than under them — because Team is the card setting the
+          row's height and a stacked preview costs its full height. fix-346's
+          rule that there is ONE way into the chat is untouched: the pinned
+          button below is still the only opener, and it is still `pinBottom`, so
+          fix-345 §3's baseline holds. */}
+      </div>
+      {/* ★★★ fix-507 §C — CHAT GOES BACK TO THE TOP RIGHT, which is where the
+          v14 mock has always drawn it (`.chatcell{grid-column:2/4;grid-row:
+          1/3}`). fix-346 §1 moved the preview DOWN so it sat directly above the
+          button that opens it, and that reasoning is superseded rather than
+          wrong: the button is still the only way in and is still pinned to the
+          card's floor, but the preview now sits beside the two blocks it used
+          to sit under, where it costs the card no height at all.
+
+          ★ Its content, its posts, its reply counts and its mention tint are
+            untouched, and it is still an <OverviewSection> and nothing else —
+            fix-331's complaint, that chat must read as a section of Team rather
+            than a widget parked inside one, is exactly as true in a cell as it
+            was in a stack. */}
+      <div className={TEAM_GRID_CHAT_CLASS} data-testid="pd-team-grid-chat">
       <OverviewSection title="Chat" testId="project-overview-team-chat">
         <ProjectChatSection projectId={project.id} />
       </OverviewSection>
+      </div>
+      </div>
 
       {/* ===================================================================
           ★★★ fix-506 §F (P-139) — THE CONSULTANT BAND, ACROSS THE CARD
@@ -912,21 +1002,12 @@ function TeamCell({
           the bottom row (5 goes 3+2, 7 goes 4+3) — all live in
           `ConsultantBand` and `consultantRowSplit`.
 
-          ★★★ ONE DEVIATION FROM THE MOCK, STATED. v14 draws Builder/Owner and
-              Internal on the LEFT with Chat top-right, in a three-column
-              `tgrid`, and this card keeps its existing stacked sections with
-              the band underneath. The band — the part every ruled requirement
-              is about — is exactly as drawn.
-
-              The reshuffle is not: `OverviewCard` distributes spare height
-              across its DIRECT `OverviewSection` children (fix-331 §1) and
-              fix-345 §3 pins the Chat button to the card's floor by counting
-              them. Wrapping three of them in a two-column container is
-              precisely the change fix-418 made inside the PROJECT card, where
-              it silently swallowed that distribution and two MilestonesCard
-              tests caught it. Trading two shipped layout contracts for a
-              column arrangement is a bad trade to make unasked, so it is
-              flagged in the PR instead of taken. */}
+          ★★★ fix-506's DEVIATION #1 IS CLOSED — see the three-column grid
+              above. That ticket kept the stacked sections and flagged the
+              reshuffle rather than taking it unasked; fix-507 §C takes it, with
+              the answer to fix-506's own question (what fix-345 and fix-331 do
+              underneath) written out in lib/teamCardLayout rather than assumed.
+              The band itself is unchanged — it was already exactly as drawn. */}
       <OverviewSection title="Consultants" testId="project-overview-team-consultants">
         <ConsultantBand projectId={project.id} bp={bp} />
       </OverviewSection>

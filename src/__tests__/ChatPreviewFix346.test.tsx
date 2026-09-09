@@ -213,9 +213,21 @@ function renderHeader(project = projectFixture(), permits = [bpFixture()]) {
   );
 }
 
+/**
+ * ★★★ fix-507 §C — THE QUERY IS `section[data-testid]`, NOT `:scope > section`.
+ *
+ * Builder/Owner, Internal and Chat are inside the three-column grid now, so a
+ * direct-child query sees two of the five and this suite's whole subject
+ * disappears. The claim fix-346 makes is about READING ORDER, and document
+ * order is what carries it — so the query is widened rather than the assertion
+ * weakened, which is the same correction fix-423 made to `areaOrder()` and
+ * fix-418 to `topLevelSections()`.
+ */
 function teamSectionIds(): (string | undefined)[] {
   return Array.from(
-    screen.getByTestId('project-overview-team').querySelectorAll(':scope > section'),
+    screen
+      .getByTestId('project-overview-team')
+      .querySelectorAll('section[data-testid]'),
   ).map((s) => (s as HTMLElement).dataset.testid);
 }
 
@@ -248,6 +260,13 @@ describe('fix-346 §1: the Team card reads Internal, Chat, button (fix-479: no E
     //   is still the ONLY record of 53 projects' consultant firms — Bobby
     //   ruled 2026-09-01 NOT to seed the new tables from it. Removing the
     //   editor would make that data unreachable with nothing replacing it.
+    //
+    // ★★★ AMENDED AGAIN BY fix-507 §C (P-176): CHAT MOVED SIDEWAYS, NOT UP OR
+    //     DOWN. Builder/Owner and Internal run down column 1 and Chat takes the
+    //     block to their right, which is what the v14 mock has always drawn.
+    //     In DOCUMENT order — which is what a screen reader and this assertion
+    //     both read — the list is unchanged, because column 1 is one element
+    //     and the chat cell follows it.
     renderHeader();
     expect(teamSectionIds()).toEqual([
       'project-overview-team-builder',
@@ -259,6 +278,26 @@ describe('fix-346 §1: the Team card reads Internal, Chat, button (fix-479: no E
       'project-overview-team-consultants',
       'pd-chat-section',
     ]);
+  });
+
+  // ★★★ fix-507 §C — AND THE ARRANGEMENT, asserted as PARENTAGE rather than
+  //     presence. fix-422's rule: presence proves nothing, parentage does. This
+  //     is the assertion that fails if somebody flattens the grid back.
+  it('★★★ Chat is in the grid’s second cell, beside Builder/Owner and Internal', () => {
+    renderHeader();
+    const builder = screen.getByTestId('project-overview-team-builder');
+    const internal = screen.getByTestId('project-overview-team-internal');
+    const chat = screen.getByTestId('project-overview-team-chat');
+    const col1 = screen.getByTestId('pd-team-grid-col1');
+    const chatCell = screen.getByTestId('pd-team-grid-chat');
+    expect(builder.parentElement).toBe(col1);
+    expect(internal.parentElement).toBe(col1);
+    expect(chat.parentElement).toBe(chatCell);
+    // ★ Both cells are children of the ONE grid, so the two columns cannot
+    //   drift into two different containers.
+    const grid = screen.getByTestId('pd-team-grid');
+    expect(col1.parentElement).toBe(grid);
+    expect(chatCell.parentElement).toBe(grid);
   });
 
   // ★ fix-479 §A (P-132): "below External" was half of this claim and External
@@ -443,22 +482,38 @@ describe('fix-346 §1: fix-345 §3 survives the move', () => {
   // was never the property. fix-345 §3's rule is about the PINNED section
   // taking no share of the spare height, so all three cards' actions land on
   // one baseline; that holds whatever is above it.
-  it('★★ four sections, three of which share the spare height', () => {
+  it('★★ five sections, and exactly one is pinned to the card’s floor', () => {
     renderHeader();
     // ★ fix-479 §A: 5 → 4, External left the card (Bobby, 2026-09-02).
     //   fix-506 §F: 4 → 5, the consultant band joined it.
     expect(teamSectionIds()).toHaveLength(5);
-    const distributed = (
-      Array.from(
-        screen.getByTestId('project-overview-team').querySelectorAll(':scope > section'),
-      ) as HTMLElement[]
-    ).filter((s) => s.dataset.pinBottom !== 'true');
-    // ★ The PROPERTY, asserted rather than the arithmetic: EXACTLY ONE section
-    //   is pinned and every other one grows. That is what makes the baseline
-    //   hold, and it is what would actually break.
-    expect(distributed).toHaveLength(teamSectionIds().length - 1);
-    expect(distributed).toHaveLength(4);
-    for (const s of distributed) expect(s.style.flexGrow).toBe('1');
+    const sections = Array.from(
+      screen
+        .getByTestId('project-overview-team')
+        .querySelectorAll('section[data-testid]'),
+    ) as HTMLElement[];
+    const pinned = sections.filter((s) => s.dataset.pinBottom === 'true');
+    // ★ THE PROPERTY, not the arithmetic: EXACTLY ONE section is pinned, and it
+    //   is the last one. That is fix-345 §3's whole contract and it is what
+    //   would actually break.
+    expect(pinned).toHaveLength(1);
+    expect(pinned[0].dataset.testid).toBe('pd-chat-section');
+    expect(sections[sections.length - 1]).toBe(pinned[0]);
+    // ★★★ fix-507 §C — AND THE DISTRIBUTION NOW RUNS OVER THE CARD'S TWO
+    //     GROWING CHILDREN: the three-column grid and the consultant band.
+    //     fix-331 §1 said the spare height splits EVENLY BETWEEN SECTIONS; it
+    //     still does, over the children the card actually has. The trap
+    //     fix-418 sprang is a wrapper that takes no share and swallows the
+    //     growth — this asserts the grid is a growing participant, which is the
+    //     thing that would silently regress.
+    const card = screen.getByTestId('project-overview-team');
+    const growers = (Array.from(card.children) as HTMLElement[]).filter(
+      (c) => c.style.flexGrow === '1',
+    );
+    expect(growers.map((g) => g.dataset.testid)).toEqual([
+      'pd-team-grid',
+      'project-overview-team-consultants',
+    ]);
   });
 
   it('★ all three cards still end with their action, on the same geometry', () => {

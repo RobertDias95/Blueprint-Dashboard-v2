@@ -29,11 +29,7 @@ import {
   overviewWrapViewport,
   resolveOverviewWidths,
 } from '../lib/overviewCardLayout';
-import {
-  UNIT_MATRIX_LABEL_COL,
-  UNIT_MATRIX_TRANSPOSED_WIDTH,
-  UNIT_MATRIX_TYPE_COL,
-} from '../lib/projectCardLayout';
+import { UNIT_MATRIX_TRANSPOSED_WIDTH } from '../lib/projectCardLayout';
 import { renderProjectData } from '../test/renderProjectData';
 
 // ===========================================================================
@@ -324,17 +320,32 @@ describe('fix-423 §A → fix-506 §A: the Milestones floor, and the card that h
     //     466 / 412 / 452 at 1920, within 5px of the v14 mock's own
     //     `470px 1.05fr 1.15fr` — which is the check that actually matters,
     //     because it is the drawing this row is supposed to reproduce.
+    // ★★★ fix-507 §A/§B MOVE THE THREE NUMBERS AGAIN, and the mock comparison
+    //     retires with them rather than being quietly re-baselined. The v14
+    //     drawing's 470 was a PoR column on a 188px rail with no Site/Dates
+    //     requirement of its own; Bobby's 2026-09-09 rulings add one (the pair
+    //     side by side, on every machine) and it is Project that has to be wide
+    //     enough for it. The row now resolves **485 / 478 / 403** at 1920 —
+    //     confirmed in Chrome, not computed — and PoR is still the widest,
+    //     which is the part of the mock that was ever a rule.
     const w = resolveOverviewWidths(overviewRowWidthAt(1920));
-    [466, 412, 452].forEach((expected, i) => {
+    [485, 478, 403].forEach((expected, i) => {
       expect(Math.abs(w[i] - expected), OVERVIEW_CARD_COLUMNS[i].key).toBeLessThanOrEqual(1);
     });
     // ★★ AND FREEZING IS STILL ITERATIVE, which is the property the old
     //    assertion was really pinning. At 1600 `por` freezes on its floor,
     //    which lifts everyone else's share, which is what then pushes `proj`
     //    under ITS floor — two freezes from one pass.
+    // ★★ fix-507 §A: at 1600 the row is 1065 (was 1015), and the shares now
+    //    clear every floor — PoR 371, Project 366, Team 308 — so nothing
+    //    freezes there any more. The ITERATIVE property is still what this test
+    //    is about, so it is asserted where it still bites: at 1280, where the
+    //    row is under its own minimum and every track sits on its floor.
     const at1600 = resolveOverviewWidths(overviewRowWidthAt(1600));
-    expect(at1600[0]).toBe(col('por').minPx);
-    expect(at1600[1]).toBe(col('proj').minPx);
+    expect(at1600.map((n) => Math.round(n))).toEqual([371, 366, 308]);
+    const at1280 = resolveOverviewWidths(overviewRowWidthAt(1280));
+    expect(at1280[0]).toBe(col('por').minPx);
+    expect(at1280[1]).toBe(col('proj').minPx);
     // And the widths always fill the row exactly.
     const row = overviewRowWidthAt(1920);
     const sum = resolveOverviewWidths(row).reduce((a, b) => a + b, 0);
@@ -462,8 +473,11 @@ describe('fix-423 §D: two lines below the wrap point, and nothing scrolls', () 
     // ★★★ 1742 → 1474 EXPANDED. This is the number the fix-506 brief cared
     //     about: 1600 is now 126px clear of the threshold instead of 142 short
     //     of it, so the overview runs on ONE line at the width Bobby works at.
-    expect(overviewWrapViewport('expanded')).toBe(1474);
-    expect(overviewWrapViewport('collapsed')).toBe(1318);
+    // ★★★ fix-507 §A: 1474 → 1439. The floors did not move; the CHROME did —
+    //     the permits rail gave up 50px and STEP 0 charged the row 15px for the
+    //     pillbox scrollbar nobody had counted.
+    expect(overviewWrapViewport('expanded')).toBe(1439);
+    expect(overviewWrapViewport('collapsed')).toBe(1283);
   });
 
   it('★★★ BOTH lines fit at 1280 — which is the whole reason team.minPx stayed 160', () => {
@@ -529,7 +543,11 @@ describe('fix-423 §D: two lines below the wrap point, and nothing scrolls', () 
     expect(overviewLineOf('team', overviewRowWidthAt(1920))).toBe(0);
     // ★ 1600 is ONE line now, which it was not before fix-506 §A.
     expect(overviewLineOf('team', overviewRowWidthAt(1600))).toBe(0);
-    for (const viewport of [1440]) {
+    // ★★ fix-507 §A: 1440 is ONE line now too, by a single pixel (905 of row
+    //    against a 904 minimum). The wrapped band is asserted at 1280, which is
+    //    where it actually renders.
+    expect(overviewLineOf('team', overviewRowWidthAt(1440))).toBe(0);
+    for (const viewport of [1280]) {
       const row = overviewRowWidthAt(viewport);
       expect(['por', 'proj'].map((k) => overviewLineOf(k, row))).toEqual([1, 1]);
       expect(['team'].map((k) => overviewLineOf(k, row))).toEqual([2]);
@@ -631,10 +649,22 @@ describe('fix-423 §E: the guards', () => {
     //   never sit over the wrong control. fix-506 §D transposed it, and the
     //   rule survived the rotation — the type columns and the attribute column
     //   are one `gridTemplateColumns`.
+    // ★★★ fix-507 §E TURNED THE GRID INTO A `table` (P-175), so "one
+    //     declaration" is now one header row over one column set —
+    //     `table-layout: fixed` with a 19% corner, which is what makes the
+    //     matrix FILL its box at any unit count instead of drawing a 152px
+    //     strip inside a 400px card. fix-412's rule survives the change of
+    //     element: a header can never sit over the wrong control, because the
+    //     header row and every value row are generated from the same list, in
+    //     the same table, with the same column count.
     renderHeader();
     const grid = screen.getByTestId('pd-units-matrix-grid');
-    expect(grid.style.gridTemplateColumns).toContain(`${UNIT_MATRIX_LABEL_COL}px`);
-    expect(grid.style.gridTemplateColumns).toContain(`${UNIT_MATRIX_TYPE_COL}px`);
+    expect(grid.tagName).toBe('TABLE');
+    expect(grid.style.tableLayout).toBe('fixed');
+    expect(grid.style.width).toBe('100%');
+    const headers = Array.from(grid.querySelectorAll('thead th'));
+    const firstRow = Array.from(grid.querySelectorAll('tbody tr'))[0];
+    expect(headers.length).toBe(firstRow.children.length);
   });
 
   it('★ roles are still read the way they were — this is layout only', () => {

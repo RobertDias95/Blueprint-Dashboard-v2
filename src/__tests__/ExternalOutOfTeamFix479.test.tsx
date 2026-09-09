@@ -204,8 +204,14 @@ describe('fix-479 §A: External has left the Team card', () => {
     // ★ Asserted as an ORDERED LIST, not as "External is absent" — four presence
     //   checks would pass on a card that had grown a fifth section back.
     renderHeader();
+    // ★★★ fix-507 §C: the query is `section[data-testid]` in DOCUMENT order,
+    //     not `:scope > section` — Builder/Owner, Internal and Chat live inside
+    //     the three-column grid now. The READING ORDER is what this asserts and
+    //     it is unchanged; the direct-child query would see two of the five.
     const ids = Array.from(
-      screen.getByTestId('project-overview-team').querySelectorAll(':scope > section'),
+      screen
+        .getByTestId('project-overview-team')
+        .querySelectorAll('section[data-testid]'),
     ).map((s) => (s as HTMLElement).dataset.testid);
     expect(ids).toEqual([
       'project-overview-team-builder',

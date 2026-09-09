@@ -120,12 +120,15 @@ describe('fix-453 — the overview height ceiling, pinned', () => {
     expect(MILESTONE_ROW_MIN_WIDTH * 2 + OVERVIEW_GRID_GAP).toBe(410);
   });
 
-  it('a 1440px viewport STILL wraps, and 1600 no longer does', () => {
-    // ★ 1440 remains a wrapped row — 870px against a 904px minimum — so the
-    //   "line 1 / line 2" halves of fix-453's measurement table still describe
-    //   something real. What changed is the row BELOW it: 1600 was wrapped
-    //   before fix-506 and is not now.
-    expect(overviewRowWidthAt(1440)).toBeLessThan(OVERVIEW_ROW_MIN_WIDTH);
+  it('★★★ 1280 is the last wrapped viewport now — 1440 fits, by one pixel', () => {
+    // ★ fix-506 left 1440 wrapped (870 against a 904 minimum) and 1600 not.
+    //   fix-507 §A moves the LINE, not the floors: the permits rail gives back
+    //   50px and STEP 0 charges the row 15 for the pillbox scrollbar it had
+    //   never counted, so every viewport gains 35 and 1440 lands on 905 against
+    //   904. The "line 1 / line 2" halves of fix-453's table now describe 1280.
+    expect(overviewRowWidthAt(1280)).toBeLessThan(OVERVIEW_ROW_MIN_WIDTH);
+    expect(overviewRowWidthAt(1440)).toBe(905);
+    expect(overviewRowWidthAt(1440)).toBeGreaterThan(OVERVIEW_ROW_MIN_WIDTH);
     expect(overviewRowWidthAt(1600)).toBeGreaterThan(OVERVIEW_ROW_MIN_WIDTH);
     expect(overviewRowWidthAt(1920)).toBeGreaterThan(OVERVIEW_ROW_MIN_WIDTH);
   });
