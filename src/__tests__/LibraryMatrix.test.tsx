@@ -1,4 +1,7 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
+import librarySource from '../components/LibraryMatrix.tsx?raw';
+import { projectDataHref } from '../lib/projectDataTabs';
+import { NOT_RECORDED } from '../lib/unitParking';
 import { render, screen, fireEvent } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
@@ -433,24 +436,16 @@ describe('<LibraryMatrix />', () => {
     goUnitView();
     const miniTable = screen.getByTestId('library-table-unit');
     expect(miniTable).toBeInTheDocument();
-    // ★★★ fix-449 §C: project a is single-type (SFR) and its rows carry
-    //     legacy "Cottage N" labels. fix-212 displayed "SFR" over them; the
-    //     ruling is that the stored value is shown, and marked.
-    expect(
-      (screen.getByTestId('library-unit-a-0-label') as HTMLSelectElement).value,
-    ).toBe('Cottage 1');
-    expect(
-      (screen.getByTestId('library-unit-a-0-w') as HTMLInputElement).value,
-    ).toBe('25');
-    expect(
-      (screen.getByTestId('library-unit-a-0-d') as HTMLInputElement).value,
-    ).toBe('60');
-    expect(
-      (screen.getByTestId('library-unit-a-1-label') as HTMLSelectElement).value,
-    ).toBe('Cottage 2');
-    expect(
-      (screen.getByTestId('library-unit-a-2-label') as HTMLSelectElement).value,
-    ).toBe('Cottage 3');
+    // ★★★ fix-506 §H (P-167): READ-ONLY TEXT, not controls. Bobby ruled the
+    //     Library is not a write surface; the values are unchanged and so is
+    //     fix-449 §C's ruling that the STORED label is what shows — project a
+    //     is single-type (SFR) and its rows carry legacy "Cottage N" labels,
+    //     which fix-212 used to display "SFR" over.
+    expect(screen.getByTestId('library-unit-a-0-label').textContent).toBe('Cottage 1');
+    expect(screen.getByTestId('library-unit-a-0-width').textContent).toBe('25');
+    expect(screen.getByTestId('library-unit-a-0-depth').textContent).toBe('60');
+    expect(screen.getByTestId('library-unit-a-1-label').textContent).toBe('Cottage 2');
+    expect(screen.getByTestId('library-unit-a-2-label').textContent).toBe('Cottage 3');
   });
 
   it('projects with no unit_types do not render an expand caret', () => {
@@ -555,27 +550,21 @@ describe('<LibraryMatrix />', () => {
       goUnitView();
       const table = screen.getByTestId('library-table-unit');
       expect(table.textContent).toContain('Stories'); // column header
-      // Cottage rows carry stories=2 (now an editable input value).
-      expect(
-        (screen.getByTestId('library-unit-a-0-stories') as HTMLInputElement)
-          .value,
-      ).toBe('2');
+      // ★ Cottage rows carry stories=2. Printed rather than typed since
+      //   fix-506 §H; the VALUE is what this test is about and it is unchanged.
+      expect(screen.getByTestId('library-unit-a-0-stories').textContent).toBe('2');
     });
 
-    it('fix-212: a blank-label unit shows the single product type in the dropdown, never "unnamed"', () => {
+    it('fix-212 → fix-506 §H: a blank-label unit still never reads "unnamed"', () => {
       renderIt();
       goUnitView();
-      // a-3 has label '' and the project's single product type is SFR: the Label
-      // is a dropdown auto-selected to SFR; the row never renders "unnamed".
-      const labelSelect = screen.getByTestId(
-        'library-unit-a-3-label',
-      ) as HTMLSelectElement;
-      // ★ fix-449 keeps fix-212's half that is about ABSENCE: a BLANK label
-      //   still fills from the project's lone type. a-3 stores ''.
-      expect(labelSelect.value).toBe('SFR');
-      expect(
-        screen.getByTestId('library-unit-row-a-3').textContent,
-      ).not.toContain('unnamed');
+      // ★★★ fix-212's RULE, unchanged: a-3 has label '' and the project's
+      //     single product type is SFR, so the row RESOLVES to SFR rather than
+      //     printing a placeholder. `resolveUnitLabel` is what does it, on both
+      //     surfaces, and §H did not touch it — only the control around it.
+      const cell = screen.getByTestId('library-unit-a-3-label');
+      expect(cell.textContent).toContain('SFR');
+      expect(cell.textContent).not.toMatch(/unnamed/i);
     });
 
     it('Stories filter = 4+ narrows to projects with a 4+-story unit; the UNIT view highlights it', () => {
@@ -615,124 +604,86 @@ describe('<LibraryMatrix />', () => {
 
   // fix-206: the unit table is editable through the SAME useUpdateProject path
   // as Project Overview (one store → bidirectional by construction).
-  describe('fix-206: editable unit table', () => {
-    function expandA() {
+  // =========================================================================
+  // ★★★ fix-206 / fix-209 → fix-506 §H (P-167): THE LIBRARY IS NOT A WRITE
+  //     SURFACE
+  // =========================================================================
+  //
+  // Bobby, 2026-09-08: *"every inline edit in the Library becomes read-only
+  // with a one-click path to that project's Project Data."*
+  //
+  // ★★★ fix-206's ARGUMENT WAS GOOD AND IT IS NOT WHAT CHANGED. It made these
+  //     rows editable *"through the same useUpdateProject path as Project
+  //     Overview (one store)"* — the same OCC token, the same optimistic cache
+  //     patch, no second store and no sync engine. That was true right up to
+  //     the day it shipped its last edit, and it is why the Library was
+  //     defensible as a write surface for a year. What Bobby ruled is that ONE
+  //     STORE, TWO EDITORS is still two editors.
+  //
+  // ★★ THE "ONE STORE" HALF SURVIVES AND IS WHY THE LIBRARY STILL READS LIVE:
+  //    an edit in Project Data patches the projects cache optimistically, so it
+  //    reflects here immediately. Only the second editor went.
+  //
+  // ★ fix-209's Qty/Sty widths and fix-449's stored-label ruling described
+  //   CONTROLS. The values they were about are asserted above, as text.
+
+  describe('fix-506 §H: read-only, with one click out', () => {
+    it('★★★ ZERO calls to useUpdateProject from the Library, on any interaction', () => {
+      // ★★★ THE ASSERTION §H IS ACTUALLY ABOUT. STEP 0-3 enumerated the whole
+      //     surface and found exactly ONE write path — `writeUnitTypes` →
+      //     `useUpdateProject({ unit_types })` — feeding eight inputs on the
+      //     unit row. Both are gone.
       renderIt();
       goUnitView();
-    }
-
-    it('editing a unit width persists via useUpdateProject with the project OCC token + resolved rows', () => {
-      expandA();
-      const wInput = screen.getByTestId('library-unit-a-0-w') as HTMLInputElement;
-      fireEvent.change(wInput, { target: { value: '27.5' } });
-      fireEvent.blur(wInput);
-      expect(updateMutateAsync).toHaveBeenCalledTimes(1);
-      const call = updateMutateAsync.mock.calls[0][0];
-      expect(call.projectId).toBe('a');
-      expect(call.expectedUpdatedAt).toBe('2026-06-25T10:00:00Z');
-      // Decimal persists; the edited row carries the new width.
-      expect(call.patch.unit_types[0].width_ft).toBe(27.5);
-      // ★★★ fix-449: the save path no longer rewrites a stored label. This is
-      //     the path that would have written "SFR" over prod's ten
-      //     "Type A"/"Type B" rows the first time anybody typed a width.
-      expect(call.patch.unit_types[0].label).toBe('Cottage 1');
-      expect(call.patch.unit_types).toHaveLength(4);
-    });
-
-    it('editing stories persists the new stories value', () => {
-      expandA();
-      const sty = screen.getByTestId('library-unit-a-0-stories') as HTMLInputElement;
-      fireEvent.change(sty, { target: { value: '3' } });
-      fireEvent.blur(sty);
-      expect(updateMutateAsync).toHaveBeenCalledTimes(1);
-      expect(updateMutateAsync.mock.calls[0][0].patch.unit_types[0].stories).toBe(3);
-    });
-
-    it('a blank-label row saved under a single product type persists that type (no "unnamed")', () => {
-      expandA();
-      // a-3 has a blank label; editing its depth triggers a save that resolves
-      // the label to the project's single product type (SFR).
-      const dInput = screen.getByTestId('library-unit-a-3-d') as HTMLInputElement;
-      fireEvent.change(dInput, { target: { value: '52' } });
-      fireEvent.blur(dInput);
-      expect(updateMutateAsync).toHaveBeenCalledTimes(1);
-      const row = updateMutateAsync.mock.calls[0][0].patch.unit_types[3];
-      expect(row.depth_ft).toBe(52);
-      expect(row.label).toBe('SFR');
-    });
-
-    it('a no-op blur (unchanged value) does not fire a write', () => {
-      expandA();
-      const wInput = screen.getByTestId('library-unit-a-0-w') as HTMLInputElement;
-      // Blur without changing the value (still 25).
-      fireEvent.blur(wInput);
+      const row = screen.getByTestId('library-unit-row-a-0');
+      // Nothing on the row takes input any more.
+      expect(row.querySelector('input')).toBeNull();
+      expect(row.querySelector('select')).toBeNull();
+      expect(row.querySelector('textarea')).toBeNull();
+      fireEvent.click(row);
       expect(updateMutateAsync).not.toHaveBeenCalled();
     });
 
-    it('fix-212: single-product-type project renders the Label dropdown auto-selected to the type', () => {
-      // Project a has the single product type SFR → a product-type dropdown with
-      // ★ fix-449: still a SELECT (fix-232's dropdown-only rule is untouched);
-      //   what changed is that it shows the stored value rather than the type.
-      expandA();
-      const label = screen.getByTestId('library-unit-a-0-label');
-      expect(label.tagName.toLowerCase()).toBe('select');
-      expect((label as HTMLSelectElement).value).toBe('Cottage 1');
+    it('★★★ THE SOURCE SAYS SO TOO — and the grep strips comments first', () => {
+      // ★★ THE COMMENT-STRIPPING TRAP, which this repo has now met a dozen
+      //    times: `LibraryMatrix` still MENTIONS `useUpdateProject` five times,
+      //    in the notes recording why it no longer calls it. A naive grep would
+      //    read those as the thing they document.
+      const src = stripComments(librarySource);
+      expect(src).not.toContain('useUpdateProject');
+      expect(src).not.toContain('writeUnitTypes');
+      expect(src).not.toContain('resolveUnitTypesForSave');
+    });
+
+    it('★★★ every unit row carries a link to that project\'s Units tab', () => {
+      // ★ The link carries the project id AND the tab — `?data=units` — so it
+      //   opens on the editor rather than on the modal's first tab. Built from
+      //   `projectDataHref` so a renamed tab cannot leave a dead link here.
+      renderIt();
+      goUnitView();
+      const link = screen.getByTestId('library-unit-edit-a:0') as HTMLAnchorElement;
+      expect(link.getAttribute('href')).toBe(projectDataHref('a', 'units'));
+      expect(link.getAttribute('href')).toContain('/project/a');
+      expect(link.getAttribute('href')).toContain('data=units');
+      expect(link.textContent).toMatch(/Project Data/);
+    });
+
+    it('★★ the VALUES are all still there — this is a control change, not a data one', () => {
+      renderIt();
+      goUnitView();
+      expect(screen.getByTestId('library-unit-a-0-width').textContent).toBe('25');
+      expect(screen.getByTestId('library-unit-a-0-depth').textContent).toBe('60');
+      expect(screen.getByTestId('library-unit-a-0-stories').textContent).toBe('2');
+      // ★ fix-386's rule, and it mattered most here: `null` is NOT RECORDED and
+      //   prints a dash; a recorded `0` prints `0`. A Library filter reading an
+      //   unmeasured unit as zero is how somebody searching for 1,700 sf units
+      //   silently misses them.
+      expect(screen.getByTestId('library-unit-a-0-roofdeck').textContent).toBe(
+        NOT_RECORDED,
+      );
     });
   });
 
-  // fix-209: product-type-only Label dropdown + narrower Qty/Sty — mirrored
-  // exactly from Project Overview (byte-identical behavior, one store).
-  describe('fix-209: product-type-only Label + narrow Qty/Sty', () => {
-    function expandB() {
-      renderIt();
-      goUnitView();
-    }
-    function expandA() {
-      renderIt();
-      goUnitView();
-    }
-
-    it('fix-209 → fix-449: the options carry the STORED value and "Other…"', () => {
-      expandB(); // project b → product_types ['SFR', 'Duplex'], label "SFR 1"
-      const select = screen.getByTestId('library-unit-b-0-label') as HTMLSelectElement;
-      expect(select.tagName.toLowerCase()).toBe('select');
-      const opts = Array.from(select.options).map((o) => o.value);
-      // ★★ fix-415's append rule: a control must be able to display what it
-      //    holds, and "Other…" is how a new off-list value is entered on
-      //    purpose (§C1).
-      expect(opts).toEqual(['', 'SFR', 'Duplex', 'SFR 1', '__other__']);
-    });
-
-    it('fix-209 → fix-449: a non-type stored label is SELECTED and MARKED', () => {
-      expandB();
-      const select = screen.getByTestId('library-unit-b-0-label') as HTMLSelectElement;
-      expect(select.value).toBe('SFR 1');
-      expect(
-        screen.getByTestId('library-unit-b-0-offlist'),
-      ).toBeInTheDocument();
-    });
-
-    it('fix-209 → fix-449: editing a DIMENSION leaves the label alone', () => {
-      expandB();
-      const wInput = screen.getByTestId('library-unit-b-0-w') as HTMLInputElement;
-      fireEvent.change(wInput, { target: { value: '41' } });
-      fireEvent.blur(wInput);
-      expect(updateMutateAsync).toHaveBeenCalledTimes(1);
-      const row = updateMutateAsync.mock.calls[0][0].patch.unit_types[0];
-      expect(row.width_ft).toBe(41);
-      expect(row.label).toBe('SFR 1');
-    });
-
-    it('Qty + Sty use the narrow w-7 class; W/D keep w-12', () => {
-      expandA();
-      expect(screen.getByTestId('library-unit-a-0-qty').className).toContain('w-7');
-      expect(screen.getByTestId('library-unit-a-0-stories').className).toContain('w-7');
-      expect(screen.getByTestId('library-unit-a-0-w').className).toContain('w-12');
-      expect(screen.getByTestId('library-unit-a-0-w').className).not.toContain('w-7');
-    });
-  });
-
-  // fix-122: two new Library columns (Lots, Corner) + two new filters.
   describe('fix-122: Lots / Corner columns + filters', () => {
     // ★★★ fix-406 REPLACED "renders Lots column" WITH ITS OPPOSITE. Bobby,
     // 2026-08-26: *"we can remove lots from the vertical bar below for the sort
@@ -1038,18 +989,21 @@ describe('fix-447: SITE / UNIT are headings, and they switch the view', () => {
     expect(rows[0]!.getAttribute('data-testid')).toBeTruthy();
   });
 
-  it('★★★ §B6: fix-206 editing SURVIVED the caret’s removal', () => {
-    // The caret is gone, but the editor it hid was the point of fix-206. It is
-    // the unit view's row now, writing through the same untouched OCC path.
+  it('★★★ §B6 SUPERSEDED: the editor did not survive fix-506 §H, and the ROW did', () => {
+    // ★★★ fix-447 §B6 asserted that fix-206's editing survived the caret's
+    //     removal — the caret went, the editor it hid became the unit view's
+    //     own row. That was the right thing to check THEN: a refactor must not
+    //     lose a feature by accident.
+    //
+    // ★★★ fix-506 §H removes it ON PURPOSE, which is the difference. The ROW
+    //     survives — every value, every column, the same sort — and the way to
+    //     change one is a link to the project's Units tab.
     renderIt();
     goUnitView();
-    const wInput = screen.getByTestId('library-unit-a-0-w') as HTMLInputElement;
-    fireEvent.change(wInput, { target: { value: '27.5' } });
-    fireEvent.blur(wInput);
-    expect(updateMutateAsync).toHaveBeenCalledTimes(1);
-    expect(updateMutateAsync.mock.calls[0][0].expectedUpdatedAt).toBe(
-      '2026-06-25T10:00:00Z',
-    );
+    expect(screen.getByTestId('library-unit-row-a-0')).toBeInTheDocument();
+    expect(screen.getByTestId('library-unit-a-0-width').textContent).toBe('25');
+    expect(screen.getByTestId('library-unit-edit-a:0')).toBeInTheDocument();
+    expect(updateMutateAsync).not.toHaveBeenCalled();
   });
 });
 
@@ -1133,3 +1087,11 @@ describe('fix-469 §2: each filter card clears itself', () => {
     );
   });
 });
+
+/** ★ Strip comments before a source-grep: a note recording why something is
+ *  ABSENT has to name the thing. The trap this repo keeps re-learning. */
+function stripComments(src: string): string {
+  return src
+    .replace(/\/\*[\s\S]*?\*\//g, '')
+    .replace(/^([^'"`]*?)\/\/.*$/gm, '$1');
+}

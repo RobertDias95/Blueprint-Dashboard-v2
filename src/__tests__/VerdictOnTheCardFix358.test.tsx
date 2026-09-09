@@ -227,7 +227,7 @@ describe('fix-358 §2: nothing qualified is a DESIGNED state', () => {
     state.verdict = nothingQualified();
     wrap(<PlanOfRecordCard projectId="p1" />);
     await screen.findByTestId('plan-of-record-nothing-qualified');
-    expect(screen.queryByTestId('plan-of-record-copy')).toBeNull();
+    expect(screen.queryByTestId('plan-of-record-set-internal')).toBeNull();
     expect(screen.queryByTestId('plan-of-record-preview')).toBeNull();
   });
 
@@ -241,7 +241,7 @@ describe('fix-358 §2: nothing qualified is a DESIGNED state', () => {
     wrap(<PlanOfRecordCard projectId="p1" />);
     await screen.findByTestId('plan-of-record-nothing-qualified');
     expect(screen.queryByTestId('plan-of-record-preview')).toBeNull();
-    expect(screen.queryByTestId('plan-of-record-copy')).toBeNull();
+    expect(screen.queryByTestId('plan-of-record-set-internal')).toBeNull();
   });
 });
 
@@ -303,13 +303,13 @@ describe('fix-358 §1: the sentence is READ, never rebuilt', () => {
 // ---------------------------------------------------------------------------
 
 describe('fix-358 §4: a chosen set keeps fix-331 §2s face', () => {
-  it('★★ the face still has the chip, preview, enlarge and copy — and no text', async () => {
+  it('★★ the face still has the chip, preview, enlarge and the set buttons — and no text', async () => {
     state.verdict = chosenVerdict();
     state.row = fileRow({ set_type: 'design_guidance' });
     wrap(<PlanOfRecordCard projectId="p1" />);
     const card = await screen.findByTestId('plan-of-record-card');
     expect(screen.getByTestId('plan-of-record-stage-design_guidance')).toBeInTheDocument();
-    expect(screen.getByTestId('plan-of-record-copy')).toBeInTheDocument();
+    expect(screen.getByTestId('plan-of-record-set-internal')).toBeInTheDocument();
     // ★★★ AND THE SENTENCE IS NOT ON THE FACE. Every one of the 105 chosen
     // sentences ends in "showing <stage>: <file name>", so printing it here
     // would put back the file name fix-331 §2 removed at Bobby's request.
@@ -378,7 +378,7 @@ describe('fix-358 §3: staleness is visible without a hover', () => {
     state.verdict = chosenVerdict();
     state.row = fileRow({ set_type: 'design_guidance' });
     const fresh = wrap(<PlanOfRecordCard projectId="p1" />);
-    await screen.findByTestId('plan-of-record-copy');
+    await screen.findByTestId('plan-of-record-set-internal');
     // ★ A healthy card is unchanged — which is what stops the tallest card in
     // the row growing for all 157 projects (fix-331 #80).
     expect(screen.queryByTestId('plan-of-record-stale')).toBeNull();
@@ -408,7 +408,7 @@ describe('fix-358: prior contracts survive', () => {
     state.verdictLoading = true;
     state.row = fileRow();
     wrap(<PlanOfRecordCard projectId="p1" />);
-    await screen.findByTestId('plan-of-record-copy');
+    await screen.findByTestId('plan-of-record-set-internal');
     expect(screen.queryByTestId('plan-of-record-not-indexed')).toBeNull();
     expect(screen.queryByTestId('plan-of-record-nothing-qualified')).toBeNull();
   });
