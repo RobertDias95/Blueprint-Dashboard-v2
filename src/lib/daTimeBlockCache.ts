@@ -106,6 +106,44 @@ export function applyUpsertedBlock(
   );
 }
 
+// ===========================================================================
+// ★★★ fix-511 §B — THE FOURTH WRITER, AND WHY IT GETS A DIFFERENT HELPER
+// ===========================================================================
+//
+// fix-442's header says "ONE MODULE, THREE CALLERS". Prod says four.
+// `pg_proc` on 2026-09-09: exactly five functions write `da_time_blocks` —
+// `bp_upsert_da_time_block_row`, `bp_delete_da_time_block_row`,
+// `bp_resize_da_time_block`, `bp_rename_da`, and `bp_replace_da_time_blocks`
+// (no caller in `src`). The first three are the three above. **The fourth is
+// `bp_rename_da`, via `useRenameDA`, and it was the one writer that called no
+// helper here.** fix-442's own property test could not see it, because that
+// test names three source files rather than enumerating the writers — which is
+// why §B's replacement test enumerates.
+//
+// ★★★ AND IT CANNOT USE THE OTHER THREE. A rename is a BULK write: it sets
+// `da_name` on every block belonging to that DA, so `bp_set_updated_at` mints a
+// new token for every one of them at once — fix-341's diagnosed class, "a bulk
+// write bumping sibling updated_at", arriving on the table fix-341 was not
+// looking at. The RPC returns per-table COUNTS, not rows, so there is no token
+// to write back: the client genuinely does not know what the new stamps are.
+//
+// ★★ SO THE HONEST ANSWER IS TO FORGET, NOT TO PATCH. `invalidateQueries`
+// alone — which is what the hook did — leaves the old rows rendered until the
+// refetch lands, and every token on every one of them is now wrong. That is
+// fix-442's bug multiplied by the DA's whole column. `resetQueries` drops them
+// and refetches, so the grid shows one round trip of skeleton instead of a
+// screenful of rows whose tokens would each be refused. A rename is a rare
+// admin action in Settings; a moment of skeleton costs nothing and a silently
+// superseded token costs an edit.
+/**
+ * Forget every cached `da_time_blocks` list, for a write whose new tokens the
+ * client cannot know. Tenant-wide by design: `bp_rename_da` crosses whatever
+ * the caller happened to have loaded.
+ */
+export function forgetDaTimeBlocks(queryClient: QueryClient): void {
+  void queryClient.resetQueries({ queryKey: queryKeys.daTimeBlocksAll });
+}
+
 /** ★ Removed on SUCCESS only. A refused delete must leave the block on the
  *  grid — showing it gone while the database still holds it would be a worse
  *  lie than the one this ticket is fixing. */

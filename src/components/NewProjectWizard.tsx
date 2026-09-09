@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react';
-import { roundLotForStorage } from '../lib/lotDimensions';
+import { parseLotSizeSf, roundLotForStorage } from '../lib/lotDimensions';
 import { Link, useNavigate } from 'react-router-dom';
 import { useOriginState } from '../hooks/useOriginState';
 import {
@@ -322,6 +322,16 @@ export default function NewProjectWizard({ open, onClose, initialState }: Props)
       setValidationErr('Units count is required (must be greater than 0).');
       return;
     }
+    // ★★★ fix-511 §C (P-198): the third write path for `lot_size_sf`, bounded
+    //     with the same helper. It uses the step-1 banner rather than a toast
+    //     because that is how this screen already refuses a field, and it sends
+    //     the person back to the box that is wrong.
+    const lotSize = parseLotSizeSf(state.lot_size_sf);
+    if (!lotSize.ok) {
+      setStep(1);
+      setValidationErr(lotSize.message);
+      return;
+    }
 
     // ★★ fix-333: THE BACKSTOP. The as-you-type banner is the real fix, but the
     // address can be edited after it settled — including on the way back through
@@ -481,10 +491,9 @@ export default function NewProjectWizard({ open, onClose, initialState }: Props)
       lot_depth: roundLotForStorage(numOrNull(state.lot_depth)),
       // ★ fix-488 §A: an integer parse, deliberately NOT `roundLotForStorage`
       //   — square feet are not lot feet (lib/lotDimensions' header).
-      lot_size_sf: (() => {
-        const n = numOrNull(state.lot_size_sf);
-        return n != null && Number.isFinite(n) && n > 0 ? Math.round(n) : null;
-      })(),
+      // ★ fix-511 §C: parsed once in the guard above, so the check and the
+      //   value cannot disagree about what the box said.
+      lot_size_sf: lotSize.value,
       unit_types: state.unit_types.length > 0 ? state.unit_types : null,
       // ★ fix-402: site parking is gone — it lives on each unit now.
       alley: strOrNull(state.alley),

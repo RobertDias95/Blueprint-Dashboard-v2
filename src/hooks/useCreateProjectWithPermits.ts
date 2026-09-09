@@ -153,6 +153,9 @@ export function useCreateProjectWithPermits() {
   const tenantId = useAuthStore((s) => s.activeTenantId);
 
   return useMutation<CreateProjectResult, Error, CreateProjectInput>({
+    // ★ fix-511 §C: the wizard's atomic create — the third `lot_size_sf`
+    //   write path, and the one whose failure loses the most typing.
+    meta: { write: 'bp_create_project_with_permits' },
     mutationFn: async (input) => {
       if (!tenantId) {
         throw new Error('No active tenant — cannot create project');

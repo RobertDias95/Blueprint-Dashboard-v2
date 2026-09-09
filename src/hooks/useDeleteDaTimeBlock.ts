@@ -19,6 +19,8 @@ export function useDeleteDaTimeBlock() {
   const queryClient = useQueryClient();
   const tenantId = useAuthStore((s) => s.activeTenantId) ?? '';
   return useMutation<void, Error, { id: string; updated_at: string }>({
+    // ★ fix-511 §C — see useUpsertDaTimeBlock.
+    meta: { write: 'bp_delete_da_time_block_row' },
     mutationFn: async ({ id, updated_at }) => {
       const { data, error } = await supabase.rpc(
         'bp_delete_da_time_block_row',

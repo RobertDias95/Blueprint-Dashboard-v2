@@ -262,3 +262,87 @@ export function lotSizeView(
     irregular,
   };
 }
+
+// ===========================================================================
+// ★★★ fix-511 §C (P-198) — TWO UNBOUNDED INPUTS MULTIPLY INTO A BOUNDED COLUMN
+// ===========================================================================
+//
+// PROD, 2026-09-09 12:31 PT. Cam, on `10150 NE 64th St`:
+//
+//     invalid input syntax for type integer: "1.015e+68"
+//
+// His edit was lost and the sentence he read was the Postgres driver's. He
+// retried a minute later and the row took `lot_size_sf = 10500` — the app
+// recovered nothing, the user did.
+//
+// ★★★ THE MECHANISM, MEASURED, and it is an asymmetry nobody would guess:
+//
+//     projects.lot_width    numeric   no ceiling
+//     projects.lot_depth    numeric   no ceiling
+//     projects.lot_size_sf  INTEGER   2,147,483,647
+//
+// Two fields that accept anything feed a third that does not. And the shape of
+// the value says exactly how it got there: `<input type="number">` ACCEPTS
+// EXPONENT NOTATION — `1.015e+68` is a valid value for it, `Number()` parses it
+// happily, `Math.round` leaves it alone and `Number.isFinite` says yes. Every
+// guard on the old commit path passed a number 60 orders of magnitude past the
+// column. It is not a typo somebody made; it is a keystroke the browser turned
+// into scientific notation.
+//
+// ★★★ SO THE BOUND GOES AT THE FIELD, AND IT REFUSES RATHER THAN CLAMPS.
+// Clamping 1.015e+68 to 2,147,483,647 would store a number the person never
+// typed and never sees — a silent wrong answer in place of a loud right one,
+// which is [[P-192]]'s complaint about derived lot sizes arriving one ticket
+// early. The ceiling is the column's real one and the message is a person's.
+// ★ Widening the column is not the answer either: 2.1 billion sq ft is 77
+//   square miles, which is larger than Seattle.
+
+/** `projects.lot_size_sf` is `integer`. This is the ceiling, not a policy. */
+export const LOT_SIZE_SF_MAX = 2_147_483_647;
+
+/** What a rejected entry says. ★ One per REASON, because "too big" and "the
+ *  browser gave us scientific notation" need different next actions from the
+ *  person reading them. Neither of them is the driver's sentence. */
+export const LOT_SIZE_MESSAGES = {
+  exponent:
+    'Type the lot size in full — 10500, not 1.05e4. Nothing was saved.',
+  range: `Lot size can’t be more than ${LOT_SIZE_SF_MAX.toLocaleString('en-US')} sq ft (about 77 square miles). Check for an extra digit — nothing was saved.`,
+  invalid: 'Lot size must be a whole number of square feet. Nothing was saved.',
+} as const;
+
+export type LotSizeRejection = keyof typeof LOT_SIZE_MESSAGES;
+
+export type LotSizeParse =
+  | { ok: true; value: number | null }
+  | { ok: false; reason: LotSizeRejection; message: string };
+
+/**
+ * Parse what somebody typed into the lot-size box.
+ *
+ * ★ EMPTY IS `null`, NOT A REJECTION — clearing the field is how an irregular
+ *   parcel goes back to being unrecorded, and it always was.
+ * ★ ZERO AND NEGATIVES ALSO CLEAR, which is the behaviour this box already had;
+ *   §C bounds the top end, and turning a long-standing silent clear into a new
+ *   error message is a separate decision from the one this ticket was asked to
+ *   make.
+ */
+export function parseLotSizeSf(raw: string): LotSizeParse {
+  const t = raw.trim();
+  if (t === '') return { ok: true, value: null };
+  // ★★ FIRST, because `Number('1e400')` is Infinity and `Number('1e5')` is a
+  //    perfectly ordinary 100000 — the notation is the thing being refused, not
+  //    the magnitude. A person who meant 100000 should be told to type it.
+  if (/e/i.test(t)) {
+    return { ok: false, reason: 'exponent', message: LOT_SIZE_MESSAGES.exponent };
+  }
+  const n = Number(t);
+  if (!Number.isFinite(n)) {
+    return { ok: false, reason: 'invalid', message: LOT_SIZE_MESSAGES.invalid };
+  }
+  const rounded = Math.round(n);
+  if (rounded <= 0) return { ok: true, value: null };
+  if (rounded > LOT_SIZE_SF_MAX) {
+    return { ok: false, reason: 'range', message: LOT_SIZE_MESSAGES.range };
+  }
+  return { ok: true, value: rounded };
+}

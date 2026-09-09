@@ -64,6 +64,9 @@ export function useUpsertDaTimeBlock() {
   const queryClient = useQueryClient();
   const tenantId = useAuthStore((s) => s.activeTenantId) ?? '';
   return useMutation<DaTimeBlock, Error, UpsertDaTimeBlockInput>({
+    // ★ fix-511 §C: prod rows 694/695 (§B's OCC refusals) carried no name
+    //   either. Both halves of this ticket are the same missing sentence.
+    meta: { write: 'bp_upsert_da_time_block_row' },
     mutationFn: async (input) => {
       const isInsert = input.op === 'insert';
       const payload = isInsert

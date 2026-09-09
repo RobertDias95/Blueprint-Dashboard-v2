@@ -2,6 +2,7 @@ import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '../lib/supabase';
 import { queryKeys } from '../lib/queryKeys';
 import { pushToast } from '../stores/toastStore';
+import { forgetDaTimeBlocks } from '../lib/daTimeBlockCache';
 
 // Q7.3.b: bp_rename_da atomic cascade. Updates the DA name across
 // team_members + dm_da_groups + permits.da + permits.architect +
@@ -22,6 +23,8 @@ export interface RenameDAResult {
 export function useRenameDA() {
   const queryClient = useQueryClient();
   return useMutation<RenameDAResult, Error, { oldName: string; newName: string }>({
+    // ★ fix-511 §C — see useUpsertDaTimeBlock.
+    meta: { write: 'bp_rename_da' },
     mutationFn: async ({ oldName, newName }) => {
       const { data, error } = await supabase.rpc('bp_rename_da', {
         p_old: oldName,
@@ -36,7 +39,13 @@ export function useRenameDA() {
       queryClient.invalidateQueries({ queryKey: queryKeys.dmDaGroupsAll });
       queryClient.invalidateQueries({ queryKey: queryKeys.permitsAll });
       queryClient.invalidateQueries({ queryKey: queryKeys.permitTasksAll });
-      queryClient.invalidateQueries({ queryKey: queryKeys.daTimeBlocksAll });
+      // ★★★ fix-511 §B (P-067): da_time_blocks is NOT just another cascaded
+      // table here — its cached rows carry the OCC tokens the draw-schedule
+      // grid sends back. A rename mints a new `updated_at` for every block of
+      // this DA at once and returns only a count, so an invalidation leaves the
+      // grid rendering a whole column of rows whose tokens are all superseded.
+      // See lib/daTimeBlockCache for why forgetting is the honest answer.
+      forgetDaTimeBlocks(queryClient);
       if (result.noop) {
         pushToast('No-op (same name)', 'info');
         return;

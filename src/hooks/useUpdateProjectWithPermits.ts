@@ -75,6 +75,9 @@ export function useUpdateProjectWithPermits() {
     Error,
     UpdateProjectWithPermitsInput
   >({
+    // ★ fix-511 §C: the settings modal's atomic save — the second
+    //   `lot_size_sf` write path.
+    meta: { write: 'bp_update_project_with_permits' },
     mutationFn: async (input) => {
       const { data, error } = await supabase.rpc(
         'bp_update_project_with_permits',

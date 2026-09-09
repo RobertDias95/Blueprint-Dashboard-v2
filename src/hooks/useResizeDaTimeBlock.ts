@@ -71,6 +71,8 @@ export function useResizeDaTimeBlock() {
   const tenantId = useAuthStore((s) => s.activeTenantId) ?? '';
 
   return useMutation<ResizeDaTimeBlockResult, Error, ResizeDaTimeBlockInput>({
+    // ★ fix-511 §C — see useUpsertDaTimeBlock.
+    meta: { write: 'bp_resize_da_time_block' },
     mutationFn: async (input) => {
       const { data, error } = await supabase.rpc('bp_resize_da_time_block', {
         p_id: input.blockId,

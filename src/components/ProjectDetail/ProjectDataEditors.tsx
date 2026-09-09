@@ -3,7 +3,12 @@ import type { CSSProperties } from 'react';
 import { OverviewSection } from './OverviewCard';
 import { schematicWindow } from '../../lib/schematicWindow';
 import ZoneSelect from '../shared/ZoneSelect';
-import { lotSizeView, roundLotForStorage } from '../../lib/lotDimensions';
+import {
+  LOT_SIZE_SF_MAX,
+  lotSizeView,
+  parseLotSizeSf,
+  roundLotForStorage,
+} from '../../lib/lotDimensions';
 import { VENDOR_SEND_LEAD_DAYS, vendorTargetSend } from '../../lib/vendorReport';
 import {
   UNIT_MATRIX_GRID,
@@ -1304,6 +1309,11 @@ function SiteLotSizeRow({
       <input
         type="number"
         min={0}
+        // ★ fix-511 §C: the column's real ceiling, so the browser's own spinner
+        //   and validity state agree with the check below. It does not PREVENT
+        //   the value — `type="number"` accepts `1.015e+68` regardless — which
+        //   is exactly why the check below exists as well.
+        max={LOT_SIZE_SF_MAX}
         step={1}
         value={draft}
         placeholder="—"
@@ -1312,10 +1322,19 @@ function SiteLotSizeRow({
           setDraft(e.target.value);
         }}
         onBlur={() => {
-          const t = draft.trim();
-          const n = t === '' ? null : Math.round(Number(t));
-          const next = n !== null && Number.isFinite(n) && n > 0 ? n : null;
-          onCommit('lot_size_sf', next, project.lot_size_sf, 'Lot Size');
+          const parsed = parseLotSizeSf(draft);
+          if (!parsed.ok) {
+            // ★★★ fix-511 §C (P-198): REFUSED HERE, so the person reads a
+            // sentence about lot sizes rather than Postgres's about integers —
+            // and the box goes back to what is stored, because leaving the
+            // rejected number on screen is how Cam lost an edit and never knew
+            // which of his fields the database had objected to.
+            pushToast(parsed.message, 'warn');
+            setDraft(project.lot_size_sf != null ? String(project.lot_size_sf) : '');
+            dirtyRef.current = false;
+            return;
+          }
+          onCommit('lot_size_sf', parsed.value, project.lot_size_sf, 'Lot Size');
           dirtyRef.current = false;
         }}
         disabled={disabled}

@@ -20,6 +20,7 @@ import {
   queryFailureLevel,
   shouldSkipBackendRpcLog,
 } from './lib/errorLogger';
+import { mutationErrorContext } from './lib/mutationErrorContext';
 import { useSaveFailureStore } from './stores/saveFailureStore';
 import { describeMutation, isNetworkFailure } from './lib/saveFailure';
 import { newBuildIsLive } from './lib/appVersion';
@@ -102,7 +103,7 @@ const queryClient = new QueryClient({
     },
   }),
   mutationCache: new MutationCache({
-    onError: (err, _vars, _ctx, mutation) => {
+    onError: (err, vars, _ctx, mutation) => {
       const key = mutation.options.mutationKey;
       // *** fix-372 section 6: TELL THE PERSON. Before this, a mutation that
       // died at the network layer was logged here and shown nowhere - the
@@ -128,7 +129,14 @@ const queryClient = new QueryClient({
         message: messageOf(err),
         context: {
           kind: 'mutation',
-          mutationKey: key,
+          // ★★★ fix-511 §C (P-198): WHAT IT WAS WRITING, AND WHICH FIELDS.
+          //     Prod row 696 was `{url, kind}` and nothing else, which is why
+          //     "invalid input syntax for type integer" took four database
+          //     queries to attribute to a column. `mutationKey` has been sent
+          //     since fix-87 and is undefined in EVERY row because no hook
+          //     declares one; the name now comes from `meta.write` instead, and
+          //     the fields are KEYS ONLY — see lib/mutationErrorContext.
+          ...mutationErrorContext(key, mutation.options.meta, vars),
           url:
             typeof window !== 'undefined'
               ? window.location?.pathname
