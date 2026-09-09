@@ -350,6 +350,7 @@ function ProjectDetailBody({
           project={project}
           permits={lineagePermits}
           bp={bp}
+          allProjects={allProjects}
           initialTab={dataOpen}
           onClose={closeProjectData}
           // ★ ONE overlay at a time — fix-331 §4's rule, and the reason the

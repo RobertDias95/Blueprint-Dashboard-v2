@@ -30,6 +30,12 @@ vi.mock('../hooks/useSetBpDdDates', () => ({
 vi.mock('../hooks/useAppConfig', () => ({
   useAppConfig: () => ({ map: new Map() }),
   readConsultantTypes: () => [] as { type: string; firms: string[] }[],
+  // ★ THE PARTIAL-MOCK TRAP, and this repo has now recorded it four times: a
+  //   `vi.mock` factory REPLACES the module, so a consumer this suite did not
+  //   have before — the Actions tab's hold panel — fails with *"No
+  //   readAppConfigStringArray export is defined on the mock"* rather than
+  //   with anything about what it was actually doing.
+  readAppConfigStringArray: () => [] as string[],
 }));
 
 // ★★★ fix-475 (P-116) — THE CONSULTANTS CARD IS INERT HERE.
@@ -56,7 +62,16 @@ vi.mock('../hooks/useProjectConsultants', () => ({
 
 vi.mock('../stores/toastStore', () => ({ pushToast: vi.fn() }));
 
-import ProjectDetailHeader from '../components/ProjectDetail/ProjectDetailHeader';
+// ===========================================================================
+// ★★★ fix-506 §C/§G — THE REDESIGN LIST MOVED, WITH THE ACTION THAT MAKES ONE
+// ===========================================================================
+//
+// fix-126 put "Redesigns (N)" inside the overview's **Proposal** block. §C
+// retires that block (its Units count is derived now, its type chips and this
+// list are Project Data's), and a list of a project's children belongs beside
+// **Spawn redesign** — which is on the **Actions** tab. Same component, same
+// ordering, same links; one surface further in.
+import ProjectDataModal from '../components/ProjectDetail/ProjectDataModal';
 
 type Project = Parameters<typeof ProjectDetailHeader>[0]['project'];
 
@@ -120,11 +135,14 @@ function setup(opts: {
     </QueryClientProvider>
   );
   return render(
-    <ProjectDetailHeader
+    <ProjectDataModal
       project={project}
       permits={[]}
       bp={null}
       allProjects={[project, ...allProjects]}
+      initialTab="actions"
+      onClose={() => {}}
+      onOpenSettings={() => {}}
     />,
     { wrapper },
   );

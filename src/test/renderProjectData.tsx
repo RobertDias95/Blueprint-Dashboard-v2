@@ -33,6 +33,7 @@ export function renderProjectData(
   project: Project,
   permits: PermitWithCycles[],
   tab: ProjectDataTab = 'site',
+  allProjects: readonly Project[] = [],
 ) {
   const bp =
     permits.find((p) => p.type === 'Building Permit') ?? permits[0] ?? null;
@@ -49,6 +50,7 @@ export function renderProjectData(
       project={project}
       permits={permits}
       bp={bp}
+      allProjects={allProjects}
       initialTab={tab}
       onClose={() => {}}
       onOpenSettings={() => {}}

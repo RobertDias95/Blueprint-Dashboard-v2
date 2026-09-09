@@ -1,4 +1,5 @@
 import { useMemo, useState } from 'react';
+import OriginLink from '../OriginLink';
 import type { ReactNode } from 'react';
 import {
   DDPhaseEditor,
@@ -55,6 +56,9 @@ interface Props {
   project: Project;
   permits: PermitWithCycles[];
   bp: PermitWithCycles | null;
+  /** fix-126's redesign list on the Actions tab reads this project's children
+   *  out of the already-cached project list. */
+  allProjects?: readonly Project[];
   initialTab?: ProjectDataTab;
   onClose: () => void;
   /** Address · Jurisdiction · permits · Product Types · the roster — the five
@@ -70,6 +74,7 @@ export default function ProjectDataModal({
   project,
   permits,
   bp,
+  allProjects = [],
   initialTab = 'site',
   onClose,
   onOpenSettings,
@@ -163,6 +168,17 @@ export default function ProjectDataModal({
             <TabPanel
               caption="Each field saves as you leave it — there is no Save button, and there never was on the overview these moved from."
             >
+              {/* ★ fix-412 §C1's guarantee: this editor keeps a HEADING of its
+                  own rather than being a nameless block of inputs — Bobby has
+                  to be able to point at it. The tab label is one half; this is
+                  the other, and it is the same words the retired
+                  `OverviewSection title="Unit dimensions"` carried. */}
+              <p
+                className="text-[9px] font-bold uppercase tracking-wide"
+                style={{ color: 'var(--color-dim)' }}
+              >
+                Unit dimensions
+              </p>
               <UnitDimensions project={project} />
             </TabPanel>
           )}
@@ -181,6 +197,7 @@ export default function ProjectDataModal({
           {tab === 'actions' && (
             <ActionsTab
               project={project}
+              allProjects={allProjects}
               onSpawnRedesign={onSpawnRedesign}
               onReassignDa={onReassignDa}
               canReassignDa={canReassignDa}
@@ -429,12 +446,14 @@ function PlanTab({ projectId }: { projectId: string }) {
 
 function ActionsTab({
   project,
+  allProjects,
   onSpawnRedesign,
   onReassignDa,
   canReassignDa,
   onDelete,
 }: {
   project: Project;
+  allProjects: readonly Project[];
   onSpawnRedesign?: () => void;
   onReassignDa?: () => void;
   canReassignDa: boolean;
@@ -469,6 +488,13 @@ function ActionsTab({
             testId="project-data-spawn-redesign"
           />
         )}
+        {/* ★★★ fix-126's "Redesigns (N)" LIST, which came here with the action
+            that creates them. It was a subsection of the overview's Proposal
+            block; §C retires that block, and a list of this project's children
+            belongs beside "Spawn redesign" rather than nowhere. ★ Hidden
+            entirely at zero — an empty state here is noise, which is fix-126's
+            own rule. */}
+        <RedesignList projectId={project.id} allProjects={allProjects} />
         {onDelete && (
           <ActionRow
             label="Delete project"
@@ -544,6 +570,77 @@ function ReadOnly({
       <span className="text-[11px] text-text min-w-0 truncate">
         {value ? value : <span className="text-dim">—</span>}
       </span>
+    </div>
+  );
+}
+
+/**
+ * ★ This project's descendant redesigns, sorted by `created_at` ascending so
+ *  "Redesign #1" is the first one spawned — fix-126's ordering, unchanged.
+ */
+function RedesignList({
+  projectId,
+  allProjects,
+}: {
+  projectId: string;
+  allProjects: readonly Project[];
+}) {
+  const children = useMemo(
+    () =>
+      allProjects
+        .filter((p) => p.redesign_of_project_id === projectId)
+        .sort((a, b) => {
+          const aT = a.created_at ?? '';
+          const bT = b.created_at ?? '';
+          if (aT !== bT) return aT.localeCompare(bT);
+          return a.id.localeCompare(b.id);
+        }),
+    [allProjects, projectId],
+  );
+  const [open, setOpen] = useState(false);
+  if (children.length === 0) return null;
+  return (
+    <div
+      className="pt-1 border-t"
+      style={{ borderTopColor: 'var(--color-border)' }}
+      data-testid="pd-redesigns-section"
+    >
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        className="flex items-center gap-1 text-[10px] font-bold text-co hover:opacity-80 transition"
+        aria-expanded={open}
+        data-testid="pd-redesigns-toggle"
+      >
+        <span className="font-mono">{open ? '▾' : '▸'}</span>
+        Redesigns ({children.length})
+      </button>
+      {open && (
+        <ul className="mt-1 flex flex-col gap-0.5" data-testid="pd-redesigns-list">
+          {children.map((r, i) => (
+            <li
+              key={r.id}
+              data-testid={`pd-redesign-row-${r.id}`}
+              className="flex items-baseline justify-between gap-2 text-[10px]"
+            >
+              <OriginLink
+                to={`/project/${r.id}`}
+                className="font-display font-bold text-de hover:underline truncate"
+              >
+                Redesign #{i + 1}
+              </OriginLink>
+              <span className="text-dim font-mono truncate">
+                {r.redesign_trigger ?? '—'}
+                {r.redesign_reuses_original_permit === true
+                  ? ' · reuse'
+                  : r.redesign_reuses_original_permit === false
+                    ? ' · new permits'
+                    : ''}
+              </span>
+            </li>
+          ))}
+        </ul>
+      )}
     </div>
   );
 }

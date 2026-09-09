@@ -30,13 +30,11 @@ import {
   resolveOverviewWidths,
 } from '../lib/overviewCardLayout';
 import {
-  PROJECT_CARD_MIN_WIDTH,
   UNIT_MATRIX_LABEL_COL,
   UNIT_MATRIX_TRANSPOSED_WIDTH,
   UNIT_MATRIX_TYPE_COL,
 } from '../lib/projectCardLayout';
 import { renderProjectData } from '../test/renderProjectData';
-import { UNIT_MATRIX_WIDTH } from '../lib/unitRowLayout';
 
 // ===========================================================================
 // fix-423 — Milestones stops clipping, Team stops setting the height, and the

@@ -120,7 +120,7 @@ describe('fix-449 §C2 (superseded by fix-486): the 22, and what became of them'
 
 describe('fix-449 §C3: the mark costs the matrix no width', () => {
   const header = readFileSync(
-    resolve(process.cwd(), 'src/components/ProjectDetail/ProjectDetailHeader.tsx'),
+    resolve(process.cwd(), 'src/components/ProjectDetail/ProjectDataEditors.tsx'),
     'utf8',
   );
 

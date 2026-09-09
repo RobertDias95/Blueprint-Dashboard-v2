@@ -74,7 +74,17 @@ vi.mock('../hooks/useProjectConsultants', () => ({
 
 vi.mock('../stores/toastStore', () => ({ pushToast: vi.fn() }));
 
-import ProjectDetailHeader from '../components/ProjectDetail/ProjectDetailHeader';
+// ===========================================================================
+// ★★★ fix-506 §G (P-140) — THIS SUITE'S EDITOR MOVED, AND NOTHING ELSE DID
+// ===========================================================================
+//
+// Bobby ruled the overview read-only: every project field is edited in the
+// **Project Data** modal now. ClosingRow is byte-for-byte what shipped on
+// `origin/main` — the brief's rule was *"every write goes through the SAME
+// hooks the overview uses today; no new RPC, same OCC tokens, same toasts"* —
+// so every assertion below is unchanged and still means what it meant. Only the
+// mount point moved, to the modal's **Dates** tab.
+import ProjectDataModal from '../components/ProjectDetail/ProjectDataModal';
 
 function projectFixture(over: Partial<Project> = {}): Project {
   return {
@@ -142,7 +152,14 @@ function renderHeader(project: Project, permits: PermitWithCycles[]) {
     </QueryClientProvider>
   );
   return render(
-    <ProjectDetailHeader project={project} permits={permits} bp={bp} allProjects={[]} />,
+    <ProjectDataModal
+      project={project}
+      permits={permits}
+      bp={bp}
+      initialTab="dates"
+      onClose={() => {}}
+      onOpenSettings={() => {}}
+    />,
     { wrapper },
   );
 }
@@ -197,8 +214,11 @@ describe('fix-148: Closing date moved to DD Phase', () => {
     // 3) neither (normal project, no BP)
     renderHeader(projectFixture(), []);
     expect(screen.getByTestId('project-overview-closing')).toBeTruthy();
-    // fix-311 added the Permit intake section, which says the same plain thing
-    // on this branch — both its rows hang off the BP that isn't there.
-    expect(screen.getAllByText('No building permit')).toHaveLength(2);
+    // ★★ ONE message, not two. The retired Milestones card printed it under
+    //    the DD window heading AND under Permit intake, because two empty
+    //    sections each needed an explanation; the Dates tab says it once. What
+    //    fix-311 was guarding — no empty date boxes claiming there are values
+    //    — is unchanged.
+    expect(screen.getAllByText(/no building permit/i)).toHaveLength(1);
   });
 });

@@ -70,7 +70,17 @@ vi.mock('../hooks/useProjectConsultants', () => ({
 }));
 
 
-import ProjectDetailHeader from '../components/ProjectDetail/ProjectDetailHeader';
+// ===========================================================================
+// ★★★ fix-506 §G (P-140) — THIS SUITE'S EDITOR MOVED, AND NOTHING ELSE DID
+// ===========================================================================
+//
+// Bobby ruled the overview read-only: every project field is edited in the
+// **Project Data** modal now. `DDPhaseEditor` is byte-for-byte what shipped on
+// `origin/main` — the brief's rule was *"every write goes through the SAME
+// hooks the overview uses today; no new RPC, same OCC tokens, same toasts"* —
+// so every assertion below is unchanged and still means what it meant. Only the
+// mount point moved, to the modal's **Dates** tab.
+import ProjectDataModal from '../components/ProjectDetail/ProjectDataModal';
 import { settle } from '../test/settle';
 
 function projectFixture(over: Partial<Project> = {}): Project {
@@ -161,7 +171,14 @@ function renderHeader(project: Project, permits: PermitWithCycles[]) {
     </QueryClientProvider>
   );
   return render(
-    <ProjectDetailHeader project={project} permits={permits} bp={bp} />,
+    <ProjectDataModal
+      project={project}
+      permits={permits}
+      bp={bp}
+      initialTab="dates"
+      onClose={() => {}}
+      onOpenSettings={() => {}}
+    />,
     { wrapper },
   );
 }

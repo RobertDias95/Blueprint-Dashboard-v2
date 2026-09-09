@@ -89,7 +89,17 @@ vi.mock('../hooks/useProjectConsultants', () => ({
 
 
 import ReuseRedesignDdEditor from '../components/ProjectDetail/ReuseRedesignDdEditor';
-import ProjectDetailHeader from '../components/ProjectDetail/ProjectDetailHeader';
+// ===========================================================================
+// ★★★ fix-506 §G (P-140) — THIS SUITE'S EDITOR MOVED, AND NOTHING ELSE DID
+// ===========================================================================
+//
+// Bobby ruled the overview read-only: every project field is edited in the
+// **Project Data** modal now. ReuseRedesignDdEditor is byte-for-byte what shipped on
+// `origin/main` — the brief's rule was *"every write goes through the SAME
+// hooks the overview uses today; no new RPC, same OCC tokens, same toasts"* —
+// so every assertion below is unchanged and still means what it meant. Only the
+// mount point moved, to the modal's **Dates** tab.
+import ProjectDataModal from '../components/ProjectDetail/ProjectDataModal';
 
 function projectFixture(over: Partial<Project> = {}): Project {
   return {
@@ -310,7 +320,14 @@ describe('DD Phase cell gating (ProjectDetailHeader)', () => {
     return render(
       <QueryClientProvider client={qc()}>
         <MemoryRouter>
-          <ProjectDetailHeader project={project} permits={permits} bp={bp} allProjects={[]} />
+          <ProjectDataModal
+            project={project}
+            permits={permits}
+            bp={bp}
+            initialTab="dates"
+            onClose={() => {}}
+            onOpenSettings={() => {}}
+          />
         </MemoryRouter>
       </QueryClientProvider>,
     );
@@ -341,10 +358,12 @@ describe('DD Phase cell gating (ProjectDetailHeader)', () => {
       [],
     );
     expect(screen.queryByTestId('redesign-dd-editor')).toBeNull();
-    // fix-311: said under BOTH the DD window and the new Permit intake heading
-    // — two sections with nothing to show, each saying so plainly rather than
-    // rendering empty boxes.
-    expect(screen.getAllByText('No building permit')).toHaveLength(2);
+    // ★★ ONE message, not two. The retired Milestones card printed it under
+    //    the DD window heading AND under Permit intake, because two empty
+    //    sections each needed an explanation; the Dates tab says it once. What
+    //    fix-311 was guarding — no empty date boxes claiming there are values
+    //    — is unchanged.
+    expect(screen.getAllByText(/no building permit/i)).toHaveLength(1);
   });
 
   it('does not render the editor when the redesign has a BP permit', () => {

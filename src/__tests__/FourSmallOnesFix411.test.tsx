@@ -4,7 +4,12 @@ import { MemoryRouter } from 'react-router-dom';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import wizardSource from '../components/NewProjectWizard.tsx?raw';
 import matrixSource from '../components/LibraryMatrix.tsx?raw';
-import headerSource from '../components/ProjectDetail/ProjectDetailHeader.tsx?raw';
+// ★★★ fix-506 §G: the overview's editors moved to `ProjectDataEditors` —
+//     P-140 makes the overview read-only and these controls are the Project
+//     Data modal's tabs. The MOVE is the only change; the components are
+//     byte-for-byte what shipped, so what this grep is looking for is still
+//     there, in the file that now holds it.
+import headerSource from '../components/ProjectDetail/ProjectDataEditors.tsx?raw';
 import attachmentsSource from '../components/ProjectDetail/ChatAttachments.tsx?raw';
 import {
   formatLotFeet,

@@ -81,7 +81,17 @@ vi.mock('../hooks/useProjectConsultants', () => ({
 
 vi.mock('../stores/toastStore', () => ({ pushToast: vi.fn() }));
 
-import ProjectDetailHeader from '../components/ProjectDetail/ProjectDetailHeader';
+// ===========================================================================
+// ★★★ fix-506 §G (P-140) — THIS SUITE'S EDITOR MOVED, AND NOTHING ELSE DID
+// ===========================================================================
+//
+// Bobby ruled the overview read-only: every project field is edited in the
+// **Project Data** modal now. UnitDimensions is byte-for-byte what shipped on
+// `origin/main` — the brief's rule was *"every write goes through the SAME
+// hooks the overview uses today; no new RPC, same OCC tokens, same toasts"* —
+// so every assertion below is unchanged and still means what it meant. Only the
+// mount point moved, to the modal's **Units** tab.
+import ProjectDataModal from '../components/ProjectDetail/ProjectDataModal';
 
 function setup(unitTypes: UnitType[], productTypes: string[] = ['Remodel', 'SFR']) {
   const queryClient = new QueryClient({
@@ -111,7 +121,7 @@ function setup(unitTypes: UnitType[], productTypes: string[] = ['Remodel', 'SFR'
     project_tags: null,
     created_at: TOKEN,
     updated_at: TOKEN,
-  } as unknown as Parameters<typeof ProjectDetailHeader>[0]['project'];
+  } as unknown as Parameters<typeof ProjectDataModal>[0]['project'];
   queryClient.setQueryData(queryKeys.projects(T), [project]);
   const wrapper = ({ children }: { children: ReactNode }) => (
     <QueryClientProvider client={queryClient}>
@@ -119,7 +129,14 @@ function setup(unitTypes: UnitType[], productTypes: string[] = ['Remodel', 'SFR'
     </QueryClientProvider>
   );
   return render(
-    <ProjectDetailHeader project={project} permits={[]} bp={null} />,
+    <ProjectDataModal
+      project={project}
+      permits={[]}
+      bp={null}
+      initialTab="units"
+      onClose={() => {}}
+      onOpenSettings={() => {}}
+    />,
     { wrapper },
   );
 }
@@ -213,9 +230,14 @@ describe('fix-412 §C (third edition, fix-422): one template, header and rows', 
     expect(UNIT_ROW_COLUMNS.some((c) => c.key === 'work_scope')).toBe(false);
   });
 
-  it('★★ C1: the "Unit dimensions" heading is still there, its own section', () => {
+  it('★★ C1: the "Unit dimensions" heading is still there, its own tab', () => {
+    // ★★★ fix-412 §C1 asked that the editor keep a HEADING of its own rather
+    //     than becoming a nameless block of inputs — Bobby had to be able to
+    //     point at it. fix-506 §G gives it a whole tab, which is the same
+    //     guarantee at a larger size, and the heading is the tab's label.
     setup([unit()]);
-    expect(screen.getByTestId('pd-project-units').textContent).toContain(
+    expect(screen.getByTestId('project-data-tab-units').textContent).toBe('Units');
+    expect(screen.getByTestId('project-data-body').textContent).toContain(
       'Unit dimensions',
     );
   });

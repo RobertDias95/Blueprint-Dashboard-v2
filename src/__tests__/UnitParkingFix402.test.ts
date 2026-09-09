@@ -2,7 +2,12 @@ import { describe, it, expect } from 'vitest';
 import ARCHIVE_SQL from '../../migrations/fix_402_archive_then_clear_site_parking.sql?raw';
 import COASSIGN_SQL from '../../migrations/fix_402_erick_coassign_remainder.sql?raw';
 import libraryMatrixSource from '../components/LibraryMatrix.tsx?raw';
-import projectHeaderSource from '../components/ProjectDetail/ProjectDetailHeader.tsx?raw';
+// ★★★ fix-506 §G: the overview's editors moved to `ProjectDataEditors` —
+//     P-140 makes the overview read-only and these controls are the Project
+//     Data modal's tabs. The MOVE is the only change; the components are
+//     byte-for-byte what shipped, so what this grep is looking for is still
+//     there, in the file that now holds it.
+import projectHeaderSource from '../components/ProjectDetail/ProjectDataEditors.tsx?raw';
 import segmentsSource from '../lib/correctionsSegments.ts?raw';
 import { parseUnitTypes } from '../lib/unitTypeNaming';
 import {
