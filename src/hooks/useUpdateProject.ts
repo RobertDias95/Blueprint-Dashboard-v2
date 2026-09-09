@@ -124,6 +124,11 @@ export function useUpdateProject() {
   const tenantId = useAuthStore((s) => s.activeTenantId) ?? '';
 
   return useMutation<Project, Error, UpdateProjectInput, MutationContext>({
+    // ★★★ fix-511 §C (P-198): what a failed save was writing, for the error
+    //     report. This is the hook that produced prod row 696 — the Site
+    //     card writes the TABLE directly (fix-415), through no RPC at all,
+    //     so `projects.update` is the honest name for it.
+    meta: { write: 'projects.update' },
     mutationFn: async (input) => {
       try {
         return await tryUpdateProject(input, input.expectedUpdatedAt);

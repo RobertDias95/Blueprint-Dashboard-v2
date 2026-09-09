@@ -1,7 +1,7 @@
 import { useState, useEffect, useMemo } from 'react';
 import ZoneSelect from '../shared/ZoneSelect';
 import { ALLEY_OPTIONS as WIZARD_ALLEY_OPTIONS } from '../wizard/wizardState';
-import { roundLotForStorage } from '../../lib/lotDimensions';
+import { parseLotSizeSf, roundLotForStorage } from '../../lib/lotDimensions';
 import {
   useUpdateProjectWithPermits,
   type PermitUpsertInput,
@@ -405,6 +405,16 @@ export default function ProjectSettingsModal({
       pushToast('Address is required.', 'warn');
       return;
     }
+    // ★★★ fix-511 §C (P-198): the same bound as the Project Data box, on the
+    //     modal that is this column's OTHER write path. Refused BEFORE the RPC
+    //     — this save is atomic across the project and every permit, so an
+    //     integer overflow rejects the whole transaction and the person loses
+    //     edits that had nothing to do with the lot.
+    const lotSize = parseLotSizeSf(form.projectFields.lot_size_sf);
+    if (!lotSize.ok) {
+      pushToast(lotSize.message, 'warn');
+      return;
+    }
     if (!project.updated_at) return;
     setSaving(true);
     try {
@@ -440,10 +450,9 @@ export default function ProjectSettingsModal({
         // ★★ And like `construction_admin` above, this key reaches the database
         //    only because `bp_update_project_with_permits` whitelists it — the
         //    client patch is untyped and the RPC's SET list is the real gate.
-        lot_size_sf: (() => {
-          const n = toNumOrNull(form.projectFields.lot_size_sf);
-          return n != null && Number.isFinite(n) && n > 0 ? Math.round(n) : null;
-        })(),
+        // ★ fix-511 §C: parsed once, above, so the guard and the value cannot
+        //   disagree about what the box said.
+        lot_size_sf: lotSize.value,
 
         alley: form.projectFields.alley || null,
         product_types: form.projectFields.product_types,

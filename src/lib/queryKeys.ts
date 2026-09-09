@@ -424,6 +424,31 @@ export const REALTIME_TABLES = {
     queryKeys.taskAssignersAll,
   ],
   draw_schedule: [queryKeys.drawScheduleAll, queryKeys.permitsAll],
+  // ★★★ fix-511 §B (P-067, reopened) — THE OTHER HALF OF fix-393's INVARIANT.
+  //
+  // fix-393's rule reads "adding a key here is half the job — publish the
+  // table too". `da_time_blocks` is the same sentence backwards: it has been a
+  // member of `supabase_realtime` all along (verified on prod 2026-09-09,
+  // alongside draw_schedule / projects / permits) and it had NO entry here. So
+  // Postgres has been emitting every NP-block change to the realtime server and
+  // nothing in the app was listening.
+  //
+  // ★★★ WHY THAT IS AN OCC BUG AND NOT A FRESHNESS NICETY. Every OCC token the
+  // draw-schedule grid sends is read straight off this list (the two resize
+  // handles and the edit popup, DrawScheduleGrid ~1947/~1986/~2893). fix-442
+  // made the WRITER's own cache learn the new token; nothing taught anybody
+  // else. With `staleTime: 30_000` and `refetchOnWindowFocus: false` (App.tsx),
+  // a second surface — another tab, another window, another person — holds its
+  // load-time `updated_at` indefinitely, and its first edit of a block somebody
+  // else has touched is refused. That is P-067's prod trail exactly: the two
+  // writes at 19:20:53.305 / 19:20:57.973 carried fresh tokens, the two refusals
+  // 2 s later carried stale ones.
+  //
+  // ★★ ITS NEIGHBOUR ON THE SAME SCREEN WAS ALREADY WIRED, which is what hid
+  // this: project blocks refresh live off `draw_schedule` above, NP blocks
+  // silently did not. ★ NO MIGRATION — the publication membership already
+  // exists; this is the listener that was missing.
+  da_time_blocks: [queryKeys.daTimeBlocksAll],
   intake_records: [queryKeys.intakeRecordsAll],
   // fix-31: scraper writes reviewer rows -> bell badge ticks + Project
   // Overview rollup refreshes live.

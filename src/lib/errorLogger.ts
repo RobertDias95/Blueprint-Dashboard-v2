@@ -201,6 +201,80 @@ export function isCancelledRequest(e: unknown): boolean {
   return false;
 }
 
+// ===========================================================================
+// ★★★ fix-511 §A (P-197) — A DEVELOPMENT SESSION IS NOT A PRODUCTION ERROR
+// ===========================================================================
+//
+// ★★★ MEASURED ON PROD, 2026-09-09: of the **32** rows `error_reports` took in
+//     seven days, **19 were frontend exceptions and every one of them carried a
+//     stack at `http://localhost:5178/src/…`** with Vite's HMR cache-bust
+//     parameter. **Zero came from the deployed app.** Three named identifiers
+//     from a branch that had not merged, so they could not have been production
+//     errors even in principle. Seventeen were dismissed by hand in one sitting.
+//
+// ★★★ SO THE FIX IS NOT A FILTER ON THE PANEL, IT IS NOT SENDING. A developer's
+//     exception is already in the developer's own console, one keystroke away,
+//     with a live source map. Shipping it to a shared production table costs a
+//     row, costs somebody's attention, and buys nothing — and it drowns the
+//     rows that are real, which is what actually happened here.
+//
+// ★★ THE GATE LIVES IN `logError` AND NOWHERE ELSE. Every browser-side caller
+//    — the QueryCache and MutationCache handlers, the error boundary, the
+//    global window handlers, the toast store, the auth path — funnels through
+//    this one function. A rule applied at the call sites is a rule the next
+//    call site forgets.
+//
+// ★★★ AND `MODE` DECIDES, WITH THE ORIGIN AS THE TIE-BREAK — in that order,
+//     for a reason that is easy to get backwards:
+//
+//       · `development`  Vite's dev server. Suppress.
+//       · `production`   a real build. Send — UNLESS it is being served from a
+//                        local origin, which is `npm run preview`: a production
+//                        BUILD in a development SESSION. That is the case the
+//                        mode alone cannot see, and it is why the brief offers
+//                        the origin as an alternative signal.
+//       · `test`         vitest. Sends, and that is deliberate rather than an
+//                        oversight: `supabase` is mocked in every suite, so
+//                        nothing leaves the process, and a dozen existing
+//                        suites assert the call shape. Gating on
+//                        `import.meta.env.DEV` — which vitest sets TRUE —
+//                        would have silenced all of them.
+
+/** Where this page is running, as the reporter sees it. */
+export interface ReportingEnvironment {
+  /** `import.meta.env.MODE` — `development` / `production` / `test`. */
+  mode: string;
+  /** The page origin, or null outside a browser. */
+  origin: string | null;
+  /** Whether a report raised here should be sent at all. */
+  isDevelopment: boolean;
+}
+
+/** ★ Hosts that mean "somebody's own machine". `.local` is Bonjour, which is
+ *  how a dev server gets reached from a phone on the same network. */
+function isLocalOrigin(origin: string | null): boolean {
+  if (!origin) return false;
+  return /^https?:\/\/(localhost|127\.0\.0\.1|\[::1\]|[^/]*\.local)(:\d+)?$/i.test(
+    origin,
+  );
+}
+
+/**
+ * ★★ Resolved on every call rather than once at module load, so a test can
+ *    drive it and so a report raised before the page has an origin still gets
+ *    an honest answer.
+ */
+export function reportingEnvironment(
+  mode: string = import.meta.env.MODE,
+  origin: string | null = typeof window !== 'undefined'
+    ? (window.location?.origin ?? null)
+    : null,
+): ReportingEnvironment {
+  const isDevelopment =
+    mode === 'development' || (mode === 'production' && isLocalOrigin(origin));
+  return { mode, origin, isDevelopment };
+}
+
 /** Internal re-entry guard. A failure in the log RPC itself must not
  *  cascade into another log call (default QueryClient onError would fire
  *  on the supabase.rpc rejection, which would call logError, which would
@@ -209,6 +283,21 @@ let logging = false;
 
 export function logError(input: LogErrorInput): Promise<void> {
   if (logging) return Promise.resolve();
+
+  // ★★★ fix-511 §A — THE GATE. See the note above for the measurement.
+  const env = reportingEnvironment();
+  if (env.isDevelopment) {
+    // ★ Say so in the console the developer is already looking at, so the
+    //   suppression is never mistaken for the reporter being broken — which is
+    //   the failure mode of a silent drop, and the reason fix-314 found zero
+    //   auth rows and assumed a filter.
+    console.warn(
+      `[errorLogger] not sent (${env.mode}${env.origin ? ` · ${env.origin}` : ''}): ${input.message}`,
+      input.context ?? {},
+    );
+    return Promise.resolve();
+  }
+
   logging = true;
 
   const payload = {
@@ -217,7 +306,18 @@ export function logError(input: LogErrorInput): Promise<void> {
     // Truncate ridiculously long messages so a giant stack trace can't
     // bloat the row. The full stack still lands in context.stack.
     p_message: clip(input.message, 2_000),
-    p_context: input.context ?? {},
+    // ★★ fix-511 §A: STAMP the environment on everything that IS sent. The
+    //    brief asks for the stamp as well as the gate, and the two answer
+    //    different questions — the gate stops dev noise arriving, the stamp
+    //    lets a future reader tell where a row came from WITHOUT inferring it
+    //    from a stack. Worth having because `backend_rpc` rows carry only a
+    //    relative pathname, so the 19 rows above could not have been
+    //    classified this way retroactively at all.
+    p_context: {
+      ...(input.context ?? {}),
+      environment: env.mode,
+      origin: env.origin ?? undefined,
+    },
   };
 
   // Defensive: in vitest fixtures that mock `supabase` without providing

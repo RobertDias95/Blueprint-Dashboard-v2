@@ -33,11 +33,23 @@ describe('errorLogger', () => {
     });
     expect(rpcMock).toHaveBeenCalledTimes(1);
     expect(rpcMock.mock.calls[0][0]).toBe('bp_log_error');
+    // ★★ fix-511 §A SUPERSEDES the equality this used to assert. It read
+    //    `p_context: { url: '/dashboard' }` — the caller's context and nothing
+    //    else — and the property it was defending is that the caller's context
+    //    arrives INTACT, which is asserted below and is still true. What the
+    //    reporter now ADDS is the environment that sent the row: P-197 found
+    //    every frontend exception in a seven-day window came from
+    //    localhost:5178 and no row could say so, because `backend_rpc` rows
+    //    carry only a relative pathname. See DevSessionsNotReportedFix511.
     expect(rpcMock.mock.calls[0][1]).toEqual({
       p_source: 'frontend_toast',
       p_level: 'error',
       p_message: 'boom',
-      p_context: { url: '/dashboard' },
+      p_context: {
+        url: '/dashboard',
+        environment: 'test',
+        origin: 'http://localhost:3000',
+      },
     });
   });
 
@@ -55,7 +67,13 @@ describe('errorLogger', () => {
       level: 'error',
       message: 'rpc died',
     });
-    expect(rpcMock.mock.calls[0][1].p_context).toEqual({});
+    // ★ fix-511 §A: "defaults to {}" is now "defaults to the environment
+    //   stamp and nothing else" — the point stands, which is that an absent
+    //   caller context never becomes null or undefined.
+    expect(rpcMock.mock.calls[0][1].p_context).toEqual({
+      environment: 'test',
+      origin: 'http://localhost:3000',
+    });
   });
 
   it('swallows RPC failures so callers never see them', async () => {
