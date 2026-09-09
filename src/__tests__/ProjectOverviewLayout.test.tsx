@@ -169,15 +169,18 @@ describe('fix-285 the overview row (fix-506: THREE columns)', () => {
   // everything else is text that reflows -- so the room went to it, taken from
   // Team and Builder/Owner and NOT from Project (fix-290 already narrowed that
   // to the point where it hid its own Site section).
-  it('gives the Plan of Record column the most width', () => {
+  it('★★★ SUPERSEDED by fix-508: TEAM has the most width, and that is the ruling', () => {
     renderHeader();
     const [por, proj, team] = trackShares(
       screen.getByTestId('project-overview-grid'),
     );
-    // ★ Bobby's standing ruling — the Plan of Record is the widest box — and
-    //   fix-506 §A gave it Permit intake's width on top, 29% → 35%.
+    // ★★★ fix-417's rank is retired (D-2026-09-09). Bobby's original complaint
+    //     was *"the team and builder owner info is way too slim"*; P-193 takes
+    //     20% off the Project card and gives it to Team, which settles the
+    //     grievance the rank was shorthand for. The Plan of Record keeps a
+    //     FLOOR — the width its capped thumbnail uses — instead of a rank.
+    expect(team).toBeGreaterThan(por);
     expect(por).toBeGreaterThan(proj);
-    expect(por).toBeGreaterThan(team);
     // ...and Project keeps the width fix-290 gave it, so its Site section
     // cannot be squeezed back out of view.
     expect(proj).toBeGreaterThanOrEqual(1);

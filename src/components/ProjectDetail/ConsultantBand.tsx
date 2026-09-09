@@ -104,10 +104,25 @@ const STATUS_STYLE: Record<ConsultantStatus, { bg: string; fg: string; bd: strin
 export function ConsultantBand({
   projectId,
   bp,
+  manage = false,
 }: {
   projectId: string;
   /** For the two seed dates only — see `seedConsultantDates`. */
   bp: PermitWithCycles | null;
+  /**
+   * ★★★ fix-508 §F2/§I — WHICH SURFACE THIS IS.
+   *
+   * `false` (the default, and the Project Overview): the firm is read-only
+   * text and there is no add control except the one an empty fixed slot
+   * offers. fix-506 ruled the overview read-only apart from a consultant's
+   * status and two dates; §F2 is that ruling finally reaching the firm.
+   *
+   * `true` (Project Data's Consultants tab): the firm is a picker and the tab
+   * grows the `+ Add consultant` / remove controls P-181 is about. The modal's
+   * caption has claimed *"type and firm are chosen here"* since fix-506; this
+   * is the prop that makes it true.
+   */
+  manage?: boolean;
 }) {
   const listQ = useProjectConsultants(projectId);
   const dirQ = useExternalTeamDirectory();
@@ -192,6 +207,7 @@ export function ConsultantBand({
                     row={row}
                     firms={firms}
                     seeds={seeds}
+                    manage={manage}
                   />
                 ) : (
                   <EmptySlot
@@ -204,6 +220,51 @@ export function ConsultantBand({
             ))}
           </div>
         ),
+      )}
+
+      {/* ★★★ fix-508 §I (P-181) — AN ADD CONTROL THAT DOES NOT NEED AN EMPTY
+          SLOT. Bobby: he cannot add a fifth consultant.
+          ★★★ STEP 0 DIAGNOSED IT BEFORE BUILDING, which is what §I asks for,
+              and it is the first of the two cases: Project Data's Consultants
+              tab renders `<ConsultantBand>` — the SAME component as the
+              overview — so it shows all six of `233 31st Ave E`'s real
+              consultants. **Nothing is hidden; the control is missing.**
+          ★★★ AND THE REASON IS EXACT: `+ Add consultant` lived only inside
+              `EmptySlot`, so it existed only while one of Bobby's fixed four
+              (Surveyor · Arborist · Structural · Civil) was unfilled. Fill all
+              four and the only way to add a fifth disappears — which is the
+              state every mature project reaches.
+          ★ It renders in `manage` mode only: the overview keeps the empty-slot
+            affordance it has, because P-140 makes that surface read-only apart
+            from a consultant's status and dates. */}
+      {manage && !adding && available.length > 0 && (
+        <div
+          className="px-2 py-1.5 border-t"
+          style={{ borderTopColor: 'var(--color-border)' }}
+        >
+          <button
+            type="button"
+            className="text-[11px] font-bold"
+            style={{ color: 'var(--color-de)' }}
+            onClick={() => setAdding(true)}
+            data-testid="pd-consultant-add-open"
+          >
+            + Add consultant
+          </button>
+        </div>
+      )}
+      {/* ★ …and when every discipline the directory offers is already booked,
+          the control says so rather than vanishing — a missing button is what
+          P-181 was, and "nothing left to add" is a different sentence from
+          "you cannot add". */}
+      {manage && !adding && available.length === 0 && (
+        <div
+          className="px-2 py-1.5 border-t text-[10px] italic"
+          style={{ borderTopColor: 'var(--color-border)', color: 'var(--color-muted)' }}
+          data-testid="pd-consultant-add-exhausted"
+        >
+          Every discipline in the firm directory is already on this project.
+        </div>
       )}
 
       {adding && available.length > 0 && (
@@ -302,9 +363,14 @@ function ConsultantPill({
   row,
   firms,
   seeds,
+  manage,
 }: {
   projectId: string;
   row: ConsultantCurrent;
+  /** ★★★ fix-508 §F2 — WHERE THIS PILL IS. `false` (the overview) makes the
+   *  firm read-only text; `true` (Project Data's Consultants tab) makes it the
+   *  picker it has always been, and adds the remove control §I needs. */
+  manage: boolean;
   firms: readonly { id: string; name: string; discipline: string; active: boolean }[];
   /** ★ fix-506 §F (P-164): the dates a NEW status would carry, so the confirm
    *  can show them before anything is written. Computed once by the card from
@@ -342,6 +408,12 @@ function ConsultantPill({
       ),
     [firms, row.discipline, row.firm_id],
   );
+
+  /** ★ fix-508 §F2: the firm's NAME, for the read-only face. The view already
+   *  flattens it (`firm_name`); the options list is the fallback for a row
+   *  whose directory entry has not loaded yet. */
+  const firmName =
+    row.firm_name ?? options.find((f) => f.id === row.firm_id)?.name ?? null;
 
   /**
    * ★★★ fix-479 §C — THE PROMPT ONLY ASKS WHEN THERE IS SOMETHING TO LOSE.
@@ -442,37 +514,23 @@ function ConsultantPill({
       data-status={status}
     >
       <div className="px-2 py-1.5 flex-1">
-        {/* ★ The mock's `.pill .d` — the discipline as a caption on its own
-            line, above the firm/status row. It is what lets a reader find
-            "Structural" without reading four firm names. */}
-        <div
-          className="text-[8.5px] font-extrabold uppercase truncate"
-          style={{ letterSpacing: '0.06em', color: 'var(--color-muted)' }}
-        >
-          {row.discipline}
-        </div>
-
-        {/* ★★ FIRM AND STATUS ON ONE LINE, held apart — the mock's
-            `.pill .firm{display:flex;justify-content:space-between}`. */}
-        <div className="flex items-center justify-between gap-1.5 my-0.5 min-w-0">
-          <select
-            className="text-[11px] font-bold rounded border min-w-0 flex-1 truncate px-0 py-0"
-            style={{
-              borderColor: 'transparent',
-              background: 'transparent',
-              color: 'var(--color-text)',
-            }}
-            value={row.firm_id}
-            onChange={(e) => onPickFirm(e.target.value)}
-            data-testid={`pd-consultant-firm-${row.discipline}`}
+        {/* ★★★ fix-508 §F1 — LINE 1: TYPE AND STATUS, SIDE BY SIDE.
+            fix-506 put the discipline on a line of its own and paired the FIRM
+            with the status. Bobby's reason for moving it is a measurement:
+            *"if you have six consultants you can't read their name because it
+            gets cut off"* — the firm was sharing 134px with a 58px button, so
+            on a six-consultant project it ellipsised to nothing. The status is
+            a fixed-width chip and the discipline is a short closed vocabulary;
+            they are the two things that CAN share a line. */}
+        <div className="flex items-center justify-between gap-1.5 min-w-0">
+          <span
+            className="text-[8.5px] font-extrabold uppercase truncate min-w-0"
+            style={{ letterSpacing: '0.06em', color: 'var(--color-text)' }}
+            title={row.discipline}
+            data-testid={`pd-consultant-discipline-${row.discipline}`}
           >
-            {options.map((f) => (
-              <option key={f.id} value={f.id}>
-                {f.name}
-                {!f.active ? ' (inactive)' : ''}
-              </option>
-            ))}
-          </select>
+            {row.discipline}
+          </span>
 
           {/* ★★★ A BUTTON, NOT A `<select>`. P-164 made every status change ask
               first, and a menu whose every option opens the same dialog is a
@@ -495,6 +553,54 @@ function ConsultantPill({
             {status}
           </button>
         </div>
+
+        {/* ★★★ fix-508 §F1/§F2 — LINE 2: THE FIRM, FULL WIDTH AND READ-ONLY.
+            Two changes, and the second one is a ruling being IMPLEMENTED rather
+            than made: fix-506 ruled *"type and firm do not [edit on the
+            overview]"* and the `<select>` fix-475 built was never taken out.
+            STEP 0 confirmed it on the live app — six live, enabled dropdowns on
+            `233 31st Ave E` — so this **never shipped**, it did not regress.
+            The firm is chosen in Project Data's Consultants tab, where the type
+            is; status and the two dates stay editable here, which is the
+            exception Bobby carved and the only one.
+            ★ Full width is what fixes Bobby's actual complaint. The name is
+              still `truncate`d when it has to be, but it now has the whole pill
+              to be long in instead of half of it. */}
+        {manage ? (
+          // ★★★ …EXCEPT IN PROJECT DATA, WHICH IS WHERE IT IS CHOSEN. fix-506's
+          //     ruling is *"type and firm do not [edit on the overview]"* — the
+          //     overview, not the app. The modal's own caption has always said
+          //     *"type and firm are chosen here"*, and this is the control that
+          //     makes that sentence true. Same component, same RPC, one prop:
+          //     two copies of a firm picker is how they drift.
+          <select
+            className="text-[11px] font-bold rounded border w-full min-w-0 truncate px-0 py-0 my-0.5"
+            style={{
+              borderColor: 'transparent',
+              background: 'transparent',
+              color: 'var(--color-text)',
+            }}
+            value={row.firm_id}
+            onChange={(e) => onPickFirm(e.target.value)}
+            data-testid={`pd-consultant-firm-${row.discipline}`}
+          >
+            {options.map((f) => (
+              <option key={f.id} value={f.id}>
+                {f.name}
+                {!f.active ? ' (inactive)' : ''}
+              </option>
+            ))}
+          </select>
+        ) : (
+          <div
+            className="text-[11px] font-bold truncate my-0.5"
+            style={{ color: 'var(--color-text)' }}
+            title={firmName ?? undefined}
+            data-testid={`pd-consultant-firm-${row.discipline}`}
+          >
+            {firmName ?? <span className="text-dim italic font-normal">No firm yet</span>}
+          </div>
+        )}
 
         {/* ★★★ TWO DATES, SIDE BY SIDE, PRINTED — and editable in the panel
             below. See the file header for the measurement: a printed date is

@@ -2,6 +2,7 @@ import { useEffect, useRef } from 'react';
 import OriginLink from '../OriginLink';
 import { PREVIOUS_ORIGINS } from '../../lib/previousOrigin';
 import { effectiveStage } from '../../lib/permitStage';
+import { STAGE_FULL_LABEL } from '../../lib/stageLabel';
 import { permitUrgency, type UrgencyLevel } from '../../lib/urgencyHelpers';
 import PendingScrapeChip from '../shared/PendingScrapeChip';
 import { HoldBadge } from '../shared/HoldBadge';
@@ -96,15 +97,12 @@ const STAGE_PILL_LABEL: Record<Stage, string> = {
 };
 
 // ★ fix-364: one concept, one term. The SHORT labels above are what the pill
-// renders; these are the same five buckets spelled out for the tooltip and the
-// screen-reader label, matching the column headings on the board.
-const STAGE_FULL_LABEL: Record<Stage, string> = {
-  de: 'Design & Engineering',
-  pm: 'Permitting',
-  co: 'Corrections',
-  ap: 'Approved',
-  is: 'Issued',
-};
+// renders; the spelled-out ones are for the tooltip and the screen-reader
+// label, matching the column headings on the board.
+//
+// ★★ fix-508 §E MOVED THEM TO `lib/stageLabel`, where the short form has lived
+//    since fix-104, because the permits rail now heads its phase groups with
+//    the same five words. A second copy is what that file was created to stop.
 
 const STAGE_PILL_FG: Record<Stage, string> = {
   de: 'var(--color-de)',

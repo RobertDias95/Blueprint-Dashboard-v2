@@ -1,7 +1,5 @@
 import { describe, it, expect } from 'vitest';
 import {
-  OVERVIEW_CARD_COLUMNS,
-  OVERVIEW_GRID_GAP,
   OVERVIEW_ROW_MIN_WIDTH,
   PERMITS_RAIL_NO_TRUNCATION_WIDTH,
   PERMITS_RAIL_WIDTH,
@@ -143,65 +141,58 @@ describe('fix-507 §A — the permits rail, and the box nobody had counted', () 
     expect(overviewRowWidthAt(1600)).toBe(1065);
   });
 
-  it('★ the floors did not move, so the row minimum is still 904', () => {
-    expect(OVERVIEW_ROW_MIN_WIDTH).toBe(904);
-    expect(overviewMinViewport('expanded')).toBe(1439);
+  it('★★★ SUPERSEDED by fix-508 — the FLOORS moved, and the chrome did not', () => {
+    // ★ fix-507's point was that its 35px came from the CHROME and left the
+    //   floors alone. fix-508 does the opposite: the chrome is untouched (the
+    //   rail stays at 190 — §E changes it for readability only) and two floors
+    //   move — the Plan of Record's up to its capped thumbnail's width (486),
+    //   Project's down to the pair (330).
+    expect(OVERVIEW_ROW_MIN_WIDTH).toBe(996);
+    expect(overviewMinViewport('expanded')).toBe(1531);
+    expect(overviewRowWidthAt(1920)).toBe(1385);
   });
 });
 
 describe('fix-507 §B — Site data beside Dates, on a declared breakpoint', () => {
   it('★★★ the pair needs 475, confirmed row by row in Chrome', () => {
-    // Site:  `Lot size  4,400 sf derived`  147 + 20 of section padding
-    // Dates: 56+8+60 · gap 14 · 70+8+60    276 + 20 of section padding
-    expect(SITE_DATA_MIN_WIDTH).toBe(169);
-    expect(DATES_CARD_MIN_WIDTH).toBe(296);
-    expect(SITE_DATES_SIDE_BY_SIDE_MIN).toBe(475);
+    // ★★★ SUPERSEDED by fix-508 §A/§B, and BOTH halves for the same reason:
+    //     each was a measurement of a component being redrawn one ticket later.
+    //       · Site's binding row was `Lot size 4,400 sf derived` (147); §A takes
+    //         the suffix off the face and `Lot 100 × varies` (134) binds.
+    //       · Dates was a two-by-two quadrant grid (296); §B makes it one
+    //         column (156).
+    //     The pair falls 475 → 320 — which is the 155px two earlier fix-508
+    //     briefs were trying to find 77 of by tightening the rail.
+    expect(SITE_DATA_MIN_WIDTH).toBe(154);
+    expect(DATES_CARD_MIN_WIDTH).toBe(156);
+    expect(SITE_DATES_SIDE_BY_SIDE_MIN).toBe(320);
   });
 
   it('★★★ …and at 1920 the Project card finally has it — 476 of body', () => {
     const bodyAt = (vw: number) =>
       Math.round(resolveOverviewWidths(overviewRowWidthAt(vw))[1]) -
       PROJECT_CARD_BORDER;
-    // ★ 390 before this ticket. Every real machine got the stacked fallback,
-    //   which is P-174.
-    expect(bodyAt(1920)).toBe(476);
-    expect(bodyAt(1920)).toBeGreaterThanOrEqual(SITE_DATES_SIDE_BY_SIDE_MIN);
+    // ★ 390 before fix-507; 476 after it; **380** after fix-508 took 20% of
+    //   the card's width for Team. The card is NARROWER and the pair fits by
+    //   60px rather than by one, because §B shrank what the pair needs.
+    expect(bodyAt(1920)).toBe(380);
+    expect(bodyAt(1920) - SITE_DATES_SIDE_BY_SIDE_MIN).toBe(60);
   });
 
-  it('★★★ STOP CONDITION: 1600 is still short, and here is by how much', () => {
-    // ★★★ The brief's first STOP: *"If a 190px rail still leaves the Site/Dates
-    //     pair short at 1600, stop."* It does. At 1600 the row is 1065 and the
-    //     pair needs a Project card of 477 with a Plan of Record above it
-    //     (fix-417) and a Team card that can still hold ONE consultant pill:
-    const projectNeeded = SITE_DATES_SIDE_BY_SIDE_MIN + PROJECT_CARD_BORDER;
-    const porNeeded = projectNeeded + 6; // the smallest lead that stays "widest"
-    const teamFloor = OVERVIEW_CARD_COLUMNS.find((c) => c.key === 'team')!.minPx;
-    const rowNeeded = projectNeeded + porNeeded + teamFloor + 2 * OVERVIEW_GRID_GAP;
-    expect(rowNeeded).toBe(1142);
-    expect(overviewRowWidthAt(1600)).toBe(1065);
-    expect(rowNeeded - overviewRowWidthAt(1600)).toBe(77);
-    // ★ …so it STACKS at 1600, which is the one permitted fallback and is a
-    //   declared breakpoint rather than an accident of wrapping.
+  it('★★★ SUPERSEDED: 1600 is NOT short any more — §B withdrew the deficit', () => {
+    // ★★★ fix-507 reported 77px and priced three levers. **None was taken.**
+    //     Two later fix-508 briefs were written around them and both were
+    //     voided, because all three priced against a Dates card that fix-508 §B
+    //     deletes: two label tracks and two date tracks become one of each, the
+    //     pair falls 475 → 320, and the requirement fits with room.
     const bodyAt1600 =
-      Math.round(resolveOverviewWidths(overviewRowWidthAt(1600))[1]) -
-      PROJECT_CARD_BORDER;
-    expect(bodyAt1600).toBeLessThan(SITE_DATES_SIDE_BY_SIDE_MIN);
-    // ★★★ AND THE VIEWPORT WHERE IT DOES APPEAR, so the report carries a
-    //     number rather than "somewhere above 1600". **1917** — which is 1920
-    //     with THREE PIXELS to spare, and worth knowing before anybody spends
-    //     them. Bobby's ruling 3 asked for side by side at 1600 and up; what
-    //     the shell can actually pay for is 1917 and up.
-    //     ★ It is a SHARE, so this is a cliff and not a fade: below it the pair
-    //       stacks completely.
-    const bodyAtVw = (vw: number) =>
-      Math.round(resolveOverviewWidths(overviewRowWidthAt(vw))[1]) -
-      PROJECT_CARD_BORDER;
-    let firstFitting = 1600;
-    while (firstFitting < 2560 && bodyAtVw(firstFitting) < SITE_DATES_SIDE_BY_SIDE_MIN) {
-      firstFitting += 1;
-    }
-    expect(firstFitting).toBe(1917);
-    expect(bodyAtVw(1916)).toBeLessThan(SITE_DATES_SIDE_BY_SIDE_MIN);
+      Math.round(resolveOverviewWidths(overviewRowWidthAt(1600))[1]) - PROJECT_CARD_BORDER;
+    expect(bodyAt1600).toBe(328);
+    expect(bodyAt1600).toBeGreaterThanOrEqual(SITE_DATES_SIDE_BY_SIDE_MIN);
+    expect(bodyAt1600 - SITE_DATES_SIDE_BY_SIDE_MIN).toBe(8);
+    // ★ The rail is UNTOUCHED at 190 — fix-507's first lever, explicitly not
+    //   spent, which is why the truncation it costs did not get worse.
+    expect(PERMITS_RAIL_WIDTH).toBe(190);
   });
 
   it('★★★ the breakpoint is the card’s CONTENT box, and the rule says so', () => {
@@ -229,32 +220,31 @@ describe('fix-507 §B — Site data beside Dates, on a declared breakpoint', () 
     );
   });
 
-  it('★ the Project FLOOR is still the wider BOX, not the sum', () => {
-    // If the sum were the floor the row minimum would be 1,047 and 1600 would
-    // clip — the gate fix-506's STEP 0 stopped on. The pair stacks below the
-    // breakpoint, so the card never has to hold both at once.
-    expect(PROJECT_CARD_MIN_WIDTH).toBe(
-      UNIT_MATRIX_TRANSPOSED_WIDTH + 22,
-    );
-    expect(PROJECT_CARD_MIN_WIDTH).toBeLessThan(SITE_DATES_SIDE_BY_SIDE_MIN);
+  it('★★★ SUPERSEDED: the Project floor IS the sum now, and it still shrank', () => {
+    // ★★★ fix-506/507 floored the card at the WIDER BOX because the pair could
+    //     wrap. Bobby's ruling removes the wrap at 1600, so the sum is the
+    //     floor — and the reason that is affordable is that the sum collapsed:
+    //     330 against the 354 the wider-box rule produced.
+    expect(PROJECT_CARD_MIN_WIDTH).toBe(330);
+    expect(PROJECT_CARD_MIN_WIDTH).toBeLessThan(354);
+    expect(PROJECT_CARD_MIN_WIDTH).toBeGreaterThan(SITE_DATES_SIDE_BY_SIDE_MIN);
+    // ★ …and the matrix, which had bound it since fix-422, no longer does.
+    expect(UNIT_MATRIX_TRANSPOSED_WIDTH + 22).toBeLessThan(PROJECT_CARD_MIN_WIDTH);
   });
 });
 
 describe('fix-507 §C — the Team card’s three columns', () => {
-  it('★★★ the threshold is derived from what each cell needs', () => {
-    expect(TEAM_GRID_COLUMN_1_MIN).toBeGreaterThan(0);
-    expect(TEAM_GRID_CHAT_MIN).toBe(150);
+  it('★★★ the threshold is derived — and fix-508 §F4 re-derived the chat half', () => {
+    expect(TEAM_GRID_COLUMN_1_MIN).toBe(110);
+    // ★★★ 150 → 103. fix-507 set 150 as a judgement about a PREVIEW; §F4 moved
+    //     the `Chat · N →` button into the cell, and a `whitespace-nowrap`
+    //     control in an `overflow-hidden` card CLIPS rather than reflowing. The
+    //     floor is the button, measured at its widest face.
+    expect(TEAM_GRID_CHAT_MIN).toBe(103);
     expect(TEAM_GRID_CARD_MIN).toBe(TEAM_GRID_COLUMN_1_MIN + TEAM_GRID_CHAT_MIN);
-    // ★ …and Team clears it at 1920 (403 of card) and does NOT at its floor,
-    //   which is the whole reason this is a query and not a floor: a
-    //   three-column grid at 162px hands the chat cell ~95px.
-    const teamAt1920 = Math.round(
-      resolveOverviewWidths(overviewRowWidthAt(1920))[2],
-    );
-    expect(teamAt1920).toBe(403);
+    const teamAt1920 = Math.round(resolveOverviewWidths(overviewRowWidthAt(1920))[2]);
+    expect(teamAt1920).toBe(497);
     expect(teamAt1920).toBeGreaterThanOrEqual(TEAM_GRID_CARD_MIN);
-    const teamFloor = OVERVIEW_CARD_COLUMNS.find((c) => c.key === 'team')!.minPx;
-    expect(teamFloor).toBeLessThan(TEAM_GRID_CARD_MIN);
   });
 
   it('★★★ stacked is the DEFAULT and the three columns are the query', () => {
@@ -266,41 +256,31 @@ describe('fix-507 §C — the Team card’s three columns', () => {
     expect(TEAM_GRID_CSS).toContain('grid-column:2/3;grid-row:1/3');
   });
 
-  it('★★★ THE DEFICIT §D reports: 38px, and the card carrying it is Team', () => {
-    // ★★★ The brief's third STOP: *"If getting Schedule Health above the fold
-    //     at 1920 × 1080 needs more than the Team regrid in §C, stop and report
-    //     what the remaining deficit is and which card is carrying it."*
-    //
-    // Team needs 443 for a six-consultant band to render 3+3 — three pills at
-    // their declared minimum plus the card's chrome, confirmed in Chrome
-    // (the band is 185px at a 444px card and 337px at 437).
-    const teamForThreeAcross = 3 * CONSULTANT_PILL_COMPACT_MIN + 22;
-    expect(teamForThreeAcross).toBe(442);
+  it('★★★ SUPERSEDED: the 38px deficit is gone, and the band renders 3+3 again', () => {
+    // ★★★ fix-507 reported that side by side AND a 3-across six-consultant band
+    //     needed 1,423 of row against 1,385. fix-508 pays it from two directions
+    //     at once and neither is one of the levers fix-507 priced:
+    //       · §F1's three-line pill drops the pill floor 140 → 96, because the
+    //         firm no longer shares a line with the status button;
+    //       · P-193 moves 20% of the Project card to Team, 403 → 497.
+    expect(CONSULTANT_PILL_COMPACT_MIN).toBe(96);
     expect(consultantRowSplit(6)).toEqual({ top: 3, bottom: 3 });
-
-    const projectNeeded = SITE_DATES_SIDE_BY_SIDE_MIN + PROJECT_CARD_BORDER;
-    const rowNeeded =
-      projectNeeded + (projectNeeded + 6) + teamForThreeAcross + 2 * OVERVIEW_GRID_GAP;
-    expect(rowNeeded).toBe(1422);
-    expect(rowNeeded - overviewRowWidthAt(1920)).toBe(37);
-    // ★★ 37px on the derived numbers, 38 on the Chrome measurement (the band
-    //    flips between a 437 and a 444 card). Either way it is a ~40px hole and
-    //    it is the Team card that is short.
+    const teamAt1920 = Math.round(resolveOverviewWidths(overviewRowWidthAt(1920))[2]);
+    expect(3 * CONSULTANT_PILL_COMPACT_MIN).toBeLessThanOrEqual(teamAt1920 - 22);
+    // ★ Confirmed in Chrome on `233 31st Ave E`, the six-consultant project:
+    //   the band renders 213px (two rows of three) where it wrapped to 337.
   });
 });
 
 describe('fix-507 §E — the units matrix fills its box', () => {
-  it('★★★ 19% corner and pixel floors describe the SAME table at 332', () => {
+  it('★★★ 19% corner and pixel floors still describe the SAME table — at 267', () => {
     expect(UNIT_MATRIX_CORNER_PCT).toBe(19);
     const corner = (UNIT_MATRIX_TRANSPOSED_WIDTH * UNIT_MATRIX_CORNER_PCT) / 100;
-    // ★ The 19% corner at the floor is 63px — one above UNIT_MATRIX_LABEL_COL —
-    //   and the six type columns are 44.8 each, one under UNIT_MATRIX_TYPE_COL.
-    //   The percentage layout and the pixel derivation are the same table, which
-    //   is why the FLOOR does not move when the table starts stretching.
-    expect(Math.round(corner)).toBe(63);
-    expect(
-      Math.round((UNIT_MATRIX_TRANSPOSED_WIDTH - corner) / 6),
-    ).toBe(45);
+    // ★ fix-508 §C shrinks the padding, so the table is 267 rather than 332 —
+    //   and the two derivations still agree, which is the property this test
+    //   exists for rather than the pair of numbers it used to hold.
+    expect(Math.round(corner)).toBe(51);
+    expect(Math.round((UNIT_MATRIX_TRANSPOSED_WIDTH - corner) / 6)).toBe(36);
   });
 
   it('★★★ `big` applies at 4 units and fewer, and not at 5+', () => {

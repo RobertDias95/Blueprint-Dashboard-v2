@@ -80,13 +80,31 @@ export const TEAM_GRID_COLUMN_1_MIN =
 /**
  * What the chat cell needs.
  *
- * ★ `ProjectChatSection` prints a post's title and one clamped line of its
- *   body. 150px is the width at which that line still carries three or four
- *   words — below it the preview is title-only and the section stops being a
- *   preview. Measured against the shipped section at 1920, where it renders
- *   235px in this grid.
+ * ★ fix-507 §C set this to 150 — *"the width at which that line still carries
+ *   three or four words"* — which was a judgement about a PREVIEW, and the only
+ *   thing in the cell was a preview.
+ *
+ * ★★★ fix-508 §F4 PUT A BUTTON IN THE CELL, and that changes what the floor
+ *     IS rather than how big it should be. The `Chat · N →` control is
+ *     `w-full h-[26px] whitespace-nowrap` — it cannot reflow, and the card is
+ *     `overflow-hidden`, so below its own width it CLIPS. The preview above it
+ *     is text that truncates.
+ *
+ * ★★★ SO THE FLOOR IS THE BUTTON, and this is the same reasoning §F1 applies
+ *     to the consultant pill one section earlier: **a floor is what cannot
+ *     reflow.** Measured in Chrome at the widest face the button can ever
+ *     carry — `Chat · 128`, three digits of post count — it needs 83px, plus
+ *     the section's own `px-2.5`.
+ *
+ * ★★ AND IT MATTERS AT 1600, which is why it is derived rather than left at a
+ *    judgement: 150 put the three-column threshold at 260 and Team gets 231
+ *    there once the Plan of Record takes its new floor. A 150 that was never
+ *    measured would have collapsed the grid — and handed back fix-507 §C's
+ *    1600 win — on the strength of a number nobody had checked.
  */
-export const TEAM_GRID_CHAT_MIN = 150;
+export const CHAT_BUTTON_MIN = 83;
+
+export const TEAM_GRID_CHAT_MIN = CHAT_BUTTON_MIN + 20;
 
 /** The card width at which the three-column arrangement appears.
  *  ★ A container query measures the container's CONTENT box, so the card's own

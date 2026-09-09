@@ -102,10 +102,27 @@ describe('fix-506 §I: Schedule Health reads the shared helper', () => {
     expect(src).not.toContain("isActual ? 'Actual' : 'Est. Approval'");
   });
 
-  it('★★ the header still says ACQ Target — the brief says leave it', () => {
-    // fix-506's "Must not change" list, and fix-63's inline edit beneath it.
-    expect(src).toContain('<Th>ACQ Target</Th>');
-    expect(src).toContain('<AcqTargetCell');
+  it('★★★ SUPERSEDED by fix-508 §D/§H: the column is TARGET APPROVAL, derived', () => {
+    // ★★★ fix-506 put `ACQ Target` on its "must not change" list and fix-63's
+    //     inline edit sat beneath it. Both were right for a column that WAS
+    //     `permits.expected_issue`.
+    //
+    // ★★★ §D MAKES THE VALUE DERIVED — the latest of the ACQ date, the closing
+    //     date and the GO date plus six calendar months — so two things follow
+    //     and neither is a style choice:
+    //       · the header is `Target Approval`, because §H forbids one fact
+    //         having two names and the Dates card's new row is the same fact;
+    //       · the cell is READ-ONLY, because an input writing one of three
+    //         candidates while displaying the answer is P-179 in miniature.
+    //         The editor moved to Project Data as the ACQ date — it was not
+    //         deleted, and this file's sibling suite asserts it landed.
+    expect(src).toContain('<Th>Target Approval</Th>');
+    expect(src).toContain('<TargetApprovalCell');
+    expect(src).not.toContain('<AcqTargetCell');
+    // ★ …and the OTHER header moved too: `Estimated Approval` → `Permit
+    //   Approval`, because the column prints the ACTUAL date once the city
+    //   approves and only projects before that.
+    expect(src).toContain('<Th>Permit Approval</Th>');
   });
 
   it('★★ computeProjectedApproval itself is untouched', () => {

@@ -1,5 +1,6 @@
 import {
   CONSULTANT_BAND_MIN_WIDTH,
+  PLAN_OF_RECORD_CARD_MIN,
   POR_CARD_MIN_WIDTH,
   PROJECT_CARD_MIN_WIDTH,
 } from './projectCardLayout';
@@ -240,40 +241,54 @@ export const OVERVIEW_CARD_COLUMNS: readonly OverviewCardColumn[] = [
     //     the page is about.
     key: 'por',
     title: 'Plan of Record',
-    // ★★★ fix-507 §B — 35 → 35.5. The Plan of Record's share moves only enough
-    //     to stay AHEAD of Project's, which had to rise to 35 so the Site/Dates
-    //     pair can sit side by side (Bobby's ruling 1). fix-417's "widest of the
-    //     boxes" is preserved by construction: measured at 1920 with the 190px
-    //     rail, PoR 485 · Project 478 · Team 403.
+    // ★★★ fix-508 — THE RANK IS RETIRED; THE SHARE IS UNCHANGED AT 35.5. What
+    //     changes is that it no longer has to BEAT Project's: the floor below
+    //     is now what protects this card, and Team is allowed past it.
+    //     D-2026-09-09-plan-of-record-keeps-a-floor-not-a-rank.
+    // ★ fix-507 §B took it 35 → 35.5 so it would stay AHEAD of Project's.
+    //   fix-508 keeps the number and drops the reason: nothing has to stay
+    //   ahead of anything now.
     pct: 35.5,
-    // ★★★ ITS OWN CONTENT ONLY NEEDS 300 (`POR_CARD_MIN_WIDTH` — the two
-    //     Marketing buttons side by side). The floor is raised to sit 14px
-    //     above PROJECT's because Bobby's fix-417 ruling — *"the Design plan of
-    //     record should be the widest of the boxes"* — is a statement about
-    //     EVERY width, and below the row minimum the floors are the only thing
-    //     deciding. Measured: at 1600 the shares alone would hand PoR 333
-    //     against Project's 354 and silently invert the ruling.
-    minPx: Math.max(POR_CARD_MIN_WIDTH, PROJECT_CARD_MIN_WIDTH + 14),
+    // ★★★ fix-508 — THE FLOOR IS THE CARD'S OWN PICTURE, NOT A MARGIN OVER ITS
+    //     NEIGHBOUR. fix-506/507 pinned it 14px above PROJECT's, which made
+    //     this floor a function of a card it has nothing to do with: shrink the
+    //     units matrix and the Plan of Record narrows with it, for no reason
+    //     anybody could read off the screen.
+    //
+    //     `PLAN_OF_RECORD_CARD_MIN` is the width at which the modal plan sheet
+    //     exactly fills its capped box — derived by inverting fix-507b's
+    //     `POR_IMAGE_MAX_HEIGHT`, so the two constants check each other.
+    //     Verified in Chrome at eight card widths: the box is 300px at all of
+    //     them, so below this the drawing shrinks and above it the sheet
+    //     letterboxes.
+    minPx: Math.max(POR_CARD_MIN_WIDTH, PLAN_OF_RECORD_CARD_MIN),
     floorReason:
-      'SOFT content (a plan thumbnail scales) but a HARD ORDERING constraint, ' +
-      'and this ticket is the first time the ordering actually binds. Its own ' +
-      'content needs POR_CARD_MIN_WIDTH (300) — both Marketing buttons on one ' +
-      'line, because they are a pair read against each other. The floor is ' +
-      "pinned 14px above PROJECT's instead, the smallest margin that keeps " +
-      "Bobby's \"widest of the boxes\" true at 1600, where the shares alone " +
-      'would give PoR 333 against Project 354.',
+      '★★★ HARD, and it is about the PICTURE. 486 is the card width at which ' +
+      "the modal plan sheet (1400×906, 159 of 164 indexed plans) exactly " +
+      "fills fix-507b's 300px capped box — derived by inverting " +
+      'POR_IMAGE_MAX_HEIGHT, verified in Chrome at eight widths. Below it the ' +
+      'drawing genuinely shrinks; above it object-fit:contain letterboxes and ' +
+      'the extra width is white space. Its CONTROLS need only ' +
+      'POR_CARD_MIN_WIDTH (300). ★ fix-417 “widest of the boxes” RANK is ' +
+      'retired here (D-2026-09-09) — the rank was shorthand for Team being ' +
+      'crushed to ~100px, and fix-508 settles that grievance directly by ' +
+      "giving Team 20% of Project. A floor replaces it, because fix-417's own " +
+      'line is still true: a declared share with no floor is a suggestion.',
   },
   {
     key: 'proj',
     title: 'Project',
-    // ★★★ fix-507 §B — 31 → 35, AND THIS IS WHAT THE RAIL'S 50px PAYS FOR.
-    //     The brief: *"The 50px it frees goes to the Project card (that is what
-    //     funds §B)."* A SHARE, not a fixed width, for the same reason the
-    //     mock's 470px column became one — the ribbon moves the row by 156px
-    //     without the window moving. Measured in Chrome: 408 of card (390 of
-    //     body) before, **478 of card (476 of body) after** — one pixel above
-    //     the 475 the pair declares, which is the whole of §B.
-    pct: 35,
+    // ★★★ fix-508 (P-193) — 35 → 28, WHICH IS BOBBY'S 20% OFF, MEASURED.
+    //     *"The Project card gets narrower and Team gets the width."* 478 × 0.8
+    //     = 382, and 382 / 1365 of shared space at 1920 is 28%. The 7 points
+    //     go to Team, not back into the pool.
+    //
+    // ★★ AND THE CARD CAN AFFORD IT because §B and §C emptied it out: the
+    //    Site/Dates pair needs 320 where it needed 475 (the Dates card is one
+    //    column now, not a two-by-two quadrant grid), and the units matrix
+    //    needs 267 where it needed 332. A card holding 320 of content in 380 of
+    //    body is not the card that held 475 in 476.
+    pct: 28,
     // ★★★ DERIVED IN `lib/projectCardLayout`, from the transposed units matrix
     //     at six type columns (332) — prod's maximum, and 403 W Dravus St is
     //     one of the two projects that has it.
@@ -291,13 +306,19 @@ export const OVERVIEW_CARD_COLUMNS: readonly OverviewCardColumn[] = [
   {
     key: 'team',
     title: 'Team',
-    // ★★★ fix-507 §B — 34 → 29.5, and this is the card that pays the rest.
-    //     Measured in Chrome at 1920 with the 190px rail: Team 447 → **403**,
-    //     and the consultant band renders 185px at BOTH widths — the two-row
-    //     3+3 split is unchanged, so the 44px comes out of slack the band was
-    //     not using. Below the width where the shares decide anything, Team's
-    //     FLOOR is what protects it, and that is untouched.
-    pct: 29.5,
+    // ★★★ fix-508 (P-193) — 29.5 → 36.5, AND TEAM IS NOW THE WIDEST CARD.
+    //     That is the ruling, not an accident: Project's 20% comes here whole.
+    //     Measured at 1920: Team 403 → **497**, against the Plan of Record's
+    //     486. fix-417's rank is retired (D-2026-09-09) — see `por`'s
+    //     floorReason for why the rank was shorthand for exactly this card
+    //     being too slim, so enforcing it would defend the shorthand against
+    //     the thing it stood for.
+    //
+    // ★★ WHAT THE WIDTH BUYS, MEASURED: at 403 a six-consultant band wrapped to
+    //    four pill-lines (337px). At 497 it renders the ruled 3+3 in two
+    //    (185px) — fix-507's reported 38px deficit, closed by this share rather
+    //    than by cutting anything.
+    pct: 36.5,
     // ★★ DERIVED, and it barely moves: the top block's 160 against one
     //    consultant pill plus card chrome (162).
     minPx: Math.max(160, CONSULTANT_BAND_MIN_WIDTH + OVERVIEW_CARD_CHROME),

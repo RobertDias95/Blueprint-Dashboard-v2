@@ -190,7 +190,12 @@ export default function ProjectDataModal({
           {tab === 'team' && <TeamTab project={project} bp={bp} onOpenSettings={onOpenSettings} />}
           {tab === 'consultants' && (
             <TabPanel caption="Adding, removing, re-firming and advancing a consultant all write through bp_set_consultant_* — the same RPCs the overview band uses.">
-              <ConsultantBand projectId={project.id} bp={bp} />
+              {/* ★★★ fix-508 §F2/§I — `manage` IS WHAT MAKES THIS TAB'S OWN
+                  CAPTION TRUE. It has claimed since fix-506 that type and firm
+                  are chosen here; the firm picker was on the OVERVIEW instead,
+                  and the add control existed only while a fixed slot was
+                  empty. One prop, one component, both fixed. */}
+              <ConsultantBand projectId={project.id} bp={bp} manage />
             </TabPanel>
           )}
           {tab === 'plan' && <PlanTab projectId={project.id} />}

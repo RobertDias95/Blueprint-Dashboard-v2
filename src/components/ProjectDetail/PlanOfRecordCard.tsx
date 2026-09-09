@@ -165,8 +165,7 @@ export default function PlanOfRecordCard({ projectId }: Props) {
           row={row}
           verdict={verdictKnown ? verdict : null}
           onClose={() => setLightbox(false)}
-          externalSet={findVariant(setsQ.data, 'external')}
-          variant={variant}
+          shownSet={findVariant(setsQ.data, variant)}
         />
       )}
     </OverviewCard>
@@ -625,6 +624,11 @@ function pageCountLabel(
   set: PlanOfRecordSetRow | null,
   variant: 'internal' | 'external',
 ): string {
+  // ★★ fix-508 §H: the SET's count wins wherever there is one. The variant is
+  //    only the fallback for a project with no `project_plan_of_record_sets`
+  //    row at all — where the single indexed thumbnail IS one page, and the
+  //    external set does not exist yet. That is a statement about which ROWS
+  //    exist, not about what a variant means.
   const n = set?.page_count ?? (variant === 'internal' ? 1 : 0);
   return `${n} ${n === 1 ? 'page' : 'pages'}`;
 }
@@ -697,15 +701,16 @@ function Lightbox({
   row,
   verdict,
   onClose,
-  externalSet,
-  variant,
+  shownSet,
 }: {
   row: ProjectPlanOfRecordRow;
   verdict: ProjectPlanOfRecordVerdictRow | null;
   onClose: () => void;
-  /** fix-504's row for the external variant, or null until it lands. */
-  externalSet: PlanOfRecordSetRow | null;
-  variant: 'internal' | 'external';
+  /** ★★★ fix-508 §H: the set the card is SHOWING, whichever variant that is.
+   *  fix-507 passed `externalSet` and a `variant` and let the viewer infer the
+   *  page count from the pair; the set carries its own `page_count`, so the
+   *  inference was always a guess about a fact we already had. */
+  shownSet: PlanOfRecordSetRow | null;
 }) {
   // ★★★ fix-506 §E — INTERNAL OPENS ONE PAGE; EXTERNAL SCROLLS EVERY PAGE.
   //
@@ -715,8 +720,22 @@ function Lightbox({
   // they stack in one scroller — not a pager. A reader flipping through a set
   // wants to scroll it the way they scroll the PDF, and a Next button turns
   // twelve pages into twelve deliberate clicks.
-  const pages =
-    variant === 'external' ? pagePaths(externalSet) : [];
+  // ★★★ fix-508 §H — THE PAGES COME FROM THE SET, NEVER FROM THE VARIANT.
+  //
+  //     fix-506 §E hard-coded *"internal opens one page; external scrolls"*,
+  //     and the reasoning was sound at the time: the internal marketing plan IS
+  //     one page, so a viewer offering "page 1 of 1" would have been inventing
+  //     a sequence.
+  //
+  // ★★★ SCHEMATIC IS SCROLLABLE NOW (Bobby, 2026-09-09), and it renders through
+  //     the `internal` variant — so *"internal = one page"* stopped being true
+  //     the moment that ruling landed. A rule that reads a VARIANT to guess a
+  //     PAGE COUNT is guessing at something the row already knows.
+  //
+  // ★ So the viewer scrolls whenever the set it is showing has pages, and falls
+  //   back to the single thumbnail when it does not. One line, and it is right
+  //   for every stage this card will ever grow.
+  const pages = pagePaths(shownSet);
   const thumbQ = usePlanOfRecordThumbnail(hasThumbnail(row) ? row.thumb_path : null);
   // ★ fix-295: THE ENLARGE IS CAPPED, AND NOT BY THIS REPO.
   //

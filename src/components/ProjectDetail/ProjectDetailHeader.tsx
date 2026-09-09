@@ -327,10 +327,28 @@ function BuilderOwnerDisclosure({ project }: { project: Project }) {
     return () => window.removeEventListener('resize', measure);
   }, [open]);
 
+  // ★★★ fix-508 §F3 — THE PANEL OVERLAYS WIDER THAN ITS COLUMN.
+  //
+  //     fix-479 sized it to the trigger, when the trigger was a full Team card
+  //     (447px) and Bobby's complaint was that expanding was *"so horizontally
+  //     wide"*. fix-507 §C then put Builder/Owner in a 142px column — and the
+  //     panel followed it down, so a full email wrapped to three lines inside
+  //     a 95px box. Sizing to the trigger stopped being the right rule the
+  //     moment the trigger stopped being the card.
+  //
+  // ★★★ AND THE FIX IS THE PANEL, NOT THE COLUMN. `TEAM_GRID_COLUMN_1_MIN`
+  //     must not rise to make an email fit: at 1600 it would push the chat cell
+  //     under its 150px minimum, collapse the container query and hand back
+  //     fix-507 §C's whole 1600 win. A floating layer is the one thing here
+  //     that can be wider than the box it comes out of — it takes no space in
+  //     flow, which is fix-479's own reason for making it float.
+  //
+  // ★ `max`, not a constant: on a wide card the panel still matches the
+  //   trigger, so Bobby's original complaint stays fixed where it was made.
   const popover = useViewportAwarePopover({
     triggerRef: btnRef,
     open,
-    width: anchorWidth || BUILDER_PANEL_FALLBACK_WIDTH,
+    width: Math.max(anchorWidth, BUILDER_PANEL_FALLBACK_WIDTH),
     maxHeight: BUILDER_PANEL_MAX_HEIGHT,
     preferred: 'bottom',
     gap: 4,
@@ -389,12 +407,19 @@ function BuilderOwnerDisclosure({ project }: { project: Project }) {
               says "Expand builder and owner details", so nothing was taken away
               from a screen reader — only from the two-line block a reader is
               scanning for a name. `aria-expanded` is unchanged. */}
-        <span className="block text-[11.5px] font-semibold truncate" style={{ color: 'var(--color-text)' }}>
+        {/* ★★★ fix-508 §F3 — THE NAME CARRIES THE MOCK'S WEIGHT. Bobby:
+            *"their name and then their company name, kind of like in these
+            heading, subheading fonts."* fix-507 §C got the ORDER right (name
+            first, company beneath, the word `Expand` gone) but left both lines
+            at nearly the same weight, so the block read as two facts rather
+            than as a person and where they work. 11.5 semibold → 13 extrabold
+            against a 10.5 regular company line. */}
+        <span className="block text-[13px] font-extrabold truncate leading-tight" style={{ color: 'var(--color-text)' }}>
           {owner || '—'}
         </span>
         {/* ★ An unset one renders the card's normal em dash rather than a
             blank, so "not recorded" and "still loading" cannot look the same. */}
-        <span className="block text-[10.5px] truncate" style={{ color: 'var(--color-muted)' }}>
+        <span className="block text-[10.5px] truncate" style={{ color: 'var(--color-text)' }}>
           {business || '—'}
         </span>
         <span
@@ -988,6 +1013,54 @@ function TeamCell({
       <div className={TEAM_GRID_CHAT_CLASS} data-testid="pd-team-grid-chat">
       <OverviewSection title="Chat" testId="project-overview-team-chat">
         <ProjectChatSection projectId={project.id} />
+        {/* ★★★ fix-508 §F4 — THE BUTTON COMES INTO THE CELL, AND THIS REVERSES
+            fix-345 §3. Bobby asked for it deliberately, so the contract it
+            breaks is rewritten here rather than deleted.
+
+            ★★★ WHAT fix-345 §3 BOUGHT: `pinBottom` takes a section out of
+                fix-331 §1's even height distribution so the three card actions
+                — Milestones' draw-schedule link, Project's Connect, Team's chat
+                — land on ONE baseline across the row. Bobby: *"make them all at
+                the bottom … so it kind of points to here are 3 active buttons
+                for each category."*
+
+            ★★★ WHAT IT COSTS NOW, STATED: **the shared baseline covers two
+                cards, not three.** Site data's Connect and the Dates card's
+                draw-schedule link are both inside the PROJECT card and both
+                still pinned, so they still align with each other. Team's chat
+                button leaves that line and sits under the preview it opens.
+
+            ★★ AND THE REASON IT IS NOT A REGRESSION IS THAT THE ROW CHANGED
+               SHAPE UNDER fix-345. It pinned three buttons on three cards of
+               four, three and four stacked sections. fix-507 §C made Team a
+               two-column grid, so its "floor" is the floor of a card whose
+               right-hand cell ends halfway up — the button was landing level
+               with the consultant band's bottom edge, a long way below the
+               preview it belongs to, pointing at nothing. A baseline shared
+               with a control on another card is worth less than adjacency to
+               the thing the control opens.
+
+            ★ fix-346's rule is untouched and is the one that mattered most:
+              there is still exactly ONE way into the chat, and the unread badge
+              still rides it. */}
+        <div className="mt-1.5">
+          <OverviewAction
+            onClick={() => setChatOpen(true)}
+            testId="project-chat-open"
+            title={
+              postCount > 0
+                ? `Open the project chat — ${postCount} ${postCount === 1 ? 'post' : 'posts'}`
+                : 'Open the project chat'
+            }
+            data={{ 'data-post-count': String(postCount) }}
+          >
+            <span>Chat{postCount > 0 ? ` · ${postCount}` : ''}</span>
+            {/* ★ The unread count rides the control, per fix-346 — same query,
+                same subtraction, same source as the bell. */}
+            <ProjectChatUnread projectId={project.id} />
+            <span aria-hidden>→</span>
+          </OverviewAction>
+        </div>
       </OverviewSection>
       </div>
       </div>
@@ -1015,25 +1088,6 @@ function TeamCell({
       {/* ★★ fix-345 §3: the Team card's action, matching Milestones and Project.
           fix-346 §1 moved the preview down to sit directly above it; the button
           itself is unchanged, and it is still the ONLY way into the modal. */}
-      <OverviewSection testId="pd-chat-section" pinBottom>
-        <OverviewAction
-          onClick={() => setChatOpen(true)}
-          testId="project-chat-open"
-          title={
-            postCount > 0
-              ? `Open the project chat — ${postCount} ${postCount === 1 ? 'post' : 'posts'}`
-              : 'Open the project chat'
-          }
-          data={{ 'data-post-count': String(postCount) }}
-        >
-          <span>Chat{postCount > 0 ? ` · ${postCount}` : ''}</span>
-          {/* ★ The unread count rides the control, per the brief — same query,
-              same subtraction, same source as the bell. */}
-          <ProjectChatUnread projectId={project.id} />
-          <span aria-hidden>→</span>
-        </OverviewAction>
-      </OverviewSection>
-
       {chatOpen && (
         <ProjectChatModal
           projectId={project.id}

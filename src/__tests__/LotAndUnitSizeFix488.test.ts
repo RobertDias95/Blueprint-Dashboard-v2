@@ -554,7 +554,11 @@ describe('fix-488 §B: why the overview units matrix has no Size column', () => 
     //     then needed 736px against 710 available. Turning the matrix ninety
     //     degrees makes an attribute a ROW, so `Size (sf)` costs 16px of HEIGHT
     //     and nothing of width. The constraint expired; the column ships.
-    expect(OVERVIEW_ROW_MIN_WIDTH).toBe(904);
+        // ★★★ fix-508: the row minimum is 996 — the Plan of Record's floor rose to
+    //     the width its capped thumbnail uses (486), replacing fix-417's
+    //     retired rank (D-2026-09-09). The PROPERTY each of these tests was
+    //     written for is unchanged; only the number it is held against is.
+    expect(OVERVIEW_ROW_MIN_WIDTH).toBe(996);
     expect(UNIT_ROW_COLUMNS.some((c) => c.key === 'size_sf')).toBe(false);
   });
 

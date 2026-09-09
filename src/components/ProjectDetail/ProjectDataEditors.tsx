@@ -659,6 +659,24 @@ export function DDPhaseEditor({
           {/* fix-66: BP-anchored Target Submit. Still editable, still writes
               permits.target_submit — it changed sections, not nature. */}
           <TargetSubmitRow project={project} bp={targetSubmitBp} />
+          {/* ★★★ fix-508 §D — THE ACQ DATE, AND THIS IS WHERE THE INLINE EDIT
+              FROM SCHEDULE HEALTH LANDED.
+
+              §D makes `Target Approval` DERIVED — the latest of the ACQ date,
+              the closing date and the GO date plus six calendar months — so the
+              box fix-63 put on Schedule Health was editing one of three inputs
+              while displaying the answer. Two surfaces writing one number by
+              different rules is exactly P-179, so the number is authored HERE,
+              once, beside the other project dates, and every surface derives.
+
+              ★★ IT IS THE SAME COLUMN (`permits.expected_issue`), the same RPC
+                 and the same OCC token fix-63 used — the control moved, the
+                 write path did not. And it is renamed to what it is: ACQ types
+                 a date, and the target approval is computed from it.
+              ★ Before this it had NO editor in Project Data at all, so removing
+                the Schedule Health box without adding this would have stranded
+                the column behind the New Project wizard. Checked, not assumed. */}
+          <AcqDateRow project={project} bp={targetSubmitBp} />
           {/* ★ Reads the SAME `bp` this card already resolved — no second
               notion of "the primary permit" gets invented here. */}
           <IntakeAcceptedRow bp={bp} />
@@ -821,6 +839,115 @@ export function TargetSubmitRow({
       value=""
       title="No Building Permit to anchor Target Submit"
       testId="pd-target-submit-empty"
+    />
+  );
+}
+
+
+/**
+ * ★★★ fix-508 §D — THE ACQ DATE, THE ONE PLACE IT IS AUTHORED.
+ *
+ * `permits.expected_issue` has been on screen as **`ACQ target`** since fix-506
+ * and editable inline on Schedule Health since fix-63. §D turns the thing it
+ * used to BE — the target approval — into a computed value: the latest of this
+ * date, the project's closing date, and the GO date plus six calendar months.
+ *
+ * ★★★ SO THE EDITOR HAD TO MOVE RATHER THAN STAY OR VANISH. A box on Schedule
+ *     Health writing `expected_issue` while the cell above it printed a `max`
+ *     over three dates is [[P-179-pipeline-stage-and-draw-schedule-disagree]]
+ *     in miniature: type a date earlier than the closing and the number would
+ *     refuse to move. Here it is one input among the project's other dates, and
+ *     what it feeds is derived everywhere it appears.
+ *
+ * ★★ THE WRITE PATH IS fix-63's, UNCHANGED — same column, same
+ *    `useUpdateProjectWithPermits`, same two OCC tokens, same conflict copy.
+ *    A moved control that also changes how it writes is two changes wearing one
+ *    ticket number.
+ */
+function AcqDateRow({
+  project,
+  bp,
+}: {
+  project: Project;
+  bp: PermitWithCycles | null;
+}) {
+  const stored = bp?.expected_issue ?? '';
+  const [draft, setDraft] = useState(stored);
+  // ★ The React 19 in-render reseed `TargetSubmitRow` above uses, for the same
+  //   reason: `useState` seeds once, so a BP swap or a save→refetch would leave
+  //   the draft stale. `-1` is the no-BP sentinel.
+  const bpId = bp?.id ?? -1;
+  const [snapshot, setSnapshot] = useState<{ id: number; value: string }>({
+    id: bpId,
+    value: stored,
+  });
+  if (snapshot.id !== bpId || snapshot.value !== stored) {
+    setSnapshot({ id: bpId, value: stored });
+    setDraft(stored);
+  }
+
+  const mut = useUpdateProjectWithPermits();
+  const occMissing = !bp || !bp.updated_at || !project.updated_at;
+
+  async function commit() {
+    if (!bp || !bp.updated_at || !project.updated_at) return;
+    const next = draft.trim() || null;
+    if (next === (bp.expected_issue ?? null)) return;
+    try {
+      const result = await mut.mutateAsync({
+        projectId: project.id,
+        projectExpectedUpdatedAt: project.updated_at,
+        projectPatch: {},
+        permitUpserts: [
+          {
+            id: bp.id,
+            expected_updated_at: bp.updated_at,
+            // ★ The RPC casts `NULLIF(elem->>'expected_issue','')::date`, so an
+            //   emptied box clears the column — and Target Approval falls back
+            //   to whichever of the other two candidates is latest, which is
+            //   the point of it being a `max` rather than a single field.
+            expected_issue: next,
+          },
+        ],
+        permitDeletes: [],
+      });
+      if (result.conflict) {
+        pushToast('This project was modified elsewhere — reload and retry.', 'warn');
+      }
+    } catch {
+      // hook-level onError already toasted.
+    }
+  }
+
+  function onKeyDown(e: React.KeyboardEvent<HTMLInputElement>) {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      void commit();
+    } else if (e.key === 'Escape') {
+      e.preventDefault();
+      setDraft(stored);
+      e.currentTarget.blur();
+    }
+  }
+
+  return bp ? (
+    <MilestoneDateRow
+      label="ACQ date"
+      value={draft}
+      onChange={setDraft}
+      onBlur={() => void commit()}
+      onKeyDown={onKeyDown}
+      disabled={occMissing || mut.isPending}
+      title="ACQ date — Acquisitions' own target. Target Approval is the latest of this, the closing date, and the GO date plus 6 months."
+      testId="pd-acq-date"
+      ariaLabel="ACQ date"
+    />
+  ) : (
+    <MilestoneDateRow
+      label="ACQ date"
+      value=""
+      title="No Building Permit to hold the ACQ date"
+      testId="pd-acq-date-empty"
     />
   );
 }

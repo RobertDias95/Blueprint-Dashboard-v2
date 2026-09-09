@@ -138,6 +138,31 @@ function renderCard() {
   return render(<ConsultantBand projectId={PROJECT} bp={null} />, { wrapper });
 }
 
+/**
+ * ★★★ fix-508 §F2 — THE FIRM PICKER IS IN PROJECT DATA, NOT ON THE OVERVIEW.
+ *
+ * fix-506 ruled *"type and firm do not [edit on the overview]"* and the
+ * `<select>` fix-475 built was never taken out — STEP 0 confirmed six live,
+ * enabled dropdowns on `233 31st Ave E`, so it **never shipped** rather than
+ * having regressed. §F2 removes it from the overview and gives the firm the
+ * pill's full width instead, which is what fixes Bobby's actual complaint
+ * (*"you can't read their name because it gets cut off"*).
+ *
+ * ★★ THE RE-FIRM BEHAVIOUR ITSELF IS UNTOUCHED — same RPC, same prompt, same
+ *    `consultantHasNothingToClear` predicate — so the three tests below keep
+ *    every assertion and only change which surface they mount. That is the
+ *    point: if the move had changed the behaviour, they would fail.
+ */
+function renderManage() {
+  const queryClient = new QueryClient({
+    defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
+  });
+  const wrapper = ({ children }: { children: ReactNode }) => (
+    <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>
+  );
+  return render(<ConsultantBand projectId={PROJECT} bp={null} manage />, { wrapper });
+}
+
 beforeEach(() => {
   state.rows = [];
   state.rounds = [];
@@ -350,7 +375,7 @@ describe('fix-475 §1 — the Consultants column', () => {
     // ★★ The dominant case is a CORRECTION, not a succession — but only the
     //    person doing it knows which, so it is neither automatic nor silent.
     state.rows = [row({ round_count: 3 })];
-    renderCard();
+    renderManage();
     fireEvent.change(screen.getByTestId('pd-consultant-firm-Geotech'), {
       target: { value: 'f-geo2' },
     });
@@ -368,7 +393,7 @@ describe('fix-475 §1 — the Consultants column', () => {
 
   it('★★ …and accepting clears them, through the same one RPC call', () => {
     state.rows = [row({ round_count: 3 })];
-    renderCard();
+    renderManage();
     fireEvent.change(screen.getByTestId('pd-consultant-firm-Geotech'), {
       target: { value: 'f-geo2' },
     });
@@ -382,7 +407,7 @@ describe('fix-475 §1 — the Consultants column', () => {
     state.rows = [
       row({ discipline: 'Surveyor', firm_id: 'f-old', firm_name: 'Retired Surveyors', firm_active: false }),
     ];
-    renderCard();
+    renderManage();
     const select = screen.getByTestId('pd-consultant-firm-Surveyor') as HTMLSelectElement;
     expect(select.value).toBe('f-old');
     expect(select.textContent).toContain('Retired Surveyors');
@@ -430,7 +455,11 @@ describe('fix-475 §3 — the row minimum did not increase', () => {
     // ★★★ fix-506 §A: 1,172 → 904. fix-475's PROPERTY — the row minimum must not
     //     INCREASE — is what this test is for, and it holds by a much wider
     //     margin now: two whole cards left the line.
-    expect(OVERVIEW_ROW_MIN_WIDTH).toBe(904);
+        // ★★★ fix-508: the row minimum is 996 — the Plan of Record's floor rose to
+    //     the width its capped thumbnail uses (486), replacing fix-417's
+    //     retired rank (D-2026-09-09). The PROPERTY each of these tests was
+    //     written for is unchanged; only the number it is held against is.
+    expect(OVERVIEW_ROW_MIN_WIDTH).toBe(996);
   });
 
   it('★★★ SUPERSEDED: there is no Consultants COLUMN, and the pill is re-measured', () => {

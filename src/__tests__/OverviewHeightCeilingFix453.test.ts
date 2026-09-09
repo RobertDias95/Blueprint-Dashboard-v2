@@ -126,9 +126,14 @@ describe('fix-453 — the overview height ceiling, pinned', () => {
     //   50px and STEP 0 charges the row 15 for the pillbox scrollbar it had
     //   never counted, so every viewport gains 35 and 1440 lands on 905 against
     //   904. The "line 1 / line 2" halves of fix-453's table now describe 1280.
-    expect(overviewRowWidthAt(1280)).toBeLessThan(OVERVIEW_ROW_MIN_WIDTH);
+    // ★★★ AND fix-508 HANDS 1440 BACK. The Plan of Record's floor rises to the
+    //     width its capped thumbnail uses (368 → 486), so the row minimum goes
+    //     904 → 996 and 1440's 905 no longer clears it. fix-507 won that
+    //     viewport by a single pixel; this spends it and 91 more, deliberately.
+    //     1600 and 1920 — the widths Bobby works at — both still run on one
+    //     line, which is the claim that has to survive.
     expect(overviewRowWidthAt(1440)).toBe(905);
-    expect(overviewRowWidthAt(1440)).toBeGreaterThan(OVERVIEW_ROW_MIN_WIDTH);
+    expect(overviewRowWidthAt(1440)).toBeLessThan(OVERVIEW_ROW_MIN_WIDTH);
     expect(overviewRowWidthAt(1600)).toBeGreaterThan(OVERVIEW_ROW_MIN_WIDTH);
     expect(overviewRowWidthAt(1920)).toBeGreaterThan(OVERVIEW_ROW_MIN_WIDTH);
   });

@@ -276,8 +276,19 @@ describe('fix-346 §1: the Team card reads Internal, Chat, button (fix-479: no E
       'project-overview-team-chat',
       // ★ fix-506 §F: the consultant band, appended.
       'project-overview-team-consultants',
-      'pd-chat-section',
     ]);
+    // ★★★ fix-508 §F4 — `pd-chat-section` IS GONE FROM THIS LIST because the
+    //     button it wrapped moved INTO the chat cell, at Bobby's request. It
+    //     was a `pinBottom` section of the card; it is now the last thing in
+    //     the chat preview it opens. See the Team card's own comment for what
+    //     that costs fix-345 §3 (the shared baseline covers two cards now, not
+    //     three) and why the adjacency is worth more than the alignment.
+    expect(screen.queryByTestId('pd-chat-section')).toBeNull();
+    expect(
+      screen.getByTestId('project-overview-team-chat').contains(
+        screen.getByTestId('project-chat-open'),
+      ),
+    ).toBe(true);
   });
 
   // ★★★ fix-507 §C — AND THE ARRANGEMENT, asserted as PARENTAGE rather than
@@ -310,7 +321,6 @@ describe('fix-346 §1: the Team card reads Internal, Chat, button (fix-479: no E
     const ids = teamSectionIds();
     const internal = ids.indexOf('project-overview-team-internal');
     const chat = ids.indexOf('project-overview-team-chat');
-    const button = ids.indexOf('pd-chat-section');
     // ★★★ fix-506 §F PUTS THE CONSULTANT BAND BETWEEN THE PREVIEW AND THE
     //     BUTTON, and fix-346's ruling survives it. Bobby's ask was *"internal,
     //     external, and then here's the chat section, and then the chat
@@ -319,8 +329,18 @@ describe('fix-346 §1: the Team card reads Internal, Chat, button (fix-479: no E
     //     to the floor), which is what "directly above" was really protecting;
     //     the band is a foot-of-card grid, not something between them in the
     //     reading order.
+    // ★★★ fix-508 §F4 — THE BUTTON IS INSIDE THE PREVIEW'S SECTION NOW, which
+    //     is "directly above" taken literally rather than structurally. fix-346
+    //     asked for *"here's the chat section, and then the chat button"*; the
+    //     button being the card's LAST SECTION was how fix-345 §3 delivered
+    //     that, and Bobby has now asked for it to sit with the preview instead.
+    //     The adjacency fix-346 was protecting is stronger, not weaker.
     expect(chat).toBeGreaterThan(internal);
-    expect(button).toBe(ids.length - 1);
+    expect(
+      screen
+        .getByTestId('project-overview-team-chat')
+        .contains(screen.getByTestId('project-chat-open')),
+    ).toBe(true);
   });
 
   // ★★★ THE PREVIEW IS NOT DELETED. An earlier draft of the brief said to
@@ -365,6 +385,17 @@ describe('fix-346 §1: the Team card reads Internal, Chat, button (fix-479: no E
     const sibling = screen.getByTestId('project-overview-team-internal');
     expect(chat.className).toBe(sibling.className);
     for (const el of Array.from(chat.querySelectorAll('*'))) {
+      // ★ fix-508 §F4 puts the chat BUTTON in this section, and an
+      //   `OverviewAction` is a bordered control by design (fix-345 §3's shared
+      //   appearance). The rule fix-331 §2 protects is that the SECTION draws
+      //   no card of its own — a second frame around the content — so the
+      //   button is exempted by name rather than the rule being weakened.
+      if (
+        el.getAttribute('data-testid') === 'project-chat-open' ||
+        el.closest('[data-testid="project-chat-open"]')
+      ) {
+        continue;
+      }
       const cls = (el as HTMLElement).className;
       const className = typeof cls === 'string' ? cls : '';
       expect(className).not.toMatch(/\bborder\b(?!-)/);
@@ -467,14 +498,32 @@ describe('fix-346 §1: one claimant for the unread count', () => {
 // ---------------------------------------------------------------------------
 
 describe('fix-346 §1: fix-345 §3 survives the move', () => {
-  it('★ the Team card still ends with a pinned action taking no spare height', () => {
+  it('★★★ SUPERSEDED by fix-508 §F4: NOTHING is pinned on the Team card now', () => {
     renderHeader();
-    const ids = teamSectionIds();
-    expect(ids[ids.length - 1]).toBe('pd-chat-section');
-    const pinned = screen.getByTestId('pd-chat-section');
-    expect(pinned.dataset.pinBottom).toBe('true');
-    expect(pinned.style.flexGrow).toBe('0');
-    expect(pinned.style.marginTop).toBe('auto');
+    // ★★★ fix-345 §3's `pinBottom` put the chat button on the card's FLOOR so
+    //     Milestones' draw-schedule link, Site data's Connect and Team's chat
+    //     landed on one baseline — Bobby: *"3 active buttons for each category."*
+    //     He has now asked for the chat button to sit with the preview it opens
+    //     instead, so Team has no pinned section at all.
+    //
+    // ★★★ WHAT THAT COSTS, STATED RATHER THAN DELETED: **the shared baseline
+    //     covers two cards, not three.** Connect and the draw-schedule link are
+    //     both inside the PROJECT card and both still pinned, so they still
+    //     align with each other. `pinBottom` itself is untouched and still
+    //     tested by them — this card simply stopped using it.
+    const card = screen.getByTestId('project-overview-team');
+    const sections = Array.from(
+      card.querySelectorAll('section[data-testid]'),
+    ) as HTMLElement[];
+    expect(sections.filter((s) => s.dataset.pinBottom === 'true')).toHaveLength(0);
+    // ★ …and the button is inside the chat section, which is where it went.
+    expect(
+      screen.getByTestId('project-overview-team-chat').contains(
+        screen.getByTestId('project-chat-open'),
+      ),
+    ).toBe(true);
+    // ★★ fix-331 §1's distribution is untouched: every section still grows.
+    for (const s of sections) expect(s.style.flexGrow).toBe('1');
   });
 
   // ★★ The count has now been 4 (fix-345), 5 (fix-475) and 4 again (fix-479 §A,
@@ -482,38 +531,32 @@ describe('fix-346 §1: fix-345 §3 survives the move', () => {
   // was never the property. fix-345 §3's rule is about the PINNED section
   // taking no share of the spare height, so all three cards' actions land on
   // one baseline; that holds whatever is above it.
-  it('★★ five sections, and exactly one is pinned to the card’s floor', () => {
+  it('★★★ SUPERSEDED by fix-508 §F4: NOTHING is pinned on the Team card now', () => {
     renderHeader();
-    // ★ fix-479 §A: 5 → 4, External left the card (Bobby, 2026-09-02).
-    //   fix-506 §F: 4 → 5, the consultant band joined it.
-    expect(teamSectionIds()).toHaveLength(5);
-    const sections = Array.from(
-      screen
-        .getByTestId('project-overview-team')
-        .querySelectorAll('section[data-testid]'),
-    ) as HTMLElement[];
-    const pinned = sections.filter((s) => s.dataset.pinBottom === 'true');
-    // ★ THE PROPERTY, not the arithmetic: EXACTLY ONE section is pinned, and it
-    //   is the last one. That is fix-345 §3's whole contract and it is what
-    //   would actually break.
-    expect(pinned).toHaveLength(1);
-    expect(pinned[0].dataset.testid).toBe('pd-chat-section');
-    expect(sections[sections.length - 1]).toBe(pinned[0]);
-    // ★★★ fix-507 §C — AND THE DISTRIBUTION NOW RUNS OVER THE CARD'S TWO
-    //     GROWING CHILDREN: the three-column grid and the consultant band.
-    //     fix-331 §1 said the spare height splits EVENLY BETWEEN SECTIONS; it
-    //     still does, over the children the card actually has. The trap
-    //     fix-418 sprang is a wrapper that takes no share and swallows the
-    //     growth — this asserts the grid is a growing participant, which is the
-    //     thing that would silently regress.
+    // ★★★ fix-345 §3's `pinBottom` put the chat button on the card's FLOOR so
+    //     Milestones' draw-schedule link, Site data's Connect and Team's chat
+    //     landed on one baseline — Bobby: *"3 active buttons for each category."*
+    //     He has now asked for the chat button to sit with the preview it opens
+    //     instead, so Team has no pinned section at all.
+    //
+    // ★★★ WHAT THAT COSTS, STATED RATHER THAN DELETED: **the shared baseline
+    //     covers two cards, not three.** Connect and the draw-schedule link are
+    //     both inside the PROJECT card and both still pinned, so they still
+    //     align with each other. `pinBottom` itself is untouched and still
+    //     tested by them — this card simply stopped using it.
     const card = screen.getByTestId('project-overview-team');
-    const growers = (Array.from(card.children) as HTMLElement[]).filter(
-      (c) => c.style.flexGrow === '1',
-    );
-    expect(growers.map((g) => g.dataset.testid)).toEqual([
-      'pd-team-grid',
-      'project-overview-team-consultants',
-    ]);
+    const sections = Array.from(
+      card.querySelectorAll('section[data-testid]'),
+    ) as HTMLElement[];
+    expect(sections.filter((s) => s.dataset.pinBottom === 'true')).toHaveLength(0);
+    // ★ …and the button is inside the chat section, which is where it went.
+    expect(
+      screen.getByTestId('project-overview-team-chat').contains(
+        screen.getByTestId('project-chat-open'),
+      ),
+    ).toBe(true);
+    // ★★ fix-331 §1's distribution is untouched: every section still grows.
+    for (const s of sections) expect(s.style.flexGrow).toBe('1');
   });
 
   it('★ all three cards still end with their action, on the same geometry', () => {
@@ -523,17 +566,12 @@ describe('fix-346 §1: fix-345 §3 survives the move', () => {
     //     foot of Site data — where v14 draws them, above the units matrix. So
     //     the card that still ENDS in its action is Team; the geometry claim,
     //     which is what this test is really for, holds for all three.
-    for (const [cardId, sectionId] of [
-      ['project-overview-team', 'pd-chat-section'],
-    ] as const) {
-      const sections = Array.from(
-        screen.getByTestId(cardId).querySelectorAll(':scope > section'),
-      );
-      expect(
-        (sections[sections.length - 1] as HTMLElement).dataset.testid,
-        cardId,
-      ).toBe(sectionId);
-    }
+    // ★★★ fix-508 §F4: no card ENDS in its action any more — Project's two are
+    //     inside its Site and Dates boxes (fix-506 §B) and Team's is inside the
+    //     chat preview. What this test is really for is the GEOMETRY below, and
+    //     that is untouched: all three controls are the same `OverviewAction`,
+    //     so they are the same height, the same width and the same type scale
+    //     wherever they sit.
     for (const buttonId of [
       'pd-draw-schedule-link',
       'pd-connect-button',

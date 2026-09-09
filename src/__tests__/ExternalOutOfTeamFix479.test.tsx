@@ -219,8 +219,19 @@ describe('fix-479 §A: External has left the Team card', () => {
       'project-overview-team-chat',
       // ★ fix-506 §F: the consultant band, appended.
       'project-overview-team-consultants',
-      'pd-chat-section',
     ]);
+    // ★★★ fix-508 §F4 — `pd-chat-section` IS GONE FROM THIS LIST because the
+    //     button it wrapped moved INTO the chat cell, at Bobby's request. It
+    //     was a `pinBottom` section of the card; it is now the last thing in
+    //     the chat preview it opens. See the Team card's own comment for what
+    //     that costs fix-345 §3 (the shared baseline covers two cards now, not
+    //     three) and why the adjacency is worth more than the alignment.
+    expect(screen.queryByTestId('pd-chat-section')).toBeNull();
+    expect(
+      screen.getByTestId('project-overview-team-chat').contains(
+        screen.getByTestId('project-chat-open'),
+      ),
+    ).toBe(true);
   });
 
   it('★★★ …even on a project with FIVE firms recorded', () => {

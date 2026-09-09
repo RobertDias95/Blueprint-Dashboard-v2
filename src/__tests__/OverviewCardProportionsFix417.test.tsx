@@ -26,6 +26,7 @@ import {
 } from '../lib/unitRowLayout';
 import {
   CONSULTANT_BAND_MIN_WIDTH,
+  PLAN_OF_RECORD_CARD_MIN,
   PROJECT_CARD_MIN_WIDTH,
   UNIT_MATRIX_TRANSPOSED_WIDTH,
 } from '../lib/projectCardLayout';
@@ -94,9 +95,15 @@ describe('fix-417 §0: the cause, computed rather than quoted', () => {
     // ★★ THE OLD NUMBER IS KEPT ABOVE AS EVIDENCE, exactly as fix-422 kept
     //    fix-412's 620. `UNIT_MATRIX_WIDTH` still describes the horizontal row
     //    the Library used to render and the wizard still does.
+    // ★★★ SUPERSEDED BY fix-508: THE MATRIX NO LONGER BINDS THIS FLOOR. §C
+    //     shrinks it (332 → 267 of table, 289 of card) and §B's Site/Dates
+    //     pair — which can no longer wrap at 1600, by ruling — passes it on the
+    //     way down at 330. The DERIVATION rule fix-422 established is intact
+    //     and is what this now asserts: the floor is the widest thing the card
+    //     must hold, derived, whichever thing that currently is.
     const proj = OVERVIEW_CARD_COLUMNS.find((c) => c.key === 'proj')!;
     expect(proj.minPx).toBe(PROJECT_CARD_MIN_WIDTH);
-    expect(PROJECT_CARD_MIN_WIDTH).toBe(
+    expect(PROJECT_CARD_MIN_WIDTH).toBeGreaterThan(
       UNIT_MATRIX_TRANSPOSED_WIDTH + OVERVIEW_CARD_CHROME,
     );
   });
@@ -126,11 +133,24 @@ describe('fix-417 §A: the proportions are declared once', () => {
     }
   });
 
-  it('★★★ A3: Plan of Record is the largest SHARE — a later edit cannot demote it', () => {
+  it('★★★ SUPERSEDED by fix-508: the RANK is retired, the FLOOR replaces it', () => {
+    // ★★★ D-2026-09-09-plan-of-record-keeps-a-floor-not-a-rank. Bobby's
+    //     original complaint (P-071) was *"the Design plan of record should be
+    //     the widest of the boxes, BUT the team and builder owner info is way
+    //     too slim"* — Team was ~100px. The rank was shorthand; the grievance
+    //     was Team. fix-508 gives Team 20% of the Project card, which settles
+    //     it, so enforcing the rank would defend the shorthand against the
+    //     thing it stood for.
+    //
+    // ★★ WHAT REPLACES IT IS STILL fix-417's OWN MECHANISM, which is why this
+    //    test moves rather than being deleted: *a declared share with no floor
+    //    is a suggestion.* The Plan of Record keeps a floor — the width its
+    //    capped thumbnail actually uses — it just no longer has to beat its
+    //    neighbours.
     const por = OVERVIEW_CARD_COLUMNS.find((c) => c.key === 'por')!;
-    for (const c of OVERVIEW_CARD_COLUMNS) {
-      if (c.key !== 'por') expect(por.pct).toBeGreaterThan(c.pct);
-    }
+    const team = OVERVIEW_CARD_COLUMNS.find((c) => c.key === 'team')!;
+    expect(team.pct).toBeGreaterThan(por.pct);
+    expect(por.minPx).toBe(PLAN_OF_RECORD_CARD_MIN);
     // ★ 29 → 35: Bobby's v14 ruling is *"Permit intake's column is gone; its
     //   width goes to the Plan of Record card"*, and 35% of the shared space is
     //   what renders the mock's 470px at 1920.
@@ -142,11 +162,11 @@ describe('fix-417 §A: the proportions are declared once', () => {
     expect(por.pct).toBe(35.5);
   });
 
-  it('★★★ …and the largest FLOOR, so it is widest at every width, not just wide ones', () => {
-    // ★ The share alone is not enough: below ~1030px of row the floors bind and
-    //   the shares stop deciding anything. If PROJECT's floor were the larger,
-    //   Plan of Record would be demoted in exactly the narrow window where
-    //   Bobby's complaint started.
+  it('★★ …and it is still the largest FLOOR, which is a fact and no longer a rule', () => {
+    // ★ 486 against Project's 330 and Team's 160 — so below the row minimum the
+    //   Plan of Record is still the widest card. That is now a CONSEQUENCE of
+    //   what its picture needs, not a constraint anybody is defending: above
+    //   the floors, Team's larger share overtakes it, and fix-508 intends that.
     const por = OVERVIEW_CARD_COLUMNS.find((c) => c.key === 'por')!;
     for (const c of OVERVIEW_CARD_COLUMNS) {
       if (c.key !== 'por') expect(por.minPx).toBeGreaterThan(c.minPx);
@@ -234,15 +254,18 @@ describe('fix-417: the page body never scrolls sideways', () => {
       overviewRowFitsAt(vw, r);
     expect(fits(1280, 'expanded')).toBe(false);
     expect(fits(1280, 'collapsed')).toBe(false);
-    // ★★★ fix-507 §A: 1440-EXPANDED FITS NOW, by ONE PIXEL. The floors are
-    //     unchanged at 904 and the row at 1440 is 905, because the rail gave up
-    //     50px and the scrollbar took 15 back. Asserted as the flip it is,
-    //     rather than edited to `true` in passing.
-    expect(fits(1440, 'expanded')).toBe(true);
+    // ★★★ fix-507 §A won 1440-expanded by ONE PIXEL (905 of row against a 904
+    //     minimum). ★★★ fix-508 SPENDS IT AND 91 MORE: the Plan of Record's
+    //     floor rises 368 → 486 (its capped thumbnail's own width, replacing
+    //     fix-417's retired rank) and the row minimum goes 904 → 996. So 1440
+    //     wraps again. Stated rather than quietly re-baselined — 1600 and 1920
+    //     are the widths Bobby works at and both still run on one line.
+    expect(fits(1440, 'expanded')).toBe(false);
     expect(overviewRowWidthAt(1440, 'expanded')).toBe(905);
     // ★★★ fix-506: 1440-COLLAPSED FITS NOW, and 1600-expanded does. Two cards
     //     left the row and the two that absorbed their content did it in
     //     HEIGHT, so the minimum fell 1,172 → 904.
+    // ★ 1440-collapsed is 1061 of row against 996 — still fits.
     expect(fits(1440, 'collapsed')).toBe(true);
     expect(fits(1600, 'expanded')).toBe(true);
     expect(fits(1920, 'expanded')).toBe(true);
@@ -270,8 +293,10 @@ describe('fix-417: the page body never scrolls sideways', () => {
     //     15px for a scrollbar nobody had counted, so the net is 35. 1440 now
     //     fits by a single pixel, which is worth knowing before anybody spends
     //     that pixel.
-    expect(overviewMinViewport('expanded')).toBe(1439);
-    expect(overviewMinViewport('collapsed')).toBe(1283);
+    // ★★★ fix-508: 1439 → 1531, and the cause is a FLOOR rather than the
+    //     chrome — the Plan of Record's, raised to what its picture uses.
+    expect(overviewMinViewport('expanded')).toBe(1531);
+    expect(overviewMinViewport('collapsed')).toBe(1375);
   });
 
   it('★★ below the threshold the cards sit on their floors and the PANE scrolls', () => {
@@ -309,24 +334,35 @@ describe('fix-417: the page body never scrolls sideways', () => {
     //     place to find room at 1280; taking it would have put Project ahead of
     //     it at EVERY width, not just narrow ones, because Project's floor is
     //     now a hard content requirement. Measured and refused — see the PR.
+    // ★★★ SUPERSEDED by fix-508 (D-2026-09-09): the RANK is retired. fix-422's
+    //     refusal is kept because its ARITHMETIC was right — taking the Plan of
+    //     Record's floor would have put Project ahead at every width. fix-508
+    //     does not take that floor; it RAISES it, to the width the card's own
+    //     capped thumbnail uses, and lets TEAM past it on share instead.
     const por = OVERVIEW_CARD_COLUMNS.find((c) => c.key === 'por')!;
     const proj = OVERVIEW_CARD_COLUMNS.find((c) => c.key === 'proj')!;
+    const team = OVERVIEW_CARD_COLUMNS.find((c) => c.key === 'team')!;
     expect(por.minPx).toBeGreaterThan(proj.minPx);
-    for (const c of OVERVIEW_CARD_COLUMNS) {
-      if (c.key !== 'por') expect(por.pct).toBeGreaterThan(c.pct);
-    }
+    expect(team.pct).toBeGreaterThan(por.pct);
     // ★ …at every viewport where the row resolves at all. ★ fix-506 §A moved
     //   the Plan of Record to index 0 — first in the row, because Bobby reads
     //   the overview as a book — so the index is LOOKED UP rather than typed,
     //   which is what stops this assertion silently passing on the wrong card
     //   the next time the order changes.
+    // ★ Below the row minimum every track sits on its floor, and the Plan of
+    //   Record's is still the largest — so it is the widest card THERE. Above
+    //   it, Team's share overtakes, which is the ruling.
     const porIdx = OVERVIEW_CARD_COLUMNS.findIndex((c) => c.key === 'por');
+    const teamIdx = OVERVIEW_CARD_COLUMNS.findIndex((c) => c.key === 'team');
     for (const vw of [1280, 1440, 1600, 1920]) {
       for (const r of ['expanded', 'collapsed'] as const) {
-        const w = resolveOverviewWidths(overviewRowWidthAt(vw, r));
-        expect(w[porIdx]).toBe(Math.max(...w));
+        const row = overviewRowWidthAt(vw, r);
+        const w = resolveOverviewWidths(row);
+        if (row < OVERVIEW_ROW_MIN_WIDTH) expect(w[porIdx]).toBe(Math.max(...w));
       }
     }
+    const wide = resolveOverviewWidths(overviewRowWidthAt(1920));
+    expect(wide[teamIdx]).toBeGreaterThan(wide[porIdx]);
   });
 
   it('★★★ SUPERSEDED: the fifth column is gone, and the defect it guarded is closed elsewhere', () => {
@@ -356,9 +392,18 @@ describe('fix-417: the page body never scrolls sideways', () => {
     expect(proj.minPx).toBe(PROJECT_CARD_MIN_WIDTH);
     // Plan of Record: pinned 14px above Project so Bobby\'s "widest of the
     // boxes" ruling holds where the floors bind, not just where shares do.
-    expect(por.minPx).toBe(proj.minPx + 14);
+    // ★★★ fix-508 retires the "14px above Project" pin. The Plan of Record's
+    //     floor is its OWN picture now — the width at which the modal plan
+    //     sheet exactly fills fix-507b's capped box — so shrinking the units
+    //     matrix no longer narrows a card that has nothing to do with it.
+    expect(por.minPx).toBe(PLAN_OF_RECORD_CARD_MIN);
     // Team: one consultant pill plus card chrome, and the pill is derived too.
-    expect(team.minPx).toBe(CONSULTANT_BAND_MIN_WIDTH + OVERVIEW_CARD_CHROME);
+    // ★ fix-423's 160 binds again — §F1's three-line pill takes the pill floor
+    //   to 96, so `CONSULTANT_BAND_MIN_WIDTH + chrome` no longer beats it. The
+    //   derivation is unchanged; it simply stopped being the larger of the two.
+    expect(team.minPx).toBe(
+      Math.max(160, CONSULTANT_BAND_MIN_WIDTH + OVERVIEW_CARD_CHROME),
+    );
   });
 
   it('★★ at the width Bobby measured, every squeezed card grows back', () => {
@@ -748,9 +793,16 @@ describe('fix-417 §B (superseded): the PROJECT card still cannot set the row wi
     //     is still "the grid inside the card, plus the card's chrome" — it is
     //     just a different grid: types across, attributes down, sized for
     //     prod's maximum of six unit types.
+    // ★★★ AND fix-508 §B/§C HAND THE FLOOR OVER. §C shrinks the matrix to 267
+    //     (289 of card) and §B's Site/Dates pair — which can no longer wrap at
+    //     1600, by ruling — binds at 330. The PROPERTY this test exists for is
+    //     unchanged and is what it now asserts: the card is never narrower than
+    //     the widest thing inside it, so it never has anything to scroll.
     const proj = OVERVIEW_CARD_COLUMNS.find((c) => c.key === 'proj')!;
-    expect(proj.minPx).toBe(UNIT_MATRIX_TRANSPOSED_WIDTH + OVERVIEW_CARD_CHROME);
     expect(proj.minPx).toBe(PROJECT_CARD_MIN_WIDTH);
+    expect(proj.minPx).toBeGreaterThanOrEqual(
+      UNIT_MATRIX_TRANSPOSED_WIDTH + OVERVIEW_CARD_CHROME,
+    );
   });
 
   it('★★★ the shares still sum to 100 and every floor is real', () => {
@@ -759,17 +811,15 @@ describe('fix-417 §B (superseded): the PROJECT card still cannot set the row wi
     //     five. The shares are the v14 mock's `470px · 1.05fr · 1.15fr`
     //     translated: 470 is 35% of the 1,330px of shared space at 1920, and
     //     the remaining 65 splits 1.05 : 1.15.
-    // ★★★ fix-507 §B RE-SHARES THEM, and the 50px the permits rail gave up is
-    //     what pays for it: Project rises 31 → 35 so its body clears the 475 the
-    //     Site/Dates pair needs, Plan of Record follows to 35.5 to stay the
-    //     widest (fix-417's unrevoked ruling), and Team pays 34 → 29.5.
-    //     Measured in Chrome at 1920: 485 · 478 · 403.
-    expect(OVERVIEW_CARD_COLUMNS.map((c) => c.pct)).toEqual([35.5, 35, 29.5]);
+    // ★★★ fix-508 (P-193) RE-SHARES THEM AGAIN AND RETIRES THE RANK: Project
+    //     20% narrower, the freed width to Team, which makes TEAM the widest
+    //     card. Measured in Chrome at 1920: 486 · 382 · 497.
+    expect(OVERVIEW_CARD_COLUMNS.map((c) => c.pct)).toEqual([35.5, 28, 36.5]);
     expect(OVERVIEW_CARD_COLUMNS.map((c) => c.minPx)).toEqual([
-      // ★ por is pinned 14 above proj (Bobby's "widest of the boxes" ruling,
-      //   which only the FLOORS can honour below the row minimum); proj is the
-      //   transposed matrix at six types; team is one consultant pill.
-      368, 354, 162,
+      // ★ por is the width its capped thumbnail uses (486, derived by inverting
+      //   fix-507b's cap); proj is the Site/Dates pair plus border and margin;
+      //   team is fix-423's 160, which binds again now §F1's pill floor is 96.
+      486, 330, 160,
     ]);
     for (const c of OVERVIEW_CARD_COLUMNS) {
       expect(c.floorReason.length).toBeGreaterThan(40);

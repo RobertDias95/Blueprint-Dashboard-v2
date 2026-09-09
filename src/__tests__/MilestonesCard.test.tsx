@@ -732,12 +732,12 @@ describe('fix-345 §3 → fix-506: the card buttons', () => {
   //     Project card's own last section is the matrix, and the two buttons
   //     share the pair's baseline rather than the card's.
   //
-  // ★ The Team card is unchanged: Chat is still its pinned last section.
-
-  /** The cards that still end in a pinned action. */
-  const PINNED = [
-    ['project-overview-team', 'pd-chat-section', 'project-chat-open'],
-  ] as const;
+  // ★★★ AND fix-508 §F4 TAKES THE LAST ONE. Bobby asked for the chat button to
+  //     sit with the preview it opens, so NO card ends in a pinned action now:
+  //     Project's two live in its Site and Dates boxes, Team's lives in its
+  //     chat cell. `pinBottom` itself is untouched and still used by those two,
+  //     which is why the shared baseline still means something — it covers two
+  //     controls on one card rather than three across the row.
 
   /** Every action button on the row, wherever it now sits. */
   const BUTTONS = [
@@ -746,26 +746,46 @@ describe('fix-345 §3 → fix-506: the card buttons', () => {
     'project-chat-open',
   ] as const;
 
-  it('★ the Team card still ends with its pinned action section', () => {
+  it('★★★ SUPERSEDED by fix-508 §F4: NOTHING is pinned on the Team card now', () => {
     renderHeader(projectFixture(), [bpFixture()]);
-    for (const [cardId, sectionId] of PINNED) {
-      const card = screen.getByTestId(cardId);
-      const sections = Array.from(card.querySelectorAll(':scope > section'));
-      expect(
-        (sections[sections.length - 1] as HTMLElement).dataset.testid,
-        cardId + ' does not end with its action',
-      ).toBe(sectionId);
-    }
+    // ★★★ fix-345 §3's `pinBottom` put the chat button on the card's FLOOR so
+    //     Milestones' draw-schedule link, Site data's Connect and Team's chat
+    //     landed on one baseline — Bobby: *"3 active buttons for each category."*
+    //     He has now asked for the chat button to sit with the preview it opens
+    //     instead, so Team has no pinned section at all.
+    //
+    // ★★★ WHAT THAT COSTS, STATED RATHER THAN DELETED: **the shared baseline
+    //     covers two cards, not three.** Connect and the draw-schedule link are
+    //     both inside the PROJECT card and both still pinned, so they still
+    //     align with each other. `pinBottom` itself is untouched and still
+    //     tested by them — this card simply stopped using it.
+    const card = screen.getByTestId('project-overview-team');
+    const sections = Array.from(
+      card.querySelectorAll('section[data-testid]'),
+    ) as HTMLElement[];
+    expect(sections.filter((s) => s.dataset.pinBottom === 'true')).toHaveLength(0);
+    // ★ …and the button is inside the chat section, which is where it went.
+    expect(
+      screen.getByTestId('project-overview-team-chat').contains(
+        screen.getByTestId('project-chat-open'),
+      ),
+    ).toBe(true);
+    // ★★ fix-331 §1's distribution is untouched: every section still grows.
+    for (const s of sections) expect(s.style.flexGrow).toBe('1');
   });
 
   it('★★★ THE MECHANISM IS UNCHANGED: every action takes no share of the height', () => {
     // ★★ This is the half of fix-345 §3 that actually does the work, and it
     //    applies wherever the section sits — card floor or box floor.
     renderHeader(projectFixture(), [bpFixture()]);
+    // ★★★ fix-508 §F4: `pd-chat-section` is gone — the chat button moved into
+    //     the chat preview's own section, so it is no longer pinned at all.
+    //     The two that remain are both inside the PROJECT card, which is why
+    //     the shared baseline still means something: they align with each
+    //     other. The MECHANISM is what this test is for and it is untouched.
     for (const sectionId of [
       'pd-draw-schedule-section',
       'pd-connect-section',
-      'pd-chat-section',
     ]) {
       const sec = screen.getByTestId(sectionId);
       expect(sec.dataset.pinBottom, sectionId).toBe('true');
@@ -830,10 +850,14 @@ describe('fix-345 §3: the Team card has exactly one way into the chat', () => {
     expect(preview.querySelector('button')).toBeNull();
     expect(preview.textContent).not.toMatch(/Open chat/);
 
-    // Exactly one control opens the modal, and it is the pinned action.
+    // ★ Exactly one control opens the modal — fix-346's rule, untouched. ★
+    //   fix-508 §F4 moves it INTO the preview's section, so "the button is the
+    //   way in" is now literally beneath the thing it opens.
     const openers = screen.getAllByTestId('project-chat-open');
     expect(openers).toHaveLength(1);
-    expect(screen.getByTestId('pd-chat-section').contains(openers[0])).toBe(true);
+    expect(
+      screen.getByTestId('project-overview-team-chat').contains(openers[0]),
+    ).toBe(true);
   });
 
   it('★ and it actually opens the modal', () => {
@@ -878,7 +902,10 @@ describe('fix-345 §3: the Team card has exactly one way into the chat', () => {
       //   with the section itself. The ORDER is still asserted whole.
       'project-overview-team-chat',
       'project-overview-team-consultants',
-      'pd-chat-section',
     ]);
+    // ★★★ fix-508 §F4: the chat BUTTON moved into the chat cell, so the card's
+    //     last section is the consultant band. The button is still the only way
+    //     into the modal (fix-346), and it now sits under the preview it opens.
+    expect(screen.queryByTestId('pd-chat-section')).toBeNull();
   });
 });

@@ -300,13 +300,19 @@ describe('fix-423 §A → fix-506 §A: the Milestones floor, and the card that h
     expect(OVERVIEW_ROW_MIN_WIDTH).toBeLessThan(1172);
   });
 
-  it('★★★ Plan of Record is still the widest card, floor and share', () => {
-    // ★ fix-423's own guard, kept: the ruling has to hold where the FLOORS
-    //   bind, not just where the shares do.
-    const at1920 = resolveOverviewWidths(overviewRowWidthAt(1920));
-    expect(widthOf('por', overviewRowWidthAt(1920))).toBe(Math.max(...at1920));
+  it('★★★ SUPERSEDED by fix-508: the Plan of Record keeps a FLOOR, not the rank', () => {
+    // ★★★ fix-423's guard was that the ruling had to hold where the FLOORS
+    //     bind, not just where the shares do. The RANK is retired
+    //     (D-2026-09-09) — Bobby's original complaint was Team being crushed,
+    //     and fix-508 settles that directly by giving Team 20% of Project — so
+    //     what survives is the half fix-423 was actually protecting: the card
+    //     has a floor, and below the row minimum that floor is what decides.
     expect(widthOf('por', OVERVIEW_ROW_MIN_WIDTH)).toBe(col('por').minPx);
     expect(col('por').minPx).toBeGreaterThan(col('proj').minPx);
+    // ★★ …and above it, TEAM is the widest, which is the ruling asserted so a
+    //    later edit that quietly restores the rank fails here.
+    const at1920 = resolveOverviewWidths(overviewRowWidthAt(1920));
+    expect(widthOf('team', overviewRowWidthAt(1920))).toBe(Math.max(...at1920));
   });
 
   it('★★ resolveOverviewWidths runs the REAL fr algorithm, not floor-plus-share', () => {
@@ -328,8 +334,13 @@ describe('fix-423 §A → fix-506 §A: the Milestones floor, and the card that h
     //     enough for it. The row now resolves **485 / 478 / 403** at 1920 —
     //     confirmed in Chrome, not computed — and PoR is still the widest,
     //     which is the part of the mock that was ever a rule.
+    // ★★★ fix-508 (P-193) MOVES THEM ONE MORE TIME, and this set is Bobby's
+    //     targets rather than the mock's: Project 20% narrower, the freed width
+    //     to Team, and the Plan of Record on the floor its capped thumbnail
+    //     implies. **486 / 382 / 497** at 1920 — TEAM is the widest card now,
+    //     which retires fix-417's rank (D-2026-09-09).
     const w = resolveOverviewWidths(overviewRowWidthAt(1920));
-    [485, 478, 403].forEach((expected, i) => {
+    [486, 382, 497].forEach((expected, i) => {
       expect(Math.abs(w[i] - expected), OVERVIEW_CARD_COLUMNS[i].key).toBeLessThanOrEqual(1);
     });
     // ★★ AND FREEZING IS STILL ITERATIVE, which is the property the old
@@ -341,11 +352,13 @@ describe('fix-423 §A → fix-506 §A: the Milestones floor, and the card that h
     //    freezes there any more. The ITERATIVE property is still what this test
     //    is about, so it is asserted where it still bites: at 1280, where the
     //    row is under its own minimum and every track sits on its floor.
+    // ★ fix-508: at 1600 the Plan of Record and Project both FREEZE on their
+    //   floors again and Team takes the remainder — 486 / 330 / 229 — so the
+    //   iterative property this test is about bites there once more.
     const at1600 = resolveOverviewWidths(overviewRowWidthAt(1600));
-    expect(at1600.map((n) => Math.round(n))).toEqual([371, 366, 308]);
-    const at1280 = resolveOverviewWidths(overviewRowWidthAt(1280));
-    expect(at1280[0]).toBe(col('por').minPx);
-    expect(at1280[1]).toBe(col('proj').minPx);
+    expect(at1600.map((n) => Math.round(n))).toEqual([486, 330, 229]);
+    expect(at1600[0]).toBe(col('por').minPx);
+    expect(at1600[1]).toBe(col('proj').minPx);
     // And the widths always fill the row exactly.
     const row = overviewRowWidthAt(1920);
     const sum = resolveOverviewWidths(row).reduce((a, b) => a + b, 0);
@@ -469,15 +482,19 @@ describe('fix-423 §D: two lines below the wrap point, and nothing scrolls', () 
     );
     // ★ fix-475: 1218 → 1172. fix-506 §A: 1172 → 904, and that one is not a
     //   re-share — two cards left the row.
-    expect(OVERVIEW_ROW_MIN_WIDTH).toBe(904);
+    // ★ fix-508: 904 → 996, from the Plan of Record's new floor.
+    expect(OVERVIEW_ROW_MIN_WIDTH).toBe(996);
     // ★★★ 1742 → 1474 EXPANDED. This is the number the fix-506 brief cared
     //     about: 1600 is now 126px clear of the threshold instead of 142 short
     //     of it, so the overview runs on ONE line at the width Bobby works at.
     // ★★★ fix-507 §A: 1474 → 1439. The floors did not move; the CHROME did —
     //     the permits rail gave up 50px and STEP 0 charged the row 15px for the
     //     pillbox scrollbar nobody had counted.
-    expect(overviewWrapViewport('expanded')).toBe(1439);
-    expect(overviewWrapViewport('collapsed')).toBe(1283);
+    // ★★★ fix-508: 1439 → 1531. fix-507 moved this with the CHROME; fix-508
+    //     moves it with a FLOOR, and in the other direction — the Plan of
+    //     Record's, raised to the width its capped sheet actually uses.
+    expect(overviewWrapViewport('expanded')).toBe(1531);
+    expect(overviewWrapViewport('collapsed')).toBe(1375);
   });
 
   it('★★★ BOTH lines fit at 1280 — which is the whole reason team.minPx stayed 160', () => {
@@ -488,8 +505,9 @@ describe('fix-423 §D: two lines below the wrap point, and nothing scrolls', () 
     // ★★★ THE GROUPING IS TWO-AND-ONE NOW: Plan of Record and Project — the
     //     pair that is read against each other — then Team.
     expect(OVERVIEW_ROW_LINE_1_COUNT).toBe(2);
-    expect(OVERVIEW_ROW_LINE_1_MIN_WIDTH).toBe(732);
-    expect(OVERVIEW_ROW_LINE_2_MIN_WIDTH).toBe(162);
+    // ★ fix-508: line one is 486 + 330 + 10 = 826, line two is Team's 160.
+    expect(OVERVIEW_ROW_LINE_1_MIN_WIDTH).toBe(826);
+    expect(OVERVIEW_ROW_LINE_2_MIN_WIDTH).toBe(160);
 
     // ★★★ AND AT 1280 THE FORCED BREAK IS SWITCHED OFF, WHICH IS THE PART
     //     WORTH READING CAREFULLY. 732 does NOT fit the 710px a 1280 window
@@ -546,12 +564,24 @@ describe('fix-423 §D: two lines below the wrap point, and nothing scrolls', () 
     // ★★ fix-507 §A: 1440 is ONE line now too, by a single pixel (905 of row
     //    against a 904 minimum). The wrapped band is asserted at 1280, which is
     //    where it actually renders.
-    expect(overviewLineOf('team', overviewRowWidthAt(1440))).toBe(0);
-    for (const viewport of [1280]) {
-      const row = overviewRowWidthAt(viewport);
-      expect(['por', 'proj'].map((k) => overviewLineOf(k, row))).toEqual([1, 1]);
-      expect(['team'].map((k) => overviewLineOf(k, row))).toEqual([2]);
-    }
+    // ★ fix-508: 1440 wraps again (905 of row against a 996 minimum), so the
+    //   wrapped band is asserted there as well as at 1280.
+    // ★★ 1440 is where the GROUPING renders — 905 of row sits inside the band
+    //    `[LINE_1_MIN 826, ROW_MIN 996)`, so the forced break is on and the row
+    //    reads Plan of Record + Project, then Team.
+    const at1440 = overviewRowWidthAt(1440);
+    expect(['por', 'proj'].map((k) => overviewLineOf(k, at1440))).toEqual([1, 1]);
+    expect(overviewLineOf('team', at1440)).toBe(2);
+    // ★★★ AND AT 1280 THE BREAK IS OFF, which is the case fix-506 documented
+    //     and this ticket moves rather than changes: 745 of row is below line
+    //     one's own 826 minimum, so the grouping stops being promised and flex
+    //     breaks wherever it must. `overviewLineOf` reports 0 — "no declared
+    //     line" — rather than pretending to a grouping that is not rendered.
+    const at1280 = overviewRowWidthAt(1280);
+    expect(at1280).toBeLessThan(OVERVIEW_ROW_LINE_1_MIN_WIDTH);
+    expect(['por', 'proj', 'team'].map((k) => overviewLineOf(k, at1280))).toEqual([
+      0, 0, 0,
+    ]);
   });
 
   it('★★★ the stylesheet is generated from the SAME constants as the template', () => {
@@ -637,10 +667,17 @@ describe('fix-423 §E: the guards', () => {
     // `overflow-hidden`.
     // ★ fix-506 §D transposed the matrix — types across, attributes down — so
     //   the derivation is unchanged and the grid it derives from is different.
-    expect(col('proj').minPx).toBe(
+    // ★★★ SUPERSEDED by fix-508 §B/§C: the matrix still DERIVES a floor and it
+    //     is simply no longer the card's largest. §C shrinks it to 267 (289 of
+    //     card) and the Site/Dates pair — which can no longer wrap at 1600, by
+    //     ruling — binds at 330. fix-422's rule is untouched and is what this
+    //     asserts: the card is never narrower than its widest content.
+    expect(col('proj').minPx).toBeGreaterThanOrEqual(
       UNIT_MATRIX_TRANSPOSED_WIDTH + OVERVIEW_CARD_CHROME,
     );
-    expect(col('por').minPx).toBe(col('proj').minPx + 14);
+    // ★ …and the Plan of Record's floor is its OWN picture now, not a margin
+    //   over its neighbour's.
+    expect(col('por').minPx).not.toBe(col('proj').minPx + 14);
   });
 
   it('★ the Project card still declares its matrix in ONE template', () => {

@@ -411,9 +411,12 @@ describe('fix-309 #55: the card row is one equal-height band', () => {
     renderHeader(projectFixture(), [bpFixture()]);
     const grid = screen.getByTestId('project-overview-grid');
     const cols = trackShares(grid);
-    // ★ fix-295's width survives: por is still the widest column — and it is
-    //   the FIRST one since fix-506 §A, so the index is looked up.
-    expect(Math.max(...cols)).toBe(cols[0]);
+    // ★★★ SUPERSEDED by fix-508: TEAM has the largest share now (P-193 moves
+    //     20% of the Project card to it, retiring fix-417's rank). What fix-309
+    //     was actually protecting is untouched and is what this asserts: the
+    //     Plan of Record is not SHRUNK to match its neighbours — it keeps a
+    //     floor of its own, and nothing caps its height.
+    expect(cols[0]).toBeGreaterThan(cols[1]);
     // And nothing caps its height — a max-height would shrink it to the others.
     const por = cells().por;
     expect(por.style.maxHeight).toBeFalsy();
