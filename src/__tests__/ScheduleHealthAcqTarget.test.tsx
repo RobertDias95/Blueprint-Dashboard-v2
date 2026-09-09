@@ -369,24 +369,30 @@ describe('fix-63 ACQ date inline edit — moved to Project Data by fix-508 §D',
     // ★ With no closing date and no GO date, the ACQ date is the only candidate
     //   — so the derived answer IS `expected_issue`, which is the continuity
     //   check that the column still means what it meant.
-    expect(cell.textContent).toBe('2026-08-01');
+    // ★★ fix-512 §A SUPERSEDES THE FORMAT, not the fact. This asserted the raw
+    //    ISO `2026-08-01`, which is what the cell printed while the Dates card
+    //    three inches away printed `08/01/2026`. One fact, two formats, one
+    //    screen. The date being asserted is unchanged.
+    expect(cell.textContent).toBe('08/01/2026');
     expect(cell.getAttribute('data-driver')).toBe('acq');
     expect(tds[7].textContent).toMatch(/On Track|At Risk|Behind|In Progress/);
   });
 
-  it('editing the ACQ Target updates the Schedule Health badge after refetch (calc uses expected_issue)', () => {
-    // Sanity for the existing calc: Schedule Health = projection - target.
-    // We don't drive the projection here (the learner / projection mocks
-    // produce null for a freshly-mocked permit, so the badge renders
-    // "In Progress"). What we DO want to pin is that the cell reads
-    // permit.expected_issue (already enforced by the test above's
-    // "renders pre-populated from expected_issue") AND that the calc
-    // imports the SAME field — verified by code inspection at
-    // ScheduleHealthTable.tsx:251 ("const diff = computeHealthDiff(
-    // projection, acqTarget)" where acqTarget = permit.expected_issue).
-    // This test just guards against a refactor that quietly switches the
-    // target column to something else (e.g. target_submit) by failing if
-    // the input no longer mirrors permit.expected_issue.
+  it('★★★ SUPERSEDED by fix-512 §A: the badge measures against TARGET APPROVAL, not the ACQ date', () => {
+    // ★★★ WHAT THIS TEST USED TO SAY, and it was right when it was written:
+    //     "the calc uses expected_issue … guards against a refactor that
+    //     quietly switches the target column to something else". fix-508 §D is
+    //     exactly that refactor, done deliberately — Target Approval became
+    //     MAX(ACQ, closing, GO + 6 months) — and §D moved the column's WRITERS
+    //     without moving this READER. So the badge kept subtracting the ACQ
+    //     date while the column beside it printed the max. **P-204.**
+    //
+    // ★★ The PROPERTY the old test defended still holds and is still the point:
+    //    the badge and the column must not drift apart. It is now enforced by
+    //    construction — the row derives Target Approval ONCE and hands the same
+    //    object to both — so what is asserted here is that the ACQ date input
+    //    still mirrors `expected_issue` (it is that column's one author) and
+    //    that the badge no longer reads it directly.
     const p = permitFixture({ id: 501, expected_issue: '2026-08-01' });
     renderTable([p]);
     const input = screen.getByTestId('pd-acq-date') as HTMLInputElement;

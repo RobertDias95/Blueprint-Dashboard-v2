@@ -200,6 +200,90 @@ export function formatLotSizeSf(sf: number | null | undefined): string | null {
   return `${Math.round(v).toLocaleString('en-US')} sf`;
 }
 
+// ===========================================================================
+// ★★★ fix-512 §B (P-192) — A LOT SIZE IS DERIVED ONLY WHEN BOTH DIMENSIONS EXIST
+// ===========================================================================
+//
+// Bobby, 2026-09-09:
+//
+//   *"if it has a lot width AND a lot depth, we are giving you permission to
+//    put in all the lot sizes. If it does not have the width and/or depth — if
+//    it's missing one — then someone needs to manually go in and update all
+//    that."*
+//
+// A lot with one dimension missing has an unknown shape, so a computed area is
+// a guess wearing a number's clothes.
+//
+// ★★★ MEASURED ON PROD 2026-09-09, BEFORE WRITING THIS, and the read is the
+//     reason this section is small: of 219 projects, **zero** have exactly one
+//     dimension. Dimensions are both-or-neither in the data — 213 have both,
+//     6 have neither. So the population Bobby's rule is protecting against
+//     (a derived size on a half-known lot) **does not exist today**, and
+//     nothing anybody has been reading needs clearing. `lotSizeView` also
+//     already required both, because its `derived` term is a product and a
+//     product needs two operands.
+//
+// ★★★ SO WHY WRITE IT DOWN AT ALL. Because "it happens to be impossible" is
+//     not the same as "it is refused", and the thing that made this a problem
+//     was never the arithmetic — it was that the rule had no name, so the next
+//     surface to want a lot size would re-derive it and nobody would notice.
+//     fix-508 shipped three half-done sections for exactly that reason. A
+//     named predicate is what makes the rule enumerable.
+//
+// ---------------------------------------------------------------------------
+// ★★★ ONE PREDICATE, TWO CONSUMERS — AND P-161 IS THE SECOND ONE
+// ---------------------------------------------------------------------------
+//
+// [[P-161-lot-shape-is-implied-by-its-dimensions-not-labelled]] reads the same
+// fact from the other end. fix-506 §C removed the Regular/Irregular row on
+// Bobby's ruling that *"the shape is IMPLIED BY THE DIMENSIONS — width × depth
+// both present reads as a rectangle; one of them plus a lot size reads as
+// irregular."* That is this predicate and its negation. They agree, and they
+// now agree by construction rather than by two people having written the same
+// condition twice.
+//
+// ★★ WHERE THEY DO NOT AGREE IS THE STORED COLUMN, AND THAT IS REPORTED RATHER
+//    THAN CHANGED. `projects.is_regular_shape` survives fix-506 §C (fix-410's
+//    ruling, still rendered in the Library's Shape column) and on prod it
+//    contradicts the implied shape on **10 of 219** rows: 6 say `regular` with
+//    no dimensions recorded at all, and 4 say `irregular` with both dimensions
+//    present — only 2 of those 4 also disagree by more than the 5% tolerance.
+//    A stored opinion and a derived one are allowed to differ; which wins is a
+//    ruling nobody has made, so this ticket names the gap instead of closing
+//    it. See the fix-512 PR.
+
+/**
+ * ★★★ Whether this lot's dimensions are COMPLETE — the single condition both
+ * P-192 and P-161 turn on.
+ *
+ * ★ Zero is not a dimension. `LibraryRow` uses a 0 sentinel for "not recorded"
+ *   and maps it back to null at its call sites; this guards the other callers.
+ */
+export function lotDimensionsComplete(
+  width: number | null | undefined,
+  depth: number | null | undefined,
+): boolean {
+  const w = n(width);
+  const d = n(depth);
+  return w !== null && d !== null && w > 0 && d > 0;
+}
+
+/**
+ * ★★★ P-192: may this app compute a lot size for these dimensions?
+ *
+ * ★ A separate name from `lotDimensionsComplete` on purpose, even though it is
+ *   the same boolean today. The question "are both dimensions recorded?" and
+ *   the question "are we permitted to multiply them?" are one condition and two
+ *   sentences, and a call site reading the wrong one reads obviously wrong —
+ *   the same reason `roundLotForStorage` is not `roundLotFeet`.
+ */
+export function mayDeriveLotSize(
+  width: number | null | undefined,
+  depth: number | null | undefined,
+): boolean {
+  return lotDimensionsComplete(width, depth);
+}
+
 /**
  * ★★★ THE ONE RULE, over all eight combinations of {width, depth, size}.
  *
@@ -238,8 +322,13 @@ export function lotSizeView(
   // ★★ THE PRODUCT IS COMPUTED FROM THE ROUNDED FEET, not the raw numeric.
   //    The card shows "60 × 100"; a size of 6,047 under it would read as an
   //    arithmetic bug rather than as the two hidden decimals it actually is.
+  // ★★★ fix-512 §B: through `mayDeriveLotSize`, so P-192's rule has a name
+  //     here rather than being an implication of `*` needing two operands.
+  //     Every surface that shows a lot size — the Site card, the Project Data
+  //     editor, the Library's two columns and the Reuse picker — reads this
+  //     one function, so this is the rule's only enforcement point.
   const derived =
-    w !== null && d !== null ? roundLotFeet(w) * roundLotFeet(d) : null;
+    mayDeriveLotSize(w, d) ? roundLotFeet(w as number) * roundLotFeet(d as number) : null;
 
   const size = typed ?? derived;
   const sizeDerived = typed === null && derived !== null;

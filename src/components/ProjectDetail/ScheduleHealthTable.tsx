@@ -18,7 +18,9 @@ import { hasActiveHold } from '../../lib/holdOverlap';
 import {
   TARGET_APPROVAL_DRIVER_LABEL,
   targetApproval,
+  type TargetApproval,
 } from '../../lib/targetApproval';
+import { formatUsDate } from '../../lib/dateUtils';
 import {
   computeLearnedSchedule,
   filterHeldLearningSamples,
@@ -31,7 +33,6 @@ import type {
   PermitCycle,
   PermitCycleReviewer,
   PermitWithCycles,
-  Project,
   Stage,
 } from '../../lib/database.types';
 import ReviewerRollupChip from './ReviewerRollupChip';
@@ -315,18 +316,38 @@ function Row({
   //     and `APPROVAL_LABEL` declares both so neither invents a third.
   const approval = approvalDisplay(projectedResult, 'scheduleHealth');
   const projection = approval.date;
-  // Q9.5.f-fix-7: wire ACQ Target to permits.expected_issue. v1 writes the
-  // team's target issue date here, so v2 reads it. Estimated Approval at
-  // :120 already prefers actual_issue/approval_date over expected_issue,
-  // so the two columns diverge once a permit is issued — ACQ Target stays
-  // as the team's plan; Estimated Approval reflects the actual outcome.
-  const acqTarget: string | null = permit.expected_issue ?? null;
-  const diff = computeHealthDiff(projection, acqTarget);
   // fix-63: project carries the OCC token the RPC needs for the project-
   // row precondition check. p_project_patch is empty, so the project row
   // isn't actually written, but the RPC still requires a token — pass the
   // known value rather than trying to skip it.
   const projectForOcc = projectsById.get(permit.project_id) ?? null;
+
+  // =====================================================================
+  // ★★★ fix-512 §A (P-204) — THE BADGE AND THE COLUMN MEASURE THE SAME DATE
+  // =====================================================================
+  //
+  // Until this line the badge subtracted `permit.expected_issue` while the
+  // column beside it printed `targetApproval(...)`. **Two dates, one row.**
+  //
+  // ★★★ MEASURED ON PROD. `4137 54th Ave SW`, Building Permit: est. approval
+  //     2027-03-23 against `expected_issue` 2026-01-28 is **419 days behind**
+  //     — arithmetically perfect against a target seven months EARLIER than
+  //     the project's own GO date (2026-08-14). The column on the same row
+  //     showed 2027-02-14, against which it is **37 days**. The badge was not
+  //     wrong about its subtraction; it was subtracting the wrong date.
+  //
+  // ★★★ THIS IS fix-508 §D's OTHER HALF. §D moved Target Approval's WRITERS
+  //     — the input left this table for Project Data, the column went
+  //     read-only — and left its READERS where they were. `expected_issue`
+  //     stopped being the answer and became one of three candidates, and
+  //     nothing told the thing that was subtracting it.
+  //
+  // ★★ ONE OBJECT, NOT TWO CALLS. The cell below is handed this same
+  //    `target` rather than calling `targetApproval` again, so "the badge and
+  //    the column agree" is structural rather than a coincidence two callers
+  //    have to keep re-earning. That is the whole lesson of the bug.
+  const target = targetApproval(projectForOcc, permit);
+  const diff = computeHealthDiff(projection, target.date);
 
   const borderL = { borderLeftColor: 'var(--color-border)' } as const;
 
@@ -453,7 +474,7 @@ function Row({
         className="px-2 py-2 align-middle text-center border-l"
         style={borderL}
       >
-        <TargetApprovalCell permit={permit} project={projectForOcc} />
+        <TargetApprovalCell permitId={permit.id} target={target} />
       </td>
       {/* 8. Schedule Health */}
       <td className="px-2 py-2 align-middle text-center border-l" style={borderL}>
@@ -487,17 +508,21 @@ function Row({
 // ★ THE BLUE GOES WITH IT (§H). It was the input's affordance, never a colour
 //   choice, so a read-only cell that kept it would be promising a click.
 
+//
+// ★★★ fix-512 §A: IT NO LONGER COMPUTES ITS OWN. The row derives Target
+//     Approval once and hands it to both readers — this cell and the health
+//     badge — because a cell that recomputes is a cell that can drift from the
+//     number it is being compared against, which is precisely P-204.
 function TargetApprovalCell({
-  permit,
-  project,
+  permitId,
+  target,
 }: {
-  permit: PermitWithCycles;
-  project: Project | null;
+  permitId: number;
+  target: TargetApproval;
 }) {
-  const target = targetApproval(project, permit);
   if (!target.date) {
     return (
-      <span className="text-dim" data-testid={`schedule-health-target-approval-${permit.id}`}>
+      <span className="text-dim" data-testid={`schedule-health-target-approval-${permitId}`}>
         —
       </span>
     );
@@ -512,10 +537,16 @@ function TargetApprovalCell({
       title={`Target Approval — the latest of the ACQ date, the closing date, and the GO date plus 6 months. Set here by ${
         TARGET_APPROVAL_DRIVER_LABEL[target.driver ?? 'acq']
       }. Edit the ACQ date in Project Data.`}
-      data-testid={`schedule-health-target-approval-${permit.id}`}
+      data-testid={`schedule-health-target-approval-${permitId}`}
       data-driver={target.driver ?? undefined}
     >
-      {target.date}
+      {/* ★★ fix-512 §A: THE CARD'S FORMAT. This printed the raw ISO
+          `2027-02-14` while the Dates card three inches away printed
+          `02/14/2027` — one fact, two formats, one screen. `formatUsDate` is
+          the Dates card's own helper, and it is string surgery on the ISO
+          rather than a `Date`, because fix-433's finding is that a bare
+          `YYYY-MM-DD` parsed as UTC prints as YESTERDAY west of Greenwich. */}
+      {formatUsDate(target.date)}
     </span>
   );
 }
