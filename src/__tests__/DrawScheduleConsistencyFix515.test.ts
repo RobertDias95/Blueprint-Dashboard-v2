@@ -156,7 +156,9 @@ describe('fix-515 §B — one colour system, derived', () => {
     // neither is something this can operate on, and both keep their own chrome.
     expect(darkenHex('var(--color-hold-border)')).toBe('var(--color-hold-border)');
     expect(darkenHex('')).toBe('');
-    expect(code(gridSrc)).toContain('park\n');
+    // ★ And the park keeps its OWN border rather than a darkened one: fix-263's
+    //   second chrome is a deliberate different statement.
+    expect(gridSrc).toContain('2px solid ${park.border}');
   });
 });
 

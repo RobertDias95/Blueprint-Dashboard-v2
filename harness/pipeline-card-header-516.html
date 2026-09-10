@@ -1,0 +1,169 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>fix-516 — Pipeline card header, before and after</title>
+<!--
+  ★★★ fix-516 §B (P-206) — THE HEIGHT MEASUREMENT THE BRIEF ASKED FOR.
+
+  "Height is the constraint that has bitten every ticket on this screen. Report
+  the card height before and after, and the number of cards visible without
+  scrolling at 1600 and 1920."
+
+  This is `harness/snapshot-widths.html`'s pattern: a standalone page carrying
+  the REAL markup and the REAL type scale, opened in Chrome, so the numbers are
+  measured rather than reasoned. No sign-in, no dev server.
+
+  The two headers below are byte-equivalent to `AddrGroup`'s collapsed header
+  before and after this ticket, down to the padding, gaps, font sizes and
+  line-heights. The stylesheet reproduces the Tailwind utilities the component
+  uses (text-[13px], text-[9px], text-[10px], font-bold, truncate) rather than
+  loading Tailwind, so the file works offline.
+
+  ============================================================================
+  MEASURED IN CHROME, 2026-09-10 — the numbers the fix-516 PR reports
+  ============================================================================
+
+    CARD HEIGHT (header + the permit-type pill row, which always renders)
+      before                     73px
+      after, 1-2 chips           90px   (+17)
+      after, 3-4 chips           97px   (+24)
+
+    THE ADDRESS, at the narrowest lane (326px = four lanes open at 1600)
+      "2450 3rd Ave W" needs      98px at 13px/700
+      before, 4 chips             33px  -> TRUNCATED
+      before, 3 chips             74px  -> TRUNCATED
+      after,  any chip count     171px  -> complete
+      ...and at 1920 (406px lane) it went 113px -> 251px.
+
+    CARDS VISIBLE WITHOUT SCROLLING (chrome measured at 239px: shell header 80,
+    main p-6 48, filter row 28, gap 12, group header 41, sub-bucket header 30)
+      1600 x 900   list 661px    9 -> 7 (quiet cards) / 6 (busy cards)
+      1920 x 1080  list 841px   11 -> 9 / 8
+
+    ★ WHERE THE +17 AND THE +24 COME FROM, separately, because they are two
+      different things and only one of them buys anything:
+        · +24 on a 3-4 chip card is the CHIP GRID going two rows. That is what
+          buys the address its 171px, and the jurisdiction line rides along
+          inside height the grid has already spent — free.
+        · +17 on a 1-2 chip card is the JURISDICTION LINE alone. Those cards
+          were never truncating (126px of address at the narrowest lane against
+          98px needed), so it buys consistency and nothing else.
+      ★★ THE LEVER, IF THE HEIGHT IS WANTED BACK: keep the jurisdiction inline
+         when there are fewer than three chips. It costs nothing on the cards
+         this ticket exists for and returns 2 cards per lane on the quiet ones.
+         Not taken — Bobby asked for the jurisdiction below and a field that
+         moves position by a count is harder to scan than one that does not.
+-->
+<style>
+  :root {
+    --color-s2: #f1f5f9;
+    --color-s3: #e2e8f0;
+    --color-border: #d7dde5;
+    --color-text: #1a2540;
+    --color-muted: #64748b;
+    --color-surface: #ffffff;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; padding: 24px;
+    font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+    background: #f8fafc; color: var(--color-text);
+  }
+  h1 { font-size: 15px; margin: 0 0 4px; }
+  h2 { font-size: 12px; margin: 18px 0 6px; color: var(--color-muted); text-transform: uppercase; letter-spacing: .06em; }
+  .lane { background: var(--color-surface); border: 1px solid var(--color-border); border-radius: 12px; overflow: hidden; }
+  .card { border-bottom: 1px solid var(--color-border); }
+  .hdr { display: flex; padding: 12px 14px; cursor: pointer; }
+  .caret { font-size: 11px; color: var(--color-muted); flex: 0 0 auto; }
+  .name { font-size: 13px; font-weight: 700; line-height: 1.3; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .juris { font-size: 9px; padding: 2px 6px; border-radius: 4px; background: var(--color-s2); border: 1px solid var(--color-border); }
+  .chip { font-size: 10px; font-weight: 700; padding: 2px 7px; border-radius: 10px; background: var(--color-s3); border: 1px solid var(--color-border); white-space: nowrap; }
+  /* ---- BEFORE: one row, four things ---- */
+  .before .row { display: flex; align-items: center; min-width: 0; gap: 7px; margin-bottom: 6px; width: 100%; }
+  .before .name { flex: 1 1 auto; min-width: 0; }
+  .before .juris, .before .chips { flex: 0 0 auto; }
+  .before .chips { display: flex; gap: 4px; }
+  /* ---- AFTER: two columns; juris under the address; chips two wide ---- */
+  .after .row { display: flex; align-items: flex-start; min-width: 0; gap: 7px; margin-bottom: 6px; width: 100%; }
+  .after .caret { line-height: 1.5; }
+  .after .col { display: flex; flex-direction: column; gap: 2px; min-width: 0; flex: 1 1 auto; }
+  .after .juris { align-self: flex-start; flex: 0 0 auto; }
+  .after .chips { display: grid; gap: 4px; flex: 0 0 auto; justify-items: end; }
+  .after .chips[data-cols="2"] { grid-template-columns: 1fr 1fr; }
+  .after .chips[data-cols="1"] { grid-template-columns: 1fr; }
+  #out { margin-top: 20px; font: 12px/1.6 ui-monospace, Menlo, Consolas, monospace; white-space: pre; background: #fff; border: 1px solid var(--color-border); border-radius: 8px; padding: 12px; }
+</style>
+
+<h1>fix-516 §B — Pipeline card header, before and after</h1>
+<div style="font-size:12px;color:#64748b">Lane widths below are the measured Pipeline lane widths (see the PR): 326px is four lanes open at 1600, 406px four open at 1920, 608px two open at 1600, 1172px one open at 1600.</div>
+
+<div id="stage"></div>
+<div id="out">measuring…</div>
+
+<script>
+  const ADDR = '2450 3rd Ave W';
+  const CHIPS = [['D&E', 3], ['Perm', 1], ['Appr', 1], ['Iss', 2]];
+  const LANES = [326, 406, 608, 1172];
+
+  function chipsHtml(n) {
+    return CHIPS.slice(0, n).map(([l, c]) => `<span class="chip">${l} ${c}</span>`).join('');
+  }
+  function before(n) {
+    return `<div class="card before"><div class="hdr"><div class="row">
+      <span class="caret">▶</span>
+      <span class="name">${ADDR}</span>
+      <span class="juris">Seattle</span>
+      <div class="chips">${chipsHtml(n)}</div>
+    </div></div></div>`;
+  }
+  function after(n) {
+    return `<div class="card after"><div class="hdr"><div class="row">
+      <span class="caret">▶</span>
+      <div class="col"><span class="name">${ADDR}</span><span class="juris">Seattle</span></div>
+      <div class="chips" data-cols="${n > 1 ? 2 : 1}">${chipsHtml(n)}</div>
+    </div></div></div>`;
+  }
+
+  const stage = document.getElementById('stage');
+  const rows = [];
+  for (const w of LANES) {
+    for (const n of [1, 2, 3, 4]) {
+      const wrap = document.createElement('div');
+      wrap.style.width = w + 'px';
+      wrap.innerHTML = `<h2>lane ${w}px · ${n} chip${n === 1 ? '' : 's'}</h2>
+        <div class="lane">${before(n)}${after(n)}</div>`;
+      stage.appendChild(wrap);
+      rows.push({ w, n, el: wrap });
+    }
+  }
+
+  const lines = [];
+  lines.push('lane   chips   before   after   delta   addr px (before → after)   truncates?');
+  for (const r of rows) {
+    const b = r.el.querySelector('.card.before');
+    const a = r.el.querySelector('.card.after');
+    const bh = Math.round(b.getBoundingClientRect().height);
+    const ah = Math.round(a.getBoundingClientRect().height);
+    const bn = b.querySelector('.name');
+    const an = a.querySelector('.name');
+    const bw = Math.round(bn.getBoundingClientRect().width);
+    const aw = Math.round(an.getBoundingClientRect().width);
+    const bt = bn.scrollWidth > bn.clientWidth + 1;
+    const at = an.scrollWidth > an.clientWidth + 1;
+    lines.push(
+      String(r.w).padEnd(7) + String(r.n).padEnd(8) +
+      String(bh).padEnd(9) + String(ah).padEnd(8) +
+      String(ah - bh >= 0 ? '+' + (ah - bh) : ah - bh).padEnd(8) +
+      (bw + ' → ' + aw).padEnd(26) +
+      (bt ? 'BEFORE yes' : 'before no') + ' / ' + (at ? 'AFTER yes' : 'after no'),
+    );
+  }
+  // The address's own required width, for the PR's "with the width it needed".
+  const probe = document.createElement('span');
+  probe.className = 'name';
+  probe.style.cssText = 'position:absolute;visibility:hidden;white-space:nowrap;overflow:visible';
+  probe.textContent = ADDR;
+  document.body.appendChild(probe);
+  lines.push('');
+  lines.push('"' + ADDR + '" needs ' + Math.ceil(probe.getBoundingClientRect().width) + 'px at 13px/700.');
+  document.getElementById('out').textContent = lines.join('\n');
+</script>

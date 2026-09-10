@@ -279,8 +279,61 @@ export default function AddrGroup({
         style={{ padding: '12px 14px' }}
         data-testid={`addr-group-toggle-${stage}`}
       >
+        {/* =================================================================
+            ★★★ fix-516 §B (P-206) — THE ADDRESS STOPS TRUNCATING
+            =================================================================
+
+            Bobby, 2026-09-09: *"in the Pipeline, when you open up Design &
+            Engineering and Permitting, you can't really see the address…
+            inline with the address you have the jurisdiction, and then you
+            have the buckets of all the other permits. What we should do is
+            stack the buckets vertically two… That would help free up
+            horizontal width for the address… and then maybe the jurisdiction
+            goes below."*
+
+            ★★★ THE ARGUMENT IS STRONGER THAN "IT LOOKS CRAMPED". The header
+                was ONE line carrying four things — caret · address · juris ·
+                up to FOUR count chips — so the address truncated in proportion
+                to how busy the project is. `2450 3rd Ave W` rendered as
+                `2450 3r…` while `370 Lynn St` beside it rendered in full,
+                because that one carries two chips instead of four. **The
+                projects whose names you most need to read were exactly the
+                ones you could not.**
+
+            ★★★ THE CHIPS EARN THEIR PLACE; THEIR PLACEMENT DOES NOT. Bobby
+                also said *"we don't need to put the permits there because it
+                clearly shows the permit types and the permit numbers
+                already"* — true WITHIN a lane and false ACROSS them. The same
+                project appears in several lanes at once (`2450 3rd Ave W` is
+                in DD & Pending Consultants AND Under Review), and the rows
+                under each instance show only THAT lane's permits. The chips
+                are the project's whole footprint, repeated on every instance,
+                which is the one thing the rows below cannot tell you. So they
+                are moved, not deleted.
+
+            ★★ THE SHAPE: two columns. Left is the address with the
+               jurisdiction under it; right is the chip grid, two wide, which
+               is Bobby's own description — 4 goes 2×2, 3 goes 2+1, 2 goes 2,
+               1 goes 1. `align-items: start` so a one-chip card does not
+               centre its chip against a two-line stack.
+
+            ★★★ AND THE HEIGHT IS WHY IT IS TWO COLUMNS RATHER THAN THREE ROWS.
+                Height is the constraint that has bitten every ticket on this
+                screen ([[P-177-the-overview-row-is-taller-than-the-screen]]),
+                and a Pipeline lane shows many cards. A 2×2 chip grid is two
+                rows tall on its own; putting the jurisdiction in the LEFT
+                column means it lands in height the chip grid has already
+                spent. On a 3- or 4-chip card the second line is therefore
+                free. Measured before and after in the fix-516 PR.
+
+            ⏸ RULED BY BOBBY 2026-09-10: chip EMPHASIS is out of scope. The
+              open question — whether the chip for the lane you are currently
+              looking at should be de-emphasised, since that one IS redundant
+              with the rows below — got *"i need to think about this more."*
+              **All four chips keep equal weight. Nothing here dims, greys,
+              outlines or reorders any of them**, and a test pins that. */}
         <div
-          className="flex items-center min-w-0"
+          className="flex items-start min-w-0"
           style={{ gap: 7, marginBottom: 6 }}
         >
           <span
@@ -288,32 +341,53 @@ export default function AddrGroup({
             style={{
               transition: 'transform 0.2s',
               transform: isOpen ? 'rotate(90deg)' : 'rotate(0deg)',
+              lineHeight: 1.5,
             }}
           >
             ▶
           </span>
-          <span
-            className="text-[13px] font-bold text-text truncate flex-1 min-w-0"
-            style={{ lineHeight: 1.3 }}
-          >
-            {address}
-          </span>
-          {juris && (
+          {/* ★ The left column takes the freed width — `min-w-0` so the
+              address can still ellipsis at a genuinely narrow lane rather
+              than forcing the row wider than the card. */}
+          <div className="flex flex-col min-w-0 flex-1" style={{ gap: 2 }}>
             <span
-              className="text-[9px] text-text flex-shrink-0"
-              style={{
-                padding: '2px 6px',
-                borderRadius: 4,
-                background: 'var(--color-s2)',
-                border: '1px solid var(--color-border)',
-              }}
+              className="text-[13px] font-bold text-text truncate"
+              style={{ lineHeight: 1.3 }}
+              title={address}
+              data-testid={`addr-name-${stage}`}
             >
-              {juris}
+              {address}
             </span>
-          )}
+            {/* ★★ THE JURISDICTION, ON ITS OWN LINE. `self-start` so the chip
+                is its own width rather than the column's. */}
+            {juris && (
+              <span
+                className="text-[9px] text-text self-start flex-shrink-0"
+                style={{
+                  padding: '2px 6px',
+                  borderRadius: 4,
+                  background: 'var(--color-s2)',
+                  border: '1px solid var(--color-border)',
+                }}
+                data-testid={`addr-juris-${stage}`}
+              >
+                {juris}
+              </span>
+            )}
+          </div>
+          {/* ★★★ TWO WIDE, which is what buys the address its width back: four
+              chips in one row is four chip-widths of the header; four chips in
+              a 2×2 is two. `grid` rather than a wrapping flex so 3 chips land
+              2+1 deterministically instead of depending on the container. */}
           <div
-            className="flex items-center flex-shrink-0"
-            style={{ gap: 4 }}
+            className="grid flex-shrink-0"
+            style={{
+              gridTemplateColumns: stageCounts.length > 1 ? '1fr 1fr' : '1fr',
+              gap: 4,
+              justifyItems: 'end',
+            }}
+            data-testid={`addr-counts-${stage}`}
+            data-chip-columns={stageCounts.length > 1 ? '2' : '1'}
           >
             {/* ★★ fix-383: one pill per bucket this project has cards in.
                 A stage with no cards renders NOTHING — not a "0". A project
@@ -334,7 +408,7 @@ export default function AddrGroup({
                 return (
                   <span
                     key={c.stage}
-                    className="text-[10px] font-bold flex-shrink-0"
+                    className="text-[10px] font-bold flex-shrink-0 whitespace-nowrap"
                     style={pillStyle}
                   >
                     {text}
@@ -356,7 +430,7 @@ export default function AddrGroup({
                   aria-label={`Show ${address} in ${STAGE_FULL_LABEL[c.stage]} (${c.count})`}
                   data-testid={`addr-count-${stage}-${c.stage}`}
                   data-count-stage={c.stage}
-                  className="text-[10px] font-bold flex-shrink-0 cursor-pointer"
+                  className="text-[10px] font-bold flex-shrink-0 cursor-pointer whitespace-nowrap"
                   style={pillStyle}
                 >
                   {text}

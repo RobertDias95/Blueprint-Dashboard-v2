@@ -776,7 +776,6 @@ export default function Dashboard() {
           groupKey="ap"
           title="Approved"
           accent="jv"
-          narrow
           totalCount={buckets.ap.length}
           headerCountTestId="dash-strip-projcount-ap"
           loading={isLoading}
@@ -804,7 +803,6 @@ export default function Dashboard() {
           groupKey="is"
           title="Issued"
           accent="is"
-          narrow
           totalCount={buckets.is.length}
           headerCountTestId="dash-strip-projcount-is"
           loading={isLoading}
@@ -858,10 +856,6 @@ interface PipelineGroupProps {
   headerCountTestId: string;
   loading: boolean;
   subBuckets: SubBucket[];
-  /** ★ Approved and Issued are narrower OPEN than the two working groups —
-   *  they are for glancing at, not working in. Folded, they are identical to
-   *  every other spine. */
-  narrow?: boolean;
   stage: Stage;
   projectById: Map<string, Project>;
   cyclesByPermit: Map<number, PermitCycle[]>;
@@ -904,8 +898,45 @@ const COLLAPSE_CHIP_TEXT = '#2563eb';
 
 /** Folded widths, from Pipeline_RightRail_Mockup.html. */
 const GROUP_SPINE_W = 44;
-const GROUP_NARROW_W = 264;
 const SUB_SPINE_W = 38;
+
+// ===========================================================================
+// ★★★ fix-516 §A0/§A (P-183) — `GROUP_NARROW_W = 264` IS GONE. WHAT IT WAS.
+// ===========================================================================
+//
+// Bobby, 2026-09-09: *"even if Design & Engineering and Permitting is closed,
+// the width of Approved is still small, and Issued… Approved and Issued should
+// open to the same width as Permitting and Design & Engineering, versus they
+// seem like they're stuck at this max width, which is not very wide."*
+//
+// ★★★ THE CEILING, AND WHY IT WAS THERE. An open lane is `flex: 1 1 0%` — it
+//     shares the row. Approved and Issued were `flex: 0 0 264px` instead: a
+//     fixed basis, **no grow and no shrink**, via a `narrow` prop. Two of the
+//     four lanes were on a different sizing rule.
+//
+// ★★★ AND IT IS A JUDGEMENT WEARING A NUMBER'S CLOTHES — the exact shape
+//     fix-508 found in `TEAM_GRID_CHAT_MIN = 150`, whose real floor was 103.
+//     Two pieces of evidence, both from this file:
+//
+//       · the prop's own comment: *"Approved and Issued are narrower OPEN than
+//         the two working groups — **they are for glancing at, not working
+//         in**."* That is a design opinion about how people use two lanes. It
+//         is not a measurement of anything, and Bobby has now overruled it.
+//       · the constant's own comment: *"**Folded** widths, from
+//         Pipeline_RightRail_Mockup.html."* 264 is a pixel lifted from a
+//         mock-up — and it was filed with the two genuine FOLDED widths while
+//         governing the OPEN state, which is the opposite one. Nothing ever
+//         measured what an Approved lane's content needs.
+//
+// ★★★ SO THERE IS NO REPLACEMENT NUMBER, AND THAT IS THE POINT. §A asks for
+//     the general rule — *whatever is open shares the row* — not a wider
+//     ceiling. Approved and Issued now carry the same `flex: 1 1 0%` D&E and
+//     Permitting have always had, and no lane carries a floor the others do
+//     not: one open lane fills the row whichever lane it is, and four split it
+//     four ways. The exception goes rather than moving.
+//
+// ★ Folded is untouched: every lane still folds to the same 44px spine, which
+//   was never the complaint.
 
 /**
  * ★ fix-324 — ONE COLUMN OF THE PIPELINE, at either level of folding.
@@ -935,7 +966,6 @@ function PipelineGroup({
   headerCountTestId,
   loading,
   subBuckets,
-  narrow = false,
   stage,
   projectById,
   cyclesByPermit,
@@ -952,16 +982,13 @@ function PipelineGroup({
     <section
       className="bg-surface border border-border rounded-xl overflow-hidden flex flex-col min-h-0 min-w-0"
       style={{
-        flex: collapsed
-          ? '0 0 ' + GROUP_SPINE_W + 'px'
-          : narrow
-            ? '0 0 ' + GROUP_NARROW_W + 'px'
-            : '1 1 0%',
+        // ★★★ fix-516 §A: ONE sizing rule for all four lanes — folded to a
+        //     spine, or sharing the row. See the note above `GROUP_SPINE_W`.
+        flex: collapsed ? '0 0 ' + GROUP_SPINE_W + 'px' : '1 1 0%',
         transition: 'flex .22s ease',
       }}
       data-testid={'pipeline-group-' + groupKey}
       data-collapsed={collapsed ? 'true' : 'false'}
-      data-narrow={narrow ? 'true' : 'false'}
     >
       <button
         type="button"
