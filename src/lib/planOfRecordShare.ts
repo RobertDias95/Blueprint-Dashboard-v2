@@ -63,3 +63,92 @@ export async function signPlanShareUrl(objectPath: string): Promise<string> {
   if (!url) throw new Error('No signed URL returned');
   return url;
 }
+
+// ===========================================================================
+// ★★★ fix-522 §D4 (P-187) — COMPOSE THE EMAIL, WITH THE SET'S OWN NAME
+// ===========================================================================
+//
+// Bobby: *"boom, create the email, open it, and it's already got the subject
+// line, what you're sharing, and maybe a snip of the front page."*
+//
+// ★★★ THE SUBJECT NAMES WHAT IS BEING SENT — *"is this schematic, design
+//     guidance, marketing internal or external?"* — because a recipient's inbox
+//     shows the subject and nothing else, and "Plan" from four different senders
+//     on four different projects is four identical rows.
+//
+// ⚠️⚠️ THE FRONT-PAGE SNIP IS OUT, AND NOT FOR EFFORT. **A `mailto:` cannot
+//      carry an image.** There are exactly two ways to put one in an email and
+//      both are their own ticket:
+//
+//        · a REAL SEND PATH — an Edge Function plus an email provider. A new
+//          dependency, a new secret, a new deliverability story, and the app
+//          starts sending mail as itself rather than opening the user's client.
+//        · a PUBLICLY HOSTED image the recipient's client fetches. `planOf
+//          RecordShare` says in as many words that `plan-thumbnails` stays
+//          private and there must be no `getPublicUrl` for it: *"a public URL
+//          would either 400 or — far worse — work, which would mean somebody had
+//          made drawing content world-readable."*
+//
+//      So subject + link ships and works everywhere, and the picture is priced
+//      separately rather than promised with the rest. §D asked for exactly that.
+// ===========================================================================
+
+/**
+ * What a shared set is CALLED, in an inbox.
+ *
+ * ★★★ IT LEADS WITH THE SET'S OWN FILE NAME, which is what §D4 asks for —
+ *     *"the subject line pre-filled from the set's own name — is this
+ *     schematic, design guidance, marketing internal or external?"* On prod
+ *     those names already answer it and carry the project besides:
+ *
+ *       `3505 - Marketing - External.pdf`
+ *       `3505 - Marketing - Internal.pdf`
+ *       `3505 - SD Preliminary 5.pdf`
+ *       `3505 Densmore Ave N - Design Guidance.pdf`
+ *
+ * ★★ THE EXTENSION GOES. A subject is read by a person, and `.pdf` in one is
+ *    the sender's file system leaking into somebody else's inbox.
+ *
+ * ★ The BUTTON's label is the fallback and the qualifier — it is what the
+ *   sender just pressed and what §A put on the chip, so the subject, the chip
+ *   and the button say one word. A set with no file name still gets a subject
+ *   that names what it is rather than an empty one.
+ */
+export function planShareSubject(
+  fileName: string | null | undefined,
+  buttonLabel: string,
+): string {
+  const name = (fileName ?? '').trim().replace(/\.pdf$/i, '');
+  return name ? `${name} — ${buttonLabel}` : buttonLabel;
+}
+
+/** The body: one line saying what it is, then the link on its own line. */
+export function planShareBody(
+  fileName: string | null | undefined,
+  buttonLabel: string,
+  url: string,
+  pageCount: number,
+): string {
+  const pages = pageCount > 1 ? ` (${pageCount} pages)` : '';
+  const name = (fileName ?? '').trim().replace(/\.pdf$/i, '') || buttonLabel;
+  return [
+    `${buttonLabel} — ${name}${pages}:`,
+    '',
+    url,
+    '',
+    // ★ The expiry is stated to the RECIPIENT, not just to the sender in a
+    //   toast. They are the one it stops working for.
+    `This link works for ${SHARE_TTL_DAYS} days and needs no login.`,
+  ].join('\n');
+}
+
+/**
+ * The `mailto:` a share menu opens.
+ *
+ * ★ `encodeURIComponent` on both parts, and newlines survive it as `%0A` —
+ *   every mail client decodes them. A raw newline in a `mailto:` is what
+ *   truncates the body in Outlook.
+ */
+export function planShareMailto(subject: string, body: string): string {
+  return `mailto:?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
+}
