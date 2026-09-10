@@ -574,15 +574,19 @@ describe('fix-331 §4: one button, and Delete stays dangerous', () => {
     expect(src).toMatch(/canReassignDa=\{isAdmin\}/);
   });
 
-  it('★★ Delete is red, in a Danger zone, and still confirms by typed address', async () => {
+  it('★★ Delete is red, still asks, and still confirms by typed address', async () => {
+    // ★★ fix-514 §A: `ProjectSettingsModal` is DELETED. fix-506 §G had already
+    //    moved these two actions into Project Data's **Actions** tab —
+    //    `psm-danger-zone` and its red border went with the modal, and the
+    //    controls they wrapped did not. So the LOOK is asserted where it now
+    //    lives and the GUARDRAIL, which is what fix-331 §4 actually defended,
+    //    is unchanged below.
     const modal = (await import(
-      '../components/ProjectDetail/ProjectSettingsModal.tsx?raw'
+      '../components/ProjectDetail/ProjectDetailsModal.tsx?raw'
     )).default as string;
-    expect(modal).toContain('data-testid="psm-danger-zone"');
-    expect(modal).toContain('data-testid="psm-delete-project"');
-    expect(modal).toContain('Danger zone');
-    // Still reads destructive rather than becoming a quiet settings row.
-    expect(modal).toContain("background: '#fee2e2'");
+    expect(modal).toContain('testId="project-data-delete"');
+    expect(modal).toContain('danger');
+    expect(modal).toContain("danger ? 'var(--color-er-border)'");
 
     // ★ The real guardrail is untouched: the dialog refuses until the project's
     // address is typed verbatim. Folding the entry point in did not soften it.
@@ -594,8 +598,9 @@ describe('fix-331 §4: one button, and Delete stays dangerous', () => {
   });
 
   it('Reassign DA stays admin-only inside the panel', async () => {
+    // ★ fix-514 §A: same claim, the Actions tab of the one project modal.
     const modal = (await import(
-      '../components/ProjectDetail/ProjectSettingsModal.tsx?raw'
+      '../components/ProjectDetail/ProjectDetailsModal.tsx?raw'
     )).default as string;
     expect(modal).toMatch(/disabled=\{!canReassignDa\}/);
   });

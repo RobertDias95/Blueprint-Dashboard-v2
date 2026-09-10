@@ -5,7 +5,11 @@ import { MemoryRouter } from 'react-router-dom';
 import type { ReactNode } from 'react';
 import { useAuthStore } from '../stores/authStore';
 import headerSrc from '../components/ProjectDetail/ProjectDetailHeader.tsx?raw';
-import modalSrc from '../components/ProjectDetail/ProjectSettingsModal.tsx?raw';
+// ★ fix-514 §A: `ProjectSettingsModal` is DELETED. Its form state and atomic
+//   save are `hooks/useProjectDetailsForm`; its controls are
+//   `components/ProjectDetail/ProjectDetailsForm`. The claims below are
+//   unchanged — only the address of the code is.
+import modalSrc from '../components/ProjectDetail/ProjectDetailsForm.tsx?raw';
 import type { PermitWithCycles, Project } from '../lib/database.types';
 
 // ===========================================================================

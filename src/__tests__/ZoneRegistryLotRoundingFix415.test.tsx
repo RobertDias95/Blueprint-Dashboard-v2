@@ -14,7 +14,12 @@ import settingsSource from '../lib/settingsSections.ts?raw';
 //     change: fix-415's three-write-surfaces rule is about which files can
 //     write a zone or a lot dimension, and this is still one of them.
 import headerSource from '../components/ProjectDetail/ProjectDataEditors.tsx?raw';
-import psmSource from '../components/ProjectDetail/ProjectSettingsModal.tsx?raw';
+// ★ fix-514 §A: `ProjectSettingsModal` is DELETED. Its form state and atomic
+//   save are `hooks/useProjectDetailsForm`; its controls are
+//   `components/ProjectDetail/ProjectDetailsForm`. The claims below are
+//   unchanged — only the address of the code is.
+import psmSource from '../components/ProjectDetail/ProjectDetailsForm.tsx?raw';
+import psmPayloadSource from '../hooks/useProjectDetailsForm.ts?raw';
 import wizardSource from '../components/NewProjectWizard.tsx?raw';
 import step1Source from '../components/wizard/Step1ProjectInfo.tsx?raw';
 import {
@@ -237,7 +242,9 @@ describe('fix-415 §B: the rounding rule', () => {
     // ★ Rounding on KEYSTROKE would destroy "100.5" at the "100." keystroke.
     //   Each of these is a blur or a submit.
     expect(strip(headerSource)).toContain('roundLotForStorage');
-    expect(strip(psmSource)).toContain('roundLotForStorage(toNumOrNull(');
+    // ★ fix-514 §A: the SUBMIT-time rounding rode the atomic save into the
+    //   controller hook. Same call, same helper.
+    expect(strip(psmPayloadSource)).toContain('roundLotForStorage(toNumOrNull(');
     expect(strip(wizardSource)).toContain('roundLotForStorage(numOrNull(');
     // ★ ...and never from an onChange.
     expect(strip(headerSource)).not.toMatch(/onChange=\{[^}]*roundLotForStorage/);

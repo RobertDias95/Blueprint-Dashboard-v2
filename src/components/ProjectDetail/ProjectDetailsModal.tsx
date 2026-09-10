@@ -135,15 +135,22 @@ export default function ProjectDetailsModal({
     <div
       className="fixed inset-0 z-50 flex items-center justify-center"
       style={{ background: 'rgba(0,0,0,0.45)' }}
-      // ★★★ fix-440 (P-057): the backdrop does nothing, and neither does
-      //     Escape. Bobby's narrowed ruling — of sixteen overlays, only the
-      //     ones that HOLD UNSAVED INPUT stop closing on an outside click. Half
-      //     the tabs in here are live per-field editors with a date input
-      //     mid-edit, so a stray click would throw away a value somebody was
-      //     part-way through typing. The exits are the × and Done, both
-      //     explicit. ★ And no keydown handler: fix-440 found that
+      // ★★★ fix-440 (P-057) / fix-411 §1 (B3): the backdrop does nothing, and
+      //     neither does Escape. Bobby's narrowed ruling — of sixteen overlays,
+      //     only the ones that HOLD UNSAVED INPUT stop closing on an outside
+      //     click. Half the tabs in here are live per-field editors with a date
+      //     input mid-edit, so a stray click would throw away a value somebody
+      //     was part-way through typing. The exits are the × and the footer
+      //     button, both explicit. ★ And no keydown handler: fix-440 found that
       //     `onKeyDown` on a non-focusable div is DEAD, so an Escape handler
       //     here would look present and do nothing.
+      //
+      // ★★★ fix-514 §A/§B MAKE THAT RULE STRONGER, NOT WEAKER. This modal now
+      //     holds the whole atomic project form that `ProjectSettingsModal`
+      //     used to — address, jurisdiction, the roles, the permit rows — so a
+      //     stray outside click would discard a draft rather than one date. §B
+      //     is the other half of the same answer: the footer says `Save` when
+      //     there is something to lose and `Exit` when there is not.
       data-testid="project-data-modal"
       data-tab={tab}
     >

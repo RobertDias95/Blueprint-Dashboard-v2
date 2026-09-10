@@ -4,7 +4,12 @@ import wizardSource from '../components/NewProjectWizard.tsx?raw';
 import createHookSource from '../hooks/useCreateProjectWithPermits.ts?raw';
 import projectsHookSource from '../hooks/useProjects.ts?raw';
 import typesSource from '../lib/database.types.ts?raw';
-import settingsSource from '../components/ProjectDetail/ProjectSettingsModal.tsx?raw';
+// ★ fix-514 §A: `ProjectSettingsModal` is DELETED. Its form state and atomic
+//   save are `hooks/useProjectDetailsForm`; its controls are
+//   `components/ProjectDetail/ProjectDetailsForm`. The claims below are
+//   unchanged — only the address of the code is.
+import settingsSource from '../components/ProjectDetail/ProjectDetailsForm.tsx?raw';
+import settingsPayloadSource from '../hooks/useProjectDetailsForm.ts?raw';
 import {
   milestoneIsHistory,
   milestonePredatesRecord,
@@ -210,7 +215,9 @@ describe('fix-386: editable after creation, quietly', () => {
     // The modal only sends the key when there IS an answer, and the RPC patch
     // is key-presence based — so opening Settings on a pre-fix-386 project and
     // changing the address does not quietly assert "not a backfill".
-    expect(settingsSource).toContain(
+    // ★ fix-514 §A: the PAYLOAD is in the controller hook now, the CONTROL in
+    //   the form component. Same two halves, two files.
+    expect(settingsPayloadSource).toContain(
       "...(form.is_backfill === null ? {} : { is_backfill: form.is_backfill })",
     );
     expect(sqlCode).toContain("ELSE is_backfill END");
@@ -218,7 +225,7 @@ describe('fix-386: editable after creation, quietly', () => {
 
   it('★ the control exists, is checked only on true, and says what it does', () => {
     expect(settingsSource).toContain('data-testid="psm-is-backfill"');
-    expect(settingsSource).toContain('checked={form.is_backfill === true}');
+    expect(settingsSource).toContain('checked={ctl.form.is_backfill === true}');
     expect(settingsSource).toContain('Not recorded');
   });
 });

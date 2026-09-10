@@ -220,7 +220,11 @@ describe('fix-440 §A (P-061) — "Hold this permit" IS the reason dropdown', ()
 // ---------------------------------------------------------------------------
 
 import quickEditSrc from '../components/ProjectDetail/QuickEditPermitModal.tsx?raw';
-import projectSettingsSrc from '../components/ProjectDetail/ProjectSettingsModal.tsx?raw';
+// ★ fix-514 §A: `ProjectSettingsModal` is DELETED. Its form state and atomic
+//   save are `hooks/useProjectDetailsForm`; its controls are
+//   `components/ProjectDetail/ProjectDetailsForm`. The claims below are
+//   unchanged — only the address of the code is.
+import projectSettingsSrc from '../components/ProjectDetail/ProjectDetailsModal.tsx?raw';
 import planOfRecordSrc from '../components/ProjectDetail/PlanOfRecordCard.tsx?raw';
 import entCascadeSrc from '../components/EntCascadePrompt.tsx?raw';
 import gapFillSrc from '../components/GapFillPrompt.tsx?raw';
@@ -268,13 +272,19 @@ describe('fix-440 §B (P-057) — only the ones holding unsaved input go inert',
     expect(src).toContain('onClick={onClose}');
   });
 
-  it('★★★ ProjectSettingsModal: backdrop inert, and Escape stays absent', () => {
+  it('★★★ SUPERSEDED by fix-514 §A: the project modal is Project Details now', () => {
+    // ★★ `ProjectSettingsModal` is deleted; the one project modal is
+    //    `ProjectDetailsModal`, and it holds the unsaved form the rule is
+    //    about. THE RULE IS UNCHANGED — a dialog holding unsaved input does not
+    //    close on an outside click, and has no Escape handler either
+    //    (fix-440: `onKeyDown` on a non-focusable div is DEAD, so one would
+    //    look present and do nothing).
     const src = code(projectSettingsSrc);
     expect(backdropProps(projectSettingsSrc)).not.toContain('onClick');
-    // ★ It never had a keydown handler — checked, not assumed — and this pins
-    //   that nobody "fixes the inconsistency" with QuickEditPermitModal.
     expect(src).not.toContain("e.key === 'Escape'");
-    expect(src).toContain('psm-save');
+    // ★ Its save button is `project-data-done`, which fix-514 §B made read
+    //   Save when dirty and Exit when clean.
+    expect(src).toContain('project-data-done');
   });
 
   it('★★ both carry the rule in a comment pointing at fix-411 §1 (B3)', () => {

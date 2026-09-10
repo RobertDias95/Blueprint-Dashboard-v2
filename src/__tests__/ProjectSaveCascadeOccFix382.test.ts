@@ -229,7 +229,8 @@ function evanston(): Db {
     })),
   };
 }
-/** What ProjectSettingsModal.tsx:455 sends: EVERY existing permit row, each
+/** What the project form sends (fix-514 §A: `hooks/useProjectDetailsForm`,
+ *  formerly ProjectSettingsModal.tsx:455): EVERY existing permit row, each
  *  restating the ent_lead it read. The user edited only the project field. */
 function clientPayload(db: Db): Upsert[] {
   return db.permits.map((p) => ({
