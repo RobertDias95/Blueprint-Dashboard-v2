@@ -71,6 +71,40 @@
 -- ===========================================================================
 
 -- ---------------------------------------------------------------------------
+-- ✅ VERIFIED BEFORE HAND-OFF (fix-521 §0) — read this before applying
+-- ---------------------------------------------------------------------------
+--
+-- ⚠️ THE QUESTION: `audit_log` has RLS enabled with a tenant-scoped SELECT
+--    policy — `audit_log_tenant_select USING (tenant_id = ANY
+--    auth_tenant_ids())`. **A row written without `tenant_id` would be
+--    invisible to every reader**, which is worse than no audit trail at all
+--    because it looks like it is working.
+--
+-- ✅ IT CANNOT HAPPEN, on three independent counts, checked against prod
+--    2026-09-10:
+--
+--    1. The trigger sets it explicitly: `NEW.tenant_id`, first column of the
+--       INSERT below.
+--    2. `projects.tenant_id` is **NOT NULL**, so `NEW.tenant_id` is never null.
+--    3. `audit_log.tenant_id` is **NOT NULL** too — a row missing it would be
+--       REJECTED, not silently hidden. The failure mode is loud, not quiet.
+--
+-- ✅ AND THE INSERT CANNOT BE BLOCKED BY RLS. There is also an
+--    `audit_log_tenant_insert` policy, `WITH CHECK (tenant_id = ANY
+--    auth_tenant_ids())`. Two reasons it is satisfied:
+--      · this function is SECURITY DEFINER and `audit_log` is owned by
+--        `postgres` with `FORCE ROW LEVEL SECURITY` **off**, so the owner
+--        bypasses RLS;
+--      · and even under RLS it would pass — the tenant it writes is the tenant
+--        of the project the caller just edited, which is by definition in
+--        their `auth_tenant_ids()`.
+--
+-- ✅ GRANT POSTURE UNCHANGED. `audit_log` already carries fix-157's and
+--    fix-273's posture; this migration adds no table and therefore makes no
+--    new grant decision. (The standing `anon` SELECT grant returns nothing,
+--    because RLS filters it to a tenant an anonymous caller does not have.)
+--
+-- ---------------------------------------------------------------------------
 -- 1. The diff function
 -- ---------------------------------------------------------------------------
 

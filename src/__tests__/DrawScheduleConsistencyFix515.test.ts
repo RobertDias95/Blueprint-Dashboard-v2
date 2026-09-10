@@ -86,10 +86,15 @@ describe('fix-515 §A — jurisdiction and phase render on EVERY block', () => {
     // ★ P-179 is not reconciled here and this does not widen it: the value now
     //   printed is the one that ALREADY coloured the block, so it is one
     //   derivation with two renderings rather than two derivations.
+    // ★★★ fix-521 §B: the same expression, LIFTED to a `chipLabel` const so
+    //     the collapse rule and the thing it prints read one value. §D
+    //     re-confirms P-179 is not widened: this ticket changes WHAT the chip
+    //     prints and WHERE it sits, never which derivation it comes from.
     const c = code(gridSrc);
     expect(c).toContain('deriveLaneStatus({');
     expect(c).toContain('STATUS_PRESENTATION[derivedStatus]');
-    expect(c).toContain('{park && !park.showPhasePill ? park.label : pres.label}');
+    expect(c).toContain('park && !park.showPhasePill ? park.label : pres.label');
+    expect(c).toContain('{chipLabel}');
   });
 });
 

@@ -49,7 +49,38 @@ export function useUpdateDsRow() {
       // jsonb-style values the way the RPC expects (p_data->>'field' returns
       // text, so dates/booleans must serialize cleanly).
       const merged: Record<string, unknown> = { ...current, ...patch };
-      const payload: Record<string, string> = {};
+      // ═══════════════════════════════════════════════════════════════════
+      // ★★★ fix-521 §C (P-222) — NOTHING IS `null`, NOT `''`
+      // ═══════════════════════════════════════════════════════════════════
+      //
+      // This loop used to write `payload[key] = ''` for every null. For the
+      // DATE columns that was harmless — the RPC wraps them in
+      // `NULLIF(…,'')::date`. For the three nullable TEXT columns it was not:
+      // the RPC writes `p_data->>'color_override'` RAW, so a row that had
+      // never had a colour got an empty string saying it had.
+      //
+      // ★★★ MEASURED ON PROD, 2026-09-10 — and it is THREE columns, not the
+      //     two P-222 named. On the SAME 14 rows (13 of them
+      //     `manually_placed`, i.e. everything that has ever been through the
+      //     drag editor):
+      //
+      //       color_override    14 × ''   205 × null
+      //       status_override   14 × ''   205 × null
+      //       notes             14 × ''
+      //
+      //     `da_assigned`, `start_week`, `end_week` and `status` are never
+      //     empty — not because they were treated differently, but because
+      //     the editor always sets them. **The bug was in all eleven columns
+      //     and only visible in the three that are allowed to be absent.**
+      //
+      // ★★★ A FIELD WRITTEN AS `''` WHERE IT MEANS *NOTHING* IS HOW A DEAD
+      //     FIELD LOOKS ALIVE. P-222 was raised as "colour override is set and
+      //     never read"; what was actually happening is that nobody had ever
+      //     set one and the save path was inventing a value.
+      //
+      // ★ `null` survives the round trip: `p_data->>'k'` on a JSON null is SQL
+      //   NULL, which is what every one of these columns means by "absent".
+      const payload: Record<string, string | null> = {};
       for (const key of [
         'da_assigned',
         'start_week',
@@ -65,7 +96,7 @@ export function useUpdateDsRow() {
       ] as const) {
         const v = merged[key];
         if (v === null || v === undefined) {
-          payload[key] = '';
+          payload[key] = null;
         } else if (typeof v === 'boolean') {
           payload[key] = v ? 'true' : 'false';
         } else {

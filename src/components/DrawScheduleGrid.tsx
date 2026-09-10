@@ -48,6 +48,10 @@ import {
   blockAddressLines,
   blockCentresStack,
   blockDetailLines,
+  // ★ fix-521 §B (P-224): the meta line's two decisions — does the pair fit on
+  //   one line, and is the phase chip saying what the date label already says.
+  blockMetaFitsOneLine,
+  phaseChipIsRedundant,
   blockFontPx,
   blockStackHeight,
   blockOverflow,
@@ -1443,18 +1447,54 @@ function DrawScheduleBody({
   }, [npBlocks, weeks, search, projectsById, projectSearchHay]);
 
 
-  // "Unscheduled": projects with no DA or no week range, optionally filtered.
+  // ═════════════════════════════════════════════════════════════════════════
+  // ★★★ fix-521 §A (P-235) — "UNSCHEDULED" MEANS AN ACTIVE PROJECT WITH NO
+  //     BLOCK, HOWEVER THAT COMES ABOUT
+  // ═════════════════════════════════════════════════════════════════════════
+  //
+  // Bobby, 2026-09-10: *"i just added 2621 Eastlake Ave E but i dont see it on
+  // the draw schedule?"*
+  //
+  // ★★★ THIS LIST USED TO START FROM `draw` — the `draw_schedule` ROWS — and
+  //     keep the ones with no DA or no week. **So a project that never got a
+  //     row at all was invisible to the board AND to the list of things
+  //     missing from the board.** It appeared on neither, and nothing would
+  //     ever have surfaced it: the one project that most needed placing was
+  //     the only one you could not see.
+  //
+  //     `2621 Eastlake Ave E` was the only such project of 215 active ones, and
+  //     the footer said *"No unscheduled projects."*
+  //
+  // ★★★ SO IT STARTS FROM PROJECTS NOW, AND THE ROW IS THE OPTIONAL HALF.
+  //     A missing row and a row with no week are the same fact to the person
+  //     reading this list — "this is not on the board" — and the list is about
+  //     that fact, not about the shape of the data underneath it.
+  //
+  // ★★ THE INVARIANT IS THE POINT, not the missing row: **every active project
+  //    is on the board or in this list, and never neither.** Today's instance
+  //    is one project created without a `lead_da`; the invariant is what stops
+  //    the next cause — whatever it turns out to be — being invisible too.
+  //    `DrawScheduleUnscheduledFix521` asserts it directly.
+  //
+  // ★ ACTIVE means not archived and not cancelled. That is a DIFFERENT rule
+  //   from the board's, deliberately: fix-262 keeps a cancelled project's
+  //   BLOCK on the board at full width because the DA capacity it consumed is
+  //   the whole point of that view. A cancelled project is not work waiting to
+  //   be placed, so it does not belong on a list of things to place.
   const unscheduled = useMemo(() => {
-    return draw
-      .filter((row) => !row.da_assigned || !row.start_week || !row.end_week)
-      .map((row) => ({ row, project: projectById.get(row.project_id) }))
-      .filter((x): x is { row: DrawScheduleRow; project: Project } => !!x.project)
+    const rowByProject = new Map(draw.map((r) => [r.project_id, r]));
+    return projects
+      .filter((project) => !project.archived && !cancelMap.has(project.id))
+      .map((project) => ({ project, row: rowByProject.get(project.id) ?? null }))
+      .filter(
+        ({ row }) => !row || !row.da_assigned || !row.start_week || !row.end_week,
+      )
       .filter(
         ({ project }) =>
           !search.trim() || multiMatchAddress(search, projectSearchHay(project)),
       )
       .sort((a, b) => a.project.address.localeCompare(b.project.address));
-  }, [draw, projectById, search, projectSearchHay]);
+  }, [draw, projects, cancelMap, search, projectSearchHay]);
 
   // ★★★ fix-484 §A2 — THE RESOLVED DA COLUMN WIDTH, DERIVED THE WAY CSS
   //     RESOLVES IT: equal `1fr` tracks over what is left after the label
@@ -2142,6 +2182,49 @@ function DrawScheduleBody({
                       BLOCK_ADDRESS_MAX_LINES,
                       blockAddressLines(shortLabel, addrFont, addrBoxW),
                     );
+                    // ═══════════════════════════════════════════════════
+                    // ★★★ fix-521 §B (P-224) — THE META LINE'S TWO DECISIONS
+                    // ═══════════════════════════════════════════════════
+                    //
+                    // Both are derived HERE, beside the font ramp, because the
+                    // stack height below has to know how many lines the meta
+                    // costs before anything renders — the same reason
+                    // `blockDetailLines` is a constant and not a guess.
+                    const chipLabel =
+                      park && !park.showPhasePill ? park.label : pres.label;
+                    // ★ The DATE label, resolved the same three ways the date
+                    //   block below resolves it. Declared once so the collapse
+                    //   rule and the thing it is comparing against cannot
+                    //   disagree — fix-512's lesson, applied to two strings.
+                    const heldForMeta = heldMap.get(row.project_id);
+                    const cancelledForMeta = cancelMap.get(row.project_id);
+                    const dateLabel = heldForMeta
+                      ? `⏸ On hold — ${heldForMeta.reason}`
+                      : cancelledForMeta
+                        ? '✕ CANCELLED'
+                        : projectionByProjectId.get(row.project_id)?.isActual
+                          ? 'Approval'
+                          : 'Est. Approval';
+                    // ★★★ RULE 2: the chip goes ONLY when the date label
+                    //     already says the same state. `Cancelled` +
+                    //     `✕ CANCELLED` is one fact twice; `Corrections` +
+                    //     `Est. Approval` is two facts.
+                    const chipRedundant = phaseChipIsRedundant(chipLabel, dateLabel);
+                    // ★★★ RULE 1: jurisdiction never truncates. If the pair
+                    //     cannot both fit whole, they stack and the city name
+                    //     takes the full width. ★ With the chip collapsed there
+                    //     is nothing to fight, so a redundant chip pays for the
+                    //     line a stack would have cost — which is the budget
+                    //     rule: to add a line, remove a line.
+                    const metaStacks =
+                      !chipRedundant &&
+                      !blockMetaFitsOneLine(
+                        project.juris || 'No jurisdiction',
+                        chipLabel,
+                        detailFont,
+                        Math.round(6 * textScale),
+                        addrBoxW,
+                      );
                     // ★★★ fix-484 §A1 — the anchor decision, in one place.
                     const centresStack = blockCentresStack(
                       height,
@@ -2149,7 +2232,12 @@ function DrawScheduleBody({
                         addrLines,
                         addrFont,
                         detailFont,
-                        blockDetailLines(),
+                        // ★ fix-521 §B: a stacked meta line costs ONE more
+                        //   detail line, and the anchor decision has to know
+                        //   before it measures — `blockDetailLines` is a
+                        //   constant precisely so this stays arithmetic
+                        //   rather than a guess.
+                        blockDetailLines() + (metaStacks ? 1 : 0),
                       ),
                     );
                     // Duration in weeks is end..start inclusive.
@@ -2459,12 +2547,22 @@ function DrawScheduleBody({
                           <div
                             style={{
                               display: 'flex',
+                              // ★★★ fix-521 §B (P-224) — STACK ON THE NARROW
+                              //     BLOCKS, ONE LINE ON THE WIDE ONES. fix-515
+                              //     put these on one row because it made them
+                              //     both fit AND bought a line of height back,
+                              //     which is true of a wide block and false of
+                              //     a 90px one, where the city name loses the
+                              //     fight and reads `Edmo…`.
+                              flexDirection: metaStacks ? 'column' : 'row',
                               alignItems: 'center',
-                              gap: 3,
+                              gap: metaStacks ? 0 : 3,
                               minWidth: 0,
                               maxWidth: '100%',
                             }}
                             data-testid={`block-meta-${row.project_id}`}
+                            data-meta-layout={metaStacks ? 'stacked' : 'inline'}
+                            data-chip={chipRedundant ? 'collapsed' : 'shown'}
                           >
                             {/* ★★ A JURISDICTION IS ALWAYS SAID, and when one is
                                 genuinely absent the block says so rather than
@@ -2484,8 +2582,18 @@ function DrawScheduleBody({
                                 whiteSpace: 'nowrap',
                                 overflow: 'hidden',
                                 textOverflow: 'ellipsis',
+                                // ★★★ fix-521 §B RULE 1 — JURISDICTION NEVER
+                                //     TRUNCATES. When the pair stacks, this
+                                //     span owns the whole box; `maxWidth:100%`
+                                //     is what makes "the full width" mean the
+                                //     block rather than whatever the chip left
+                                //     over. The phase is repeated in the legend
+                                //     and the column header; the jurisdiction
+                                //     is repeated nowhere.
                                 minWidth: 0,
+                                maxWidth: '100%',
                               }}
+                              title={project.juris || undefined}
                               data-testid={`block-juris-${row.project_id}`}
                             >
                               {project.juris || 'No jurisdiction'}
@@ -2500,6 +2608,17 @@ function DrawScheduleBody({
                                    label takes the chip's place, so the row still
                                    answers "what phase is this in" with the true
                                    answer rather than with nothing. */}
+                            {/* ★★★ fix-521 §B (P-224) RULE 2 — THE CHIP GOES
+                                ONLY WHEN THE DATE LABEL ALREADY SAYS IT.
+                                `1953 10th Ave W` read `Cancelled` and then
+                                `✕ CANCELLED 09-04-26` — the identical word
+                                twice on a block already short of room. But
+                                `548 3rd Ave N` reads `Corrections` and then
+                                `Est. Approval 10-31-26`, which is TWO facts:
+                                what it is doing and when it is expected to
+                                finish. Deleting the chip outright would strip
+                                the first from every in-flight block. */}
+                            {!chipRedundant && (
                             <span
                               style={{
                                 // fix-DS-pill-and-date: ~25% smaller than the
@@ -2517,8 +2636,9 @@ function DrawScheduleBody({
                               }}
                               data-testid={`block-status-${row.project_id}`}
                             >
-                              {park && !park.showPhasePill ? park.label : pres.label}
+                              {chipLabel}
                             </span>
+                            )}
                           </div>
                           {(() => {
                             // Q9.5.f-fix-17.5 C: Est. Approval uses the same
@@ -3108,7 +3228,9 @@ function Toolbar({
 function UnscheduledLane({
   items,
 }: {
-  items: { row: DrawScheduleRow; project: Project }[];
+  /** ★ fix-521 §A: `row` is NULLABLE — a project with no `draw_schedule` row
+   *  at all is exactly the case this list existed to show and could not. */
+  items: { row: DrawScheduleRow | null; project: Project }[];
 }) {
   if (items.length === 0) {
     return (
@@ -3125,10 +3247,19 @@ function UnscheduledLane({
       <div className="flex flex-wrap gap-2">
         {items.map(({ row, project }) => (
           <span
-            key={row.project_id}
-            data-testid={`unscheduled-${row.project_id}`}
+            key={project.id}
+            data-testid={`unscheduled-${project.id}`}
             className="text-[11px] px-2 py-1 rounded border border-border bg-bg text-text font-mono"
-            title={`${row.da_assigned ?? 'no DA'} · ${row.start_week ?? 'no week'}`}
+            // ★ fix-521 §A: three states, and the third is the one that was
+            //   unreachable. "No block yet" is a different fact from a block
+            //   missing its week, and somebody deciding what to place needs to
+            //   know which they are looking at.
+            title={
+              row
+                ? `${row.da_assigned ?? 'no DA'} · ${row.start_week ?? 'no week'}`
+                : 'No block yet — this project has no draw-schedule row'
+            }
+            data-has-row={row ? 'true' : 'false'}
           >
             {project.address}
           </span>
