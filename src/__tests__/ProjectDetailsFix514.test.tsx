@@ -90,7 +90,11 @@ describe('fix-514 §A — Project Data becomes Project Details, and Project Sett
       { label: 'Jurisdiction', tab: 'site' },
       { label: 'GO date', tab: 'dates' },
       { label: 'Unit count', tab: 'units' },
-      { label: 'Product types', tab: 'units' },
+      // ★ fix-520 §C (P-229): the field is labelled `Types` now — *"unit type
+      //   and product type are the same thing"*. The COLUMN it writes
+      //   (`projects.product_types`) is untouched, and the old words are still
+      //   search terms so it stays findable by the name half the team uses.
+      { label: 'Types', tab: 'units' },
       { label: 'Permit type', tab: 'permits' },
       { label: 'Permit number', tab: 'permits' },
       { label: 'Permit portal URL', tab: 'permits' },
@@ -152,8 +156,12 @@ describe('fix-514 §A — Project Data becomes Project Details, and Project Sett
     expect(c).toContain('useUpdateProjectWithPermits');
     expect(c).toContain('updateProjectWithPermits.mutateAsync');
     expect(c).toContain('projectExpectedUpdatedAt: project.updated_at');
-    // fix-511 §C's lot-size bound survived the move.
-    expect(c).toContain('parseLotSizeSf');
+    // ★★★ fix-520 §A: fix-511 §C's lot-size bound is no longer HERE, because
+    //     `lot_size_sf` is no longer in this save. It is enforced on blur by
+    //     `LotSizeEditor`, which is the surface that writes the column — see
+    //     `LotSizeBoundFix511`, where the claim moved with it. A guard over a
+    //     value this function cannot send can only ever pass.
+    expect(c).not.toContain('parseLotSizeSf');
     // fix-36's rule survived it too.
     expect(c).toContain('if (saving) return;');
   });
@@ -206,13 +214,19 @@ describe('fix-514 §B — Save vs Exit is a dirty-state contract, not a label', 
     expect(projectDetailsFormIsDirty(f, f)).toBe(false);
   });
 
-  it('★★★ a changed field is DIRTY', () => {
+  it('★★★ SUPERSEDED by fix-520 §A — a changed PERMIT is dirty; a scalar cannot be', () => {
+    // ★★★ fix-514 §B made the footer read Save/Exit off a comparison against
+    //     what loaded, which was right while this button wrote every field.
+    //     **fix-520 §A moved every project scalar to a blur commit**, so there
+    //     is no such thing as an unsaved address: by the time the box loses
+    //     focus it is in the database or it was refused. The button — and
+    //     therefore the flag — is about permit rows now.
     const a = initProjectDetailsForm(project(), [permit()]);
-    expect(projectDetailsFormIsDirty(a, { ...a, address: '200 Pear St' })).toBe(true);
+    expect(projectDetailsFormIsDirty(a, { ...a, address: '200 Pear St' })).toBe(false);
     expect(
       projectDetailsFormIsDirty(a, {
         ...a,
-        projectFields: { ...a.projectFields, units: '9' },
+        permits: a.permits.map((p) => ({ ...p, num: 'BP-CHANGED' })),
       }),
     ).toBe(true);
   });
@@ -243,9 +257,12 @@ describe('fix-514 §B — Save vs Exit is a dirty-state contract, not a label', 
     // ★ Typing a character and deleting it again is exactly the state the
     //   button is supposed to distinguish, so `onChange → dirty = true` would
     //   answer the wrong question.
+    // ★ fix-520 §A: stated on a PERMIT field, which is the only thing this
+    //   flag still watches. The rule — a value typed and undone reads clean —
+    //   is fix-514 §B's and is unchanged.
     const a = initProjectDetailsForm(project(), [permit()]);
-    const b = { ...a, address: '200 Pear St' };
-    const c = { ...b, address: a.address };
+    const b = { ...a, permits: a.permits.map((p) => ({ ...p, num: 'BP-2' })) };
+    const c = { ...b, permits: a.permits };
     expect(projectDetailsFormIsDirty(a, b)).toBe(true);
     expect(projectDetailsFormIsDirty(a, c)).toBe(false);
   });
@@ -542,12 +559,14 @@ describe('fix-514 — the modal, rendered', () => {
     expect(screen.getByTestId('project-data-modal').getAttribute('data-tab')).toBe('actions');
   });
 
-  it('★★★ Exit becomes Save the moment something changes', () => {
-    renderProjectData(project(), [permit()], 'site');
+  it('★★★ SUPERSEDED by fix-520 §A — Exit becomes Save on a PERMIT edit', () => {
+    // ★★★ It used to flip on any field, because the button wrote any field.
+    //     Every scalar commits on blur now, so typing an address leaves the
+    //     button on `Exit` — correctly: there is nothing unsaved to save.
+    //     The Permits tab is the one place a change can still be pending.
+    renderProjectData(project(), [permit()], 'permits');
     expect(screen.getByTestId('project-data-done').textContent).toContain('Exit');
-    fireEvent.change(screen.getByTestId('psm-address'), {
-      target: { value: '200 Pear St' },
-    });
+    fireEvent.click(screen.getByTestId('psm-add-permit'));
     expect(screen.getByTestId('project-data-done').textContent).toContain('Save');
   });
 });

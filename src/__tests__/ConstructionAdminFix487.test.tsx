@@ -463,7 +463,27 @@ describe('fix-487: what this ticket must not have touched', () => {
         'utf8',
       ),
     );
-    expect(form).toContain('construction_admin:');
+    // ★★★ fix-520 §A (P-227) — THE FIELD MOVED, THE CASCADE DID NOT.
+    //     `construction_admin` left the atomic save's project patch with every
+    //     other project scalar: it commits on blur through `useUpdateProject`
+    //     now, from `InternalTeamFields`. **`projects_cascade_lead` is a DB
+    //     TRIGGER**, so it fires on a single-column write exactly as it did
+    //     inside the RPC — and D-2026-08-28's rule (an ISSUED permit keeps who
+    //     took it through) is enforced server-side and is untouched.
+    //
+    // ★★ If anything the per-field write is SAFER for it: fix-377 and fix-382
+    //    had to order the RPC's steps so the client's restatement of the
+    //    outgoing lead could not overwrite the cascade. A write that carries
+    //    one column has nothing to restate.
+    const editors = stripComments(
+      readFileSync(
+        resolve(process.cwd(), 'src/components/ProjectDetail/ProjectDetailsForm.tsx'),
+        'utf8',
+      ),
+    );
+    expect(editors).toContain("'construction_admin',");
+    expect(editors).toContain('useProjectFieldCommit');
+    expect(form).not.toContain('construction_admin:');
     expect(form).not.toContain('bp_set_team_department');
     expect(form).not.toContain('Department');
   });

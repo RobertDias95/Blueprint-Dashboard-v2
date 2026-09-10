@@ -7,7 +7,8 @@ describe('<UnitTypesEditor />', () => {
   it('renders an empty-state when value is []', () => {
     const onChange = vi.fn();
     render(<UnitTypesEditor value={[]} onChange={onChange} />);
-    expect(screen.getByText(/No unit types yet/i)).toBeInTheDocument();
+    // ★ fix-520 §C (P-229): `No unit types yet` → `No types yet`.
+    expect(screen.getByText(/No types yet/i)).toBeInTheDocument();
     expect(screen.queryByTestId('unit-types-row-0')).toBeNull();
   });
 

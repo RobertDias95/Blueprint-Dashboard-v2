@@ -332,7 +332,8 @@ describe('<Step1ProjectInfo />', () => {
   it('renders the UnitTypesEditor empty-state when unit_types is []', () => {
     setup();
     expect(screen.getByTestId('unit-types-editor')).toBeInTheDocument();
-    expect(screen.getByText(/No unit types yet/i)).toBeInTheDocument();
+    // ★ fix-520 §C (P-229): `No unit types yet` → `No types yet`.
+    expect(screen.getByText(/No types yet/i)).toBeInTheDocument();
   });
 
   it('renders the Builder / Owner section with 4 freeform inputs', () => {

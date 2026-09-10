@@ -53,7 +53,7 @@ function humanizeKey(key: string): string {
     // fix-92: align with the key actually consumed by the wizard +
     // Library filter (see migrations/fix_91_product_types_array.sql).
     case 'productTypeOptions':
-      return 'product types';
+      return 'types';
     case 'projectTagOptions':
       return 'project tags';
     case 'holdReasonOptions':

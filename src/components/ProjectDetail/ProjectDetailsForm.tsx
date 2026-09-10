@@ -1,6 +1,11 @@
-import { useCallback, useEffect, useMemo, useRef } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { ReactNode } from 'react';
-import ZoneSelect from '../shared/ZoneSelect';
+// ★★★ fix-520 §A: ONE save model. Every project field on this modal commits
+// when you leave it, through the path the site/lot/date/unit editors already
+// used. The Permits tab is the one exception and says so on screen.
+import { useProjectFieldCommit } from '../../hooks/useProjectFieldCommit';
+import { useUpdatePermit } from '../../hooks/useUpdatePermit';
+import type { PermitWithCycles, Project } from '../../lib/database.types';
 import type { ProjectDetailsFormController } from '../../hooks/useProjectDetailsForm';
 import type { PermitRow } from '../../lib/projectDetailsForm';
 
@@ -176,28 +181,123 @@ function ReadOnlyRow({
 // Site data — Address and Jurisdiction
 // ---------------------------------------------------------------------------
 
+// ---------------------------------------------------------------------------
+// ★★★ fix-520 §A (P-227) — THE COMMIT-ON-BLUR CONTROLS
+// ---------------------------------------------------------------------------
+//
+// Every field below writes ONE column when you leave it, through
+// `useProjectFieldCommit` — the same path Zone, the lots, the dates and the
+// unit editors have used since fix-415. What they replace is `ctl.set*`, which
+// put the value in a form that only the footer's Save button could flush.
+//
+// ★★ A TEXT BOX NEEDS A DRAFT AND A SELECT DOES NOT. Typing is a sequence of
+//    invalid intermediate states — "5627 44th Ave S" on the way to "SW" — so a
+//    text input holds a local draft and commits on blur or Enter. A `<select>`
+//    has no intermediate state: choosing IS the commit. fix-73/98's dirty-flag
+//    prop sync is what keeps an in-flight draft from being clobbered by the
+//    cache refresh the previous field's commit just triggered.
+
+/** A text/number box that commits on blur or Enter, and re-syncs from the
+ *  server whenever it is not being typed in. */
+function CommitInput({
+  value,
+  onCommit,
+  type = 'text',
+  disabled,
+  testid,
+}: {
+  value: string;
+  onCommit: (next: string) => void;
+  type?: 'text' | 'number' | 'date' | 'email';
+  disabled?: boolean;
+  testid?: string;
+}) {
+  const [draft, setDraft] = useState(value);
+  const [dirty, setDirty] = useState(false);
+  // ★ fix-73/98: adopt the server's value ONLY while the box is clean. Without
+  //   this, a sibling field's commit invalidates `projects` and the refresh
+  //   overwrites what is being typed here — which is the same class of defect
+  //   fix-519 §B fixed one level up, and per-field saves make it MORE likely
+  //   rather than less, because there are now many more refreshes.
+  if (!dirty && draft !== value) setDraft(value);
+
+  function commit() {
+    setDirty(false);
+    if (draft === value) return;
+    onCommit(draft);
+  }
+
+  return (
+    <input
+      type={type}
+      value={draft}
+      disabled={disabled}
+      onChange={(e) => {
+        setDirty(true);
+        setDraft(e.target.value);
+      }}
+      onBlur={commit}
+      onKeyDown={(e) => {
+        if (e.key === 'Enter') {
+          e.currentTarget.blur();
+          commit();
+        } else if (e.key === 'Escape') {
+          setDirty(false);
+          setDraft(value);
+        }
+      }}
+      className={inputCls}
+      style={inputStyle}
+      data-testid={testid}
+      data-dirty={dirty ? 'true' : 'false'}
+    />
+  );
+}
+
 /**
  * ★★★ THE TWO FIELDS THE SITE TAB USED TO SHOW READ-ONLY under the caption
  * *"Address and Jurisdiction are part of Project Settings' single atomic save
  * and are read-only here."* That caption, and the button beneath it, are what
  * Bobby called counterintuitive. They are inputs now.
+ *
+ * ★★★ fix-520 §A: …and they SAVE LIKE EVERY OTHER FIELD ON THE MODAL. They
+ *     rode the footer's Save button, which is how a person could type an
+ *     address, change the Schematic Designer two tabs over and lose it.
  */
-export function SiteIdentityFields({ ctl }: { ctl: ProjectDetailsFormController }) {
+export function SiteIdentityFields({
+  project,
+  jurisdictionNames,
+}: {
+  project: Project;
+  jurisdictionNames: string[];
+}) {
+  const { commit, occMissing } = useProjectFieldCommit(project);
   return (
     <FormGrid>
       <Field label="Project Address" full>
-        <Input
-          value={ctl.form.address}
-          onChange={(v) => ctl.set('address', v)}
+        <CommitInput
+          value={project.address ?? ''}
+          disabled={occMissing}
+          onCommit={(v) => {
+            // ★★★ fix-520 §A — THE ADDRESS'S GUARD LIVES ON THE ADDRESS NOW.
+            //     The atomic save refused a blank one because an empty address
+            //     would have gone in with the permits. With a per-field commit
+            //     the refusal belongs here, where the person can see the box
+            //     they emptied: a blank simply does not commit, and the value
+            //     snaps back on the next render.
+            if (!v.trim()) return;
+            void commit('address', v.trim(), project.address, 'Address');
+          }}
           testid="psm-address"
         />
       </Field>
       <Field label="Jurisdiction">
         <SelectInput
-          value={ctl.form.juris}
-          onChange={(v) => ctl.set('juris', v)}
-          options={['', ...ctl.jurisdictionNames]}
+          value={project.juris ?? ''}
+          onChange={(v) => void commit('juris', v || null, project.juris, 'Jurisdiction')}
+          options={['', ...jurisdictionNames]}
           placeholderLabel="— none —"
+          disabled={occMissing}
           testid="psm-juris"
         />
       </Field>
@@ -214,15 +314,22 @@ export function SiteIdentityFields({ ctl }: { ctl: ProjectDetailsFormController 
  * *"GO date is set on the Project Settings page"* — a tooltip naming a page
  * that no longer exists. It is the third of the three candidates Target
  * Approval maxes over (fix-508 §D), so it is edited beside the other dates.
+ *
+ * ★★ fix-520 §A: a date input that commits per keystroke saves `2026-0` on the
+ *    way to `2026-09-14`, which is why this is buffered — the rule
+ *    `BufferedDateInput` exists for, applied here through `CommitInput`'s
+ *    draft.
  */
-export function GoDateField({ ctl }: { ctl: ProjectDetailsFormController }) {
+export function GoDateField({ project }: { project: Project }) {
+  const { commit, occMissing } = useProjectFieldCommit(project);
   return (
     <FormGrid>
       <Field label="GO date">
-        <Input
+        <CommitInput
           type="date"
-          value={ctl.form.projectFields.go_date}
-          onChange={(v) => ctl.setProj('go_date', v)}
+          value={project.go_date ?? ''}
+          disabled={occMissing}
+          onCommit={(v) => void commit('go_date', v || null, project.go_date, 'GO date')}
           testid="psm-go"
         />
       </Field>
@@ -234,43 +341,62 @@ export function GoDateField({ ctl }: { ctl: ProjectDetailsFormController }) {
 // Units — the count and the product types
 // ---------------------------------------------------------------------------
 
+/**
+ * ★★★ fix-520 §A — THE TWO FIELDS THAT MADE THE UNITS TAB'S CAPTION A LIE.
+ *
+ * That tab said *"Each field saves as you leave it — there is no Save
+ * button"*, and these two rode the button. fix-519's audit read the caption
+ * and filed the whole tab as blur-save, which is how a false caption survives
+ * a ticket written to find false captions. **It is the tab Cam will live in.**
+ */
 export function UnitCountAndProductTypes({
-  ctl,
+  project,
+  productTypeOptions,
 }: {
-  ctl: ProjectDetailsFormController;
+  project: Project;
+  productTypeOptions: string[];
 }) {
-  const { product_types: chosen } = ctl.form.projectFields;
+  const { commit, occMissing } = useProjectFieldCommit(project);
+  const chosen = project.product_types ?? [];
   return (
     <FormGrid>
       <Field label="Unit count">
-        <Input
+        <CommitInput
           type="number"
-          value={ctl.form.projectFields.units}
-          onChange={(v) => ctl.setProj('units', v)}
+          value={project.units == null ? '' : String(project.units)}
+          disabled={occMissing}
+          onCommit={(v) => {
+            const n = v.trim() === '' ? null : Number(v);
+            if (n !== null && !Number.isFinite(n)) return;
+            void commit('units', n, project.units, 'Unit count');
+          }}
           testid="psm-units"
         />
       </Field>
-      <Field label="Product types" full>
+      <Field label="Types" full>
         {/* fix-91/fix-93: multi-select. Options come from
             app_config.productTypeOptions (Settings → Admin → Project Types);
             stored values no longer in the catalog still render as removable
-            chips so pruning the option list never strands historical data. */}
+            chips so pruning the option list never strands historical data.
+            ★ fix-520 §A: adding or removing a chip IS the commit — there is
+              nothing to leave, so there is no blur to wait for. */}
         <div className="flex flex-wrap items-center gap-1">
           <SelectInput
             value=""
             onChange={(v) => {
               if (!v) return;
               if (chosen.includes(v)) return;
-              ctl.setProj('product_types', [...chosen, v]);
+              void commit('product_types', [...chosen, v], null, 'Types');
             }}
-            options={['', ...ctl.productTypeOptions.filter((t) => !chosen.includes(t))]}
+            options={['', ...productTypeOptions.filter((t) => !chosen.includes(t))]}
             placeholderLabel={
-              ctl.productTypeOptions.length === 0
+              productTypeOptions.length === 0
                 ? 'No options — add them in Settings → Projects'
-                : ctl.productTypeOptions.every((t) => chosen.includes(t))
+                : productTypeOptions.every((t) => chosen.includes(t))
                   ? 'All types added'
                   : '+ Add type'
             }
+            disabled={occMissing}
             testid="psm-product-types-select"
           />
           {chosen.map((t) => (
@@ -282,10 +408,13 @@ export function UnitCountAndProductTypes({
               {t}
               <button
                 type="button"
+                disabled={occMissing}
                 onClick={() =>
-                  ctl.setProj(
+                  void commit(
                     'product_types',
                     chosen.filter((x) => x !== t),
+                    null,
+                    'Types',
                   )
                 }
                 className="text-dim hover:text-text leading-none"
@@ -307,89 +436,152 @@ export function UnitCountAndProductTypes({
 // ---------------------------------------------------------------------------
 
 export function InternalTeamFields({
-  ctl,
+  project,
+  bp,
+  rosters,
   canReassignDa,
   onReassignSd,
   sdPending,
 }: {
-  ctl: ProjectDetailsFormController;
+  project: Project;
+  /** ★ fix-520 §A: the Building Permit, because ONE of these six roles is not
+   *  a project column at all — see `BP Design Associate` below. */
+  bp: PermitWithCycles | null;
+  rosters: {
+    acqNames: string[];
+    entNames: string[];
+    dmNames: string[];
+    daNames: string[];
+    caNames: string[];
+    sdNames: string[];
+  };
   canReassignDa: boolean;
   onReassignSd: (name: string | null) => void;
   sdPending: boolean;
 }) {
+  const { commit, occMissing } = useProjectFieldCommit(project);
+  const updatePermit = useUpdatePermit();
+  const currentSd = Array.isArray(project.schematic_designer)
+    ? (project.schematic_designer.find((n) => !!n && n.trim() !== '') ?? '')
+    : '';
   return (
     <FormGrid>
       <Field label="Acquisitions">
         {/* fix-23d: acq + acq_lead collapse to ONE selector. */}
         <SelectInput
-          value={ctl.form.acq_lead}
-          onChange={(v) => ctl.set('acq_lead', v)}
-          options={['', ...ctl.acqNames]}
+          value={project.acq_lead ?? ''}
+          onChange={(v) => void commit('acq_lead', v || null, project.acq_lead, 'Acquisitions')}
+          options={['', ...rosters.acqNames]}
           placeholderLabel="— none —"
+          disabled={occMissing}
           testid="psm-acq"
         />
       </Field>
       <Field label="Entitlement Lead">
         <SelectInput
-          value={ctl.form.projectFields.entitlement_lead}
-          onChange={(v) => ctl.setProj('entitlement_lead', v)}
-          options={['', ...ctl.entNames]}
+          value={project.entitlement_lead ?? ''}
+          onChange={(v) =>
+            void commit('entitlement_lead', v || null, project.entitlement_lead, 'Entitlement Lead')
+          }
+          options={['', ...rosters.entNames]}
           placeholderLabel="— none —"
+          disabled={occMissing}
           testid="psm-ent"
         />
       </Field>
       <Field label="Design Manager">
         <SelectInput
-          value={ctl.form.projectFields.design_manager}
-          onChange={(v) => ctl.setProj('design_manager', v)}
-          options={['', ...ctl.dmNames]}
+          value={project.design_manager ?? ''}
+          onChange={(v) =>
+            void commit('design_manager', v || null, project.design_manager, 'Design Manager')
+          }
+          options={['', ...rosters.dmNames]}
           placeholderLabel="— none —"
+          disabled={occMissing}
           testid="psm-dm"
         />
       </Field>
+      {/* ★★★ fix-520 §A — THE ONE ROLE ON THIS TAB THAT IS NOT A PROJECT
+          COLUMN. `da` lives on the PERMITS row, so this control writes the
+          Building Permit through `useUpdatePermit` — the per-field OCC path
+          `PermitDetailV2` and `ScheduleEstimator` already use.
+          ★★ That mismatch is why it needed the atomic save at all: the form's
+             `bpRole.da` was mapped onto a permit upsert inside a project save.
+             One field pretending to be a project field is what made a
+             six-control tab need two write models. */}
       <Field label="BP Design Associate">
         <SelectInput
-          value={ctl.form.bpRole.da}
-          onChange={(v) => ctl.setBpRole('da', v)}
-          options={['', ...ctl.daNames]}
+          value={bp?.da ?? ''}
+          onChange={(v) => {
+            if (!bp?.updated_at) return;
+            if ((v || null) === (bp.da ?? null)) return;
+            void updatePermit.mutateAsync({
+              projectId: project.id,
+              permitId: bp.id,
+              expectedUpdatedAt: bp.updated_at,
+              patch: { da: v || null },
+              fieldLabel: 'BP Design Associate',
+            });
+          }}
+          options={['', ...rosters.daNames]}
           placeholderLabel="— none —"
+          disabled={!bp?.updated_at}
           testid="psm-da"
         />
       </Field>
       {/* ★★★ fix-487 (P-144): changing the Construction Admin CASCADES —
           `projects_cascade_lead` follows it down to the project's UNISSUED
           permits that still name the old person. An ISSUED permit keeps who
-          took it through (D-2026-08-28). */}
+          took it through (D-2026-08-28).
+          ★★ fix-520 §A: the cascade is a DB TRIGGER, so it fires on a
+             single-column write exactly as it did inside the atomic RPC. What
+             it no longer has to survive is the client RESTATING the outgoing
+             lead in the same transaction, which is the ordering fix-377 and
+             fix-382 had to engineer around. A per-field write has nothing to
+             restate. */}
       <Field label="Construction Admin">
         <SelectInput
-          value={ctl.form.projectFields.construction_admin}
-          onChange={(v) => ctl.setProj('construction_admin', v)}
-          options={['', ...ctl.caNames]}
+          value={project.construction_admin ?? ''}
+          onChange={(v) =>
+            void commit(
+              'construction_admin',
+              v || null,
+              project.construction_admin,
+              'Construction Admin',
+            )
+          }
+          options={['', ...rosters.caNames]}
           placeholderLabel="— none —"
+          disabled={occMissing}
           testid="psm-ca"
         />
       </Field>
-      {/* ★★★ fix-344 §1 — IT IS NOT PART OF THE SAVE. Changing it calls the
-          reassign RPC immediately: one admin-gated transaction that moves the
-          field, the open tasks and the co-assignee rows together. Folding a
-          task move into a generic field patch would make an ordinary Save do
-          something large and invisible. */}
+      {/* ★★★ fix-344 §1 — IT CALLS THE REASSIGN RPC: one admin-gated
+          transaction that moves the field, the open tasks and the co-assignee
+          rows together. Folding a task move into a generic field patch would
+          make an ordinary field write do something large and invisible.
+          ★★★ fix-520 §A: THIS IS NO LONGER AN EXCEPTION TO THE SAVE MODEL. It
+              always committed the moment you changed it; what made it an
+              exception was that the five roles beside it did not. They do now,
+              so the tab has one rule and this control simply does more work
+              under it — which is why the hint below says what it moves rather
+              than when it saves. */}
       <Field label="Schematic Designer">
         <SelectInput
-          value={ctl.currentSd}
+          value={currentSd}
           onChange={(v) => {
             if (!canReassignDa) return;
-            if ((v || null) === (ctl.currentSd || null)) return;
+            if ((v || null) === (currentSd || null)) return;
             onReassignSd(v || null);
           }}
-          options={['', ...ctl.sdNames]}
+          options={['', ...rosters.sdNames]}
           placeholderLabel="— none —"
           disabled={!canReassignDa || sdPending}
           testid="psm-sd"
         />
         <p className="text-[9.5px] text-dim mt-0.5" data-testid="psm-sd-hint">
           {canReassignDa
-            ? 'Changing this also moves their open tasks on this project — and saves immediately.'
+            ? 'Changing this also moves their open tasks on this project.'
             : 'Only a tenant admin can reassign the schematic designer.'}
         </p>
       </Field>
@@ -401,7 +593,8 @@ export function InternalTeamFields({
 // Builder / Owner
 // ---------------------------------------------------------------------------
 
-export function BuilderOwnerFields({ ctl }: { ctl: ProjectDetailsFormController }) {
+export function BuilderOwnerFields({ project }: { project: Project }) {
+  const { commit, occMissing } = useProjectFieldCommit(project);
   return (
     <div className="flex flex-col gap-3">
       {/* ★★★ fix-448 §B4: the five builder fields are a CACHE of a catalogue
@@ -410,11 +603,11 @@ export function BuilderOwnerFields({ ctl }: { ctl: ProjectDetailsFormController 
           text — "the contact can differ deal-to-deal" — so there is no second
           truth to diverge from. */}
       <div className="text-[11px] space-y-1" data-testid="psm-builder-readonly">
-        <ReadOnlyRow label="Builder Name" value={ctl.form.builder.builder_name} testid="psm-builder-name" />
-        <ReadOnlyRow label="Company" value={ctl.form.builder.builder_company} testid="psm-builder-co" />
-        <ReadOnlyRow label="Email" value={ctl.form.builder.builder_email} testid="psm-builder-email" />
-        <ReadOnlyRow label="Phone" value={ctl.form.builder.builder_phone} testid="psm-builder-phone" />
-        <ReadOnlyRow label="LLC Address" value={ctl.form.builder.builder_address} testid="psm-builder-address" />
+        <ReadOnlyRow label="Builder Name" value={project.builder_name ?? ''} testid="psm-builder-name" />
+        <ReadOnlyRow label="Company" value={project.builder_company ?? ''} testid="psm-builder-co" />
+        <ReadOnlyRow label="Email" value={project.builder_email ?? ''} testid="psm-builder-email" />
+        <ReadOnlyRow label="Phone" value={project.builder_phone ?? ''} testid="psm-builder-phone" />
+        <ReadOnlyRow label="LLC Address" value={project.builder_address ?? ''} testid="psm-builder-address" />
         <div className="text-[10px] text-muted pt-1">
           Pick or change the builder on the project overview; edit their details
           in Settings → Lists &amp; Catalogs → Builders &amp; Owners.
@@ -422,17 +615,23 @@ export function BuilderOwnerFields({ ctl }: { ctl: ProjectDetailsFormController 
       </div>
       <FormGrid>
         <Field label="Point of Contact">
-          <Input
-            value={ctl.form.projectFields.poc_name}
-            onChange={(v) => ctl.setProj('poc_name', v)}
+          <CommitInput
+            value={project.poc_name ?? ''}
+            disabled={occMissing}
+            onCommit={(v) =>
+              void commit('poc_name', v.trim() || null, project.poc_name, 'Point of Contact')
+            }
             testid="psm-poc-name"
           />
         </Field>
         <Field label="Contact Email">
-          <Input
+          <CommitInput
             type="email"
-            value={ctl.form.projectFields.poc_email}
-            onChange={(v) => ctl.setProj('poc_email', v)}
+            value={project.poc_email ?? ''}
+            disabled={occMissing}
+            onCommit={(v) =>
+              void commit('poc_email', v.trim() || null, project.poc_email, 'Contact Email')
+            }
             testid="psm-poc-email"
           />
         </Field>
@@ -442,17 +641,23 @@ export function BuilderOwnerFields({ ctl }: { ctl: ProjectDetailsFormController 
 }
 
 // ---------------------------------------------------------------------------
-// Actions — the two flags
+// Project flags
 // ---------------------------------------------------------------------------
 
-export function ProjectFlagFields({ ctl }: { ctl: ProjectDetailsFormController }) {
+export function ProjectFlagFields({ project }: { project: Project }) {
+  const { commit, occMissing } = useProjectFieldCommit(project);
   return (
     <div className="flex flex-col gap-2">
+      {/* ★ fix-520 §A: a checkbox has no intermediate state, so ticking IS the
+          commit — the same rule the product-type chips follow. */}
       <label className="flex items-center gap-2 text-[12px] text-text cursor-pointer">
         <input
           type="checkbox"
-          checked={ctl.form.archived}
-          onChange={(e) => ctl.set('archived', e.target.checked)}
+          checked={!!project.archived}
+          disabled={occMissing}
+          onChange={(e) =>
+            void commit('archived', e.target.checked, project.archived, 'Archived')
+          }
           data-testid="psm-archived"
         />
         <span>Archived (hide from active project lists)</span>
@@ -460,12 +665,19 @@ export function ProjectFlagFields({ ctl }: { ctl: ProjectDetailsFormController }
       {/* ★★ fix-386 — correcting the wizard's "Backfill?" answer. It is
           editable because whether a project was backfilled is a FACT about how
           it was entered; it is QUIET because it must not become a lever for
-          silencing milestones somebody would rather not look at. */}
+          silencing milestones somebody would rather not look at.
+          ★★★ AND `null` IS STILL "NOT RECORDED", not `false`. An unticked box
+              on a project that predates the question stays unrecorded until
+              somebody ticks it — which is why the commit is guarded on the
+              CHECKED value rather than on the box's presence. */}
       <label className="flex items-center gap-2 text-[12px] text-text cursor-pointer">
         <input
           type="checkbox"
-          checked={ctl.form.is_backfill === true}
-          onChange={(e) => ctl.set('is_backfill', e.target.checked)}
+          checked={project.is_backfill === true}
+          disabled={occMissing}
+          onChange={(e) =>
+            void commit('is_backfill', e.target.checked, project.is_backfill, 'Backfilled project')
+          }
           data-testid="psm-is-backfill"
         />
         <span>
@@ -473,7 +685,7 @@ export function ProjectFlagFields({ ctl }: { ctl: ProjectDetailsFormController }
           milestones are history, not missed deadlines)
         </span>
       </label>
-      {ctl.form.is_backfill === null && (
+      {project.is_backfill == null && (
         <div className="text-[10px] text-dim italic mt-0.5">
           Not recorded — this project predates the question. Leaving it unticked
           keeps it that way.
@@ -753,26 +965,21 @@ export function PermitsFormSection({
 // which model owns which field.
 // ---------------------------------------------------------------------------
 
-/**
- * ★ The zone picker for the atomic form. Rendered nowhere today — Site data's
- * per-field `SiteEditor` owns zone, and two editors for one column is exactly
- * what fix-415 spent a ticket removing. It exists so the shape of the atomic
- * payload stays legible next to the fields it still sends.
- *
- * ★★ NOT DEAD CODE BY ACCIDENT: `bp_update_project_with_permits` still writes
- *    `zone` from this form's value, so a future tab that needs a draft-model
- *    zone has the control ready rather than inventing a third one.
- */
-export function AtomicZoneField({ ctl }: { ctl: ProjectDetailsFormController }) {
-  return (
-    <Field label="Zone">
-      <ZoneSelect
-        value={ctl.form.projectFields.zone || null}
-        onChange={(v) => ctl.setProj('zone', v ?? '')}
-        testid="psm-zone"
-        className={inputCls}
-        style={inputStyle}
-      />
-    </Field>
-  );
-}
+// ===========================================================================
+// ★★★ fix-520 §A — `AtomicZoneField` IS DELETED
+// ===========================================================================
+//
+// It was the zone picker for the atomic form, kept deliberately with a note
+// saying it rendered nowhere: *"`bp_update_project_with_permits` still writes
+// `zone` from this form's value, so a future tab that needs a draft-model zone
+// has the control ready rather than inventing a third one."*
+//
+// ★★★ THAT SENTENCE IS NO LONGER TRUE. §A empties the atomic save's project
+//     patch — it writes permits and nothing else — so this control would put a
+//     value into a form field that goes nowhere and report success. **A
+//     control kept for a write path that has been removed is worse than no
+//     control**, because the next person finds it and wires it up.
+//
+// ★ Zone is edited by `SiteEditor`'s `ZoneSelect` on the Site data tab, which
+//   commits on change through `useUpdateProject` — one editor, and fix-415
+//   A5's canonical option list is on it.

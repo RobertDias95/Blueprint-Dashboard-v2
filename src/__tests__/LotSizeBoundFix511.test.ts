@@ -111,12 +111,27 @@ describe('fix-511 §C1 — all three write paths use it', () => {
   // ★★★ fix-415's rule: site fields have THREE write paths — the Site card
   //     (direct table update), the settings modal (atomic RPC) and the wizard
   //     (atomic RPC). A bound on one of them is a bound on none of them.
+  // ★★★ fix-520 §A (P-227) — THE MODAL IS NO LONGER A THIRD WRITE PATH FOR
+  //     THE LOT SIZE, so it is no longer a place the bound has to be enforced.
+  //     `lot_size_sf` is edited by `LotSizeEditor` on the Site data tab, which
+  //     is the `editorsSrc` row below and always called `parseLotSizeSf` on
+  //     blur. The modal's atomic save carried a copy of the value and therefore
+  //     a copy of the guard; it now writes permits and nothing else.
+  // ★★ fix-511 §C's RULING IS UNCHANGED — *"a bound on one of them is a bound
+  //    on none of them"* — there are simply two of them now. Removing the
+  //    check from a path that no longer writes the column is not a hole; a
+  //    guard over a value a function cannot send can only ever pass.
   it.each([
     ['Project Data — Site card', editorsSrc],
-    ['Project Settings modal', modalSrc],
     ['New Project wizard', wizardSrc],
   ])('★★★ %s parses through parseLotSizeSf', (_name, src) => {
     expect(code(src)).toContain('parseLotSizeSf(');
+  });
+
+  it('★★★ …and the modal does not write `lot_size_sf` at all any more', () => {
+    const c = code(modalSrc);
+    expect(c).toContain('const projectPatch: Record<string, unknown> = {};');
+    expect(c).not.toContain('lot_size_sf');
   });
 
   it('★★★ …and none of them still has the old unbounded parse', () => {
@@ -142,13 +157,13 @@ describe('fix-511 §C1 — all three write paths use it', () => {
     );
   });
 
-  it('★★ the modal refuses BEFORE the RPC — its save is atomic across every permit', () => {
-    const c = code(modalSrc);
+  it('★★ the SITE EDITOR refuses before it writes — which is where the value is now', () => {
+    // ★ Same shape as the assertion this replaces: parse first, write second.
+    //   What changed is which function owns the write.
+    const c = code(editorsSrc);
     const guard = c.indexOf('parseLotSizeSf(');
-    const rpc = c.indexOf('mutateAsync');
     expect(guard).toBeGreaterThan(-1);
-    expect(rpc).toBeGreaterThan(-1);
-    expect(guard).toBeLessThan(rpc);
+    expect(c.indexOf('mutateAsync', guard)).toBeGreaterThan(guard);
   });
 });
 

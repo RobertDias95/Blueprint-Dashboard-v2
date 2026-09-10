@@ -5,7 +5,6 @@ import { usePermitTypes } from './usePermitTypes';
 import { useTeamMembers } from './useTeamMembers';
 import { useAppConfig, readAppConfigStringArray } from './useAppConfig';
 import { isCurrentMember } from '../lib/roster';
-import { parseLotSizeSf, roundLotForStorage } from '../lib/lotDimensions';
 import { seedExpectedIssue, seedTargetSubmit } from '../lib/permitSeedingDefaults';
 import { pushToast } from '../stores/toastStore';
 import {
@@ -72,13 +71,6 @@ export interface ProjectDetailsFormController {
   productTypeOptions: string[];
   /** The project's current schematic designer — reassigned by its own RPC. */
   currentSd: string;
-}
-
-function toNumOrNull(s: string): number | null {
-  const v = s.trim();
-  if (!v) return null;
-  const n = Number(v);
-  return Number.isFinite(n) ? n : null;
 }
 
 export function useProjectDetailsForm(
@@ -267,62 +259,56 @@ export function useProjectDetailsForm(
   );
 
   const save = useCallback(async (): Promise<boolean> => {
-    if (!form.address.trim()) {
-      pushToast('Address is required.', 'warn');
-      return false;
-    }
-    // ★★★ fix-511 §C (P-198): the lot-size bound, refused BEFORE the RPC —
-    //     this save is atomic across the project and every permit, so an
-    //     integer overflow rejects the whole transaction and the person loses
-    //     edits that had nothing to do with the lot.
-    const lotSize = parseLotSizeSf(form.projectFields.lot_size_sf);
-    if (!lotSize.ok) {
-      pushToast(lotSize.message, 'warn');
-      return false;
-    }
+    // ★★★ fix-520 §A: TWO GUARDS MOVED OUT WITH THE FIELDS THEY GUARDED.
+    //     This save refused an empty address and an out-of-range lot size,
+    //     because both rode it and an atomic RPC rejecting the whole
+    //     transaction would have taken the permits down with them. Neither
+    //     field is in this save any more:
+    //       · the address is refused by its own control, which will not commit
+    //         a blank over a real one;
+    //       · the lot size is parsed by `LotSizeEditor` on blur, which is where
+    //         `parseLotSizeSf` has always been called for the OTHER two write
+    //         paths (fix-511 §C's bound is unchanged, just enforced once).
+    //     A guard over a value this function no longer sends is a check that
+    //     can only ever pass.
     if (!project.updated_at) return false;
     setSaving(true);
     try {
-      const projectPatch: Record<string, unknown> = {
-        address: form.address.trim(),
-        juris: form.juris.trim() || null,
-        acq_lead: form.acq_lead.trim() || null,
-        archived: form.archived,
-        // ★★ fix-386: only sent when there IS an answer — the RPC's patch is
-        //    key-presence based, so omitting it leaves a "not recorded" null.
-        ...(form.is_backfill === null ? {} : { is_backfill: form.is_backfill }),
-        go_date: form.projectFields.go_date || null,
-        units: toNumOrNull(form.projectFields.units),
-        zone: form.projectFields.zone.trim() || null,
-        // ★ fix-415 B2: rounded on SUBMIT — this form has no per-field commit.
-        lot_width: roundLotForStorage(toNumOrNull(form.projectFields.lot_width)),
-        lot_depth: roundLotForStorage(toNumOrNull(form.projectFields.lot_depth)),
-        // ★ fix-511 §C: parsed once, above, so the guard and the value cannot
-        //   disagree about what the box said.
-        lot_size_sf: lotSize.value,
-        alley: form.projectFields.alley || null,
-        product_types: form.projectFields.product_types,
-        entitlement_lead: form.projectFields.entitlement_lead.trim() || null,
-        construction_admin: form.projectFields.construction_admin.trim() || null,
-        design_manager: form.projectFields.design_manager.trim() || null,
-        poc_name: form.projectFields.poc_name.trim() || null,
-        poc_email: form.projectFields.poc_email.trim() || null,
-        builder_name: form.builder.builder_name.trim() || null,
-        builder_company: form.builder.builder_company.trim() || null,
-        builder_email: form.builder.builder_email.trim() || null,
-        builder_phone: form.builder.builder_phone.trim() || null,
-        builder_address: form.builder.builder_address.trim() || null,
-      };
+      // ★★★ fix-520 §A (P-227) — THE PROJECT PATCH IS EMPTY, AND THAT IS THE
+      //     WHOLE POINT OF THE TICKET.
+      //
+      //     This object used to restate EVERY project scalar — address, juris,
+      //     the roles, the lots, the flags, the builder cache — on every save.
+      //     That was correct while those fields lived in this form and only
+      //     this button could flush them. **They commit on blur now**, through
+      //     `useProjectFieldCommit`, so restating them here would take the
+      //     form's snapshot from whenever the modal last rebuilt and write it
+      //     over whatever has been typed since. A save that reverts nine fields
+      //     to save one permit is a worse bug than the one this replaces.
+      //
+      // ★★ SO THIS RPC WRITES PERMITS AND NOTHING ELSE. The RPC already skips
+      //    the project UPDATE on an empty patch (`IF v_patch <> '{}'`), and it
+      //    still takes the project's OCC token because STEP 0 needs it to lock
+      //    the row before touching its permits.
+      const projectPatch: Record<string, unknown> = {};
 
       const seedAnchors = {
-        goDate: form.projectFields.go_date || '',
+        // ★ fix-520 §A: off the LIVE project. The form no longer owns the GO
+        //   date, so its copy is only as fresh as the last rebuild.
+        goDate: project.go_date ?? '',
         bpAcq:
           form.permits.find((p) => p.type === 'Building Permit' && !p.isDeleted)
             ?.expected_issue ||
           bpPermit?.expected_issue ||
           '',
       };
-      const bpDaEdited = form.bpRole.da !== (bpPermit?.da ?? '');
+      // ★★★ fix-520 §A: `bpDaEdited` is GONE. `BP Design Associate` was the
+      //     one control on the Internal team tab that writes a PERMITS row
+      //     rather than a project column, and this save used to smuggle it into
+      //     a permit upsert. It writes the Building Permit directly through
+      //     `useUpdatePermit` now — the same per-field OCC path
+      //     `PermitDetailV2` uses — so a permit save has no opinion about it.
+
       const permitUpserts: Parameters<
         typeof updateProjectWithPermits.mutateAsync
       >[0]['permitUpserts'] = [];
@@ -333,12 +319,12 @@ export function useProjectDetailsForm(
           if (!row.isNew && row.id != null) permitDeletes.push(row.id);
           continue;
         }
-        const isBp = bpPermit != null && row.id === bpPermit.id;
-        const da = isBp && bpDaEdited ? form.bpRole.da : row.da;
         const fields = {
           type: row.type,
           ent_lead: row.ent_lead.trim() || null,
-          da: da.trim() || null,
+          // ★ fix-520 §A: the row's OWN `da`, always. The Internal team tab's
+          //   BP Design Associate no longer overrides it from here.
+          da: row.da.trim() || null,
           portal_url: row.portal_url.trim() || null,
           num: row.num.trim() || null,
           struct_address: row.struct_address.trim() || null,

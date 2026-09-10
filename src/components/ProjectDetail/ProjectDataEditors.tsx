@@ -1,4 +1,5 @@
 import { Fragment, useEffect, useMemo, useRef, useState } from 'react';
+import { unitLabelParts } from '../../lib/unitLabels';
 import type { CSSProperties } from 'react';
 import { OverviewSection } from './OverviewCard';
 import { schematicWindow } from '../../lib/schematicWindow';
@@ -1290,6 +1291,10 @@ export function UnitSizeEditor({ project }: { project: Project }) {
   const updateMutation = useUpdateProject();
   const occMissing = !project.updated_at;
   const types = parseUnitTypes(project.unit_types);
+  // ★★★ fix-520 §B: computed from the PARSED rows, in stored order — the same
+  //     input the dimensions editor and the Overview matrix label from, so the
+  //     three cannot number a unit differently.
+  const labels = unitLabelParts(types);
   const productTypes = Array.isArray(project.product_types)
     ? project.product_types.filter(
         (t): t is string => typeof t === 'string' && t.trim().length > 0,
@@ -1313,7 +1318,7 @@ export function UnitSizeEditor({ project }: { project: Project }) {
   if (types.length === 0) {
     return (
       <p className="text-[10px] text-dim italic" data-testid="pd-unit-size-empty">
-        Add a unit type above to record its square footage.
+        Add a type above to record its square footage.
       </p>
     );
   }
@@ -1323,6 +1328,11 @@ export function UnitSizeEditor({ project }: { project: Project }) {
       {types.map((t, idx) => (
         <UnitSizeRow
           key={`${t.label}-${idx}`}
+          // ★★★ fix-520 §B (P-226): the SAME label the dimensions rows above
+          //     and the Overview matrix use. Bobby's question — *"How do I
+          //     know which unit I am updating sqft on?"* — has one answer only
+          //     if all three surfaces give it.
+          unitLabel={labels[idx]}
           row={t}
           disabled={occMissing}
           onCommit={(size) => {
@@ -1341,10 +1351,14 @@ export function UnitSizeEditor({ project }: { project: Project }) {
 
 function UnitSizeRow({
   row,
+  unitLabel,
   disabled,
   onCommit,
 }: {
   row: UnitType;
+  /** ★ fix-520 §B: `Detached 2` — the type AND its per-type ordinal, split so
+   *  the ordinal never truncates. */
+  unitLabel: { type: string; ordinal: number; full: string };
   disabled: boolean;
   onCommit: (size: number | null) => void;
 }) {
@@ -1360,8 +1374,19 @@ function UnitSizeRow({
 
   return (
     <div className="flex items-baseline gap-1.5">
-      <span className="text-[9px] text-dim min-w-[64px] truncate" title={row.label}>
-        {row.label || 'Unit'}
+      {/* ★★★ fix-520 §B (P-226) — WHICH UNIT THIS ROW IS. It read
+          `row.label || 'Unit'`, so a project with two Detached units had two
+          rows both reading `Detached` and no way to tell which square footage
+          belonged to which. The ordinal is `flex-none` for the same reason it
+          is in the Overview matrix: it is the half that identifies the row, so
+          it is the half that must survive a narrow card. */}
+      <span
+        className="text-[9px] text-dim min-w-[64px] flex items-baseline gap-[0.2em]"
+        title={unitLabel.full}
+        data-unit-label={unitLabel.full}
+      >
+        <span className="truncate min-w-0">{unitLabel.type}</span>
+        <span className="flex-none">{unitLabel.ordinal}</span>
       </span>
       <input
         type="number"
@@ -1387,7 +1412,10 @@ function UnitSizeRow({
         disabled={disabled}
         className="w-16 text-[10px] font-semibold text-text border-0 border-b outline-none bg-transparent px-0 py-0.5 text-center disabled:opacity-50"
         style={{ borderBottomColor: 'var(--color-border)' }}
-        data-testid={`pd-unit-size-${row.label || 'unit'}`}
+        // ★ fix-520 §B: the testid names the ROW, not just its type — two
+        //   `pd-unit-size-Detached` boxes were indistinguishable to a test for
+        //   exactly the reason they were indistinguishable to a person.
+        data-testid={`pd-unit-size-${unitLabel.full}`}
       />
       <span className="text-[9px] text-dim">sf</span>
     </div>
@@ -1748,6 +1776,12 @@ function UnitDimensionsExpanded({
   // which never stopped being right. Both render from `UNIT_MATRIX_GRID`, so a
   // header cannot sit over the wrong control; that was the defect fix-412 was
   // raised for and it is structurally impossible here.
+  // ★★★ fix-520 §B (P-226): computed HERE, from the same `types` array the
+  //     rows render from — not passed in. `UnitSizeEditor` and the Overview
+  //     matrix each do the same with their own copy of the array, so the three
+  //     surfaces agree because they all ask ONE function, not because somebody
+  //     kept three call sites in step.
+  const dimensionLabels = unitLabelParts(types);
   return (
     <div className="flex flex-col gap-1" data-testid="pd-unit-matrix">
       <div
@@ -1770,6 +1804,12 @@ function UnitDimensionsExpanded({
         <UnitRow
           registryTypes={registryTypes}
           key={i}
+          // ★★★ fix-520 §B (P-226): which of this project's Detached units
+          //     this row is. The TYPE is already in the select beside it, so
+          //     the row only needs the ordinal — but it comes from the shared
+          //     labeller, not from `i + 1`, because the count is PER TYPE.
+          unitOrdinal={dimensionLabels[i]?.ordinal ?? i + 1}
+          unitLabel={dimensionLabels[i]?.full ?? ''}
           row={ut}
           productTypes={productTypes}
           disabled={disabled}
@@ -1828,6 +1868,8 @@ function UnitRow({
   row,
   productTypes,
   registryTypes,
+  unitOrdinal,
+  unitLabel,
   disabled,
   onChange,
   onRemove,
@@ -1836,6 +1878,12 @@ function UnitRow({
   productTypes: string[];
   /** ★ fix-449 §C: the canonical registry, for the off-list mark. */
   registryTypes: string[];
+  /** ★★★ fix-520 §B (P-226): this unit's position AMONG ITS OWN TYPE — the `2`
+   *  in `Detached 2`. Not the row index: two Detached and one Attached reads
+   *  `Detached 1 · Detached 2 · Attached 1`. */
+  unitOrdinal: number;
+  /** The one-piece form, for the title and the testid. */
+  unitLabel: string;
   disabled: boolean;
   onChange: (field: keyof UnitType, val: string | number | boolean | null) => void;
   onRemove: () => void;
@@ -1929,7 +1977,18 @@ function UnitRow({
       style={{ gridTemplateColumns: UNIT_MATRIX_GRID }}
       data-testid="pd-unit-row"
     >
-      {/* Type */}
+      {/* Type — and, since fix-520 §B, WHICH ONE OF THEM THIS IS.
+          ★★★ Bobby: *"How do I know which unit I am updating sqft on?"* The
+              select says `Detached` on every row of a two-Detached project;
+              the ordinal beside it is what makes this row nameable, and it is
+              the same number the size rows below and the Overview matrix
+              print. It is OUTSIDE the select on purpose — it is not a value
+              anybody can choose. */}
+      <span
+        className="flex items-center gap-1 min-w-0"
+        title={unitLabel}
+        data-unit-label={unitLabel}
+      >
       {hasProductTypes ? (
         <select
           value={selectValue}
@@ -1937,7 +1996,7 @@ function UnitRow({
             const v = e.target.value;
             // ★★★ fix-449 §C1: an off-list label is a DELIBERATE act.
             if (v === OTHER_UNIT_LABEL) {
-              const typed = window.prompt('Unit type label', label);
+              const typed = window.prompt('Type label', label);
               if (typed === null) return;
               const next = typed.trim();
               dirtyRef.current = true;
@@ -1957,7 +2016,9 @@ function UnitRow({
           //   — "SFR w/ Accessory Units" is 22 characters — and sizing the
           //   column for those nine would tax every other project.
           title={label || undefined}
-          className={`${cellClass} text-left px-0.5 truncate`}
+          // ★ fix-520 §B: `min-w-0 flex-1` — the select takes the cell minus
+          //   the ordinal, and is the half that truncates.
+          className={`${cellClass} text-left px-0.5 truncate min-w-0 flex-1`}
           data-testid="pd-unit-label-select"
         >
           <option value="">Pick type…</option>
@@ -1973,17 +2034,27 @@ function UnitRow({
         </select>
       ) : (
         <span
-          className={`${cellClass} text-left px-0.5 truncate leading-[16px] ${label ? '' : 'text-dim'}`}
+          className={`${cellClass} text-left px-0.5 truncate min-w-0 flex-1 leading-[16px] ${label ? '' : 'text-dim'}`}
           title={
             label
-              ? `${label} — add a product type to change`
-              : 'Add a product type to label units'
+              ? `${label} — add a type to change`
+              : 'Add a type to label units'
           }
           data-testid="pd-unit-label-readonly"
         >
           {label || NOT_RECORDED}
         </span>
       )}
+        {/* ★ `flex-none`, like the ordinal on every other surface: the TYPE is
+            the half that runs out of room, and the number is the half that
+            has to survive it. */}
+        <span
+          className="flex-none text-[10px] font-bold text-dim"
+          data-testid={`pd-unit-ordinal-${unitOrdinal}`}
+        >
+          {unitOrdinal}
+        </span>
+      </span>
       {/* ★★ fix-449 §C3: the mark rides in the SPACER that already sits
           between Type and W — so it costs the matrix no width at all. The
           column keeps fix-422's measured size. */}
@@ -1992,7 +2063,7 @@ function UnitRow({
           <span
             className="text-[8px] px-1 rounded font-bold uppercase"
             style={{ background: 'var(--color-co-bg)', color: 'var(--color-co)' }}
-            title="Needs a type — this is the wizard's placeholder, not a unit type. Pick one from the list."
+            title="Needs a type — this is the wizard's placeholder, not a type. Pick one from the list."
             data-testid="pd-unit-label-needs-type"
           >
             ?

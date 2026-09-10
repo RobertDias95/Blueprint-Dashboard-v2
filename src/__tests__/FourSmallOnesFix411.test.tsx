@@ -379,7 +379,7 @@ describe('fix-411 §3 (P-053): the Units table header reads RD', () => {
     expect(UNIT_ROW_COLUMNS.map((c) => c.header)).not.toContain('Deck');
     // ★★ THE CURE FOR THE ABBREVIATION, asserted rather than assumed. Without
     //    this, "RD" is fix-411's problem with fewer letters.
-    expect(roofCol.tooltip).toBe('Whether this unit type has a roof deck.');
+    expect(roofCol.tooltip).toBe('Whether this type has a roof deck.');
     expect(roofCol.tooltip).toContain('roof deck');
   });
 

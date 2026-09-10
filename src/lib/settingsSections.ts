@@ -86,7 +86,7 @@ export const SETTINGS_SECTIONS: readonly SettingsSection[] = [
     path: '/settings/projects',
     icon: '🏗️',
     label: 'Lists & Catalogs',
-    desc: 'Zones, product types, jurisdictions, tags, hold + cancel reasons',
+    desc: 'Zones, types, jurisdictions, tags, hold + cancel reasons',
     adminOnly: true,
   },
   {

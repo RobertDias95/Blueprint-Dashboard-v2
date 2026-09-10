@@ -745,11 +745,26 @@ describe('fix-422 §2: one header row, one row per unit type', () => {
     const row = screen.getAllByTestId('pd-unit-row')[0];
     expect(row.style.gridTemplateColumns).toBe(UNIT_MATRIX_GRID);
     for (const t of [
-      'pd-unit-label-select', 'pd-unit-w', 'pd-unit-d', 'pd-unit-qty',
+      'pd-unit-w', 'pd-unit-d', 'pd-unit-qty',
       'pd-unit-stories', 'pd-unit-remove',
     ]) {
       expect(within(row).getByTestId(t).parentElement).toBe(row);
     }
+    // ★★★ fix-520 §B (P-226) — THE TYPE CELL HOLDS TWO THINGS NOW, so its
+    //     direct grid child is the pair rather than the select. Bobby:
+    //     *"How do I know which unit I am updating sqft on?"* — the type select
+    //     says `Detached` on every row of a two-Detached project, and the
+    //     ordinal beside it is what makes the row nameable.
+    //
+    // ★★ THIS IS NOT THE WRAPPER fix-422 §7 / fix-486 §D REMOVED. That one was
+    //    a PASS-THROUGH around the whole row, which swallowed the grid's height
+    //    distribution (fix-418's lesson). This is a CELL's contents: the
+    //    wrapper IS the grid child, it occupies exactly one track, and the
+    //    select carries `min-w-0 flex-1` so the column's measured width is
+    //    unchanged. Same shape fix-449 §C3 used for the off-list mark.
+    const typeCell = within(row).getByTestId('pd-unit-label-select').parentElement!;
+    expect(typeCell.parentElement).toBe(row);
+    expect(typeCell.getAttribute('data-unit-label')).toBeTruthy();
     // ★ The three coded cells sit one level down, inside the glyph wrapper the
     //   overlay pattern needs — so their WRAPPER is the direct grid child.
     for (const t of ['pd-unit-parking-kind', 'pd-unit-stalls', 'pd-unit-roof-deck']) {

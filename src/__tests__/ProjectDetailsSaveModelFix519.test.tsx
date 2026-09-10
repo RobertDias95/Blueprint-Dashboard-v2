@@ -162,6 +162,32 @@ function renderTeamTab(p: Project) {
   return { ...r, rerenderWith: (next: Project) => r.rerender(ui(next)) };
 }
 
+/** The same harness on the Permits tab — the one place an edit can still be
+ *  unsaved, and therefore the only place fix-519 §B's guard can be tested. */
+function renderPermitsTab(p: Project) {
+  const queryClient = new QueryClient({
+    defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
+  });
+  const wrapper = ({ children }: { children: ReactNode }) => (
+    <QueryClientProvider client={queryClient}>
+      <MemoryRouter>{children}</MemoryRouter>
+    </QueryClientProvider>
+  );
+  const ui = (proj: Project) => (
+    <ProjectDetailsModal
+      project={proj}
+      permits={permits}
+      bp={null}
+      allProjects={[]}
+      initialTab="permits"
+      canReassignDa
+      onClose={() => {}}
+    />
+  );
+  const r = render(ui(p), { wrapper });
+  return { ...r, rerenderWith: (next: Project) => r.rerender(ui(next)) };
+}
+
 beforeEach(() => {
   reassignMutate.mockClear();
   saveMutateAsync.mockClear();
@@ -172,62 +198,47 @@ beforeEach(() => {
 });
 
 describe('fix-519 §B (P-227) — a sibling control stops eating unsaved edits', () => {
-  it('★★★ changing the Schematic Designer no longer discards an unsaved Design Manager', () => {
-    // ★★★ THE REPRO, IN THE ORDER DAVE HIT IT. Type a role that rides the Save
-    //     button, then change the Schematic Designer beneath it — which saves
-    //     immediately and refreshes `project`. Before this ticket the refresh
-    //     rebuilt the whole form and the typed role was gone, with no error,
-    //     no toast and nothing on screen to say it had happened.
-    const p = project();
-    const { rerenderWith } = renderTeamTab(p);
+  // ★★★ SUPERSEDED IN SCOPE BY fix-520 §A, NOT IN RULE.
+  //
+  //     fix-519 §B's repro was: type a Design Manager (which rode the Save
+  //     button), change the Schematic Designer beneath it (which saved
+  //     immediately and refreshed `projects`), and watch the typed role
+  //     vanish. **fix-520 §A removed the first half of that sentence** — the
+  //     Design Manager commits on blur now, so there is no unsaved role for a
+  //     refresh to discard, and the class of bug is gone rather than guarded.
+  //
+  // ★★★ THE GUARD IS STILL LOAD-BEARING, for the one thing that can still be
+  //     unsaved: a PERMIT ROW. So the repro moves to the Permits tab, which is
+  //     where the atomic save now lives alone. If anything the guard matters
+  //     MORE than it did — per-field commits mean many more `projects`
+  //     refreshes arriving while somebody is part-way through adding a permit.
 
-    // 1. an unsaved edit on a Save-button field
-    fireEvent.change(screen.getByTestId('psm-dm'), { target: { value: 'Otto' } });
-    expect((screen.getByTestId('psm-dm') as HTMLSelectElement).value).toBe('Otto');
+  it('★★★ an unsaved PERMIT row survives a refresh caused by a sibling commit', () => {
+    const { rerenderWith } = renderPermitsTab(project());
+
+    // 1. an unsaved edit on the one tab that still has them
+    fireEvent.click(screen.getByTestId('psm-add-permit'));
     expect(screen.getByTestId('project-data-done').getAttribute('data-dirty')).toBe('true');
 
-    // 2. the Schematic Designer changes — its own RPC, immediately
-    fireEvent.change(screen.getByTestId('psm-sd'), { target: { value: 'Derry' } });
-    expect(reassignMutate).toHaveBeenCalledTimes(1);
-
-    // 3. …and the refreshed project arrives, exactly as the invalidation
-    //    delivers it. THIS is the render that used to wipe the form.
+    // 2. …and a refreshed project arrives, exactly as a blur-commit on any
+    //    other tab (or another user's write, or the realtime channel) delivers
+    //    it. THIS is the render that used to wipe the form.
     rerenderWith(
-      project({ schematic_designer: ['Derry'], updated_at: '2026-05-15T12:01:00Z' }),
+      project({ design_manager: 'Otto', updated_at: '2026-05-15T12:01:00Z' }),
     );
 
-    // ★★★ The unsaved edit SURVIVES…
-    expect((screen.getByTestId('psm-dm') as HTMLSelectElement).value).toBe('Otto');
     expect(screen.getByTestId('project-data-done').getAttribute('data-dirty')).toBe('true');
-    // ★ …and the schematic designer still shows its NEW value, because
-    //   `currentSd` is derived from `project` on every render rather than held
-    //   in the form. The guard costs it nothing.
-    expect((screen.getByTestId('psm-sd') as HTMLSelectElement).value).toBe('Derry');
   });
 
   it('★★★ a CLEAN form still rebuilds, so the fresh OCC tokens are taken', () => {
     // ★★ The guard has to be narrow. If it stopped rebuilding altogether the
-    //    modal would hold a stale project for ever and every save would
-    //    conflict. With nothing typed, an incoming project is taken whole.
+    //    modal would hold a stale project for ever and every permit save would
+    //    conflict.
     const { rerenderWith } = renderTeamTab(project());
     expect((screen.getByTestId('psm-dm') as HTMLSelectElement).value).toBe('Nina');
     rerenderWith(project({ design_manager: 'Otto' }));
     expect((screen.getByTestId('psm-dm') as HTMLSelectElement).value).toBe('Otto');
     expect(screen.getByTestId('project-data-done').getAttribute('data-dirty')).toBe('false');
-  });
-
-  it('★★ after a successful Save the form REBASES, so the next refresh is free', () => {
-    // ★★★ WITHOUT THIS THE FIX WOULD DEADLOCK. The dirty-guard would see the
-    //     just-saved edits as unsaved for ever, refuse every rebuild, and the
-    //     modal would never take the server's new OCC tokens again.
-    const { rerenderWith } = renderTeamTab(project());
-    fireEvent.change(screen.getByTestId('psm-dm'), { target: { value: 'Otto' } });
-    expect(screen.getByTestId('project-data-done').getAttribute('data-dirty')).toBe('true');
-    fireEvent.click(screen.getByTestId('project-data-done'));
-    return Promise.resolve().then(() => {
-      rerenderWith(project({ design_manager: 'Otto', updated_at: '2026-05-15T12:02:00Z' }));
-      expect(screen.getByTestId('project-data-done').getAttribute('data-dirty')).toBe('false');
-    });
   });
 });
 
@@ -235,101 +246,54 @@ describe('fix-519 §B (P-227) — a sibling control stops eating unsaved edits',
 // The split itself
 // ---------------------------------------------------------------------------
 
-describe('fix-519 §B — the per-tab save model, named so it cannot grow', () => {
+describe('fix-519 §B — the split, SUPERSEDED by fix-520 §A', () => {
   /**
-   * ★★★ THE SPLIT, AS SHIPPED. Every entry is the tab's own caption, which is
-   *     the only promise a user ever sees.
+   * ★★★ WHAT THIS SUITE MEASURED, AND WHY IT NO LONGER HOLDS IT.
    *
-   *   tab           model
-   *   ------------  ---------------------------------------------------------
-   *   site          MIXED — zone/lot/tags on blur; address + jurisdiction on Save
-   *   dates         MIXED — each date on blur; the GO date on Save
-   *   units         BLUR  — "there is no Save button"
-   *   permits       SAVE
-   *   builder       SAVE
-   *   team          MIXED — five roles on Save; Schematic Designer IMMEDIATE
-   *   consultants   IMMEDIATE — its own bp_set_consultant_* RPCs
-   *   plan          READ-ONLY
-   *   actions       MIXED — immediate/confirm; two checkboxes on Save
+   *     fix-519 §B could not collapse the split — it was one section of a
+   *     four-part ticket — so it did the next most useful thing: it enumerated
+   *     the split and required every mixed tab to name its exception in its
+   *     own caption, **so it could not grow silently**. The table it pinned:
    *
-   * ★★★ THREE MODELS, AND FOUR OF THE NINE TABS MIX TWO. Every mixed tab's
-   *     exception is a SINGLE field that behaves differently from the ones
-   *     beside it — which is exactly the shape that loses an edit: you learn
-   *     the rule from the field you used last.
+   *       site · dates · team · actions   MIXED (blur + Save button)
+   *       units                           "blur"   ← and this was WRONG
+   *       permits · builder               Save button
+   *       consultants                     immediate
+   *       plan                            read-only
    *
-   * ★★ AND THE FOOTER CONTRADICTS FOUR OF THE CAPTIONS ABOVE IT. It reads
-   *    *"Per-field tabs save as you leave each box"*, which is true of ONE tab
-   *    out of nine.
+   * ★★★ THE `units` ROW IS THE INTERESTING ONE. This suite read it off the
+   *     tab's caption — *"Each field saves as you leave it — there is no Save
+   *     button"* — and Unit count and Product types both rode the button.
+   *     **A ticket written to find false captions was itself misled by one**,
+   *     which is why fix-520 §A read the field level instead of the tab level
+   *     and found five mixed tabs, not four.
    *
-   * ★ NOT FIXED HERE, DELIBERATELY. Collapsing three models into one is a
-   *   redesign of every tab and of `bp_set_consultant_*` and
-   *   `bp_reassign_project_sd` besides — the RPCs exist because those writes do
-   *   more than set a column. What §B can do is stop the split GROWING
-   *   silently, which is what this test is.
+   * ★★★ THE ASSERTIONS ARE INVERTED RATHER THAN DELETED, and live in
+   *     `ProjectDetailsOneSaveModelFix520`: eight tabs blur-save, one is
+   *     atomic, NONE mixes, and a caption containing "except" now FAILS the
+   *     build. What was a census is a prohibition.
    */
-  const EXPECTED_MODEL: Record<string, 'blur' | 'save' | 'immediate' | 'mixed' | 'readonly'> = {
-    site: 'mixed',
-    dates: 'mixed',
-    units: 'blur',
-    permits: 'save',
-    builder: 'save',
-    team: 'mixed',
-    consultants: 'immediate',
-    plan: 'readonly',
-    actions: 'mixed',
-  };
-
-  it('★★★ three models across nine tabs, and four tabs mix two', () => {
-    const counts = Object.values(EXPECTED_MODEL).reduce<Record<string, number>>(
-      (a, m) => ({ ...a, [m]: (a[m] ?? 0) + 1 }),
-      {},
-    );
-    expect(Object.keys(EXPECTED_MODEL)).toHaveLength(9);
-    expect(counts.mixed).toBe(4);
-    // blur · save · immediate — the three, plus read-only which is not a save
-    // model at all.
-    expect(counts.blur).toBe(1);
-    expect(counts.save).toBe(2);
-    expect(counts.immediate).toBe(1);
-    expect(counts.readonly).toBe(1);
-  });
-
-  it('★★★ every tab that MIXES says so in its own caption', () => {
-    // ★★ The captions are the only place the split is visible to a user, so
-    //    they are what this holds. Each mixed tab names its exception in
-    //    words — "except", "ride the Save button", "are the exception" — and a
-    //    new exception added without one fails here.
+  it('★★★ the modal no longer carries three save models', () => {
     const captions = captionsOf(modalSrc);
-    const mixedCaptions = captions.filter((c) =>
-      /except|ride the Save button|are the exception/i.test(c),
+    const carveOuts = captions.filter((c) =>
+      /except|rides? the Save button|are the exception/i.test(c),
     );
-    expect(mixedCaptions).toHaveLength(4);
-    // ★ Named, so the failure says WHICH tab lost its caption.
-    expect(mixedCaptions.some((c) => c.includes('Zone, lot and tags'))).toBe(true);
-    expect(mixedCaptions.some((c) => c.includes('Each date saves as you leave it'))).toBe(true);
-    expect(mixedCaptions.some((c) => c.includes('Roles ride the Save button'))).toBe(true);
-    expect(mixedCaptions.some((c) => c.includes('The two checkboxes are the exception'))).toBe(true);
+    expect(carveOuts, `a tab grew an exception again: ${carveOuts.join(' | ')}`).toEqual([]);
   });
 
-  it('★★★ the Schematic Designer is the team tab’s exception, and it is stated twice', () => {
-    // Once in the caption a reader sees before touching anything…
-    expect(modalSrc).toContain(
-      'Roles ride the Save button, except the Schematic Designer',
-    );
-    // …and once as a hint under the control itself, because a caption at the
-    // top of a tab is not read again by somebody halfway down it.
-    expect(formSrc).toContain('and saves immediately');
+  it('★★★ …and the footer promise it called out is gone', () => {
+    // *"Per-field tabs save as you leave each box"* described ONE tab of nine
+    // and sat under all of them.
+    expect(modalSrc).not.toContain('Per-field tabs save as you leave each box.');
+  });
+
+  it('★★ the Schematic Designer still says what it MOVES, not when it saves', () => {
+    // ★ It was called out as the team tab's exception because the five roles
+    //   beside it rode a button. They do not, so it is not an exception — it
+    //   simply does more work under the one rule, and the hint says so.
     expect(formSrc).toContain('psm-sd-hint');
-  });
-
-  it('★★ the footer’s blanket promise is the one that is least true', () => {
-    // ★★★ RECORDED RATHER THAN QUIETLY REWORDED. *"Per-field tabs save as you
-    //     leave each box"* describes ONE tab of nine, and it sits under every
-    //     one of them. Changing it is a copy decision for Bobby, not a
-    //     correctness fix — but it should not be discovered again from
-    //     scratch, so the string is pinned here with what it actually covers.
-    expect(modalSrc).toContain('Per-field tabs save as you leave each box.');
-    expect(EXPECTED_MODEL.units).toBe('blur');
+    expect(formSrc).toContain('also moves their open tasks on this project');
+    expect(formSrc).not.toContain('and saves immediately');
   });
 });
 

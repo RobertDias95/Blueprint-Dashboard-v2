@@ -270,11 +270,11 @@ export default function ProjectDetailsModal({
         <div className="flex-1 overflow-y-auto px-4 py-3" data-testid="project-data-body">
           {tab === 'site' && <SiteTab project={project} ctl={ctl} />}
           {tab === 'dates' && (
-            <DatesTab project={project} bp={bp} permits={permits} ctl={ctl} />
+            <DatesTab project={project} bp={bp} permits={permits} />
           )}
           {tab === 'units' && (
             <TabPanel
-              caption="Each field saves as you leave it — there is no Save button, and there never was on the overview these moved from."
+              caption="Every field here saves as you leave it."
             >
               {/* ★ fix-412 §C1's guarantee: this editor keeps a HEADING of its
                   own rather than being a nameless block of inputs — Bobby has
@@ -305,7 +305,10 @@ export default function ProjectDetailsModal({
               {/* ★★★ fix-514 §A: the unit COUNT and the product types, which
                   Project Settings owned and this tab could only display. */}
               <div className="border-t pt-2" style={{ borderTopColor: 'var(--color-border)' }}>
-                <UnitCountAndProductTypes ctl={ctl} />
+                <UnitCountAndProductTypes
+                  project={project}
+                  productTypeOptions={ctl.productTypeOptions}
+                />
               </div>
             </TabPanel>
           )}
@@ -313,18 +316,18 @@ export default function ProjectDetailsModal({
               set no existing tab could absorb, and §G's per-permit ACQ date
               lands on the same rows. */}
           {tab === 'permits' && (
-            <TabPanel caption="Permit rows save with the Save button — type, ENT, DA, number, portal URL, structure address and the ACQ target date all ride in one atomic write.">
+            <TabPanel caption="★ The one tab with a Save button. A permit's fields — and a new row — have to land together, so they are written in one go. Everywhere else in Project Details, a field saves as you leave it.">
               <PermitsFormSection ctl={ctl} focusPermitId={initialFocusPermitId} />
             </TabPanel>
           )}
           {tab === 'builder' && (
-            <TabPanel caption="The point of contact saves with the Save button. The builder themself is picked on the overview and edited in Settings → Builders & Owners.">
-              <BuilderOwnerFields ctl={ctl} />
+            <TabPanel caption="Every field here saves as you leave it. The builder themself is picked on the overview and edited in Settings → Builders & Owners.">
+              <BuilderOwnerFields project={project} />
             </TabPanel>
           )}
           {tab === 'team' && <TeamTab project={project} bp={bp} ctl={ctl} canReassignDa={canReassignDa} onReassignSd={(n) => reassignSd.mutate({ projectId: project.id, toSd: n })} sdPending={reassignSd.isPending} />}
           {tab === 'consultants' && (
-            <TabPanel caption="Adding, removing, re-firming and advancing a consultant all write through bp_set_consultant_* — the same RPCs the overview band uses.">
+            <TabPanel caption="Every field here saves as you leave it, through the same RPCs the overview band uses.">
               {/* ★★★ fix-508 §F2/§I — `manage` IS WHAT MAKES THIS TAB'S OWN
                   CAPTION TRUE. It has claimed since fix-506 that type and firm
                   are chosen here; the firm picker was on the OVERVIEW instead,
@@ -338,7 +341,6 @@ export default function ProjectDetailsModal({
             <ActionsTab
               project={project}
               allProjects={allProjects}
-              ctl={ctl}
               onSpawnRedesign={onSpawnRedesign}
               onReassignDa={onReassignDa}
               canReassignDa={canReassignDa}
@@ -364,9 +366,17 @@ export default function ProjectDetailsModal({
           style={{ borderTopColor: 'var(--color-border)' }}
         >
           <span className="text-[9.5px]" style={{ color: 'var(--color-muted)' }}>
+            {/* ★★★ fix-520 §A (P-227) — THE FOOTER SAYS SOMETHING TRUE NOW.
+                It read *"Per-field tabs save as you leave each box"*, which
+                described ONE tab of nine and sat under all of them. **A
+                blanket promise that holds for one tab in nine is worse than no
+                promise** — it is what teaches somebody their edit is safe.
+                Every field on this modal saves on leaving it EXCEPT a permit
+                row, so that is exactly what it says, and the dirty state it
+                reports can only ever be a permit. */}
             {ctl.dirty
-              ? 'Unsaved changes on this project.'
-              : 'Per-field tabs save as you leave each box.'}
+              ? 'Unsaved permit rows — Save to write them.'
+              : 'Fields save as you leave them. Permit rows save with the button.'}
           </span>
           <button
             type="button"
@@ -414,10 +424,13 @@ function SiteTab({
   ctl: ProjectDetailsFormController;
 }) {
   return (
-    <TabPanel caption="Zone, lot and tags save as you leave each box. Address and Jurisdiction ride the Save button — they are part of the project's single atomic write.">
+    <TabPanel caption="Every field here saves as you leave it.">
       {/* ★★★ fix-514 §A: these two were READ-ONLY here, under a caption that
           told you to open another modal. They are inputs now. */}
-      <SiteIdentityFields ctl={ctl} />
+      <SiteIdentityFields
+        project={project}
+        jurisdictionNames={ctl.jurisdictionNames}
+      />
       <div className="border-t pt-2" style={{ borderTopColor: 'var(--color-border)' }}>
         <SiteEditor project={project} />
       </div>
@@ -433,19 +446,17 @@ function DatesTab({
   project,
   bp,
   permits,
-  ctl,
 }: {
   project: Project;
   bp: PermitWithCycles | null;
   permits: PermitWithCycles[];
-  ctl: ProjectDetailsFormController;
 }) {
   const cycle0 = (bp?.permit_cycles ?? []).find((c) => c.cycle_index === 0);
   return (
-    <TabPanel caption="Each date saves as you leave it, except the GO date, which rides the Save button. Accepted and Approved come from the Building Permit and are read-only.">
+    <TabPanel caption="Every date here saves as you leave it. Accepted and Approved come from the Building Permit and are read-only.">
       {/* ★★★ fix-514 §A: the GO date was read-only here with a tooltip naming
           a page that no longer exists. */}
-      <GoDateField ctl={ctl} />
+      <GoDateField project={project} />
       {/* ★★ KEY DATES IS RENDERED BY `DDPhaseEditor` ITSELF — it always was,
           which is why the order of GO / Closing is *"stated once in
           KeyDatesSection"* in that file. Rendering it here as well put TWO
@@ -535,14 +546,23 @@ function TeamTab({
     ca: internal.ca,
   };
   return (
-    <TabPanel caption="Roles ride the Save button, except the Schematic Designer — changing that moves their open tasks and saves immediately.">
+    <TabPanel caption="Every role here saves as you leave it. Changing the Schematic Designer also moves their open tasks on this project.">
       {/* ★★★ fix-514 §A: this tab printed six read-only rows and a button to
           another modal. The pickers are here now. The rows stay BELOW them,
           because they show what the project RESOLVES to — `projectInternalTeam`
           falls back through the BP when a project-level field is blank, so the
           picker and the resolved answer are two different facts. */}
       <InternalTeamFields
-        ctl={ctl}
+        project={project}
+        bp={bp}
+        rosters={{
+          acqNames: ctl.acqNames,
+          entNames: ctl.entNames,
+          dmNames: ctl.dmNames,
+          daNames: ctl.daNames,
+          caNames: ctl.caNames,
+          sdNames: ctl.sdNames,
+        }}
         canReassignDa={canReassignDa}
         onReassignSd={onReassignSd}
         sdPending={sdPending}
@@ -606,7 +626,6 @@ function PlanTab({ projectId }: { projectId: string }) {
 function ActionsTab({
   project,
   allProjects,
-  ctl,
   onSpawnRedesign,
   onReassignDa,
   canReassignDa,
@@ -614,21 +633,20 @@ function ActionsTab({
 }: {
   project: Project;
   allProjects: readonly Project[];
-  ctl: ProjectDetailsFormController;
   onSpawnRedesign?: () => void;
   onReassignDa?: () => void;
   canReassignDa: boolean;
   onDelete?: () => void;
 }) {
   return (
-    <TabPanel caption="Each action takes effect immediately or opens its own confirmation. The two checkboxes are the exception — they ride the Save button.">
+    <TabPanel caption="Every field here saves as you leave it. The actions below take effect immediately or open their own confirmation.">
       <ProjectHoldPanel projectId={project.id} />
       {/* ★★★ fix-514 §A: Archived and Backfilled, the last two fields Project
           Settings owned. They stay QUIET and away from the board — fix-386's
           rule for the backfill flag, which must not become a lever for
           silencing milestones somebody would rather not look at. */}
       <div className="border-t pt-2" style={{ borderTopColor: 'var(--color-border)' }}>
-        <ProjectFlagFields ctl={ctl} />
+        <ProjectFlagFields project={project} />
       </div>
       {/* ★ The three page-owned dialogs, handed in as callbacks exactly as
           fix-331 §4 handed them to Project Settings — so the PAGE still owns

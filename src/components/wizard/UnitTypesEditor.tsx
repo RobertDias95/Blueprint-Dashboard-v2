@@ -83,7 +83,7 @@ export default function UnitTypesEditor({
     <div data-testid="unit-types-editor">
       <div className="flex items-center justify-between mb-1.5">
         <span className="text-[10px] uppercase tracking-wide text-dim">
-          Unit Types ({rows.length})
+          Units ({rows.length})
         </span>
         <button
           type="button"
@@ -91,11 +91,11 @@ export default function UnitTypesEditor({
           className="text-[11px] px-2 py-0.5 rounded border border-border bg-s2 hover:bg-s3 text-text transition"
           data-testid="unit-types-add"
         >
-          + Add unit type
+          + Add type
         </button>
       </div>
       {rows.length === 0 ? (
-        <div className="text-[11px] text-dim italic py-1">No unit types yet.</div>
+        <div className="text-[11px] text-dim italic py-1">No types yet.</div>
       ) : (
         <div className="flex flex-col gap-1.5">
           {rows.map((row, i) => (
@@ -121,7 +121,7 @@ export default function UnitTypesEditor({
                   onChange={(e) => {
                     const v = e.target.value;
                     if (v === OTHER_UNIT_LABEL) {
-                      const typed = window.prompt('Unit type label', row.label);
+                      const typed = window.prompt('Type label', row.label);
                       if (typed === null) return;
                       update(i, { label: typed.trim() });
                       return;

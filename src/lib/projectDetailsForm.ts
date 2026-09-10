@@ -202,30 +202,30 @@ export function projectDetailsFormIsDirty(
   initial: ProjectDetailsFormState,
   current: ProjectDetailsFormState,
 ): boolean {
-  if (
-    initial.address !== current.address ||
-    initial.juris !== current.juris ||
-    initial.acq_lead !== current.acq_lead ||
-    initial.archived !== current.archived ||
-    initial.is_backfill !== current.is_backfill ||
-    initial.bpRole.da !== current.bpRole.da
-  ) {
-    return true;
-  }
-  for (const k of Object.keys(initial.builder) as (keyof BuilderFlatFields)[]) {
-    if (initial.builder[k] !== current.builder[k]) return true;
-  }
-  for (const k of Object.keys(initial.projectFields) as (keyof ProjectScalarFields)[]) {
-    const a = initial.projectFields[k];
-    const b = current.projectFields[k];
-    if (Array.isArray(a) || Array.isArray(b)) {
-      const aa = (a as string[]) ?? [];
-      const bb = (b as string[]) ?? [];
-      if (aa.length !== bb.length || aa.some((v, i) => v !== bb[i])) return true;
-    } else if (a !== b) {
-      return true;
-    }
-  }
+  // ★★★ fix-520 §A (P-227) — DIRTY MEANS "A PERMIT ROW IS UNSAVED", AND
+  //     NOTHING ELSE.
+  //
+  //     This compared every scalar on the form — address, juris, the roles, the
+  //     lots, the flags, the builder cache — because the footer's Save button
+  //     was what wrote them. **Every one of those commits on blur now**, so
+  //     there is no such thing as an unsaved address: by the time the box loses
+  //     focus it is in the database or it was refused.
+  //
+  // ★★★ AND A FALSE DIRTY FLAG WOULD BE ACTIVELY HARMFUL, which is why this is
+  //     not merely tidying. fix-519 §B made the form refuse to rebuild while
+  //     dirty, so that an immediate save elsewhere in the modal cannot discard
+  //     unsaved work. A scalar that reads dirty for ever — because the form's
+  //     snapshot lags a blur-commit it did not make — would freeze the rebuild
+  //     and strand the modal on stale permit OCC tokens.
+  //
+  // ★ The permits comparison below is fix-514 §B's, unchanged.
+  return permitsAreDirty(initial, current);
+}
+
+function permitsAreDirty(
+  initial: ProjectDetailsFormState,
+  current: ProjectDetailsFormState,
+): boolean {
   if (initial.permits.length !== current.permits.length) return true;
   for (let i = 0; i < current.permits.length; i++) {
     const a = initial.permits[i];
@@ -339,7 +339,7 @@ export const PROJECT_DETAILS_SEARCH: readonly SearchableEntry<ProjectDataTab>[] 
   { key: 'units', label: 'Unit width / depth', terms: ['unit width', 'unit depth', 'dimensions'] },
   { key: 'units', label: 'Unit size (sf)', terms: ['unit size', 'square footage', 'size sf', 'floor area'] },
   { key: 'units', label: 'Parking', terms: ['parking', 'stalls', 'garage'] },
-  { key: 'units', label: 'Product types', terms: ['product type', 'product types', 'product'] },
+  { key: 'units', label: 'Types', terms: ['type', 'types', 'product type', 'product types', 'unit type', 'unit types'] },
   // --- Permits -------------------------------------------------------------
   { key: 'permits', label: 'Permit type', terms: ['permit type', 'permit', 'type'] },
   { key: 'permits', label: 'Permit number', terms: ['permit number', 'permit #', 'num'] },

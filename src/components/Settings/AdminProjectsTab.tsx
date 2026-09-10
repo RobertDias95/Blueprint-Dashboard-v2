@@ -276,9 +276,9 @@ export default function AdminProjectsTab() {
         />
       </Section>
 
-      <Section title="Product Types">
+      <Section title="Types">
         <PillListEditor
-          label="Product Types"
+          label="Types"
           items={productTypes.map((t) => ({ key: t, label: t }))}
           onAdd={(name) => {
             if (productTypes.includes(name)) return;
@@ -293,8 +293,8 @@ export default function AdminProjectsTab() {
               value: productTypes.filter((t) => t !== name),
             })
           }
-          placeholder="Add product type…"
-          emptyState="No product types yet. Used on the Project create wizard."
+          placeholder="Add type…"
+          emptyState="No types yet. Used on the Project create wizard."
           readOnly={!isAdmin}
           testIdPrefix="product-types-list"
         />
