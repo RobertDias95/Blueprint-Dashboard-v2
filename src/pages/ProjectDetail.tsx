@@ -1,32 +1,13 @@
-import { Fragment, useEffect, useMemo, useRef, useState } from 'react';
-import {
-  Link,
-  useLocation,
-  useNavigate,
-  useParams,
-  useSearchParams,
-} from 'react-router-dom';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { Link, useLocation, useParams, useSearchParams } from 'react-router-dom';
 import OriginLink from '../components/OriginLink';
-import {
-  currentPaneScroll,
-  makeOriginState,
-  previousTarget,
-  rememberPaneScroll,
-} from '../lib/previousOrigin';
+import { previousTarget } from '../lib/previousOrigin';
 import { useProjects } from '../hooks/useProjects';
 import { usePermitsByProject } from '../hooks/usePermitsByProject';
-import { useAllPermitCycleReviewers } from '../hooks/useAllPermitCycleReviewers';
-import { effectiveStage } from '../lib/permitStage';
-import { PERMITS_RAIL_WIDTH } from '../lib/overviewCardLayout';
-import { STAGE_FULL_LABEL, STAGE_ORDER } from '../lib/stageLabel';
-import { isSubPermit, subPermitBadgeLabel } from '../lib/subPermit';
-import { useUpdateProject } from '../hooks/useUpdateProject';
 import type {
-  PermitCycleReviewer,
   PermitWithCycles,
   Project,
   RedesignTrigger,
-  Stage,
 } from '../lib/database.types';
 import { REDESIGN_TRIGGER_LABELS } from '../lib/database.types';
 import { SkeletonRows } from '../components/Skeleton';
@@ -42,15 +23,14 @@ import PermitDetailV2 from '../components/ProjectDetail/PermitDetailV2';
 import ProjectDetailsModal from '../components/ProjectDetail/ProjectDetailsModal';
 import {
   PARAM_DATA,
+  PARAM_DATA_FOCUS,
   isProjectDataTab,
   type ProjectDataTab,
 } from '../lib/projectDataTabs';
 import { ProjectHoldBadge } from '../components/ProjectDetail/ProjectHold';
-import { LandUsePhaseBadge } from '../components/ProjectDetail/LandUsePhaseBadge';
 import DeleteProjectDialog from '../components/ProjectDetail/DeleteProjectDialog';
 import DeleteRedesignDialog from '../components/ProjectDetail/DeleteRedesignDialog';
 import EditRedesignModal from '../components/ProjectDetail/EditRedesignModal';
-import QuickEditPermitModal from '../components/ProjectDetail/QuickEditPermitModal';
 import NewProjectWizard from '../components/NewProjectWizard';
 import ReassignDaModal from '../components/ProjectDetail/ReassignDaModal';
 import { useIsTenantAdmin } from '../hooks/useIsTenantAdmin';
@@ -274,8 +254,33 @@ function ProjectDetailBody({
     if (searchParams.has(PARAM_DATA)) {
       const next = new URLSearchParams(searchParams);
       next.delete(PARAM_DATA);
+      // ★ fix-517 §E: the focus rides with the tab. Leaving it behind would
+      //   re-focus a permit the next time the modal opened for any reason.
+      next.delete(PARAM_DATA_FOCUS);
       setSearchParams(next, { replace: true });
     }
+  }
+  /**
+   * ★★★ fix-517 §E — WHERE A PERMIT IS EDITED, NOW THAT `QuickEditPermitModal`
+   *     IS DELETED.
+   *
+   * Bobby, 2026-09-10: *"maybe that gets removed and then that just gets put
+   * back into project details."* The modal held Permit Type · ENT/DA/CA ·
+   * Permit Number · Sub-permit of · Structure Address · Portal URL, and
+   * fix-514's Permits tab already held all of those but two — the third time in
+   * one week that two editors were found writing one field set
+   * (P-207, P-221).
+   *
+   * ★★ IT GOES THROUGH THE URL, not through local state, so the destination is
+   *    linkable and `← Previous` behaves. `?data=permits&focus=<id>` reuses
+   *    fix-514 §C's deep link rather than inventing a second one — which is
+   *    what §E asks for in as many words.
+   */
+  function openPermitInProjectDetails(permitId: number) {
+    const next = new URLSearchParams(searchParams);
+    next.set(PARAM_DATA, 'permits');
+    next.set(PARAM_DATA_FOCUS, String(permitId));
+    setSearchParams(next);
   }
   const [deleteOpen, setDeleteOpen] = useState(false);
   // fix-126: redesign-wizard state. When non-null the New Project wizard
@@ -298,34 +303,34 @@ function ProjectDetailBody({
     const redesignPermits = redesignsWithPermitsQ.data.flatMap((r) => r.permits);
     return redesignPermits.length > 0 ? [...permits, ...redesignPermits] : permits;
   }, [permits, redesignsWithPermitsQ.data]);
-  // Q9.5.f-fix-19: Quick Edit popup opened by double-click on a sidebar row.
-  const [quickEditPermitId, setQuickEditPermitId] = useState<number | null>(
-    null,
-  );
-  // ★★★ fix-421: RESOLVED ACROSS THE LINEAGE, not just this project's permits.
+  /** ★ fix-517 §E: the focused permit, resolved from the URL the same way
+   *  `?permit=` is — by String coercion against the lineage, so an id for a
+   *  permit this project does not have focuses nothing rather than throwing. */
+  const dataFocusPermitId = useMemo(() => {
+    const raw = searchParams.get(PARAM_DATA_FOCUS);
+    if (!raw) return null;
+    const match = lineagePermits.find((p) => String(p.id) === String(raw));
+    return match ? match.id : null;
+  }, [searchParams, lineagePermits]);
+
+  // ★★★ fix-517 §A — WHICH REDESIGN A LINEAGE PERMIT BELONGS TO.
   //
-  // Double-click-to-quick-edit is a daily gesture for Bobby and the current
-  // workaround for the role-cascade defect (P-075). fix-421 gives a redesign's
-  // permits the same card every other permit uses, so the same double-click has
-  // to reach them — and a redesign permit's `project_id` is the REDESIGN's, so
-  // a lookup in `permits` (this project's) returns null and the modal silently
-  // never opens. `lineagePermits` is parent + every redesign's permits, which
-  // is exactly the set the panel now renders.
-  const quickEditPermit =
-    quickEditPermitId !== null
-      ? lineagePermits.find((p) => p.id === quickEditPermitId) ?? null
-      : null;
-  // ★★ SIBLINGS STAY SAME-PROJECT. fix-194's "Sub-permit of…" selector writes
-  //    `parent_permit_id`, and that marker is enforced same-project app-side —
-  //    offering a redesign permit the PARENT's permits as parents would let a
-  //    user build a cross-project link the rest of the app does not model.
-  const quickEditSiblings = useMemo(
-    () =>
-      quickEditPermit
-        ? lineagePermits.filter((p) => p.project_id === quickEditPermit.project_id)
-        : [],
-    [lineagePermits, quickEditPermit],
-  );
+  // The deleted rail said this with a heading over a group of cards. The table
+  // renders every lineage permit in one list, so the fact moves onto the row —
+  // a `↳ Redesign 2` line under the permit type. Without it a redesign's permits
+  // would be indistinguishable from the parent's, which is the one thing the
+  // band's grouping was carrying that the table did not.
+  //
+  // ★ The numbering is `useProjectRedesignsWithPermits`'s own order (created_at,
+  //   then id), which is what `RedesignGroup`'s label has always used — one
+  //   source, so the row and the band can never number a redesign differently.
+  const redesignLabelByPermitId = useMemo(() => {
+    const m = new Map<number, string>();
+    redesignsWithPermitsQ.data.forEach((r, i) => {
+      for (const p of r.permits) m.set(p.id, `Redesign ${i + 1}`);
+    });
+    return m;
+  }, [redesignsWithPermitsQ.data]);
   // Keep bp around for the project-overview render even when no permit
   // is explicitly selected — the 4-col header anchors on the BP.
   void bp;
@@ -352,6 +357,7 @@ function ProjectDetailBody({
           bp={bp}
           allProjects={allProjects}
           initialTab={dataOpen}
+          initialFocusPermitId={dataFocusPermitId}
           onClose={closeProjectData}
           canReassignDa={isAdmin}
           onReassignDa={() => {
@@ -403,13 +409,6 @@ function ProjectDetailBody({
           onClose={() => setDeleteOpen(false)}
         />
       )}
-      {quickEditPermit && (
-        <QuickEditPermitModal
-          permit={quickEditPermit}
-          siblings={quickEditSiblings}
-          onClose={() => setQuickEditPermitId(null)}
-        />
-      )}
 
       {/* Project address sub-header — centered, larger per v1 :758 */}
       <div className="text-center pt-1 pb-2 flex-shrink-0">
@@ -449,55 +448,28 @@ function ProjectDetailBody({
         )}
       </div>
 
-      {/* fix-23e: Two-pillbox body layout. The outer page is bounded
-          by `h-full overflow-hidden` (set above on the
-          page-root), so vertical growth is impossible regardless of
-          how many permits a project has or how tall any single widget
-          renders. Inside, two side-by-side pillboxes scroll
-          independently:
-            • pd-left-pillbox = the permits list (PermitsSidebar)
-            • pd-right-pillbox = either the project overview content
-              (when no permit is selected) or the per-permit detail
-              widgets (when one is). PermitDetailV2's own internal
-              flex layout handles the stacking of HeaderStrip / Cycle
-              tabs / DateStrip / Tasks / Sidebar widgets; it all
-              scrolls as one inside the right pillbox.
+      {/* ★★★ fix-517 §A (P-219) — THE PERMITS RAIL IS GONE, AND THE ROW IS
+          ONE PILLBOX WIDE.
 
-          Both pillboxes get rounded-lg border + bg-surface + their
-          own overflow-y-auto so the content clips at the pillbox
-          edge instead of pushing the outer page down. */}
+          Bobby: *"on the left-hand side of Project Overview, we're going to get
+          rid of Permits… I think we'll have enough width because we're going to
+          get rid of that Permits column on the left-hand side… it would solve a
+          lot of our width issues at the top where Design Plan of Record,
+          Project Team, that all gets to get a little bit bigger."*
+
+          ★★★ THE SHIPPED RAIL WAS 190px, NOT 240 (§0.1). fix-507 §A had
+              already narrowed it. So the row gains **202px** — the rail plus
+              its 12px gap — and `lib/overviewCardLayout` carries the arithmetic
+              of where that 202 goes. At 1600 ALL of it goes to Team, because
+              Plan of Record and Project were both pinned at their floors and
+              Team was the only card paying for the rail.
+
+          ★★ THE RAIL WAS THREE BANDS AND ONLY TWO WERE REDUNDANT. Active
+             permits and issued permits are rows in the PERMITS table below.
+             The REDESIGNS band was not — it is the only place a redesign can
+             be renamed or deleted — so it moved here rather than dying, minus
+             its permit cards, which the table already renders. */}
       <div className="flex flex-1 gap-3 px-3 pb-3 overflow-hidden min-h-0">
-        {/* ★★ fix-331 §3: THE CHAT CARD IS GONE FROM THE RAIL. fix-329 put the
-            conversation on top of this column and fix-331 moves it into the Team
-            card, where Bobby asked for it — "between Internal and External … that
-            way your project chat lives in between the two teams and it flows."
-
-            One home for one thread: two entry points is what made it read as a
-            bolted-on widget, and it is what the §3 test asserts is over.
-
-            The rail is back to Permits and Redesigns. The wrapper stays — fix-329
-            moved the width up here so the column and its children could not
-            disagree about it, and that is still worth having with one child.
-
-            ★★★ fix-507 §A: the number itself now lives in
-            `lib/overviewCardLayout` as `PERMITS_RAIL_WIDTH`, because
-            `SHELL_CHROME_PX.permitsRail` has to model exactly this element —
-            and two files each typing `240` is precisely how fix-422 found the
-            row 278px narrower than fix-417 believed. One declaration, two
-            readers. */}
-        <div
-          className="flex-shrink-0 flex flex-col gap-3 min-h-0"
-          style={{ width: PERMITS_RAIL_WIDTH }}
-          data-testid="pd-left-rail"
-        >
-          <PermitsSidebar
-            permits={permits}
-            project={project}
-            selectedId={selectedPermit?.id ?? null}
-            onSelect={setSelectedPermitId}
-            onQuickEdit={setQuickEditPermitId}
-          />
-        </div>
         <div
           className="flex-1 rounded-lg border bg-surface overflow-y-auto min-h-0"
           style={{ borderColor: 'var(--color-border)' }}
@@ -518,9 +490,29 @@ function ProjectDetailBody({
                 bp={bp}
                 allProjects={allProjects}
               />
-              {/* fix-151: Schedule Health computes across the whole lineage
-                  (parent + all redesign permits), not just the parent's. */}
-              <ScheduleHealthTable permits={lineagePermits} />
+              {/* ★★★ fix-517 §A/§D/§E — `SCHEDULE HEALTH` IS NOW `PERMITS (n)`
+                  AND IT IS THE PROJECT'S ONLY PERMITS LIST.
+                  · fix-151: it computes across the whole LINEAGE (parent + every
+                    redesign's permits), which is why the redesigns band below it
+                    no longer repeats those permits as cards.
+                  · §D: a row click opens the Permit View — the deleted rail
+                    row's behaviour, moved rather than reinvented.
+                  · §E: the row's hover ✎ opens Project Details → Permits focused
+                    on that permit, which is what replaced `QuickEditPermitModal`. */}
+              <ScheduleHealthTable
+                permits={lineagePermits}
+                redesignLabelByPermitId={redesignLabelByPermitId}
+                onSelect={setSelectedPermitId}
+                onEditPermit={openPermitInProjectDetails}
+              />
+              {/* ★★ fix-517 §A — THE REDESIGNS BAND, MOVED OUT OF THE RAIL.
+                  It is the only surface that can rename or delete a redesign,
+                  so deleting the rail without moving it would have removed a
+                  control this ticket never mentions. */}
+              <RedesignsSection
+                parentId={project.id}
+                onOpenPermits={() => setDataOpen('permits')}
+              />
               {/* fix-277: the fix-276 CorrectionsPanel used to sit here. It made
                   the overview long without answering an overview-level question
                   — a 96-item letter dump is analysis, not orientation. The
@@ -698,521 +690,54 @@ function ProjectPageChrome({
           className="px-3 py-1 rounded-md text-xs font-bold border border-border bg-s2 text-text hover:bg-s3 transition"
           data-testid="project-data-btn"
         >
-          ⚙ Project Data
+          ⚙ Project Details
         </button>
       </div>
     </div>
   );
 }
 
-// Q9.5.e-fix-4: sidebar redesign per v1 §4.2.1 sidebar parity and
-// index.html:3539-3596. Each row shows a stage-tinted dot, permit type
-// (Building Permit shows nickname when set), permit # / "No permit # yet",
-// stage-appropriate key date with urgency-driven color, and a drag handle.
-// Order is persisted as projects.permit_order (number[]). Permits without
-// an explicit order are appended after ordered ones, alphabetical fallback.
-/**
- * ★★★ fix-508 §E — THE STAGE COLOUR MOVES FROM THE CARD TO THE GROUP HEADER.
- *
- * It was a 7px dot on every card. Grouped by phase, a dot on each card in a
- * `Corrections` group is the same fact repeated once per row — so the colour
- * says it once, at the top, where it labels the group it belongs to. This is
- * the same treatment fix-65 gave `✓ ISSUED (2)`, generalised to all five
- * buckets, which is what §E asks for in as many words.
- */
-function PhaseGroupHeader({ stage, count }: { stage: Stage; count: number }) {
-  return (
-    <div
-      className="px-3 py-1.5 text-[10px] font-extrabold uppercase tracking-wider flex items-center justify-between gap-1.5 border-y"
-      style={{
-        background: STAGE_GROUP_BG[stage],
-        color: STAGE_GROUP_FG[stage],
-        borderTopColor: STAGE_GROUP_BORDER[stage],
-        borderBottomColor: STAGE_GROUP_BORDER[stage],
-      }}
-      data-testid={`permits-sidebar-phase-${stage}`}
-      data-phase-count={String(count)}
-    >
-      <span>{STAGE_FULL_LABEL[stage]}</span>
-      <span>({count})</span>
-    </div>
-  );
-}
-
-/**
- * ★★★ fix-508 §G — THE HEADER'S INK IS THE MIX, NOT THE RAW TOKEN.
- *
- * §G's standing contract is fix-407's: **≥ 4.5:1, measured**. Measured in
- * Chrome, `--color-<stage>` on `--color-<stage>-bg` comes to **3.32:1** — so
- * the four new phase headers would have shipped under the floor, and the
- * ISSUED divider fix-65 built has been under it since 2026-05-27.
- *
- * ★★★ THE RECIPE ALREADY EXISTS AND IS NOT BEING REINVENTED: fix-407 §4 mixes
- *     **65% of the token with 35% of `#1a2540`** for exactly this problem, and
- *     `STAGE_CHIP` in lib/planOfRecord is built from it. Two of the five hexes
- *     below come out identical to the ones that file publishes (`#214daf`,
- *     `#965a1a`), which is the check that the recipe was applied and not
- *     approximated. Measured on the tint each one sits on:
- *
- *       de  #214daf  6.27      pm  #0c6e5b  5.45      co  #965a1a  5.00
- *       ap  #5a33b0  6.98      is  #0e6b8a  5.38
- *
- * ★ So this fixes a pre-existing failure as well as avoiding a new one. Stated
- *   rather than folded in silently: the ISSUED divider's colour changes here
- *   and it is not cosmetic drift, it is the first time it has been legible.
- */
-const STAGE_GROUP_FG: Record<Stage, string> = {
-  de: '#214daf',
-  pm: '#0c6e5b',
-  co: '#965a1a',
-  ap: '#5a33b0',
-  is: '#0e6b8a',
-};
-
-/** ★ The five tints, matching the `--color-<stage>-bg` tokens the pipeline
- *  cards and the issued divider already use. */
-const STAGE_GROUP_BG: Record<Stage, string> = {
-  de: 'var(--color-de-bg)',
-  pm: 'var(--color-pm-bg)',
-  co: 'var(--color-co-bg)',
-  ap: 'var(--color-jv-bg)',
-  is: 'var(--color-is-bg)',
-};
-
-const STAGE_GROUP_BORDER: Record<Stage, string> = {
-  de: 'var(--color-de-border)',
-  pm: 'var(--color-pm-border)',
-  co: 'var(--color-co-border)',
-  ap: 'var(--color-jv-border)',
-  is: 'var(--color-is-border)',
-};
-
-// ★ fix-508 §E: `STAGE_DOT_COLOR` is gone with the dot it painted. Its five
-//   raw tokens live on in `STAGE_GROUP_FG` above — mixed to fix-407's ink so
-//   the group header that replaced the dot clears 4.5:1, which the raw token
-//   never did.
-
-function PermitsSidebar({
-  permits,
-  project,
-  selectedId,
-  onSelect,
-  onQuickEdit,
-}: {
-  permits: PermitWithCycles[];
-  project: NonNullable<ReturnType<typeof useProjects>['data']>[number];
-  selectedId: number | null;
-  onSelect: (id: number) => void;
-  onQuickEdit: (id: number) => void;
-}) {
-  const updateProject = useUpdateProject();
-  const [dragOverId, setDragOverId] = useState<number | null>(null);
-  // fix-104: reviewers feed effectiveStage for MPB / Pending / Applied
-  // permits (see fix-54). Pre-fix the sidebar called effectiveStage
-  // without reviewers and the row's stage could disagree with the
-  // right-hand Schedule Health table — same permit, different label.
-  // Index per-permit once at the sidebar level so each SidebarRow
-  // grabs its own list cheaply on render.
-  const reviewersQ = useAllPermitCycleReviewers();
-  const reviewersByPermit = useMemo(() => {
-    const m = new Map<number, PermitCycleReviewer[]>();
-    for (const r of reviewersQ.data ?? []) {
-      const list = m.get(r.permit_id) ?? [];
-      list.push(r);
-      m.set(r.permit_id, list);
-    }
-    return m;
-  }, [reviewersQ.data]);
-
-  // Sort by project.permit_order; unordered permits drop to the end.
-  const order = useMemo(
-    () =>
-      Array.isArray(project.permit_order) ? project.permit_order : [],
-    [project.permit_order],
-  );
-
-  // fix-65 (2026-05-27): partition into ACTIVE + ISSUED for the v1 sidebar
-  // shape Bobby asked to restore. Active permits stay drag-reorderable
-  // (their permit_order persists); issued permits collect at the bottom
-  // under a "✓ ISSUED (n)" divider with the --color-is highlight tint and
-  // are sorted by actual_issue desc (most recently issued first), static.
-  //
-  // Classification reuses effectiveStage — the same signal Schedule Health
-  // + the row's stage dot already use, so "ISSUED" in the sidebar matches
-  // the row's "ISSUED <date>" label without inventing a parallel rule.
-  // Pre-fix the partition was inline in the sort comparator (`!!actual_
-  // issue`); migrating to effectiveStage also picks up the rare case
-  // where a permit has stage_override='is' / terminal portal status but
-  // no actual_issue yet.
-  // fix-194: index sub/child permits by their parent so each renders nested
-  // under its parent row (and never as a standalone active/issued row). A
-  // child's "reviewed under <parent #>" label needs the parent's num.
-  const childrenByParent = useMemo(() => {
-    const m = new Map<number, PermitWithCycles[]>();
-    for (const p of permits) {
-      if (!isSubPermit(p)) continue;
-      const pid = p.parent_permit_id as number;
-      const list = m.get(pid) ?? [];
-      list.push(p);
-      m.set(pid, list);
-    }
-    for (const list of m.values()) list.sort((a, b) => a.id - b.id);
-    return m;
-  }, [permits]);
-  const numById = useMemo(() => {
-    const m = new Map<number, string | null>();
-    for (const p of permits) m.set(p.id, p.num);
-    return m;
-  }, [permits]);
-
-  const { activeSorted, issuedSorted } = useMemo(() => {
-    const active: PermitWithCycles[] = [];
-    const issued: PermitWithCycles[] = [];
-    for (const p of permits) {
-      // fix-194: children are rendered nested under their parent, not as their
-      // own active/issued row.
-      if (isSubPermit(p)) continue;
-      // fix-104: pass per-permit reviewers so the active/issued split
-      // matches what the row itself + the Schedule Health table see.
-      const isIssued =
-        effectiveStage(
-          p,
-          p.permit_cycles ?? [],
-          reviewersByPermit.get(p.id) ?? null,
-        ) === 'is';
-      (isIssued ? issued : active).push(p);
-    }
-    const byOrder = (a: PermitWithCycles, b: PermitWithCycles) => {
-      const oa = order.indexOf(a.id);
-      const ob = order.indexOf(b.id);
-      const aRank = oa === -1 ? Number.MAX_SAFE_INTEGER : oa;
-      const bRank = ob === -1 ? Number.MAX_SAFE_INTEGER : ob;
-      if (aRank !== bRank) return aRank - bRank;
-      // Fallback: created order (id ascending, since permits.id is identity)
-      return a.id - b.id;
-    };
-    active.sort(byOrder);
-    // Issued: most-recently-issued first. Permits with stage='is' but
-    // no actual_issue (e.g. stage_override or terminal portal status
-    // without a stamped date) fall back to approval_date, then id desc.
-    issued.sort((a, b) => {
-      const da = a.actual_issue ?? a.approval_date ?? '';
-      const db = b.actual_issue ?? b.approval_date ?? '';
-      if (da !== db) return db.localeCompare(da);
-      return b.id - a.id;
-    });
-    return { activeSorted: active, issuedSorted: issued };
-  }, [permits, order, reviewersByPermit]);
-
-  /**
-   * ★★★ fix-508 §E (P-184) — THE ACTIVE BAND BECOMES PHASE GROUPS.
-   *
-   * The status suffix left each card's type line and became a group header
-   * with a count, in the shape fix-65's `✓ ISSUED (2)` already established and
-   * in the Pipeline's own words (`STAGE_FULL_LABEL`). Four groups where there
-   * was one flat list: **Design & Engineering · Permitting · Corrections ·
-   * Approved**, then the redesigns band, then Issued.
-   *
-   * ★★ fix-421's RULING IS PRESERVED INSIDE THE ORDER, not worked around:
-   *    *"issued should be at the bottom, redesign should be above that, and
-   *    then all the other active and ongoing permits should be above that."*
-   *    `STAGE_ORDER` ends in `is`, and the rail renders REDESIGNS between the
-   *    fourth group and it. Its band and its tests are untouched.
-   *
-   * ★ THE ORDER WITHIN A GROUP IS STILL `permit_order`, so drag-reorder keeps
-   *   working exactly as fix-65 built it — `active` is already sorted, and
-   *   partitioning a sorted list leaves each part sorted. A drop still writes
-   *   the whole project's order, so dragging across a group boundary is
-   *   possible and simply re-files the card under its own phase on the next
-   *   render, which is the honest outcome: the phase is DERIVED from the
-   *   permit, not chosen by where it was dropped.
-   */
-  const activeGroups = useMemo(() => {
-    const byStage = new Map<Stage, PermitWithCycles[]>();
-    for (const p of activeSorted) {
-      const s = effectiveStage(p, p.permit_cycles ?? [], reviewersByPermit.get(p.id) ?? null);
-      const list = byStage.get(s) ?? [];
-      list.push(p);
-      byStage.set(s, list);
-    }
-    // ★ `is` is excluded here: an issued permit is in `issuedSorted` by
-    //   construction (that is how `activeSorted` was partitioned), so a group
-    //   for it would always be empty and the real one renders at the bottom.
-    return STAGE_ORDER.filter((s) => s !== 'is')
-      .map((stage) => ({ stage, permits: byStage.get(stage) ?? [] }))
-      .filter((g) => g.permits.length > 0);
-  }, [activeSorted, reviewersByPermit]);
-
-  function commitOrder(nextActiveIds: number[]) {
-    if (!project.updated_at) return;
-    // Persist the canonical order across BOTH groups so a permit moving
-    // back from issued → active (rare — e.g. an actual_issue cleared
-    // by fix-actual-issue self-heal) still has a stable position. Active
-    // first (user-chosen), issued appended in their current date-desc
-    // order (stable across navigations).
-    const next = [...nextActiveIds, ...issuedSorted.map((p) => p.id)];
-    void updateProject.mutateAsync({
-      projectId: project.id,
-      expectedUpdatedAt: project.updated_at,
-      patch: { permit_order: next },
-      fieldLabel: 'Permit order',
-    });
-  }
-
-  function onDragStart(e: React.DragEvent, permitId: number) {
-    e.dataTransfer.setData('text/plain', String(permitId));
-    e.dataTransfer.effectAllowed = 'move';
-  }
-  function onDragOver(e: React.DragEvent, permitId: number) {
-    e.preventDefault();
-    e.dataTransfer.dropEffect = 'move';
-    if (dragOverId !== permitId) setDragOverId(permitId);
-  }
-  function onDragLeave(e: React.DragEvent) {
-    e.preventDefault();
-    setDragOverId(null);
-  }
-  function onDrop(e: React.DragEvent, targetId: number) {
-    e.preventDefault();
-    setDragOverId(null);
-    const src = Number(e.dataTransfer.getData('text/plain'));
-    if (!src || src === targetId) return;
-    // Reorder operates ONLY within the active group. v1 kept issued
-    // permits as a static bottom block; matching that here keeps the
-    // "what's done" section from being accidentally re-ordered when
-    // a user is shuffling active permits.
-    const activeIds = activeSorted.map((p) => p.id);
-    const fromIdx = activeIds.indexOf(src);
-    const toIdx = activeIds.indexOf(targetId);
-    if (fromIdx === -1 || toIdx === -1) return;
-    const next = [...activeIds];
-    next.splice(fromIdx, 1);
-    next.splice(toIdx, 0, src);
-    commitOrder(next);
-  }
-
-  // fix-23e: PermitsSidebar is the left pillbox. Outer aside has the
-  // rounded border + bg-surface; the header stays pinned at top via
-  // flex-shrink-0; the permit list claims remaining height and scrolls
-  // internally via overflow-y-auto. The aside itself does NOT scroll
-  // (overflow-hidden) so the rounded border isn't broken by content
-  // overlapping the rounded corners.
-  return (
-    <aside
-      // ★ fix-329: the width moved to the rail wrapper — the chat card above and
-      // this list are one column now, and two elements each declaring 240px is
-      // how they drift apart.
-      className="flex-1 rounded-lg border bg-surface flex flex-col overflow-hidden min-h-0"
-      style={{ borderColor: 'var(--color-border)' }}
-      data-testid="pd-left-pillbox"
-    >
-      <header
-        className="px-3 py-2 border-b flex-shrink-0 flex items-center justify-center"
-        style={{
-          background: 'var(--color-s2)',
-          borderBottomColor: 'var(--color-border)',
-        }}
-      >
-        <span
-          className="text-[11px] font-extrabold text-text uppercase tracking-wider"
-          data-testid="permits-sidebar-count"
-        >
-          {/* fix-194: count standalone/parent permits — sub-permit placeholders
-              nest under their parent and don't inflate the header count. */}
-          Permits ({activeSorted.length + issuedSorted.length})
-        </span>
-      </header>
-      {/* ★★★ fix-421 — THREE BANDS, TOP TO BOTTOM: ACTIVE → REDESIGNS → ISSUED.
-          Bobby, 2026-08-26: *"issued should be at the bottom, redesign should be
-          above that, and then all the other active and ongoing permits should be
-          above that."*
-
-          ★★ ONLY THE ORDER MOVED. The active band, its drag-reorder, the issued
-          divider and the nested sub-permits are all exactly as fix-65 / fix-194
-          left them — this reads as a three-line diff because that is what it is.
-          What changed underneath is inside RedesignsSidebarSection, where the
-          bare `PPR · Corrections` lines became real permit cards.
-
-          ★ The "No permits yet." line is still gated on BOTH bands being empty,
-          so a project with issued permits and no active ones is unaffected. It
-          speaks for THIS project's permits; a redesign's are their own band with
-          their own count, which is why the header count is unchanged too. */}
-      <div className="flex-1 overflow-y-auto" data-testid="permits-sidebar-list">
-        {activeSorted.length === 0 && issuedSorted.length === 0 ? (
-          <div className="text-[11px] text-dim italic p-4 text-center">
-            No permits yet.
-          </div>
-        ) : (
-          <>
-            {/* ★★★ fix-508 §E — ONE GROUP PER PHASE, each with a coloured
-                header and a count, in the shape fix-65's `✓ ISSUED (2)`
-                established. Drag-reorder still lives here (fix-65) and
-                sub-permits still nest under their parent (fix-194); what
-                changed is that the flat list is now four lists. */}
-            {activeGroups.map((group) => (
-              <Fragment key={group.stage}>
-                <PhaseGroupHeader stage={group.stage} count={group.permits.length} />
-                {group.permits.map((p) => (
-              <Fragment key={p.id}>
-                <SidebarRow
-                  permit={p}
-                  reviewers={reviewersByPermit.get(p.id) ?? []}
-                  selected={p.id === selectedId}
-                  dragOver={p.id === dragOverId}
-                  draggable
-                  onSelect={() => onSelect(p.id)}
-                  onQuickEdit={() => onQuickEdit(p.id)}
-                  onDragStart={(e) => onDragStart(e, p.id)}
-                  onDragOver={(e) => onDragOver(e, p.id)}
-                  onDragLeave={onDragLeave}
-                  onDrop={(e) => onDrop(e, p.id)}
-                />
-                {(childrenByParent.get(p.id) ?? []).map((c) => (
-                  <SidebarRow
-                    key={c.id}
-                    permit={c}
-                    reviewers={[]}
-                    selected={c.id === selectedId}
-                    dragOver={false}
-                    draggable={false}
-                    parentNum={numById.get(p.id) ?? null}
-                    onSelect={() => onSelect(c.id)}
-                    onQuickEdit={() => onQuickEdit(c.id)}
-                    onDragStart={() => {}}
-                    onDragOver={() => {}}
-                    onDragLeave={() => {}}
-                    onDrop={() => {}}
-                  />
-                ))}
-              </Fragment>
-                ))}
-              </Fragment>
-            ))}
-          </>
-        )}
-        {/* ★ fix-421 BAND 2: redesigns. fix-151 put this at the very bottom of
-            the panel; Bobby wants it between the active permits and the issued
-            ones, because a redesign is live work and an issued permit is not. */}
-        <RedesignsSidebarSection
-          parentId={project.id}
-          reviewersByPermit={reviewersByPermit}
-          onQuickEdit={onQuickEdit}
-        />
-        {/* fix-65: ✓ ISSUED divider + group. Rendered only when there
-            IS at least one issued permit so a fully-active project
-            (no issued permits yet) doesn't gain an empty section.
-            ★ fix-421 BAND 3 — the bottom, by Bobby's instruction. */}
-        {issuedSorted.length > 0 && (
-          <>
-                {/* ★★★ fix-508 §E — THE ISSUED DIVIDER IS NOW ONE OF FIVE, and
-                    it renders through the SAME component as the other four.
-                    fix-65 invented this shape — a tinted, counted, bordered
-                    band — and §E generalises it to every phase; leaving this
-                    one hand-rolled would be the drift `OverviewCard` was
-                    created to end, one file over.
-                    ★ It keeps its own `data-testid` so fix-65's and fix-421's
-                      band-order tests still name the thing they were written
-                      about. The ✓ goes: four headers without a glyph and one
-                      with reads as an exception nobody meant. */}
-                <div data-testid="permits-sidebar-issued-divider">
-                  <PhaseGroupHeader stage="is" count={issuedSorted.length} />
-                </div>
-                <div
-                  style={{ background: 'var(--color-is-bg)' }}
-                  data-testid="permits-sidebar-issued-group"
-                >
-                  {issuedSorted.map((p) => (
-                    <Fragment key={p.id}>
-                      <SidebarRow
-                        permit={p}
-                        reviewers={reviewersByPermit.get(p.id) ?? []}
-                        selected={p.id === selectedId}
-                        // Issued rows aren't part of active drag-reorder
-                        // (v1 kept them as a static bottom block).
-                        dragOver={false}
-                        draggable={false}
-                        onSelect={() => onSelect(p.id)}
-                        onQuickEdit={() => onQuickEdit(p.id)}
-                        onDragStart={() => {}}
-                        onDragOver={() => {}}
-                        onDragLeave={() => {}}
-                        onDrop={() => {}}
-                      />
-                      {/* fix-194: sub-permit children nested under an issued parent. */}
-                      {(childrenByParent.get(p.id) ?? []).map((c) => (
-                        <SidebarRow
-                          key={c.id}
-                          permit={c}
-                          reviewers={[]}
-                          selected={c.id === selectedId}
-                          dragOver={false}
-                          draggable={false}
-                          parentNum={numById.get(p.id) ?? null}
-                          onSelect={() => onSelect(c.id)}
-                          onQuickEdit={() => onQuickEdit(c.id)}
-                          onDragStart={() => {}}
-                          onDragOver={() => {}}
-                          onDragLeave={() => {}}
-                          onDrop={() => {}}
-                        />
-                      ))}
-                    </Fragment>
-                  ))}
-                </div>
-              </>
-            )}
-      </div>
-    </aside>
-  );
-}
-
 // ===========================================================================
-// ★★★ fix-421 — A REDESIGN'S PERMITS ARE PERMITS
+// ★★★ fix-517 §A — THE REDESIGNS BAND SURVIVES THE RAIL
 // ===========================================================================
 //
-// Bobby, 2026-08-26: *"Redesign clearly should show the permits, just like the
-// other permits in the permit tab, but just in the category of redesign."*
+// The rail had three bands: active permits, redesigns, issued permits. §A
+// deletes the rail because *"all of that information is kind of redundant"* —
+// and for two of the three bands it is: every one of those permits is a row in
+// the PERMITS table, which has computed across the whole lineage since fix-151.
 //
-// ★★★ WHAT WAS HERE, AND WHY IT WENT. fix-151 rendered a redesign's permits as
-// bare one-line links — `redesignPermitLabel()` produced `PPR · Corrections`
-// and nothing else. No stage dot, no permit number, no portal link, no
-// structure address, no key date, and **no double-click quick edit**. Against
-// the parent's own permits three rows above, wearing the full `SidebarRow`,
-// they read as footnotes rather than as permits. They are permits.
+// ★★★ THE REDESIGNS BAND IS NOT REDUNDANT, AND THE BRIEF DOES NOT MENTION IT.
+//     It is the ONLY surface in the app that can rename or delete a redesign
+//     (fix-193's ✎ / ✕), and it is the only place a redesign's trigger and its
+//     reuse-of-parent-permits answer are stated. Deleting the rail wholesale
+//     would have taken all of that with it, silently. So the band moved onto
+//     the overview pane instead, under the table.
 //
-// ★★ SO `redesignPermitLabel` IS DELETED RATHER THAN KEPT. fix-193 wrote it so
-// that a number-less PPR would not read as blank ("PPR · Pre-Submittal · no
-// number yet"). `SidebarRow` already answers that: it prints the type, the
-// stage breadcrumb, and an italic "No permit # yet" where the number goes. A
-// second label function beside a card that already labels itself is exactly the
-// drift fix-290 spent a ticket removing from the overview cards.
+// ★★ WHAT IT LOST IS ITS PERMIT CARDS, and that is the ticket working. fix-421
+//    gave a redesign's permits the full `SidebarRow` treatment so they would
+//    read as permits rather than footnotes; the table now gives them the full
+//    ROW treatment, in the same list as everything else, with a `↳ Redesign N`
+//    line saying whose they are. Rendering them twice on one pane is exactly
+//    the redundancy §A exists to remove.
 //
-// ★★ AND THE STAGE IS NOW COMPUTED THE SAME WAY EVERYWHERE. fix-151 called
-// `effectiveStage(p, cycles, null)` with a hard-coded null for reviewers;
-// fix-104 had already established that dropping reviewers makes the sidebar
-// disagree with Schedule Health about the same permit. The parent's
-// `reviewersByPermit` index covers every permit in the tenant, so it is passed
-// straight through and a redesign card reads the same stage as everything else.
-
-// fix-151: the redesigns band of the permits sidebar. Each redesign is a GROUP —
-// its own heading (label · trigger, plus edit / delete) with its permits as
-// cards beneath it. One hop (useProjectRedesignsWithPermits doesn't recurse).
+// ★★ AND `REDESIGN_CLICK_DEFER_MS` GOES WITH THEM. fix-421 deferred a
+//    redesign card's click by 250ms so a double-click could reach Quick Edit
+//    before the navigation unmounted the card. §E deletes Quick Edit, so the
+//    gesture it was protecting no longer exists and the delay is pure lag.
+//    The heading link navigates immediately again.
 //
 // ★ ORDER: creation date ascending, so "Redesign 1" is the first one Bobby
 //   spawned. That is `useProjectRedesignsWithPermits`'s own sort (created_at,
-//   then id as a tie-break) and the numbering is the index within it — the
-//   label and the position can therefore never disagree.
-function RedesignsSidebarSection({
+//   then id) and the numbering is the index within it — which is the same map
+//   the table's `↳ Redesign N` row line reads, so the two cannot disagree.
+function RedesignsSection({
   parentId,
-  reviewersByPermit,
-  onQuickEdit,
+  onOpenPermits,
 }: {
   parentId: string;
-  /** ★ fix-421: the parent panel's per-permit reviewer index, so a redesign
-   *  card's stage is computed exactly like every other card's (fix-104). */
-  reviewersByPermit: Map<number, PermitCycleReviewer[]>;
-  /** ★ fix-421: double-click → Quick Edit Permit, on redesign cards too. */
-  onQuickEdit: (id: number) => void;
+  /** Where "its permits are in the table above" sends someone who wants to
+   *  EDIT one — Project Details → Permits, the surface §E consolidated on. */
+  onOpenPermits: () => void;
 }) {
   const { data } = useProjectRedesignsWithPermits(parentId);
   // fix-193: per-redesign edit / delete targets (the redesign + its sidebar
@@ -1227,7 +752,10 @@ function RedesignsSidebarSection({
   } | null>(null);
   if (data.length === 0) return null;
   return (
-    <div data-testid="project-overview-redesigns-section">
+    <div
+      className="flex-shrink-0 border-b border-border"
+      data-testid="project-overview-redesigns-section"
+    >
       <div
         className="px-3 py-1.5 text-[10px] font-extrabold uppercase tracking-wider flex items-center gap-1.5 border-y"
         style={{
@@ -1246,8 +774,7 @@ function RedesignsSidebarSection({
           key={r.project.id}
           redesign={r}
           label={`Redesign ${i + 1}`}
-          reviewersByPermit={reviewersByPermit}
-          onQuickEdit={onQuickEdit}
+          onOpenPermits={onOpenPermits}
           onEdit={(label) => setEditTarget({ project: r.project, label })}
           onDelete={(label) => setDeleteTarget({ project: r.project, label })}
         />
@@ -1311,73 +838,19 @@ function redesignEmptyLine(reuses: boolean | null | undefined): string {
   return 'No permits yet.';
 }
 
-/** How long to wait for a second click before treating the first as a
- *  navigation. The platform double-click threshold is ~500ms but 250 is long
- *  enough for the gesture in practice and short enough not to feel laggy. */
-const REDESIGN_CLICK_DEFER_MS = 250;
-
 function RedesignGroup({
   redesign,
   label,
-  reviewersByPermit,
-  onQuickEdit,
+  onOpenPermits,
   onEdit,
   onDelete,
 }: {
   redesign: RedesignWithPermits;
   label: string;
-  reviewersByPermit: Map<number, PermitCycleReviewer[]>;
-  onQuickEdit: (id: number) => void;
+  onOpenPermits: () => void;
   onEdit: (label: string) => void;
   onDelete: (label: string) => void;
 }) {
-  const navigate = useNavigate();
-  const location = useLocation();
-  const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  useEffect(() => () => {
-    if (timer.current) clearTimeout(timer.current);
-  }, []);
-
-  // ★★★ ONE CARD, TWO GESTURES, AND THEY FIGHT — so the click is DEFERRED.
-  //
-  // Everywhere else in this panel a single click SELECTS the permit (a local
-  // state change) and a double-click opens Quick Edit; the first click of the
-  // double is harmless because selecting is idempotent. A redesign card's click
-  // NAVIGATES to the redesign's project — fix-151's behaviour, which this ticket
-  // is explicitly not allowed to change — and a navigation unmounts the card
-  // before `dblclick` can ever fire. Fire-and-forget on the first click means
-  // double-click quick edit simply does not exist on these cards.
-  //
-  // ★★ Bobby uses that gesture daily and it is the current workaround for the
-  //    role-cascade defect (P-075), so losing it on the cards this ticket
-  //    creates would be a net loss. The single click therefore waits one
-  //    double-click interval; a second click cancels the pending navigation and
-  //    opens Quick Edit instead. The cost is a ~250ms pause before navigating,
-  //    paid ONLY on these cards — the parent's own rows are untouched and
-  //    instant, because selecting has nothing to defer.
-  function deferNavigate() {
-    if (timer.current) return;
-    timer.current = setTimeout(() => {
-      timer.current = null;
-      // ★★ fix-408: carry the origin so "← Previous" comes back HERE, which
-      //    the OriginLink this replaces got for free. `makeOriginState` +
-      //    `rememberPaneScroll` are exactly what OriginLink does in its own
-      //    click handler — called here rather than re-derived, so a programmatic
-      //    navigation and a link navigation record the same thing. Reading the
-      //    scroll offset in the handler and never in render is fix-408's rule
-      //    (a list renders at the top and is clicked after scrolling).
-      const origin = makeOriginState(location);
-      if (origin) rememberPaneScroll(origin.from, currentPaneScroll());
-      navigate(`/project/${redesign.project.id}`, { state: origin });
-    }, REDESIGN_CLICK_DEFER_MS);
-  }
-  function cancelNavigate() {
-    if (timer.current) {
-      clearTimeout(timer.current);
-      timer.current = null;
-    }
-  }
-
   const trig = redesign.project.redesign_trigger;
   const triggerLabel = trig
     ? REDESIGN_TRIGGER_LABELS[trig as RedesignTrigger] ?? trig
@@ -1390,10 +863,14 @@ function RedesignGroup({
       style={{ borderBottomColor: 'var(--color-border)' }}
       data-testid={`permits-sidebar-redesign-group-${redesign.project.id}`}
     >
-      {/* ★ fix-421 SCOPE 2: this is the GROUP HEADING now, not the row that
-          stands in for the permits. It keeps fix-193's link + edit / delete
-          actions and its testids; what changed is what sits beneath it. The
-          buttons stay OUTSIDE the Link (no nested interactives). */}
+      {/* ★ fix-421 SCOPE 2: this is the GROUP HEADING, not the row that stands
+          in for the permits. It keeps fix-193's link + edit / delete actions
+          and its testids. The buttons stay OUTSIDE the Link (no nested
+          interactives).
+          ★★ fix-517: the click is no longer DEFERRED. fix-421 delayed it by
+             250ms so a double-click could reach Quick Edit before the
+             navigation unmounted the card; §E deleted Quick Edit, so the delay
+             now protects nothing and the link navigates immediately. */}
       <div
         className="flex items-center gap-1 px-3 py-1.5 hover:bg-s2 transition"
         style={{ background: 'var(--color-s2)' }}
@@ -1444,262 +921,23 @@ function RedesignGroup({
           {redesignEmptyLine(redesign.project.redesign_reuses_original_permit)}
         </div>
       ) : (
-        redesign.permits.map((permit) => (
-          <div
-            key={permit.id}
-            data-testid={`project-overview-redesign-permit-${permit.id}`}
-          >
-            {/* ★★★ THE SAME COMPONENT EVERY OTHER PERMIT USES. Stage dot, type ·
-                stage breadcrumb, land-use badge, the portal-linked number, the
-                structure address and the key date — Bobby asked for "just like
-                the other permits in the permit tab" and this is literally that
-                component, not a copy of its markup that can drift from it.
-
-                ★ NOT draggable: `permit_order` is a column on THIS project and
-                  a redesign's permits are not in it. */}
-            <SidebarRow
-              permit={permit}
-              reviewers={reviewersByPermit.get(permit.id) ?? []}
-              selected={false}
-              dragOver={false}
-              draggable={false}
-              onSelect={deferNavigate}
-              onQuickEdit={() => {
-                cancelNavigate();
-                onQuickEdit(permit.id);
-              }}
-              onDragStart={() => {}}
-              onDragOver={() => {}}
-              onDragLeave={() => {}}
-              onDrop={() => {}}
-            />
-          </div>
-        ))
+        // ★★★ fix-517 §A — THE CARDS ARE GONE AND THIS LINE SAYS WHERE THEY
+        //     WENT. fix-421 rendered each of these permits as a full
+        //     `SidebarRow`; every one of them is now a row in the PERMITS table
+        //     above, tagged `↳ Redesign N`. A pane that listed them twice is
+        //     precisely the redundancy §A is deleting.
+        <button
+          type="button"
+          onClick={onOpenPermits}
+          className="w-full text-left px-3 py-2 text-[10px] text-dim hover:text-de hover:bg-s2 transition"
+          data-testid={`project-overview-redesign-permits-note-${redesign.project.id}`}
+        >
+          {redesign.permits.length === 1
+            ? '1 permit, in the table above.'
+            : `${redesign.permits.length} permits, in the table above.`}{' '}
+          <span className="underline">Edit in Project Details →</span>
+        </button>
       )}
     </div>
   );
 }
-
-function SidebarRow({
-  permit,
-  reviewers,
-  selected,
-  dragOver,
-  draggable,
-  parentNum,
-  onSelect,
-  onQuickEdit,
-  onDragStart,
-  onDragOver,
-  onDragLeave,
-  onDrop,
-}: {
-  permit: PermitWithCycles;
-  /** fix-194: when this permit is a sub/child, the parent's permit number for
-   *  the "reviewed under <parent #>" badge. Undefined for normal rows. */
-  parentNum?: string | null;
-  /** fix-104: reviewer rows for THIS permit. Threaded into
-   *  effectiveStage so the sidebar's stage agrees with the Schedule
-   *  Health table (which has always passed reviewers in). Empty
-   *  array is fine for permit types that don't carry rollup-driven
-   *  status — effectiveStage falls through to the cycle-state path. */
-  reviewers: PermitCycleReviewer[];
-  selected: boolean;
-  dragOver: boolean;
-  /** fix-65: issued permits sit in the static bottom group and are not
-   *  drag-reorderable. Active permits stay drag-reorderable as before. */
-  draggable: boolean;
-  onSelect: () => void;
-  onQuickEdit: () => void;
-  onDragStart: (e: React.DragEvent) => void;
-  onDragOver: (e: React.DragEvent) => void;
-  onDragLeave: (e: React.DragEvent) => void;
-  onDrop: (e: React.DragEvent) => void;
-}) {
-  const cycles = permit.permit_cycles ?? [];
-  const stage = effectiveStage(permit, cycles, reviewers);
-  const displayLabel =
-    permit.type === 'Building Permit' && permit.nickname
-      ? `Building Permit — ${permit.nickname}`
-      : permit.type ?? '—';
-
-  // fix-194: a sub/child permit renders as an indented placeholder — type +
-  // permit # + a "Sub-permit · reviewed under <parent #>" badge, NO stage dot /
-  // breadcrumb / review timeline (it carries no review state of its own). Still
-  // selectable + double-click-editable so the parent link can be cleared.
-  if (isSubPermit(permit)) {
-    return (
-      <div
-        onClick={onSelect}
-        onDoubleClick={onQuickEdit}
-        className="w-full pl-7 pr-3 py-2 border-b cursor-pointer transition flex flex-col gap-0.5"
-        style={{
-          borderBottomColor: 'var(--color-border)',
-          background: selected ? 'var(--color-s3)' : 'transparent',
-          borderLeft: '3px solid transparent',
-        }}
-        data-testid={`permits-sidebar-row-${permit.id}`}
-        data-sub-permit="true"
-      >
-        <div className="flex items-center gap-1.5 min-w-0">
-          <span className="text-dim flex-shrink-0 text-[11px] leading-none" aria-hidden="true">
-            ↳
-          </span>
-          <span
-            className="text-[11px] truncate flex-1 min-w-0 font-bold text-text"
-            data-testid={`permits-sidebar-type-${permit.id}`}
-          >
-            {displayLabel}
-          </span>
-        </div>
-        <div
-          className="text-[9px] text-dim italic truncate pl-[18px]"
-          data-testid={`permits-sidebar-subpermit-${permit.id}`}
-        >
-          {subPermitBadgeLabel(parentNum)}
-        </div>
-        {permit.num && (
-          <div className="text-[10px] truncate pl-[18px]">
-            <span className="text-text font-mono" data-testid={`permits-sidebar-num-${permit.id}`}>
-              {permit.num}
-            </span>
-          </div>
-        )}
-      </div>
-    );
-  }
-  // fix-104: parent stage breadcrumb (e.g. "Building Permit · Permitting")
-  // anchors the card on the stage; the sub-event date line below is then
-  // clearly subordinate. Pre-fix the card showed only the type on the
-  // top line and rendered the dated event in caps below, which read as
-  // the primary stage label (the bug Bobby reported on 10431 SE 19th St).
-  // The pre-fix urgency-driven date color is gone too — the card's own
-  // bg tint / left-border (stage color) already signals stage, and the
-  // sub-event line is text-only secondary detail.
-
-  return (
-    <div
-      draggable={draggable}
-      onDragStart={draggable ? onDragStart : undefined}
-      onDragOver={draggable ? onDragOver : undefined}
-      onDragLeave={draggable ? onDragLeave : undefined}
-      onDrop={draggable ? onDrop : undefined}
-      onClick={onSelect}
-      onDoubleClick={onQuickEdit}
-      className="w-full px-3 py-2 border-b cursor-pointer transition flex flex-col gap-1"
-      style={{
-        borderBottomColor: 'var(--color-border)',
-        // Selection / drag-over tints sit on top of the parent group's
-        // background tint, so the issued group's --color-is-bg shows
-        // through for un-selected, un-hovered issued rows.
-        background: dragOver
-          ? 'var(--color-de-bg)'
-          : selected
-            ? 'var(--color-s3)'
-            : 'transparent',
-        borderLeft: selected
-          ? `3px solid var(--color-${stage})`
-          : dragOver
-            ? '3px solid var(--color-de)'
-            : '3px solid transparent',
-      }}
-      data-testid={`permits-sidebar-row-${permit.id}`}
-    >
-      {/* ★★★ fix-508 §E (P-184) — LINE 1 IS THE PERMIT TYPE, AND ONLY THE TYPE.
-          Two things left this line and both went somewhere better:
-          · the STAGE SUFFIX became the phase GROUP HEADER above the card, with
-            a count. fix-104 put it here as a breadcrumb — *"Building Permit
-            FIRST, currently in Permitting"* — which is exactly right for a flat
-            list and redundant the moment the list is grouped BY that stage. It
-            was also the widest thing in the rail: `Building Permit ·
-            Corrections` needs 173px of a 161px row.
-          · the COLOUR DOT went with it, to the same header. A per-card dot in a
-            group whose header is already that colour is the same fact twice. */}
-      <div className="flex items-center gap-1.5 min-w-0">
-        <span
-          className="text-[11px] font-bold text-text truncate flex-1 min-w-0"
-          title={displayLabel}
-          data-testid={`permits-sidebar-type-${permit.id}`}
-        >
-          {displayLabel}
-        </span>
-        {draggable && (
-          <span
-            className="text-dim flex-shrink-0 cursor-grab text-[12px] leading-none"
-            title="Drag to reorder"
-          >
-            ⠿
-          </span>
-        )}
-      </div>
-      {/* fix-169: land-use phase badge — only for *-LU permits, answers
-          "why hasn't this issued?" on the overview. Null for everything else. */}
-      <LandUsePhaseBadge permit={permit} />
-      {/* ★ LINE 2 — the permit number, and the portal link on it. */}
-      <div className="text-[10px] truncate">
-        {permit.num ? (
-          permit.portal_url ? (
-            // fix-35 Bug 1b: restore the portal-link <a> dropped during
-            // fix-26→32 (the # had regressed to a blue-styled non-link span).
-            // stopPropagation so clicking the # opens the portal without also
-            // firing the row's onSelect.
-            <a
-              href={permit.portal_url}
-              target="_blank"
-              rel="noreferrer"
-              onClick={(e) => e.stopPropagation()}
-              className="text-de font-mono hover:underline"
-              title="Open city portal"
-              data-testid={`permits-sidebar-portal-${permit.id}`}
-            >
-              {permit.num} ↗
-            </a>
-          ) : (
-            // No portal URL on file: plain (non-blue) mono so it doesn't
-            // masquerade as a broken link.
-            <span
-              className="text-text font-mono"
-              title="No portal URL on file"
-              data-testid={`permits-sidebar-num-${permit.id}`}
-            >
-              {permit.num}
-            </span>
-          )
-        ) : (
-          <span className="text-dim italic">No permit # yet</span>
-        )}
-      </div>
-      {permit.struct_address && (
-        // ★ LINE 3 — fix-35 Bug 1a: structure address, so multiple BPs on one
-        //   project are distinguishable. This is the `SFR 1` / `CCR` line.
-        <div
-          className="text-[10px] text-muted truncate"
-          title={permit.struct_address}
-          data-testid={`permits-sidebar-addr-${permit.id}`}
-        >
-          {permit.struct_address}
-        </div>
-      )}
-      {/* ★★★ fix-508 §E — THE DATE LINE IS GONE, AND IT IS NOT LOST.
-          fix-104 added `Target: 2026-10-16` / `Corrections: …` / `Issued: …`
-          as a sub-event line under each card. **Schedule Health carries every
-          one of those dates**, in named columns, four inches to the right on
-          the same screen — and it carries them for the whole lineage rather
-          than one per card. Bobby asked for three lines with a real hierarchy;
-          a fourth line repeating a table that is already on screen is what was
-          stopping the three from reading as a hierarchy at all.
-          ★★ AND `pickKeyDate` GOES WITH IT, because this was its ONLY caller.
-             I wrote "it stays, other surfaces call it" and then checked: they
-             do not. `git grep` finds the function, this line, and two comments
-             in ProjectDetail.test.tsx. Leaving a dead 30-line precedence ladder
-             behind with a comment claiming it is live is worse than either
-             keeping it honestly or deleting it — so it is deleted, and its
-             rule is recorded here: it picked a per-stage date (Issued /
-             Approved / Corrections / Resubmitted / City Target / Submitted /
-             Target) mirroring v1's index.html:3554-3577. Schedule Health prints
-             every one of those in a named column. */}
-    </div>
-  );
-}
-
-

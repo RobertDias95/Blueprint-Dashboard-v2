@@ -159,7 +159,15 @@ describe('<ProjectDetail /> Redesigns section (fix-151)', () => {
     const row = screen.getByTestId('project-overview-redesign-row-r1');
     expect(row.textContent).toContain('Redesign 1');
     expect(row.textContent).toContain('Acquisitions');
-    expect(screen.getByTestId('project-overview-redesign-permit-10248')).toBeTruthy();
+    // ★★★ fix-517 §A: the redesign's PERMITS are rows in the PERMITS table now,
+    //     not cards in this band — the band was showing the same permits the
+    //     table beside it had rendered since fix-151, which is the redundancy
+    //     the rail was deleted for. What the band says instead is HOW MANY and
+    //     WHERE, which is a destination rather than a duplicate.
+    expect(screen.queryByTestId('project-overview-redesign-permit-10248')).toBeNull();
+    const note = screen.getByTestId('project-overview-redesign-permits-note-r1');
+    expect(note.textContent).toContain('1 permit,');
+    expect(note.textContent).toContain('in the table above');
   });
 
   // ★★★ SUPERSEDED BY fix-421, and the reason it existed is now the card's job.
@@ -187,14 +195,21 @@ describe('<ProjectDetail /> Redesigns section (fix-151)', () => {
     renderPage();
     const section = screen.getByTestId('project-overview-redesigns-section');
     expect(section.textContent).toContain("Reuses parent's permits");
-    const pprRow = screen.getByTestId('project-overview-redesign-permit-10321');
-    expect(pprRow.textContent).toContain('PPR');
-    // ★ The card's own "no number" treatment, not a bespoke string.
-    expect(pprRow.textContent).toMatch(/No permit # yet/i);
-    // ★★ And it IS the shared card: same testid shape as every other row.
+    // ★★★ SUPERSEDED AGAIN, BY fix-517 §A — and the intent is unchanged for the
+    //     third time running. fix-193 wrote a label so a number-less PPR would
+    //     not read as blank; fix-421 replaced the label with the shared card,
+    //     which prints "No permit # yet" itself; fix-517 replaces the card with
+    //     a TABLE ROW, whose Permit Number column prints exactly the same
+    //     words. **26 of 685 prod permits have no number**, so §B makes that
+    //     cell's empty state an explicit requirement rather than a side effect.
+    //     It is asserted against the real table in `PermitsTableFix517`.
+    //
+    // ★ What THIS suite still owns is the note, which is the half of the band
+    //   that never moved: a reuses-parent redesign says so in words.
+    expect(screen.queryByTestId('project-overview-redesign-permit-10321')).toBeNull();
     expect(
-      pprRow.querySelector('[data-testid="permits-sidebar-row-10321"]'),
-    ).toBeTruthy();
+      screen.getByTestId(`project-overview-redesign-note-r1`).textContent,
+    ).toContain("Reuses parent's permits");
   });
 
   it('a reuses-permit redesign with no permits at all shows just the note', () => {
@@ -255,10 +270,12 @@ describe('<ProjectDetail /> Redesigns section (fix-151)', () => {
   // is a div whose click navigates — the destination is unchanged, which is what
   // this ticket was told to leave alone; only the mechanism moved.
   //
-  // ★★ AND THE CLICK IS DEFERRED ONE DOUBLE-CLICK INTERVAL, so that
-  //    double-click-to-quick-edit works on these cards too (see the fix-421
-  //    suite). That is why this waits rather than asserting synchronously.
-  it('fix-151 → fix-421: clicking a redesign permit card still goes to the redesign project', async () => {
+  // ★★★ fix-517 §A/§E: THE CARD IS GONE AND SO IS THE DEFER. fix-421 delayed a
+  //     redesign card's click by 250ms so a double-click could reach Quick
+  //     Edit first; §E deletes Quick Edit and §A deletes the cards. What is
+  //     left is the HEADING link, which is fix-151's original destination and
+  //     now navigates immediately.
+  it('fix-151 → fix-517: the redesign heading still goes to the redesign project', async () => {
     refs.projects = [
       project({ id: PARENT }),
       project({ id: 'r1', redesign_of_project_id: PARENT }),
@@ -266,7 +283,7 @@ describe('<ProjectDetail /> Redesigns section (fix-151)', () => {
     refs.allPermits = [permit(1, PARENT), permit(10248, 'r1')];
     renderPage();
     expect(screen.getByTestId('probe-path').textContent).toBe(`/project/${PARENT}`);
-    fireEvent.click(screen.getByTestId('permits-sidebar-row-10248'));
+    fireEvent.click(screen.getByTestId('project-overview-redesign-row-r1'));
     await waitFor(() =>
       expect(screen.getByTestId('probe-path').textContent).toBe('/project/r1'),
     );

@@ -292,16 +292,22 @@ describe('fix-63 ACQ date inline edit — moved AGAIN by fix-514 §G, now per pe
     render(<ScheduleHealthTable permits={[p]} />, { wrapper });
     const row = screen.getByTestId('schedule-health-row-501');
     const tds = within(row).getAllByRole('cell');
-    // Columns: 1 Permit Type, 2 Reviewers, 3 Stage, 4 Permit Status,
-    // 5 Data Source, 6 Permit Approval, 7 Target Approval, 8 Schedule Health.
-    expect(tds.length).toBe(8);
-    const cell = within(tds[6]).getByTestId('schedule-health-target-approval-501');
+    // Columns: 1 Permit Type, 2 Permit Number, 3 Reviewers, 4 Stage,
+    // 5 Permit Status, 6 Data Source, 7 Permit Approval, 8 Target Approval,
+    // 9 Schedule Health.
+    // ★★★ fix-517 §B: NINE columns now — `Permit Number` becomes one of its
+    //     own, hyperlinked to the city portal, having ridden along inside the
+    //     type cell in 9px mono since fix-25. Target Approval moves from index
+    //     6 to index 7 with it; the index is read off the list above rather
+    //     than remembered, which is why this reads as a one-line change.
+    expect(tds.length).toBe(9);
+    const cell = within(tds[7]).getByTestId('schedule-health-target-approval-501');
     expect(cell).toBeInTheDocument();
     // ★★ NOT an input any more — the assertion that would fail if somebody put
     //    the box back without re-reading §D.
     expect(cell.tagName).toBe('SPAN');
-    expect(within(tds[6]).queryByRole('textbox')).toBeNull();
-    expect(tds[6].querySelector('input')).toBeNull();
+    expect(within(tds[7]).queryByRole('textbox')).toBeNull();
+    expect(tds[7].querySelector('input')).toBeNull();
     // ★ With no closing date and no GO date, the ACQ date is the only candidate
     //   — so the derived answer IS `expected_issue`, which is the continuity
     //   check that the column still means what it meant.
@@ -311,7 +317,8 @@ describe('fix-63 ACQ date inline edit — moved AGAIN by fix-514 §G, now per pe
     //    screen. The date being asserted is unchanged.
     expect(cell.textContent).toBe('08/01/2026');
     expect(cell.getAttribute('data-driver')).toBe('acq');
-    expect(tds[7].textContent).toMatch(/On Track|At Risk|Behind|In Progress/);
+    // ★ …and the badge is in the LAST column, which is index 8 of nine.
+    expect(tds[8].textContent).toMatch(/On Track|At Risk|Behind|In Progress/);
   });
 
   it('★★★ SUPERSEDED by fix-512 §A: the badge measures against TARGET APPROVAL, not the ACQ date', () => {

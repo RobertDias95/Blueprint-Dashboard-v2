@@ -202,6 +202,7 @@ export function useProjectDetailsForm(
           num: '',
           struct_address: '',
           expected_issue: '',
+          parent_permit_id: '',
         },
       ],
     }));
@@ -321,6 +322,13 @@ export function useProjectDetailsForm(
             //     Target Approval falls back to the closing date or GO + 6
             //     months — the point of it being a `max` over three candidates.
             expected_issue: row.expected_issue.trim() || null,
+            // ★★★ fix-517 §E: sent on every EXISTING row, so clearing the
+            //     select clears the column. Not sent on a NEW row — an unsaved
+            //     permit has no id for a sibling to point at and no id of its
+            //     own, so the selector does not render there either.
+            parent_permit_id: row.parent_permit_id.trim()
+              ? Number(row.parent_permit_id)
+              : null,
           });
         }
       }

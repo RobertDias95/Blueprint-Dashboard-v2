@@ -560,8 +560,14 @@ describe('fix-331 §4: one button, and Delete stays dangerous', () => {
     //     modal. fix-331 §4's claim — ONE button on the page header, with
     //     Reassign DA and Delete inside it rather than beside it — is what this
     //     asserts and it is unchanged; both are on the modal's Actions tab.
+    // ★★★ fix-517 §F (P-223): the button says **⚙ Project Details** now.
+    //     fix-514 renamed the modal and missed the control that opens it, and
+    //     the test that should have caught it only asserted the ABSENCE of
+    //     "Project Settings" — which "Project Data" satisfies. The testid is
+    //     deliberately unchanged so this suite still names the thing it was
+    //     written about.
     expect(src).toContain('data-testid="project-data-btn"');
-    expect(src).toContain('Project Data');
+    expect(src).toContain('⚙ Project Details');
     // The two that moved inside are gone from the header.
     expect(src).not.toContain('data-testid="project-reassign-da-btn"');
     expect(src).not.toContain('data-testid="project-delete-btn"');

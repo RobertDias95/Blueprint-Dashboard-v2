@@ -132,8 +132,14 @@ describe('fix-453 — the overview height ceiling, pinned', () => {
     //     viewport by a single pixel; this spends it and 91 more, deliberately.
     //     1600 and 1920 — the widths Bobby works at — both still run on one
     //     line, which is the claim that has to survive.
-    expect(overviewRowWidthAt(1440)).toBe(905);
-    expect(overviewRowWidthAt(1440)).toBeLessThan(OVERVIEW_ROW_MIN_WIDTH);
+    // ★★★ AND fix-517 §A HANDS 1440 BACK AGAIN, with 111px to spare rather
+    //     than fix-507's one pixel: deleting the permits rail returns 202px at
+    //     every viewport, so 905 becomes 1107 against the same 996 minimum.
+    //     Three tickets have now moved this line in both directions, which is
+    //     why the assertion is written against the DERIVED width and not
+    //     against a remembered "1440 wraps".
+    expect(overviewRowWidthAt(1440)).toBe(1107);
+    expect(overviewRowWidthAt(1440)).toBeGreaterThan(OVERVIEW_ROW_MIN_WIDTH);
     expect(overviewRowWidthAt(1600)).toBeGreaterThan(OVERVIEW_ROW_MIN_WIDTH);
     expect(overviewRowWidthAt(1920)).toBeGreaterThan(OVERVIEW_ROW_MIN_WIDTH);
   });

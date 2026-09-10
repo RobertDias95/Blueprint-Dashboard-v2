@@ -170,13 +170,20 @@ describe('fix-508 — fix-417 retired: a FLOOR, not a rank', () => {
     const [por, proj, team] = resolveOverviewWidths(overviewRowWidthAt(1920)).map((n) =>
       Math.round(n),
     );
-    expect([por, proj, team]).toEqual([486, 382, 497]);
+    // ★★★ fix-517 §A: [486, 382, 497] → [556, 439, 572]. The rail's 202px is
+    //     shared out at 1920, and this is the first ticket at which the Plan of
+    //     Record clears its own 486 floor at that viewport — so fix-508's
+    //     declared shares govern all three cards here for the first time.
+    expect([por, proj, team]).toEqual([556, 439, 572]);
     // ★★★ D-2026-09-09: the RANK is retired. fix-417's *"the Design plan of
     //     record is the widest of the boxes"* was shorthand for Team being
     //     crushed to ~100px, and fix-508 settles that grievance directly.
     expect(team).toBeGreaterThan(por);
-    // ★ …and Bobby's 20% is what produced it: 478 × 0.8 = 382.
-    expect(Math.round(478 * 0.8)).toBe(proj);
+    // ★ …and Bobby's 20% is what produced the SHARE. It was legible as a width
+    //   (478 × 0.8 = 382) only while the row was 1385 wide; the ruling lives in
+    //   `pct`, which is where a share belongs, and 28 / 35.5 / 36.5 is
+    //   unchanged by fix-517.
+    expect(Math.round(proj / (por + proj + team) * 1000) / 10).toBeCloseTo(28, 0);
   });
 
   it('★★★ the FLOOR replaces the rank, because a share with no floor is a suggestion', () => {
@@ -196,19 +203,26 @@ describe('fix-508 — fix-417 retired: a FLOOR, not a rank', () => {
     // 486 + 330 + 160 + 20. ★ Team's floor is 160 again — §F1's pill floor
     //   (96 + 22 of chrome) no longer beats fix-423's 160.
     expect(OVERVIEW_ROW_MIN_WIDTH).toBe(996);
-    expect(overviewMinViewport('expanded')).toBe(1531);
-    expect(overviewMinViewport('collapsed')).toBe(1375);
-    // ★★ SO 1440 WRAPS AGAIN. fix-507 won it by a single pixel; the Plan of
-    //    Record's floor spends it and 115 more. Stated, not buried: 1600 and
-    //    1920 are the widths Bobby works at and both run on one line.
-    expect(overviewRowWidthAt(1440)).toBeLessThan(OVERVIEW_ROW_MIN_WIDTH);
+    // ★★★ fix-517 §A: the FLOORS are unchanged (996) and the wrap point falls
+    //     1531 → 1329 with the rail.
+    expect(overviewMinViewport('expanded')).toBe(1329);
+    expect(overviewMinViewport('collapsed')).toBe(1173);
+    // ★★ fix-508 made 1440 WRAP AGAIN — fix-507 had won it by a single pixel
+    //    and the Plan of Record's floor spent it and 115 more.
+    // ★★★ fix-517 §A HANDS 1440 BACK, WITH ROOM: the row is 1107 there against
+    //     a 996 minimum. This assertion is INVERTED rather than deleted,
+    //     because "which viewports run on one line" is the thing the test is
+    //     for and it has now changed three times.
+    expect(overviewRowWidthAt(1440)).toBeGreaterThan(OVERVIEW_ROW_MIN_WIDTH);
     expect(overviewRowWidthAt(1600)).toBeGreaterThan(OVERVIEW_ROW_MIN_WIDTH);
   });
 });
 
 describe('fix-508 §B — and the pair fits at BOTH viewports, with margin', () => {
+  // ★ fix-517 §A: 60 → 117 at 1920. 1600 is UNCHANGED at 8, because the
+  //   Project card is on its floor there and the rail's 202 all went to Team.
   it.each([
-    [1920, 60],
+    [1920, 117],
     [1600, 8],
   ])('★★★ at %i the pair has %i px to spare', (vw, margin) => {
     const body = Math.round(resolveOverviewWidths(overviewRowWidthAt(vw))[1]) - PROJECT_CARD_BORDER;
@@ -259,10 +273,14 @@ describe('fix-508 §F — the consultant pill, and the chat cell', () => {
     //   sub-pixel distribution across three frozen-then-shared tracks. Both
     //   clear the threshold, and the assertion is on the PROPERTY rather than
     //   on either rounding.
+    // ★★★ fix-517 §A: 229 → 431 at 1600, and the margin over the three-column
+    //     threshold goes 16 → 218. Team was the ONLY card paying for the rail,
+    //     so it is the only card that gains at this viewport — the clearance
+    //     this test defends stops being one browser rounding from gone.
     const team = Math.round(resolveOverviewWidths(overviewRowWidthAt(1600))[2]);
-    expect(team).toBe(229);
+    expect(team).toBe(431);
     expect(team).toBeGreaterThanOrEqual(TEAM_GRID_CARD_MIN);
-    expect(team - TEAM_GRID_CARD_MIN).toBe(16);
+    expect(team - TEAM_GRID_CARD_MIN).toBe(218);
   });
 });
 

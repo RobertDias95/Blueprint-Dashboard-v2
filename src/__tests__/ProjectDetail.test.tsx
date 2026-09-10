@@ -149,17 +149,27 @@ vi.mock('../components/ProjectDetail/DeleteProjectDialog', () => ({
   default: () => null,
 }));
 
-vi.mock('../components/ProjectDetail/QuickEditPermitModal', () => ({
-  default: () => null,
+// ★ fix-517 §E: `QuickEditPermitModal` is DELETED — a mock for it would be a
+//   mock of nothing. Its replacement is a URL (`?data=permits&focus=<id>`), so
+//   the modal that has to be inert here is Project Details.
+vi.mock('../components/ProjectDetail/ProjectDetailsModal', () => ({
+  default: () => <div data-testid="stub-project-details-modal" />,
 }));
 
 // PermitDetailV2 stub. Tests assert that the four right-side widget
 // labels appear as descendants of the right pillbox; the stub renders
 // each label so the structural assertion works without dragging in
 // ~8 deeper hook mocks.
+// ★★★ fix-517 §A: the stub now REPORTS THE PERMIT IT WAS GIVEN.
+//
+// The fix-217/218/219 deep-link tests below used to prove *which* permit was
+// selected by reading the highlighted row in the permits rail. §A deletes the
+// rail, so the only place a selection is visible is the pane it opens — which
+// is the honest place to have been asserting it all along. One stub prop
+// replaces five `permits-sidebar-row-<id>` background reads.
 vi.mock('../components/ProjectDetail/PermitDetailV2', () => ({
-  default: () => (
-    <div data-testid="stub-permit-detail-v2">
+  default: ({ permit }: { permit: { id: number } }) => (
+    <div data-testid="stub-permit-detail-v2" data-permit-id={String(permit.id)}>
       <div data-testid="widget-schedule-estimator">Schedule Estimator</div>
       <div data-testid="widget-issue-dates">Issue Dates</div>
       <div data-testid="widget-cycle-history">Cycle History</div>
@@ -285,12 +295,9 @@ describe('<ProjectDetail /> fix-217 permit deep-link', () => {
       expect(screen.getByTestId('permit-edit-pane')).toBeInTheDocument();
       expect(screen.queryByTestId('project-overview-pane')).toBeNull();
       // It's permit 2 specifically (selected row carries the s3 background).
-      expect(screen.getByTestId('permits-sidebar-row-2').style.background).toBe(
-        'var(--color-s3)',
-      );
-      expect(screen.getByTestId('permits-sidebar-row-1').style.background).toBe(
-        'transparent',
-      );
+      expect(
+        screen.getByTestId('stub-permit-detail-v2').getAttribute('data-permit-id'),
+      ).toBe('2');
       // And the detail pane was scrolled into view.
       expect(scrollSpy).toHaveBeenCalled();
     } finally {
@@ -335,9 +342,9 @@ describe('<ProjectDetail /> fix-218 deep-link after async permit load', () => {
     // Now the deep-link applies: permit 2 selected + pane scrolled into view.
     expect(screen.getByTestId('permit-edit-pane')).toBeInTheDocument();
     expect(screen.queryByTestId('project-overview-pane')).toBeNull();
-    expect(screen.getByTestId('permits-sidebar-row-2').style.background).toBe(
-      'var(--color-s3)',
-    );
+    expect(
+      screen.getByTestId('stub-permit-detail-v2').getAttribute('data-permit-id'),
+    ).toBe('2');
     expect(scrollSpy).toHaveBeenCalled();
   });
 
@@ -375,17 +382,14 @@ describe('<ProjectDetail /> fix-218 deep-link after async permit load', () => {
       </QueryClientProvider>,
     );
     // Initially permit 2 is selected.
-    expect(screen.getByTestId('permits-sidebar-row-2').style.background).toBe(
-      'var(--color-s3)',
-    );
+    expect(
+      screen.getByTestId('stub-permit-detail-v2').getAttribute('data-permit-id'),
+    ).toBe('2');
     // Navigate to ?permit=1 → the new param value re-selects permit 1.
     fireEvent.click(screen.getByTestId('nav-to-permit-1'));
-    expect(screen.getByTestId('permits-sidebar-row-1').style.background).toBe(
-      'var(--color-s3)',
-    );
-    expect(screen.getByTestId('permits-sidebar-row-2').style.background).toBe(
-      'transparent',
-    );
+    expect(
+      screen.getByTestId('stub-permit-detail-v2').getAttribute('data-permit-id'),
+    ).toBe('1');
   });
 });
 
@@ -405,12 +409,9 @@ describe('<ProjectDetail /> fix-219 type-robust permit deep-link', () => {
     renderAt(`/project/${PROJECT_ID}?permit=223`);
     expect(screen.getByTestId('permit-edit-pane')).toBeInTheDocument();
     expect(screen.queryByTestId('project-overview-pane')).toBeNull();
-    expect(screen.getByTestId('permits-sidebar-row-223').style.background).toBe(
-      'var(--color-s3)',
-    );
-    expect(screen.getByTestId('permits-sidebar-row-224').style.background).toBe(
-      'transparent',
-    );
+    expect(
+      screen.getByTestId('stub-permit-detail-v2').getAttribute('data-permit-id'),
+    ).toBe('223');
   });
 
   it('selects ?permit=223 on a 5-permit project after the permits load async', () => {
@@ -431,33 +432,55 @@ describe('<ProjectDetail /> fix-219 type-robust permit deep-link', () => {
     );
     // Permit 223 (of 5) is selected + scrolled into view.
     expect(screen.getByTestId('permit-edit-pane')).toBeInTheDocument();
-    expect(screen.getByTestId('permits-sidebar-row-223').style.background).toBe(
-      'var(--color-s3)',
-    );
-    expect(screen.getByTestId('permits-sidebar-row-221').style.background).toBe(
-      'transparent',
-    );
+    expect(
+      screen.getByTestId('stub-permit-detail-v2').getAttribute('data-permit-id'),
+    ).toBe('223');
     expect(scrollSpy).toHaveBeenCalled();
   });
 });
 
-describe('<ProjectDetail /> fix-23e two-pillbox layout', () => {
-  it('renders left and right pillboxes with overflow-y-auto each', () => {
+// ===========================================================================
+// ★★★ fix-517 §A — THE RAIL IS DELETED, AND FOUR SUITES MOVE WITH IT
+// ===========================================================================
+//
+// Bobby, 2026-09-10: *"Permits on the left-hand side of the screen is gone."*
+// The left rail (`pd-left-pillbox` / `PermitsSidebar`) and its `SidebarRow` are
+// removed from `pages/ProjectDetail.tsx`, so four describes that lived here
+// have nothing left to render:
+//
+//   · fix-23e  two-pillbox layout        — there is ONE pillbox now
+//   · fix-65   issued-permit grouping    — the table sorts issued LAST (§C)
+//   · fix-508 §E the rail's phase groups — the table's DEFAULT ORDER is phase
+//   · fix-194  sub-permit nesting        — the table has always excluded them
+//
+// ★★★ NONE OF THOSE BEHAVIOURS IS GONE; EVERY ONE OF THEM MOVED, and each is
+//     asserted against the real table in `PermitsTableFix517.test.tsx` — which
+//     is where they belong, because `ScheduleHealthTable` is STUBBED in this
+//     file and always has been. Testing the rail's phase order here was only
+//     ever possible because the rail was the one permits list this suite could
+//     see; there is no reason to mock the table back in to re-prove a rule the
+//     table itself is tested on.
+//
+// ★★ WHAT STAYS HERE IS WHAT IS ABOUT THE PAGE: the bounded height contract,
+//    the single pillbox, and the deep-link suites above — which now read the
+//    SELECTED PERMIT off the detail pane rather than off a highlighted rail
+//    row, which is the only place a selection was ever visible to a user.
+describe('<ProjectDetail /> fix-23e → fix-517 §A: ONE pillbox', () => {
+  it('★★★ the left rail is GONE — asserted as absence, not as a zero width', () => {
     renderAt();
-    const left = screen.getByTestId('pd-left-pillbox');
+    expect(screen.queryByTestId('pd-left-pillbox')).toBeNull();
+    expect(screen.queryByTestId('pd-left-rail')).toBeNull();
+    expect(screen.queryByTestId('permits-sidebar-list')).toBeNull();
+    expect(screen.queryByTestId('permits-sidebar-count')).toBeNull();
+    expect(screen.queryByTestId('permits-sidebar-row-1')).toBeNull();
+    // ★ …and the right pillbox is still the scrollable one, unchanged.
     const right = screen.getByTestId('pd-right-pillbox');
-    // The left pillbox wraps a header + a scrollable list — the inner
-    // list carries overflow-y-auto so the rounded outer border doesn't
-    // get broken by content overlap.
-    expect(left.className).toContain('rounded-lg');
-    expect(left.className).toContain('border');
-    // Find the scrollable list inside.
-    const listScroller = screen.getByTestId('permits-sidebar-list');
-    expect(listScroller.className).toContain('overflow-y-auto');
-    // Right pillbox itself is the scrollable container.
     expect(right.className).toContain('overflow-y-auto');
     expect(right.className).toContain('rounded-lg');
     expect(right.className).toContain('border');
+    // ★★ It is now the ONLY child of the body row, which is what makes the
+    //    202px the rail held reach the overview cards.
+    expect(right.parentElement?.childElementCount).toBe(1);
   });
 
   it('outer container has a bounded max-height based on viewport', () => {
@@ -471,11 +494,11 @@ describe('<ProjectDetail /> fix-23e two-pillbox layout', () => {
   });
 
   it('renders all four right-side widgets inside the right pillbox when a permit is selected', () => {
-    renderAt();
-    // Click the first permit row to enter permit-detail state.
-    const row = screen.getByTestId('permits-sidebar-row-1');
-    fireEvent.click(row);
-
+    // ★ fix-517 §D: a rail row's click used to be how you got here. It is a
+    //   TABLE ROW's click now, and the table is stubbed in this file — so the
+    //   deep link is what selects a permit for this structural assertion. The
+    //   click itself is asserted in `PermitsTableFix517.test.tsx`.
+    renderAt(`/project/${PROJECT_ID}?permit=1`);
     const right = screen.getByTestId('pd-right-pillbox');
     expect(right.contains(screen.getByTestId('widget-schedule-estimator'))).toBe(
       true,
@@ -487,412 +510,51 @@ describe('<ProjectDetail /> fix-23e two-pillbox layout', () => {
     );
   });
 
-  it('renders the permits list inside the left pillbox', () => {
-    renderAt();
-    const left = screen.getByTestId('pd-left-pillbox');
-    const row1 = screen.getByTestId('permits-sidebar-row-1');
-    const row2 = screen.getByTestId('permits-sidebar-row-2');
-    expect(left.contains(row1)).toBe(true);
-    expect(left.contains(row2)).toBe(true);
-  });
-
-  it('fix-35 Bug 1: permit # links to portal_url and struct_address shows', () => {
-    refs.setPermits([
-      {
-        ...refs.permits[0],
-        id: 1,
-        num: 'BP-100',
-        portal_url: 'https://portal.example/bp100',
-        struct_address: '123 Main St',
-      },
-      {
-        ...refs.permits[1],
-        id: 2,
-        num: 'DM-200',
-        portal_url: null,
-        struct_address: null,
-      },
-    ]);
-    renderAt();
-
-    // Permit with portal_url → a real anchor (the dead/missing <a> bug).
-    const link = screen.getByTestId('permits-sidebar-portal-1');
-    expect(link.tagName).toBe('A');
-    expect(link.getAttribute('href')).toBe('https://portal.example/bp100');
-    expect(link.getAttribute('target')).toBe('_blank');
-    expect(link.textContent).toContain('BP-100');
-    // Structure address surfaces for distinguishing multiple BPs.
-    expect(screen.getByTestId('permits-sidebar-addr-1').textContent).toContain(
-      '123 Main St',
-    );
-
-    // Permit without portal_url → plain span, never a broken-looking link.
-    expect(screen.queryByTestId('permits-sidebar-portal-2')).toBeNull();
-    expect(screen.getByTestId('permits-sidebar-num-2').tagName).toBe('SPAN');
-    expect(screen.queryByTestId('permits-sidebar-addr-2')).toBeNull();
-  });
-
   it('does not expand height when many permits are present (20-permit fixture)', () => {
-    // Swap in 20 permits.
+    // Swap in 20 permits. ★ The bounded-height contract is the point and it is
+    //   unchanged: the ONE pillbox scrolls internally and the page stays at a
+    //   single viewport however many permits there are. What changed is that
+    //   the scroller is the pillbox rather than the rail's inner list.
     refs.setPermits(refs.permits20.map((p) => ({ ...p })));
     renderAt();
     const page = screen.getByTestId('project-detail-page');
-    // Same bounded-height contract holds regardless of permit count —
-    // the left pillbox scrolls internally, the page stays at one
-    // viewport.
     expect(page.className).toContain('h-full');
     expect(page.className).toContain('overflow-hidden');
-    // All 20 rows render inside the left pillbox; the list scroller
-    // handles the overflow.
-    const left = screen.getByTestId('pd-left-pillbox');
-    for (let i = 1; i <= 20; i++) {
-      expect(left.contains(screen.getByTestId(`permits-sidebar-row-${i}`))).toBe(
-        true,
-      );
-    }
-  });
-});
-
-// ===========================================================
-// fix-65: restore v1's issued-permit grouping.
-//
-// Pre-fix the sidebar already dropped issued permits to the bottom
-// (via a `!!actual_issue` comparator in the sort) but rendered them
-// indistinguishably from active rows — no divider, no highlight, and
-// drag-reorder applied to all rows including issued ones. v1 shipped a
-// "✓ ISSUED (n)" divider with a teal highlight + a static (non-drag)
-// bottom block. These tests pin the restored UX.
-// ===========================================================
-
-describe('<ProjectDetail /> fix-65 issued-permit grouping', () => {
-  it('renders active permits ABOVE a ✓ ISSUED divider with the correct count', () => {
-    // 4 permits: two active (id 1, 2 — both have actual_issue null), two
-    // issued (id 3, 4 — actual_issue set). The default fixture has
-    // actual_issue null on both, so we extend it.
-    refs.setPermits([
-      { ...refs.permits[0], id: 1, type: 'Building Permit', actual_issue: null },
-      { ...refs.permits[1], id: 2, type: 'Demolition', actual_issue: null },
-      {
-        ...refs.permits[0],
-        id: 3,
-        type: 'SDOT Tree',
-        actual_issue: '2026-04-15',
-      },
-      {
-        ...refs.permits[0],
-        id: 4,
-        type: 'ULS',
-        actual_issue: '2026-05-10',
-      },
-    ]);
-    renderAt();
-
-    const divider = screen.getByTestId('permits-sidebar-issued-divider');
-    expect(divider).toBeInTheDocument();
-    expect(divider.textContent).toMatch(/Issued\s*\(2\)/i);
-    // ★★★ fix-508 §E: the divider renders through `PhaseGroupHeader` now — the
-    //     same component as the four new phase groups, because fix-65 invented
-    //     this shape and §E generalises it rather than leaving one hand-rolled
-    //     copy. The tint is on the header inside, so the assertion reads it
-    //     there.
-    const header = screen.getByTestId('permits-sidebar-phase-is');
-    const bgStyle = header.getAttribute('style') ?? '';
-    expect(bgStyle).toContain('var(--color-is-bg)');
-    // ★★ AND THE INK IS THE MIX, NOT THE RAW TOKEN (§G). `--color-is` on
-    //    `--color-is-bg` measures **3.32:1** in Chrome — under fix-407's
-    //    standing 4.5 floor, and it has been since fix-65 shipped in May. The
-    //    header uses fix-407's own recipe (65% token + 35% #1a2540) and comes
-    //    to 5.38:1, so this ticket fixes a pre-existing failure as well as
-    //    avoiding four new ones.
-    expect(bgStyle.toLowerCase()).toContain('rgb(14, 107, 138)');
-
-    // Active rows live before the divider in DOM order.
-    const list = screen.getByTestId('permits-sidebar-list');
-    const all = list.querySelectorAll('[data-testid^="permits-sidebar-row-"]');
-    // 4 rows total: 1, 2 above; 3, 4 below the divider (issued sorts by
-    // actual_issue desc so id 4 first, then id 3).
-    const ids = Array.from(all).map((el) =>
-      el.getAttribute('data-testid')?.replace('permits-sidebar-row-', ''),
-    );
-    expect(ids.indexOf('1')).toBeLessThan(ids.indexOf('3'));
-    expect(ids.indexOf('2')).toBeLessThan(ids.indexOf('3'));
-    expect(ids.indexOf('2')).toBeLessThan(ids.indexOf('4'));
-  });
-
-  it('issued group sits beneath the divider with the highlight bg', () => {
-    refs.setPermits([
-      { ...refs.permits[0], id: 1, actual_issue: null },
-      { ...refs.permits[0], id: 5, actual_issue: '2026-05-10' },
-    ]);
-    renderAt();
-    const issuedGroup = screen.getByTestId('permits-sidebar-issued-group');
-    expect(issuedGroup).toBeInTheDocument();
-    expect(issuedGroup.getAttribute('style')).toContain('var(--color-is-bg)');
-    // The issued row lives inside the issued group.
-    const issuedRow = screen.getByTestId('permits-sidebar-row-5');
-    expect(issuedGroup.contains(issuedRow)).toBe(true);
-    // The active row does NOT live inside the issued group.
-    const activeRow = screen.getByTestId('permits-sidebar-row-1');
-    expect(issuedGroup.contains(activeRow)).toBe(false);
-  });
-
-  it('issued rows are not draggable + omit the grab-handle glyph', () => {
-    refs.setPermits([
-      { ...refs.permits[0], id: 1, actual_issue: null },
-      { ...refs.permits[0], id: 5, actual_issue: '2026-05-10' },
-    ]);
-    renderAt();
-    const activeRow = screen.getByTestId('permits-sidebar-row-1');
-    const issuedRow = screen.getByTestId('permits-sidebar-row-5');
-    // draggable boolean is a DOM attribute on the outer <div>.
-    expect(activeRow.getAttribute('draggable')).toBe('true');
-    expect(issuedRow.getAttribute('draggable')).toBe('false');
-    // Grab-handle glyph (⠿) is present on active rows, absent on issued.
-    expect(activeRow.textContent).toContain('⠿');
-    expect(issuedRow.textContent).not.toContain('⠿');
-  });
-
-  it('"PERMITS (n)" header counts ALL permits (active + issued)', () => {
-    refs.setPermits([
-      { ...refs.permits[0], id: 1, actual_issue: null },
-      { ...refs.permits[0], id: 2, actual_issue: null },
-      { ...refs.permits[0], id: 3, actual_issue: '2026-05-10' },
-    ]);
-    renderAt();
-    const left = screen.getByTestId('pd-left-pillbox');
-    // The header reads "Permits (3)".
-    expect(left.textContent).toMatch(/Permits \(3\)/);
-  });
-
-  it('a project with NO issued permits renders no divider (sidebar looks like before)', () => {
-    refs.setPermits([
-      { ...refs.permits[0], id: 1, actual_issue: null },
-      { ...refs.permits[1], id: 2, actual_issue: null },
-    ]);
-    renderAt();
-    expect(
-      screen.queryByTestId('permits-sidebar-issued-divider'),
-    ).toBeNull();
-    expect(screen.queryByTestId('permits-sidebar-issued-group')).toBeNull();
-  });
-
-  it('a project with ALL permits issued renders the divider + every row inside the issued group', () => {
-    refs.setPermits([
-      { ...refs.permits[0], id: 1, actual_issue: '2026-04-01' },
-      { ...refs.permits[0], id: 2, actual_issue: '2026-05-15' },
-    ]);
-    renderAt();
-    const divider = screen.getByTestId('permits-sidebar-issued-divider');
-    expect(divider.textContent).toMatch(/Issued\s*\(2\)/i);
-    const group = screen.getByTestId('permits-sidebar-issued-group');
-    expect(group.contains(screen.getByTestId('permits-sidebar-row-1'))).toBe(true);
-    expect(group.contains(screen.getByTestId('permits-sidebar-row-2'))).toBe(true);
-    // Most-recently-issued first: id 2 (May 15) before id 1 (April 1).
-    const rows = group.querySelectorAll('[data-testid^="permits-sidebar-row-"]');
-    const ids = Array.from(rows).map((el) =>
-      el.getAttribute('data-testid')?.replace('permits-sidebar-row-', ''),
-    );
-    expect(ids).toEqual(['2', '1']);
-  });
-
-  it('issued permits sort by actual_issue desc (most recently issued first)', () => {
-    refs.setPermits([
-      { ...refs.permits[0], id: 1, actual_issue: null },
-      { ...refs.permits[0], id: 10, actual_issue: '2026-01-15' },
-      { ...refs.permits[0], id: 11, actual_issue: '2026-06-01' },
-      { ...refs.permits[0], id: 12, actual_issue: '2026-03-22' },
-    ]);
-    renderAt();
-    const group = screen.getByTestId('permits-sidebar-issued-group');
-    const rows = group.querySelectorAll('[data-testid^="permits-sidebar-row-"]');
-    const ids = Array.from(rows).map((el) =>
-      el.getAttribute('data-testid')?.replace('permits-sidebar-row-', ''),
-    );
-    // 11 (Jun) > 12 (Mar) > 10 (Jan).
-    expect(ids).toEqual(['11', '12', '10']);
-  });
-});
-
-// ===========================================================
-// fix-104: parent stage breadcrumb + secondary sub-event line.
-//
-// Pre-fix the sidebar card rendered only the type on the top line
-// and put the latest dated cycle event in ALL CAPS below — so a
-// permit in stage='co' read as if "CORRECTIONS YYYY-MM-DD" was its
-// primary stage label, when the right-hand Schedule Health table
-// rendered "PERMITTING" for the same permit (per fix-54 wholistic
-// rollup). This block pins the new hierarchy: type · stage on the
-// type line (breadcrumb), lowercase "Corrections: 2026-05-26" as
-// secondary detail below.
-// ===========================================================
-// ★★★ fix-508 §E (P-184) — SUPERSEDES fix-104's BREADCRUMB HIERARCHY
-// ===========================================================
-//
-// fix-104 gave each rail card a `type · stage` breadcrumb on its top line and a
-// lowercase sub-event date beneath it — *"Building Permit FIRST, currently in
-// Permitting"* rather than two competing labels. That was the right shape for a
-// FLAT list, and it is what §E replaces.
-//
-// ★★★ THE STAGE MOVED UP, NOT AWAY. The cards are grouped by phase now, each
-//     group headed by its own name and count in the Pipeline's words —
-//     `Design & Engineering (4)` — so a breadcrumb repeating that stage on
-//     every card underneath it says the same thing n times. The colour dot went
-//     the same way, for the same reason.
-//
-// ★★★ AND THE DATE LINE IS ON SCHEDULE HEALTH. `Target:` / `Corrections:` /
-//     `Issued:` are named columns four inches to the right on the same screen,
-//     for the whole lineage rather than one per card. Bobby asked for three
-//     lines with a real hierarchy; a fourth line repeating a table already on
-//     screen is what stopped the three reading as one.
-//
-// ★★ fix-104's ACTUAL WIN IS UNTOUCHED AND IS ASSERTED BELOW: the sidebar and
-//    the Schedule Health table still read the same stage for the same permit,
-//    through the same `effectiveStage` + one shared label map. That was the
-//    regression it existed to close.
-
-describe('<ProjectDetail /> fix-508 §E: the rail groups by phase', () => {
-  it('★★★ a card is THREE lines — type, number, structure address', () => {
-    refs.setPermits([
-      {
-        ...refs.permits[0],
-        id: 1,
-        type: 'Building Permit',
-        num: '7159955-CN',
-        struct_address: 'SFR 1',
-        permit_cycles: [],
-      },
-    ]);
-    renderAt();
-    // 1 — the type, and ONLY the type: no ` · Permitting` suffix any more.
-    const type = screen.getByTestId('permits-sidebar-type-1');
-    expect(type.textContent).toBe('Building Permit');
-    expect(screen.queryByTestId('permits-sidebar-stage-1')).toBeNull();
-    // 2 — the permit number, with its portal link.
-    expect(screen.getByTestId('permits-sidebar-num-1').textContent).toContain(
-      '7159955-CN',
-    );
-    // 3 — the structure address.
-    expect(screen.getByTestId('permits-sidebar-addr-1').textContent).toBe('SFR 1');
-    // ★★★ …and NO date line. Schedule Health carries every one of those dates.
-    expect(screen.queryByTestId('permits-sidebar-sub-event-1')).toBeNull();
-  });
-
-  it('★★★ the stage is a GROUP HEADER with a count, in the Pipeline’s words', () => {
-    refs.setPermits([
-      {
-        ...refs.permits[0],
-        id: 1,
-        type: 'Building Permit',
-        permit_cycles: [
-          {
-            id: 'c1',
-            permit_id: 1,
-            cycle_index: 1,
-            submitted: '2026-04-01',
-            city_target: null,
-            corr_issued: null,
-            resubmitted: null,
-            intake_accepted: null,
-            created_at: '2026-04-01T12:00:00Z',
-            updated_at: '2026-04-01T12:00:00Z',
-          },
-        ],
-      },
-    ]);
-    renderAt();
-    // Submitted with no corrections ⇒ `pm`, and the header spells it out.
-    const header = screen.getByTestId('permits-sidebar-phase-pm');
-    expect(header.textContent).toContain('Permitting');
-    expect(header.dataset.phaseCount).toBe('1');
-    // ★ The card sits under it, and carries no stage of its own.
-    expect(screen.getByTestId('permits-sidebar-type-1').textContent).toBe(
-      'Building Permit',
-    );
-  });
-
-  it('★★ fix-104’s REGRESSION GUARD survives: the rail and Schedule Health agree', () => {
-    // ★★★ This is what fix-104 was actually for — the sidebar's stage and the
-    //     right-hand table's stage cell disagreeing on the same permit. Both
-    //     still read `effectiveStage` and both still print `STAGE_*_LABEL`, so
-    //     the guard holds; only WHERE the sidebar prints it has moved.
-    refs.setPermits([
-      {
-        ...refs.permits[0],
-        id: 1,
-        type: 'Building Permit',
-        permit_cycles: [
-          {
-            id: 'c1',
-            permit_id: 1,
-            cycle_index: 1,
-            submitted: '2026-04-01',
-            city_target: null,
-            corr_issued: '2026-05-26',
-            resubmitted: null,
-            intake_accepted: null,
-            created_at: '2026-04-01T12:00:00Z',
-            updated_at: '2026-05-26T12:00:00Z',
-          },
-        ],
-      },
-    ]);
-    renderAt();
-    // Corrections issued and not yet resubmitted ⇒ `co`.
-    expect(screen.getByTestId('permits-sidebar-phase-co').textContent).toContain(
-      'Corrections',
+    expect(screen.getByTestId('pd-right-pillbox').className).toContain(
+      'overflow-y-auto',
     );
   });
 });
 
-describe('<ProjectDetail /> fix-194 sub-permit sidebar nesting', () => {
-  it('renders a child nested with the "Sub-permit · reviewed under <parent #>" badge and no stage breadcrumb', () => {
-    refs.setPermits([
-      { ...refs.permits[0], id: 1, type: 'Building Permit', num: 'BLD2026-0319' },
-      {
-        ...refs.permits[1],
-        id: 2,
-        type: 'Building Permit',
-        num: 'BLD2026-0320',
-        parent_permit_id: 1,
-      },
-    ]);
-    renderAt();
-    // The parent renders a normal stage breadcrumb…
-    expect(screen.getByTestId('permits-sidebar-type-1')).toBeTruthy();
-    // …the child renders the sub-permit badge and NO stage breadcrumb.
-    const badge = screen.getByTestId('permits-sidebar-subpermit-2');
-    expect(badge.textContent).toBe('Sub-permit · reviewed under BLD2026-0319');
-    expect(screen.queryByTestId('permits-sidebar-stage-2')).toBeNull();
-    // The child's row carries the data-sub-permit marker.
-    expect(
-      screen.getByTestId('permits-sidebar-row-2').getAttribute('data-sub-permit'),
-    ).toBe('true');
-  });
-
-  it('a sub-permit is NOT counted in the "Permits (n)" header (only standalone/parent permits)', () => {
-    refs.setPermits([
-      { ...refs.permits[0], id: 1, type: 'Building Permit', num: 'BLD2026-0319' },
-      { ...refs.permits[1], id: 2, parent_permit_id: 1, num: 'BLD2026-0320' },
-    ]);
-    renderAt();
-    // Header counts the 1 standalone permit, not the nested child.
-    expect(screen.getByTestId('permits-sidebar-count').textContent).toContain('Permits (1)');
-    // Both rows still exist (parent + nested child)…
-    expect(screen.getByTestId('permits-sidebar-row-1')).toBeTruthy();
-    expect(screen.getByTestId('permits-sidebar-row-2')).toBeTruthy();
-    // …but only the child carries the sub-permit marker.
-    expect(
-      screen.getByTestId('permits-sidebar-row-2').getAttribute('data-sub-permit'),
-    ).toBe('true');
-    expect(
-      screen.getByTestId('permits-sidebar-row-1').getAttribute('data-sub-permit'),
-    ).toBeNull();
+// ===========================================================================
+// ★★★ fix-517 §F (P-223) — THE BUTTON, AND BOTH DIRECTIONS OF THE INVARIANT
+// ===========================================================================
+//
+// fix-514 renamed Project Settings → Project Details and asserted that
+// *"Project Settings"* was ABSENT. A button reading **"Project Data"**
+// satisfies that assertion perfectly, and that is exactly what shipped: STEP 0
+// content-checked `origin/main` and found `⚙ Project Data` on this page.
+//
+// ★★★ ABSENCE OF THE RETIRED NAME IS NOT PRESENCE OF THE NEW ONE. One
+//     assertion, both directions — the old names must be gone AND the new one
+//     must be there — because either half alone passes on a page that is
+//     wrong.
+describe('<ProjectDetail /> fix-517 §F: the Project Details button', () => {
+  it('★★★ says "Project Details", and no user-visible string says either old name', () => {
+    const { container } = renderAt();
+    const btn = screen.getByTestId('project-data-btn');
+    // Direction 1 — the NEW name is present, on the control itself.
+    expect(btn.textContent).toContain('Project Details');
+    // Direction 2 — NEITHER old name appears anywhere on the page.
+    const text = container.textContent ?? '';
+    expect(text).not.toContain('Project Data');
+    expect(text).not.toContain('Project Settings');
+    // ★ `Project Details` contains neither, so direction 2 cannot pass by
+    //   accident on an empty render: prove the page rendered at all.
+    expect(text).toContain('Project Details');
   });
 });
 
-// fix-276: the read-only Corrections section belongs to the PROJECT overview,
-// between Schedule Health and Notes. It is not a per-permit widget — the
-// indexed comments are keyed on project_id, not permit_id.
 // fix-277: the fix-276 Corrections section is GONE from the project overview —
 // it moved to the Corrections report in the Reporting hub. This test is the
 // inverse of the three it replaces: it fails if the panel is ever re-mounted

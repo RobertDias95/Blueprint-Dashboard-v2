@@ -77,7 +77,10 @@ describe('fix-300b: no guessed-duration sleeps in the test suite', () => {
       'ProjectOverviewBuilderCell',
       'CustomReportBuiltinGuard',
       'multitenancy',
-      'QuickEditPermitModal',
+      // ★ fix-517 §E: `QuickEditPermitModal` and its test are DELETED — the
+      //   modal and fix-514's Permits tab were two editors for one field set.
+      //   Removed from this list rather than left to fail, and named here so
+      //   the removal reads as deliberate (which is what this list is for).
       'ProjectDetailHeaderFix141',
       'ProjectDetailHeaderFix122',
       'CorrectionsPanel',

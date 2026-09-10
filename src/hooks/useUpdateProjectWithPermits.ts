@@ -33,6 +33,20 @@ export interface PermitUpsertInput {
   num?: string | null;
   struct_address?: string | null;
   expected_issue?: string | null;
+  /**
+   * ★★★ fix-517 §E — `Sub-permit of`, MOVED OFF THE DELETED QUICK EDIT MODAL.
+   *
+   * fix-194's marker: a permit with `parent_permit_id` set is a placeholder
+   * reviewed under its parent, excluded from every rollup. It had exactly one
+   * editor — `QuickEditPermitModal` — and §E deletes that modal, so the field
+   * moves into the same atomic save as the row's type, ENT and DA rather than
+   * becoming uneditable. **3 of 685 prod permits are sub-permits**, so it is
+   * cheap; dropping it silently is what §E forbids.
+   *
+   * ★ `null` CLEARS the link. The RPC validates that the id names a permit on
+   *   the same project and is not the row itself.
+   */
+  parent_permit_id?: number | null;
   /** fix-66: engine-derived projected submit date, now editable in place
    *  from the DD Phase cell (BP-anchored). The RPC whitelists this in both
    *  the update + insert branches; the bp_trg_set_target_submit_manual_flag
@@ -151,7 +165,7 @@ export function useUpdateProjectWithPermits() {
     },
 
     onError: (error) => {
-      pushToast(`Could not save project settings — ${error.message}`, 'error');
+      pushToast(`Could not save project details — ${error.message}`, 'error');
     },
   });
 }

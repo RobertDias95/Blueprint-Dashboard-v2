@@ -319,7 +319,14 @@ describe('fix-296 the labels say what they mean', () => {
       .parentElement as HTMLElement;
     expect(within(row).queryByRole('textbox')).toBeNull();
     expect(row.querySelector('input')).toBeNull();
-    expect(row.innerHTML).toContain('Project Settings');
+    // ★★★ fix-517 §F (P-223) — THIS TEST WAS PINNING A NAME THAT DIED IN
+    //     fix-514. `Project Settings` was deleted as a modal a ticket ago and
+    //     this tooltip was still sending people to it; §F's sweep of every
+    //     surface fix-514 renamed is what found it. The row still says where
+    //     to change the GO date, which is the assertion's actual point — it
+    //     now names a destination that exists.
+    expect(row.innerHTML).toContain('Project Details');
+    expect(row.innerHTML).not.toContain('Project Settings');
   });
 });
 

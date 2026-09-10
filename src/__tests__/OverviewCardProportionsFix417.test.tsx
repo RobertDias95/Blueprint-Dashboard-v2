@@ -230,20 +230,30 @@ describe('fix-417: the page body never scrolls sideways', () => {
   //     DOM chain; this is the same walk finding the box that lives BETWEEN the
   //     border box and the content box.
   //
-  // ★★★ AND §A NARROWS THE RAIL, 240 → 190 (Bobby, 2026-09-09). Net: the
-  //     chrome falls 570 → 535 and the row gains 35px at every viewport.
-  it('★★★ the chrome is EIGHT boxes — and the row is 745px at 1280', () => {
-    expect(overviewRowWidthAt(1280, 'expanded')).toBe(745);
-    expect(overviewRowWidthAt(1280, 'collapsed')).toBe(901);
+  // ★★★ AND §A NARROWED THE RAIL, 240 → 190 (Bobby, 2026-09-09): the chrome
+  //     fell 570 → 535 and the row gained 35px at every viewport.
+  //
+  // ★★★ SUPERSEDED IN PART BY fix-517 §A — THE RAIL IS DELETED, so two of the
+  //     eight boxes are gone and the chrome falls again, 535 → 333. fix-417's
+  //     FINDING is untouched and is why this test exists: the chrome is more
+  //     boxes than anybody counts, and each surviving one still names the file
+  //     and class it is read from. What changed is the census, not the lesson —
+  //     and the census changing is exactly what the lesson predicts.
+  it('★★★ the chrome is SIX boxes now — and the row is 947px at 1280', () => {
+    expect(overviewRowWidthAt(1280, 'expanded')).toBe(947);
+    expect(overviewRowWidthAt(1280, 'collapsed')).toBe(1103);
     // The boxes fix-417 never counted, named so they cannot be lost again.
-    expect(SHELL_CHROME_PX.permitsRail).toBe(190);
-    expect(SHELL_CHROME_PX.permitsRailGap).toBe(12);
     expect(SHELL_CHROME_PX.pillboxBorder).toBe(2);
     expect(SHELL_CHROME_PX.pillboxScrollbar).toBe(15);
     expect(SHELL_CHROME_PX.pageRowPadding).toBe(24);
-    // 212 + 48 + 24 + 190 + 12 + 2 + 15 + 32 = 535 expanded.
-    expect(1280 - overviewRowWidthAt(1280, 'expanded')).toBe(535);
-    expect(1280 - overviewRowWidthAt(1280, 'collapsed')).toBe(379);
+    // ★ …and the two that no longer exist, asserted as ABSENT rather than
+    //   quietly dropped: a rail width of 0 would be a box that still exists.
+    expect(Object.keys(SHELL_CHROME_PX)).not.toContain('permitsRail');
+    expect(Object.keys(SHELL_CHROME_PX)).not.toContain('permitsRailGap');
+    // 212 + 48 + 24 + 2 + 15 + 32 = 333 expanded (was 535 with the rail).
+    expect(1280 - overviewRowWidthAt(1280, 'expanded')).toBe(333);
+    expect(1280 - overviewRowWidthAt(1280, 'collapsed')).toBe(177);
+    expect(535 - 333).toBe(202);
   });
 
   it('★★★ so the honest fit table is this, at every supported viewport', () => {
@@ -252,16 +262,24 @@ describe('fix-417: the page body never scrolls sideways', () => {
     //    is derived, so this cannot drift from the floors above it.
     const fits = (vw: number, r: 'expanded' | 'collapsed') =>
       overviewRowFitsAt(vw, r);
+    // ★★★ fix-517 §A: 1280-collapsed now FITS (1103 of row against 996), and
+    //     1280-expanded still does not (947). Deleting the permits rail returns
+    //     202px at every viewport, which is more than fix-507's 35 and fix-508's
+    //     −92 put together. The table is honest about which way each viewport
+    //     went rather than being re-baselined quietly.
     expect(fits(1280, 'expanded')).toBe(false);
-    expect(fits(1280, 'collapsed')).toBe(false);
+    expect(fits(1280, 'collapsed')).toBe(true);
     // ★★★ fix-507 §A won 1440-expanded by ONE PIXEL (905 of row against a 904
     //     minimum). ★★★ fix-508 SPENDS IT AND 91 MORE: the Plan of Record's
     //     floor rises 368 → 486 (its capped thumbnail's own width, replacing
     //     fix-417's retired rank) and the row minimum goes 904 → 996. So 1440
     //     wraps again. Stated rather than quietly re-baselined — 1600 and 1920
     //     are the widths Bobby works at and both still run on one line.
-    expect(fits(1440, 'expanded')).toBe(false);
-    expect(overviewRowWidthAt(1440, 'expanded')).toBe(905);
+    // ★★★ …AND fix-517 §A HANDS 1440 BACK, with 111px rather than fix-507's
+    //     one: 905 → 1107 against the same 996 minimum. The rail was the box
+    //     that made 1440 marginal, and it is gone.
+    expect(fits(1440, 'expanded')).toBe(true);
+    expect(overviewRowWidthAt(1440, 'expanded')).toBe(1107);
     // ★★★ fix-506: 1440-COLLAPSED FITS NOW, and 1600-expanded does. Two cards
     //     left the row and the two that absorbed their content did it in
     //     HEIGHT, so the minimum fell 1,172 → 904.
@@ -295,8 +313,12 @@ describe('fix-417: the page body never scrolls sideways', () => {
     //     that pixel.
     // ★★★ fix-508: 1439 → 1531, and the cause is a FLOOR rather than the
     //     chrome — the Plan of Record's, raised to what its picture uses.
-    expect(overviewMinViewport('expanded')).toBe(1531);
-    expect(overviewMinViewport('collapsed')).toBe(1375);
+    // ★★★ fix-517 §A: 1531 → 1329, and this one IS the chrome again — the rail
+    //     and its gap deleted outright, 202px at every viewport. Four moves
+    //     now, two by chrome and two by a floor, which is the argument for
+    //     deriving it rather than remembering it.
+    expect(overviewMinViewport('expanded')).toBe(1329);
+    expect(overviewMinViewport('collapsed')).toBe(1173);
   });
 
   it('★★ below the threshold the cards sit on their floors and the PANE scrolls', () => {
@@ -322,10 +344,12 @@ describe('fix-417: the page body never scrolls sideways', () => {
     //   stronger than the one recorded.
     const bobbysFloors = 180 + 340 + 180 + 320 + 230 + 4 * OVERVIEW_GRID_GAP;
     expect(bobbysFloors).toBe(1290);
-    // ★ fix-507 §A widened the row at 1280 from 710 to 745, so the multiple is
-    //   1.73 rather than 1.8. The point survives at full strength: his floors
-    //   are still most of a second row wider than the row he had.
-    expect(bobbysFloors).toBeGreaterThan(overviewRowWidthAt(1280, 'expanded') * 1.7);
+    // ★ fix-507 §A widened the row at 1280 from 710 to 745 (multiple 1.73);
+    //   fix-517 §A widens it again to 947, so the multiple is 1.36. The point
+    //   survives — his floors are still a third wider than the row he had at
+    //   1280 — and the assertion is written against the DERIVED width so it
+    //   keeps meaning the same thing as the row moves.
+    expect(bobbysFloors).toBeGreaterThan(overviewRowWidthAt(1280, 'expanded') * 1.3);
   });
 
   it('★★★ fix-422 re-shared the row, and the Plan of Record is STILL the widest', () => {

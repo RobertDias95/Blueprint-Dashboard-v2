@@ -82,7 +82,7 @@ vi.mock('../components/ProjectDetail/ScheduleHealthTable', () => ({
 vi.mock('../components/ProjectDetail/NotesPanel', () => ({
   default: () => <div data-testid="stub-notes-panel" />,
 }));
-vi.mock('../components/ProjectDetail/ProjectSettingsModal', () => ({ default: () => null }));
+vi.mock('../components/ProjectDetail/ProjectDetailsModal', () => ({ default: () => null }));
 vi.mock('../components/ProjectDetail/DeleteProjectDialog', () => ({ default: () => null }));
 vi.mock('../components/ProjectDetail/DeleteRedesignDialog', () => ({
   default: () => <div data-testid="stub-delete-redesign" />,
@@ -94,12 +94,7 @@ vi.mock('../components/ProjectDetail/EditRedesignModal', () => ({
 //   assertion for the double-click gesture: opening at all is not enough — it
 //   has to open on the redesign's permit, which is the lookup that fails if the
 //   page resolves quick-edit against this project's permits only.
-vi.mock('../components/ProjectDetail/QuickEditPermitModal', () => ({
-  default: ({ permit }: { permit: { id: number } }) => {
-    refs.quickEdited.push(permit.id);
-    return <div data-testid="stub-quick-edit">{String(permit.id)}</div>;
-  },
-}));
+// ★ fix-517 §E: `QuickEditPermitModal` is deleted — nothing to mock.
 
 // ★★★ fix-475 (P-116) — THE CONSULTANTS CARD IS INERT HERE.
 //
@@ -226,22 +221,6 @@ function setupFiveOhFiveThree(redesignOver: Record<string, unknown> = {}) {
   refs.allPermits = [...PARENT_PERMITS, ...REDESIGN_PERMITS];
 }
 
-/** Where each band's marker sits in the panel's DOM order. */
-function bandOrder(): string[] {
-  const list = screen.getByTestId('permits-sidebar-list');
-  const markers = list.querySelectorAll(
-    '[data-testid="permits-sidebar-row-10205"],' +
-      '[data-testid="permits-sidebar-redesigns-divider"],' +
-      '[data-testid="permits-sidebar-issued-divider"]',
-  );
-  return Array.from(markers).map((el) => {
-    const id = el.getAttribute('data-testid') ?? '';
-    if (id.startsWith('permits-sidebar-row-')) return 'active';
-    if (id.includes('redesigns')) return 'redesigns';
-    return 'issued';
-  });
-}
-
 beforeEach(() => {
   refs.quickEdited.length = 0;
   useAuthStore.setState({ activeTenantId: T, memberships: [{ tenant_id: T, role: 'admin' }] });
@@ -250,147 +229,136 @@ beforeEach(() => {
 
 // ---------------------------------------------------------------------------
 // §A · THE ORDER — active/ongoing → redesigns → issued
+//
+// ★★★ SUPERSEDED BY fix-517 §A, AND IT IS THE SAME RULING WITH A BIGGER SCOPE.
+//
+// fix-421 asked for three bands in one rail because *"a redesign is live work
+// and an issued permit is not"*. fix-517 §A deletes the rail: Bobby, *"Permits
+// on the left-hand side of the screen is gone… all of that information is kind
+// of redundant"* — two of the three bands were the same permits the Schedule
+// Health table four inches to the right had been rendering since fix-151.
+//
+// ★★★ SO THE ORDER MOVED RATHER THAN DIED. §C ships it as the PERMITS table's
+//     DEFAULT SORT — D&E → Corrections → Permitting → Approved → **Issued
+//     last** — and fix-421's own ruling ("issued at the bottom") is the part of
+//     it Bobby restated. It is asserted against the real table in
+//     `PermitsTableFix517.test.tsx`; this suite stubs the table, and always
+//     has.
+//
+// ★★ THE REDESIGNS BAND ITSELF SURVIVES, moved onto the overview pane — it is
+//    the only surface that can rename or delete a redesign. What it lost is
+//    its permit CARDS, because those permits are rows in the table now and a
+//    pane listing them twice is the redundancy this ticket exists to remove.
 // ---------------------------------------------------------------------------
 
-describe('fix-421 §A: three bands, in the order Bobby reads them', () => {
-  it('★★★ active → redesigns → issued, on the 5053 shape', () => {
-    // *"issued should be at the bottom, redesign should be above that, and then
-    //  all the other active and ongoing permits should be above that."*
+describe('fix-421 §A → fix-517 §A: the rail is gone, the band is not', () => {
+  it('★★★ no rail, and the redesigns band is on the overview pane', () => {
     renderPage();
-    expect(bandOrder()).toEqual(['active', 'redesigns', 'issued']);
-  });
-
-  it('★★ "Ready for Issuance" is APPROVED, not issued — the Demolition stays active', () => {
-    // ★★★ THE ONE RULE, STATED. `effectiveStage(...) === 'is'` is what this
-    //     panel has decided "issued" with since fix-65, and this ticket does not
-    //     introduce a second definition. 10204 has an approval_date and a
-    //     terminal-APPROVED portal status but no actual_issue, so it is active —
-    //     which is also why the brief's proposed `actual_issue IS NOT NULL`
-    //     would NOT have changed this row, but would have moved 3 others in prod.
-    renderPage();
-    const issued = screen.getByTestId('permits-sidebar-issued-group');
-    expect(within(issued).queryByTestId('permits-sidebar-row-10204')).toBeNull();
-    expect(within(issued).getByTestId('permits-sidebar-row-10203')).toBeTruthy();
-    expect(within(issued).getByTestId('permits-sidebar-row-10206')).toBeTruthy();
-    expect(screen.getByTestId('permits-sidebar-row-10204')).toBeTruthy();
-  });
-
-  it('★ a redesign permit never lands in the parent\'s active or issued band', () => {
-    renderPage();
-    const issued = screen.getByTestId('permits-sidebar-issued-group');
-    expect(within(issued).queryByTestId('permits-sidebar-row-10321')).toBeNull();
-    // It lives inside its own group, under the redesigns divider.
-    const group = screen.getByTestId(`permits-sidebar-redesign-group-${R1}`);
-    expect(within(group).getByTestId('permits-sidebar-row-10321')).toBeTruthy();
-  });
-
-  it('★ the header count still counts THIS project\'s permits only', () => {
-    // Deliberate: a redesign\'s permits are their own category with their own
-    // count in its divider. Folding them into "Permits (n)" would make the
-    // parent look like it owns work it does not.
-    renderPage();
-    expect(screen.getByTestId('permits-sidebar-count').textContent).toBe('Permits (5)');
+    // The rail and every band marker that lived in it.
+    expect(screen.queryByTestId('permits-sidebar-list')).toBeNull();
+    expect(screen.queryByTestId('permits-sidebar-count')).toBeNull();
+    expect(screen.queryByTestId('permits-sidebar-issued-divider')).toBeNull();
+    expect(screen.queryByTestId('permits-sidebar-issued-group')).toBeNull();
+    expect(screen.queryByTestId('permits-sidebar-row-10205')).toBeNull();
+    // ★ The band is still here, still counted, still inside the overview pane.
+    const band = screen.getByTestId('project-overview-redesigns-section');
     expect(
       screen.getByTestId('permits-sidebar-redesigns-divider').textContent,
     ).toContain('Redesigns (1)');
+    expect(screen.getByTestId('project-overview-pane').contains(band)).toBe(true);
+  });
+
+  it('★★★ it sits BELOW the permits table, which is where its permits are', () => {
+    // ★ fix-421 put redesigns between the active band and the issued one. With
+    //   one table there is no "between": the band follows the table, and the
+    //   permits it used to card are rows inside it tagged `↳ Redesign N`.
+    renderPage();
+    const table = screen.getByTestId('stub-schedule-health-table');
+    const band = screen.getByTestId('project-overview-redesigns-section');
+    expect(
+      table.compareDocumentPosition(band) & Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
   });
 });
 
 // ---------------------------------------------------------------------------
 // §B · THE RENDERING — "just like the other permits in the permit tab"
+//
+// ★★★ SUPERSEDED, AND FIX-517 IS THE STRONGER VERSION OF THE SAME ASK. fix-421
+//     replaced fix-151's bare `PPR · Corrections` links with the shared
+//     `SidebarRow`, so a redesign's permits would read as permits rather than
+//     as footnotes. fix-517 §A puts them in the SAME TABLE as every other
+//     permit, in the same nine columns, with a `↳ Redesign N` line saying whose
+//     they are. Bobby's *"just like the other permits in the permit tab, but
+//     just in the category of redesign"* is satisfied more completely by one
+//     list than it ever was by an identical card in a separate band.
+//
+// ★★★ AND §E DELETED THE GESTURE THIS SECTION WAS MOSTLY ABOUT. Two of these
+//     five tests existed to protect double-click Quick Edit on a redesign card
+//     — including `REDESIGN_CLICK_DEFER_MS`, a 250ms pause invented so the
+//     double-click could land before the navigation unmounted the card.
+//     `QuickEditPermitModal` is deleted (it and fix-514's Permits tab were two
+//     editors for one field set), so the gesture is gone and the delay with it.
+//     Editing is a hover ✎ on the table row now, asserted in
+//     `PermitsTableFix517.test.tsx`.
 // ---------------------------------------------------------------------------
 
-describe('fix-421 §B: a redesign\'s permits are permits', () => {
-  it('★★★ they render with the SAME card component, not a bespoke line', () => {
-    // ★★ PARENTAGE, NOT PRESENCE (fix-422 §E). Before this ticket the redesign
-    //    permit was PRESENT too — as `PPR · Corrections` inside an <a>. What is
-    //    new is that it is a `permits-sidebar-row-*`, the exact testid every
-    //    other permit card in this panel carries, so the two cannot drift.
+describe('fix-421 §B → fix-517 §A/§E: the cards moved into the table', () => {
+  it('★★★ the band renders NO permit cards, and says where they went', () => {
     renderPage();
-    for (const id of [10321, 10372]) {
-      const wrapper = screen.getByTestId(`project-overview-redesign-permit-${id}`);
-      expect(
-        within(wrapper).getByTestId(`permits-sidebar-row-${id}`),
-        `permit ${id} renders the shared card`,
-      ).toBeTruthy();
-    }
-  });
-
-  it('★★★ the card carries the status chip, the number and the portal link', () => {
-    // Bobby: "just like the other permits" — number, type, status chip, the lot
-    // of it. 10321 is in Corrections, which is what its stage breadcrumb must
-    // say; fix-151\'s line said the same words but nothing else.
-    renderPage();
-    const card = screen.getByTestId('permits-sidebar-row-10321');
-    // ★★★ fix-508 §E: the STAGE BREADCRUMB left the card and became a phase
-    //     group header with a count. Bobby's *"just like the other permits"* is
-    //     stronger for it — a redesign card is now identical to a parent card,
-    //     down to having no breadcrumb of its own. The stage is still SHOWN,
-    //     one line up, which is what this asserted.
-    expect(screen.queryByTestId('permits-sidebar-stage-10321')).toBeNull();
-    expect(within(card).getByTestId('permits-sidebar-type-10321').textContent).toContain(
-      'PPR',
+    const group = screen.getByTestId(`permits-sidebar-redesign-group-${R1}`);
+    // Not one shared card survives in the band.
+    expect(within(group).queryByTestId('permits-sidebar-row-10321')).toBeNull();
+    expect(within(group).queryByTestId('permits-sidebar-row-10372')).toBeNull();
+    expect(screen.queryByTestId('project-overview-redesign-permit-10321')).toBeNull();
+    // ★ …and it is not silent about it: the note counts them and points at the
+    //   table above, which is a destination rather than an absence.
+    const note = screen.getByTestId(
+      `project-overview-redesign-permits-note-${R1}`,
     );
-    expect(screen.getByTestId('permits-sidebar-num-10321').textContent).toBe(
-      '7102488-CN-004',
-    );
+    expect(note.textContent).toContain('2 permits');
+    expect(note.textContent).toContain('in the table above');
   });
 
-  it('★★★ DOUBLE-CLICK STILL OPENS QUICK EDIT — on a redesign card', () => {
-    // ★★★ THE GESTURE BOBBY USES DAILY, and the current workaround for the
-    //     role-cascade defect (P-075). It is asserted on the PERMIT ID, not on
-    //     "a modal opened": the page resolves quick-edit by id, and a redesign
-    //     permit belongs to a different project — resolve it against this
-    //     project's permits and the modal silently never opens at all.
-    renderPage();
-    fireEvent.doubleClick(screen.getByTestId('permits-sidebar-row-10321'));
-    expect(refs.quickEdited).toContain(10321);
-    expect(screen.getByTestId('stub-quick-edit').textContent).toBe('10321');
+  it('★★★ the double-click gesture is GONE, and so is the 250ms defer it needed', async () => {
+    // ★★ Asserted on the SOURCE as well as the DOM, because the defer was a
+    //    constant rather than a rendered thing and a deleted gesture that left
+    //    its latency behind would be invisible in either alone.
+    const src = (await import('../pages/ProjectDetail.tsx?raw')).default as string;
+    // ★ Scoped to the CODE: the constant's name survives in the note recording
+    //   why it went, which is the point of recording it. `setTimeout` is the
+    //   mechanism and it is what must be absent from the redesign group.
+    expect(src).not.toContain('const REDESIGN_CLICK_DEFER_MS');
+    expect(src).not.toContain('deferNavigate');
+    expect(src).not.toContain('onDoubleClick');
+    // ★ Again scoped to the CODE: the page's §E note names the deleted modal
+    //   in prose, and a "must not appear" grep that matches its own gravestone
+    //   is fix-516's trap. What must be absent is the IMPORT.
+    expect(src).not.toContain("from '../components/ProjectDetail/QuickEditPermitModal'");
+    expect(src).not.toContain('<QuickEditPermitModal');
   });
 
-  it('★★ …and the double-click does NOT also navigate away', () => {
-    // ★★★ THE TWO GESTURES FIGHT, WHICH IS WHY THE CLICK IS DEFERRED. A single
-    //     click navigates (fix-151\'s behaviour, which this ticket must keep), so
-    //     fire-and-forget on the first click of a double would unmount the card
-    //     before `dblclick` could ever land. The second click cancels the
-    //     pending navigation.
+  it('★★ the heading still links straight to the redesign, with no delay', async () => {
+    // Scope 5, unchanged destination — and now unchanged TIMING too: fix-421
+    // deferred this click by 250ms so a double-click could pre-empt it, and
+    // there is no double-click left to pre-empt it.
     renderPage();
-    const card = screen.getByTestId('permits-sidebar-row-10321');
-    fireEvent.click(card);
-    fireEvent.doubleClick(card);
-    expect(refs.quickEdited).toContain(10321);
-    // Still on the parent, after longer than the defer interval.
-    return new Promise<void>((resolve) => {
-      setTimeout(() => {
-        expect(screen.getByTestId('probe-path').textContent).toBe(`/project/${PARENT}`);
-        resolve();
-      }, 400);
-    });
-  });
-
-  it('★★ a single click still goes to the redesign\'s project overview', async () => {
-    // Scope 5: unchanged destination. Only the element and the timing moved.
-    renderPage();
-    fireEvent.click(screen.getByTestId('permits-sidebar-row-10372'));
+    fireEvent.click(screen.getByTestId(`project-overview-redesign-row-${R1}`));
     await waitFor(() =>
       expect(screen.getByTestId('probe-path').textContent).toBe(`/project/${R1}`),
     );
   });
 
-  it('★ the redesign label is the GROUP HEADING, above its cards', () => {
-    // Scope 2: "the redesign\'s own label (\"Redesign 1 · Acquisitions\") as the
-    // group heading rather than as the row."
+  it('★ the redesign label is still the GROUP HEADING', () => {
+    // Scope 2: *"the redesign's own label ('Redesign 1 · Acquisitions') as the
+    // group heading rather than as the row."* Untouched — the heading is the
+    // half of this band that was never redundant.
     renderPage();
     const heading = screen.getByTestId(`project-overview-redesign-row-${R1}`);
     expect(heading.textContent).toContain('Redesign 1');
     expect(heading.textContent).toContain('Acquisitions');
     const group = screen.getByTestId(`permits-sidebar-redesign-group-${R1}`);
-    const card = screen.getByTestId('permits-sidebar-row-10321');
-    expect(
-      heading.compareDocumentPosition(card) & Node.DOCUMENT_POSITION_FOLLOWING,
-    ).toBeTruthy();
     expect(group.contains(heading)).toBe(true);
-    expect(group.contains(card)).toBe(true);
   });
 });
 
@@ -518,12 +486,20 @@ describe('fix-421 §E: N redesigns are N groups', () => {
     expect(
       early.compareDocumentPosition(late) & Node.DOCUMENT_POSITION_FOLLOWING,
     ).toBeTruthy();
-    // …and each holds ITS OWN permit and not the other's.
-    expect(within(early).getByTestId('permits-sidebar-row-20001')).toBeTruthy();
+    // ★ fix-517 §A: …and each says how many permits are ITS OWN. The cards are
+    //   rows in the table now, so the count is what distinguishes the groups —
+    //   which is the same assertion one level up, and it still fails if a
+    //   redesign's permits are resolved against the wrong redesign.
+    expect(
+      within(early).getByTestId(
+        'project-overview-redesign-permits-note-r-early',
+      ).textContent,
+    ).toContain('1 permit,');
+    expect(
+      within(late).getByTestId('project-overview-redesign-permits-note-r-late')
+        .textContent,
+    ).toContain('1 permit,');
     expect(within(early).queryByTestId('permits-sidebar-row-20002')).toBeNull();
-    expect(within(late).getByTestId('permits-sidebar-row-20002')).toBeTruthy();
-    // Still one band, between active and issued.
-    expect(bandOrder()).toEqual(['active', 'redesigns', 'issued']);
   });
 
   it('★ a project with no redesigns grows no band at all', () => {
@@ -531,7 +507,10 @@ describe('fix-421 §E: N redesigns are N groups', () => {
     refs.parentPermits = PARENT_PERMITS;
     refs.allPermits = [...PARENT_PERMITS];
     renderPage();
+    // ★ fix-517 §A: nothing renders at all — no band, and no rail for it to be
+    //   absent from either.
     expect(screen.queryByTestId('project-overview-redesigns-section')).toBeNull();
-    expect(bandOrder()).toEqual(['active', 'issued']);
+    expect(screen.queryByTestId('permits-sidebar-redesigns-divider')).toBeNull();
+    expect(screen.queryByTestId('permits-sidebar-list')).toBeNull();
   });
 });

@@ -121,10 +121,15 @@ describe('fix-512 §A — the prod row, arithmetic first', () => {
 describe('fix-512 §A — the badge and the column, in the component', () => {
   it('★★★ ONE derivation per row, handed to both readers', () => {
     const c = code(healthSrc);
-    // The row derives it once…
-    expect(c).toContain('const target = targetApproval(projectForOcc, permit);');
+    // ★★★ fix-517 §C STRENGTHENS THIS RATHER THAN WEAKENING IT. Sortable
+    //     headers cannot order by a number only the child knows, so the whole
+    //     derivation moved into ONE parent pass and `Row` became presentational
+    //     — the single-derivation rule now covers the SORT as well as the two
+    //     readers. The expressions moved; the invariant is the same one.
+    // The row model derives it once…
+    expect(c).toContain('const target = targetApproval(project, permit);');
     // …the badge measures against THAT…
-    expect(c).toContain('computeHealthDiff(projection, target.date)');
+    expect(c).toContain('computeHealthDiff(approval.date, target.date)');
     // …and the cell is HANDED it rather than calling again.
     expect(c).toContain('<TargetApprovalCell permitId={permit.id} target={target} />');
   });

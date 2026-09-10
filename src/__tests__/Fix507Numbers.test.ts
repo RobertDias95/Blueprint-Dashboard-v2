@@ -1,8 +1,8 @@
 import { describe, it, expect } from 'vitest';
+// ★ fix-517 §A: the rail constants must be GONE from the module, not zeroed.
+import overviewSrc from '../lib/overviewCardLayout.ts?raw';
 import {
   OVERVIEW_ROW_MIN_WIDTH,
-  PERMITS_RAIL_NO_TRUNCATION_WIDTH,
-  PERMITS_RAIL_WIDTH,
   SHELL_CHROME_PX,
   overviewMinViewport,
   overviewRowWidthAt,
@@ -90,55 +90,70 @@ import {
 // the PR.
 
 describe('fix-507 §A — the permits rail, and the box nobody had counted', () => {
-  it('★★★ the rail is 190, declared once and read by both files', () => {
-    expect(PERMITS_RAIL_WIDTH).toBe(190);
-    expect(SHELL_CHROME_PX.permitsRail).toBe(PERMITS_RAIL_WIDTH);
+  it('★★★ SUPERSEDED by fix-517 §A — the rail is DELETED, and it was 190 not 240', () => {
+    // ★★★ WHAT THIS TEST PINNED, AND WHY IT IS GONE RATHER THAN WRONG.
+    //
+    //     fix-507 §A narrowed the Project Overview's left-hand permits rail
+    //     from 240 to 190 and declared the number ONCE
+    //     (`PERMITS_RAIL_WIDTH`), because two files each typing `240` is how
+    //     fix-422 found the row 278px narrower than fix-417 believed. Both
+    //     halves were right. fix-517 §A deletes the rail entirely — Bobby:
+    //     *"Permits on the left-hand side of the screen is gone"* — so the
+    //     constant it declared has nothing left to describe.
+    //
+    // ★★★ AND fix-517's OWN BRIEF PRICED THE TICKET AGAINST 240. STEP 0 was
+    //     asked to confirm the shipped width before any code; the answer was
+    //     **190**, because fix-507 had already spent that lever. The row
+    //     therefore gains 202px (190 + the 12px gap), not 240 — which is why
+    //     "confirm the number the brief asserts" is a step and not a courtesy.
+    //
+    // ★ RECORDED, NOT LOST — fix-507's measurements, which no longer have a
+    //   control to constrain:
+    //     · a rail row's content box was `width − 29` (1px border a side, the
+    //       3px stage accent, `px-3`), so 190 gave a row 161px;
+    //     · `PERMITS_RAIL_NO_TRUNCATION_WIDTH` was **217** — the width at which
+    //       `Grading / Clearing · Corrections` (188px) stopped ellipsising —
+    //       reported and deliberately not adopted, Bobby having ruled 190;
+    //     · what 190 cost was the SECONDARY half of the type line
+    //       (`Building Permit · Correc…`).
+    //   The table that replaced the rail has a named `Permit Type` column and a
+    //   separate `Permit Number` column, so none of those lines truncate now.
+    //
+    // ★★ THE ASSERTION IS INVERTED RATHER THAN DELETED: the constants must be
+    //    GONE. A rail width set to 0 would be a box that still exists.
+    const chromeKeys = Object.keys(SHELL_CHROME_PX);
+    expect(chromeKeys).not.toContain('permitsRail');
+    expect(chromeKeys).not.toContain('permitsRailGap');
+    expect(overviewSrc).not.toContain('PERMITS_RAIL_WIDTH =');
+    expect(overviewSrc).not.toContain('PERMITS_RAIL_NO_TRUNCATION_WIDTH =');
   });
 
-  it('★★★ STEP 0-3: 190 truncates the stage word, and 217 is where it stops', () => {
-    // ★★★ REPORTED, NOT SILENTLY SUBSTITUTED, which is what the brief asked
-    //     for. A rail row's content box is `width − 29` (the aside's 1px border
-    //     a side, the row's 3px stage accent, its `px-3`). Measured in Chrome
-    //     on `233 31st Ave E`:
-    //
-    //       `SDOTTRLA0002500 ↗`                102   fits at 190
-    //       `Target: 2026-10-16`               106   fits at 190
-    //       `PAR/Pre-Sub · Issued`             120   fits at 190
-    //       `Building Permit · Corrections`    173   TRUNCATES  (rail 202)
-    //       `Grading / Clearing · Corrections` 188   TRUNCATES  (rail 217)
-    //
-    // ★ What 190 costs is the SECONDARY half of the type line. The permit
-    //   number, the date line and the stage's own colour dot are untouched, and
-    //   `Grading / Clearing` is 7 permits on prod.
-    expect(PERMITS_RAIL_NO_TRUNCATION_WIDTH).toBe(217);
-    expect(PERMITS_RAIL_WIDTH).toBeLessThan(PERMITS_RAIL_NO_TRUNCATION_WIDTH);
-    // The widest measured line, against what 190 gives a row.
-    expect(190 - 29).toBe(161);
-    expect(PERMITS_RAIL_NO_TRUNCATION_WIDTH - 29).toBe(188);
-  });
-
-  it('★★★ the pillbox scrollbar is the EIGHTH box, and it was never counted', () => {
+  it('★★★ the pillbox scrollbar is a box nobody had counted, and it still is', () => {
     // ★★★ `pd-right-pillbox` is `overflow-y-auto` and its content is taller
     //     than the pane on every project, so a 15px vertical scrollbar is
     //     always there. Measured in Chrome at 1920: pillbox 1384 wide, CONTENT
     //     box 1367, row 1335 — not the 1350 this module used to compute. A
     //     scrollbar lives BETWEEN the border box and the content box, which is
     //     why no `getBoundingClientRect` shows it.
+    //
+    // ★★ fix-517 §A: the chrome falls 535 → 333 because two of its boxes were
+    //    the rail and its gap. Everything else is untouched.
     expect(SHELL_CHROME_PX.pillboxScrollbar).toBe(15);
     const chrome =
       SHELL_CHROME_PX.ribbonExpanded +
       SHELL_CHROME_PX.shellPadding +
       SHELL_CHROME_PX.pageRowPadding +
-      SHELL_CHROME_PX.permitsRail +
-      SHELL_CHROME_PX.permitsRailGap +
       SHELL_CHROME_PX.pillboxBorder +
       SHELL_CHROME_PX.pillboxScrollbar +
       SHELL_CHROME_PX.headerPadding;
-    expect(chrome).toBe(535);
-    // ★ …and the row width that produces, checked against Chrome at both
-    //   viewports the brief names.
-    expect(overviewRowWidthAt(1920)).toBe(1385);
-    expect(overviewRowWidthAt(1600)).toBe(1065);
+    expect(chrome).toBe(333);
+    expect(535 - chrome).toBe(202);
+    // ★ …and the row width that produces, at both viewports the brief names.
+    expect(overviewRowWidthAt(1920)).toBe(1587);
+    expect(overviewRowWidthAt(1600)).toBe(1267);
+    // ★ Before fix-517 these were 1385 and 1065.
+    expect(overviewRowWidthAt(1920) - 1385).toBe(202);
+    expect(overviewRowWidthAt(1600) - 1065).toBe(202);
   });
 
   it('★★★ SUPERSEDED by fix-508 — the FLOORS moved, and the chrome did not', () => {
@@ -147,9 +162,12 @@ describe('fix-507 §A — the permits rail, and the box nobody had counted', () 
     //   rail stays at 190 — §E changes it for readability only) and two floors
     //   move — the Plan of Record's up to its capped thumbnail's width (486),
     //   Project's down to the pair (330).
+    // ★★★ fix-517 §A: the floors STILL do not move (996), and the chrome moves
+    //     for the third time — the rail it argued about is deleted outright.
+    //     1531 → 1329 and 1385 → 1587, both by exactly 202.
     expect(OVERVIEW_ROW_MIN_WIDTH).toBe(996);
-    expect(overviewMinViewport('expanded')).toBe(1531);
-    expect(overviewRowWidthAt(1920)).toBe(1385);
+    expect(overviewMinViewport('expanded')).toBe(1329);
+    expect(overviewRowWidthAt(1920)).toBe(1587);
   });
 });
 
@@ -175,8 +193,9 @@ describe('fix-507 §B — Site data beside Dates, on a declared breakpoint', () 
     // ★ 390 before fix-507; 476 after it; **380** after fix-508 took 20% of
     //   the card's width for Team. The card is NARROWER and the pair fits by
     //   60px rather than by one, because §B shrank what the pair needs.
-    expect(bodyAt(1920)).toBe(380);
-    expect(bodyAt(1920) - SITE_DATES_SIDE_BY_SIDE_MIN).toBe(60);
+    // ★ fix-517 §A: **437**, and the pair fits by 117 rather than 60.
+    expect(bodyAt(1920)).toBe(437);
+    expect(bodyAt(1920) - SITE_DATES_SIDE_BY_SIDE_MIN).toBe(117);
   });
 
   it('★★★ SUPERSEDED: 1600 is NOT short any more — §B withdrew the deficit', () => {
@@ -190,9 +209,10 @@ describe('fix-507 §B — Site data beside Dates, on a declared breakpoint', () 
     expect(bodyAt1600).toBe(328);
     expect(bodyAt1600).toBeGreaterThanOrEqual(SITE_DATES_SIDE_BY_SIDE_MIN);
     expect(bodyAt1600 - SITE_DATES_SIDE_BY_SIDE_MIN).toBe(8);
-    // ★ The rail is UNTOUCHED at 190 — fix-507's first lever, explicitly not
-    //   spent, which is why the truncation it costs did not get worse.
-    expect(PERMITS_RAIL_WIDTH).toBe(190);
+    // ★ fix-508 left the rail UNTOUCHED at 190 — fix-507's first lever,
+    //   explicitly not spent. fix-517 §A then spent the whole thing: the rail
+    //   is deleted and the 202px it held goes to the row. The Project card is
+    //   at its floor at 1600 either way, so this number does not move.
   });
 
   it('★★★ the breakpoint is the card’s CONTENT box, and the rule says so', () => {
@@ -242,8 +262,9 @@ describe('fix-507 §C — the Team card’s three columns', () => {
     //     floor is the button, measured at its widest face.
     expect(TEAM_GRID_CHAT_MIN).toBe(103);
     expect(TEAM_GRID_CARD_MIN).toBe(TEAM_GRID_COLUMN_1_MIN + TEAM_GRID_CHAT_MIN);
+    // ★ fix-517 §A: 497 → 572, the rail's 202 shared out at 1920.
     const teamAt1920 = Math.round(resolveOverviewWidths(overviewRowWidthAt(1920))[2]);
-    expect(teamAt1920).toBe(497);
+    expect(teamAt1920).toBe(572);
     expect(teamAt1920).toBeGreaterThanOrEqual(TEAM_GRID_CARD_MIN);
   });
 

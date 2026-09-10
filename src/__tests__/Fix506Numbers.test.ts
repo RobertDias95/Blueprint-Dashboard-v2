@@ -61,8 +61,12 @@ describe('fix-506 — the STEP 0 numbers, derived', () => {
     //     fix-417 rank being retired in favour of a floor
     //     (D-2026-09-09-plan-of-record-keeps-a-floor-not-a-rank).
     expect(OVERVIEW_ROW_MIN_WIDTH).toBe(996);
-    expect(overviewMinViewport('expanded')).toBe(1531);
-    expect(overviewMinViewport('collapsed')).toBe(1375);
+    // ★★★ fix-517 §A: the FLOORS still did not move — 996 is unchanged — but
+    //     the viewport that clears them falls 1531 → 1329, because the rail and
+    //     its gap are no longer standing between the screen and the row.
+    expect(overviewMinViewport('expanded')).toBe(1329);
+    expect(overviewMinViewport('collapsed')).toBe(1173);
+    expect(1531 - overviewMinViewport('expanded')).toBe(202);
   });
 
   it('★★★ 1600 fits on ONE line — the brief’s "must not clip" requirement', () => {
@@ -71,9 +75,15 @@ describe('fix-506 — the STEP 0 numbers, derived', () => {
     // ★ fix-508: 486 / 330 / 229 at 1600 — the Plan of Record and Project both
     //   on their floors, Team taking what is left. The point fix-506 was making
     //   survives whole: 1600 runs on ONE line.
+    // ★★★ fix-517 §A: 486 / 330 / **431**. The two floored cards do not move a
+    //     pixel and TEAM TAKES THE WHOLE 202, because it was the only card
+    //     absorbing the shortfall — it was on 229 against the 36.5% share
+    //     fix-508 gave it, which is 455. The rail was being paid for by one
+    //     card, and this is the line that says so.
     expect(Math.round(por)).toBe(486);
     expect(Math.round(proj)).toBe(330);
-    expect(Math.round(team)).toBe(229);
+    expect(Math.round(team)).toBe(431);
+    expect(Math.round(team) - 229).toBe(202);
     // ★ …and Project's body still holds the six-column matrix, with room now.
     expect(Math.round(proj) - 22).toBeGreaterThanOrEqual(UNIT_MATRIX_TRANSPOSED_WIDTH);
   });
@@ -91,11 +101,17 @@ describe('fix-506 — the STEP 0 numbers, derived', () => {
     //     TEAM is the widest card now — expected, not a violation
     //     (D-2026-09-09). See Fix508Numbers for why the rank was shorthand for
     //     a grievance this ticket settles directly.
+    // ★★★ fix-517 §A: 556 / 439 / 572 at 1920. Unlike 1600, all three cards
+    //     gain here — and 1920 is the first width at which the Plan of Record
+    //     is ABOVE its 486 floor, so the declared shares finally govern all
+    //     three. TEAM is still the widest, which is the ruling this test is
+    //     about.
     const [por, proj, team] = resolveOverviewWidths(overviewRowWidthAt(1920));
-    expect(Math.round(por)).toBe(486);
-    expect(Math.round(proj)).toBe(382);
-    expect(Math.round(team)).toBe(497);
+    expect(Math.round(por)).toBe(556);
+    expect(Math.round(proj)).toBe(439);
+    expect(Math.round(team)).toBe(572);
     expect(team).toBeGreaterThan(por);
+    expect(Math.round(por)).toBeGreaterThan(486);
   });
 
   it('★★★ THE GATE: 475 was right, and fix-507 §A/§B paid it rather than wrapping', () => {
@@ -130,7 +146,10 @@ describe('fix-506 — the STEP 0 numbers, derived', () => {
     //     §A's rail and §B's re-share make it **476**, so the pair sits side by
     //     side at 1920 and the fallback becomes a declared breakpoint instead
     //     of the only state.
-    expect(projBodyAt(1920)).toBe(380);
+    // ★ fix-517 §A: 380 → 437. The inversion this test records happened at
+    //   fix-507/508; the rail's deletion widens the margin, it does not change
+    //   the finding.
+    expect(projBodyAt(1920)).toBe(437);
     expect(projBodyAt(1920)).toBeGreaterThanOrEqual(SITE_DATES_SIDE_BY_SIDE_MIN);
     // ★★ THE FLOOR IS STILL THE WIDER BOX, NOT THE SUM, and that has not
     //    changed with the arrangement: the pair STACKS below the breakpoint
