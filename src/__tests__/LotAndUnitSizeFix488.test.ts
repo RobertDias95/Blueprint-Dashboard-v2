@@ -1,3 +1,4 @@
+import { LIBRARY_UNIT_COLUMNS } from '../lib/libraryUnitColumns';
 import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
@@ -578,7 +579,15 @@ describe('fix-488 §B: why the overview units matrix has no Size column', () => 
       resolve(process.cwd(), 'src/components/LibraryMatrix.tsx'),
       'utf8',
     );
-    expect(matrix).toContain('-size`');
+    // ★★★ fix-519 §A: the cell's testid is built from the COLUMN's declaration
+    //     now (`library-unit-<pid>-<i>-${c.testId}`), because the header and the
+    //     cells render from one list. Asserted against that declaration — which
+    //     is stronger than the old substring: it also says the Size column
+    //     reads `size_sf` and not whatever happens to sit in that position.
+    const size = LIBRARY_UNIT_COLUMNS.find((c) => c.col === 'size');
+    expect(size?.testId).toBe('size');
+    expect(size?.sourceKey).toBe('size_sf');
+    expect(matrix).toContain('-${c.testId}`');
     // ★ fix-506 §H made the Library read-only, so `size_sf` is TYPED in the
     //   wizard and in Project Data's Units tab, and PRINTED here. The field
     //   still ships and is still searchable by the Library's ± filter, which

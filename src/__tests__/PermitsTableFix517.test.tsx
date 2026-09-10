@@ -714,6 +714,24 @@ describe('fix-517 §E — one permit editor, reached from the row', () => {
     expect(tableSrc).not.toContain('onDoubleClick');
   });
 
+  it('★★★ fix-519 §D (P-232) — the glyph CARRIES the navigation, and says where', () => {
+    // ★★★ SUPERSEDING fix-517's BARE ✎. The behaviour was already right — this
+    //     control opens Project Details and always did — but **Bobby still had
+    //     to ask whether the rule had been broken**, because a pencil is the
+    //     universal sign for EDIT IN PLACE. When a ruling changes what a
+    //     control does, the control's SIGN changes with it, or the ruling reads
+    //     as broken. Nothing about the click changed.
+    renderTable([permit({ id: 7 })]);
+    const btn = screen.getByTestId('schedule-health-edit-7');
+    // The arrow is decorative — the accessible name is the sentence.
+    expect(btn.textContent).toContain('↗');
+    expect(btn.getAttribute('title')).toBe('Edit in Project Details');
+    expect(btn.getAttribute('aria-label')).toContain('in Project Details');
+    // ★ The destination is NAMED, not merely implied by an icon: a screen
+    //   reader hearing "Edit" alone learns nothing about the page changing.
+    expect(btn.querySelector('[aria-hidden="true"]')?.textContent).toBe('↗');
+  });
+
   it('★★★ it targets the Permits tab, and does not also open the Permit View', () => {
     renderTable([permit({ id: 7 })]);
     fireEvent.click(screen.getByTestId('schedule-health-edit-7'));

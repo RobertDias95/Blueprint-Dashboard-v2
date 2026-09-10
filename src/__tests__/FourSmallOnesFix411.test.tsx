@@ -1,3 +1,5 @@
+import { LIBRARY_UNIT_COLUMNS } from '../lib/libraryUnitColumns';
+import unitColumnsSource from '../lib/libraryUnitColumns.ts?raw';
 import { describe, it, expect, vi } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
@@ -394,8 +396,21 @@ describe('fix-411 §3 (P-053): the Units table header reads RD', () => {
     // ★ The brief allows the full words where there is room. The Library's
     //   filter, its column header and its unit mini-table all have room and are
     //   already unambiguous, so changing them would be churn.
+    // ★★★ fix-519 §A: the unit COLUMN's heading moved out of this file into
+    //     `lib/libraryUnitColumns`, where the header and the cells now read it
+    //     from one declaration. The claim is unchanged — the Library says
+    //     "Roof Deck" in full wherever it has room — so the count follows the
+    //     string to where it lives rather than being lowered to fit.
     expect(matrixSource).toContain('<FieldLabel label="Roof Deck">');
-    expect(matrixSource.match(/Roof Deck/g)?.length ?? 0).toBeGreaterThanOrEqual(3);
+    const roofDeckInFull =
+      (matrixSource.match(/Roof Deck/g)?.length ?? 0) +
+      (unitColumnsSource.match(/Roof Deck/g)?.length ?? 0);
+    expect(roofDeckInFull).toBeGreaterThanOrEqual(3);
+    // ★ …and the column's heading is one of them, asserted where it is
+    //   declared rather than by counting occurrences of a substring.
+    expect(
+      LIBRARY_UNIT_COLUMNS.find((c) => c.col === 'roofDeck')?.label,
+    ).toBe('Roof Deck');
   });
 });
 

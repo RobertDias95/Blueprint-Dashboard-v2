@@ -167,9 +167,18 @@ export default function CustomReport() {
               type="button"
               onClick={() => navigate(`/reports/builder/${id}`)}
               className="text-[11px] font-display font-bold px-2.5 py-1.5 rounded border border-border text-text hover:bg-s2 transition"
+              title="Open this report in the report builder"
+              aria-label="Edit in the report builder"
               data-testid="custom-report-edit"
             >
-              ✎ Edit
+              {/* ★★★ fix-519 §D (P-232) — WHAT THE AFFORDANCE SWEEP CAUGHT.
+                  §D is about fix-517's row pencil, and the sweep it asks for
+                  ("any other control whose icon implies an action a ruling
+                  moved?") found this one, which predates both tickets: a bare
+                  ✎ that NAVIGATES to `/reports/builder/<id>`. Same class, same
+                  fix — the destination is in the label and the arrow says the
+                  page is about to change. The behaviour is untouched. */}
+              ✎ Edit in builder ↗
             </button>
           )}
           <button

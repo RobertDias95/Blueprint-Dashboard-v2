@@ -1,6 +1,8 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { screen, fireEvent } from '@testing-library/react';
 import { existsSync } from 'node:fs';
+import { LIBRARY_UNIT_COLUMNS } from '../lib/libraryUnitColumns';
+import { LIBRARY_SITE_SHARED_FIELDS } from '../lib/librarySiteFields';
 import { resolve } from 'node:path';
 import {
   PROJECT_DETAILS_SEARCH,
@@ -427,7 +429,17 @@ describe('fix-514 §H — the Library reads left-to-right like its filters', () 
   it('★★★ the Site tab reads address · lot W · lot D · lot SF · juris · zone · alley · corner', () => {
     // ★ Scoped to the SITE table — the UNIT table above it has its own
     //   `col="juris"`, and an unscoped scan reads the wrong header row.
-    const site = l.slice(l.indexOf('data-testid="library-table"'));
+    // ★★★ fix-519 §C: `juris · zone · alley` are no longer three literals in
+    //     this markup — they render from `LIBRARY_SITE_SHARED_FIELDS`, because
+    //     the FILTER BOX has to read them in the same order and a comment was
+    //     not keeping the two honest. The run is expanded back in here so this
+    //     test keeps asserting the SAME claim about the SAME table.
+    const site = l
+      .slice(l.indexOf('data-testid="library-table"'))
+      .replace(
+        /\{LIBRARY_SITE_SHARED_FIELDS\.map[\s\S]*?\)\)\}/,
+        LIBRARY_SITE_SHARED_FIELDS.map((f) => `col="${f.key}"`).join(' '),
+      );
     const order = [...site.matchAll(/col="(\w+)"/g)]
       .map((m) => m[1])
       .filter((c, i, a) => a.indexOf(c) === i);
@@ -466,8 +478,15 @@ describe('fix-514 §H — the Library reads left-to-right like its filters', () 
   });
 
   it('★★ the Unit tab reads width · depth · size · parking · stalls · roof deck', () => {
-    const u = l.slice(l.indexOf('library-table-unit'));
-    const order = [...u.matchAll(/col="(\w+)"/g)].map((m) => m[1]);
+    // ★★★ fix-519 §A (P-230) — THE ORDER IS DATA NOW, AND THAT IS THE FIX.
+    //     This test used to scan the markup for `col="…"` because the order
+    //     lived in the markup — in TWO copies of it, the `<thead>` here and
+    //     `LibraryUnitRow`'s cells 500 lines below. **§H reordered one of
+    //     them**, so `roof_deck` printed under STORIES and `parking_kind`
+    //     under ROOF DECK on every project for two tickets. Both readers now
+    //     render from `LIBRARY_UNIT_COLUMNS`, so the claim is asserted where
+    //     the order actually lives.
+    const order: string[] = LIBRARY_UNIT_COLUMNS.map((c) => String(c.col));
     const idx = (c: string) => order.indexOf(c);
     for (const [a, b] of [
       ['width', 'depth'],
@@ -475,10 +494,15 @@ describe('fix-514 §H — the Library reads left-to-right like its filters', () 
       ['size', 'parking'],
       ['parking', 'stalls'],
       ['stalls', 'roofDeck'],
-      ['roofDeck', 'stage'],
     ] as const) {
       expect(idx(a), `${a} before ${b}`).toBeLessThan(idx(b));
     }
+    // ★ `stage` is a PROJECT cell and is not in the list; it still trails the
+    //   unit run in the markup, which is the half the list does not own.
+    const u = l.slice(l.indexOf('library-table-unit'));
+    expect(u.indexOf('LIBRARY_UNIT_COLUMNS.map')).toBeLessThan(
+      u.indexOf('col="stage"'),
+    );
   });
 
   it('★★ `projectDataHref` stays — the deep link is not the signpost', () => {

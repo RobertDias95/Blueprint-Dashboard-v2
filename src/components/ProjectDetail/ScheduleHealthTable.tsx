@@ -617,11 +617,20 @@ function Row({
                 background: 'var(--color-surface)',
                 color: 'var(--color-dim)',
               }}
-              title="Edit this permit in Project Details"
+              title="Edit in Project Details"
               aria-label={`Edit ${typeLabel} in Project Details`}
               data-testid={`schedule-health-edit-${permit.id}`}
             >
-              ✎
+              {/* ★★★ fix-519 §D (P-232) — THE GLYPH CARRIES THE NAVIGATION.
+                  fix-517 §E moved permit editing into Project Details and this
+                  control does the right thing — but a bare ✎ is the universal
+                  sign for EDIT IN PLACE, and Bobby still had to ask whether the
+                  rule had been broken. **When a ruling changes what a control
+                  does, the control's SIGN changes with it, or the ruling reads
+                  as broken.** The behaviour is untouched; only the promise is.
+                  ★ `✎↗` rather than a different icon: the pencil still says
+                    "this is where you edit", and the arrow says "not here". */}
+              ✎<span className="text-[9px] align-super" aria-hidden="true">↗</span>
             </button>
           )}
         </div>
