@@ -70,6 +70,16 @@ const fixtures = vi.hoisted(() => ({
     { id: 'p-now', address: '500 Pike St', juris: 'Seattle', archived: false, notes: null },
     { id: 'p-other', address: '750 Oak Way', juris: 'Bellevue', archived: false, notes: null },
     { id: 'p-noda', address: '999 Unscheduled Ln', juris: 'Seattle', archived: false, notes: null },
+    // ★★★ fix-521 §A (P-235) — THE PROJECT WITH NO `draw_schedule` ROW AT ALL.
+    //     `2621 Eastlake Ave E` on prod: created, one permit, and zero rows.
+    //     There is deliberately NO entry for it in the `draw` array above — it
+    //     is the case the old derivation could not represent, because that one
+    //     started from the rows.
+    { id: 'p-norow', address: '2621 Eastlake Ave E', juris: 'Seattle', archived: false, notes: null },
+    // ★ …and two that must NOT be listed: a cancelled project is not work
+    //   waiting to be placed, and an archived one is not work at all.
+    { id: 'p-cancelled', address: '111 Cancelled Ct', juris: 'Seattle', archived: false, notes: null },
+    { id: 'p-archived', address: '222 Archived Ave', juris: 'Seattle', archived: true, notes: null },
   ],
   groups: [
     { dm: 'Lindsay', das: ['Francesca', 'Ainsley', 'Trevor'] },
@@ -2007,22 +2017,40 @@ describe('fix-263 draw schedule — parked block treatment', () => {
     expect(addr).toContain('line-through');
   });
 
-  it('cancelled: the chip says CANCELLED — no live PHASE is ever claimed', () => {
+  it('cancelled: the block says CANCELLED ONCE — no live phase, and no echo', () => {
     // ★★ fix-263's rule is unchanged and is what matters: a cancelled project
     //    has no live phase, and showing one is precisely what made the fix-262
     //    block read as pending.
-    // ★★★ fix-515 §A AMENDS HOW IT IS SAID. The chip used to be REMOVED, which
-    //     left the row silent — and §A's rule is that *"a row that legitimately
-    //     has no phase should read as HAVING NONE, not as not mentioning it."*
-    //     So the park's own label takes the chip's place: the block answers the
-    //     question with the truth instead of with nothing.
+    // ★★ fix-515 §A amended HOW it was said: the chip stopped being removed and
+    //    started carrying the park's own label, because *"a row that
+    //    legitimately has no phase should read as HAVING NONE, not as not
+    //    mentioning it."*
+    //
+    // ★★★ fix-521 §B (P-224) SUPERSEDES THE PLACEMENT, NOT THE RULE. Saying it
+    //     in the chip AND in the date line put the identical word on the block
+    //     twice — `1953 10th Ave W` read `Cancelled` and then
+    //     `✕ CANCELLED 09-04-26` — on a block already short of room. **The
+    //     answer is still given; it is given once**, by the line that also
+    //     carries the date. fix-515's requirement is met more strongly than
+    //     before: there is now no phase chip at all on a cancelled block.
     renderGrid();
+    // A LIVE block still has its chip, and it does not say Cancelled.
     expect(screen.getByTestId('block-status-p-now').textContent).not.toContain('Cancelled');
     document.body.innerHTML = '';
 
     holdRows.current = [parkRow('p-now', 'cancelled', 'Builder pulled out')];
     renderGrid();
-    expect(screen.getByTestId('block-status-p-now').textContent).toContain('Cancelled');
+    // The chip is GONE — collapsed into the date line, which says it.
+    expect(screen.queryByTestId('block-status-p-now')).toBeNull();
+    expect(screen.getByTestId('block-meta-p-now').getAttribute('data-chip')).toBe(
+      'collapsed',
+    );
+    expect(screen.getByTestId('block-cancelled-p-now').textContent).toContain('CANCELLED');
+    // ★ And the word appears exactly ONCE on the block — the defect in one
+    //   assertion.
+    const block = screen.getByTestId('block-p-now');
+    const says = (block.textContent ?? '').match(/CANCELLED/gi) ?? [];
+    expect(says).toHaveLength(1);
   });
 
   it('cancelled: the CANCELLED date line still renders (fix-262 behaviour kept)', () => {
@@ -2303,5 +2331,99 @@ describe('fix-345 §1: Today returns the grid to the current quarter', () => {
     // ★ And the deep link's own parameter is untouched: the focus ring is still
     // applied, because ?project= still says which block this visit is about.
     expect(screen.getByTestId('block-p-now').dataset.focus).toBe('true');
+  });
+});
+
+// ===========================================================================
+// ★★★ fix-521 §A (P-235) — ON THE BOARD, OR ON THE LIST. NEVER NEITHER.
+// ===========================================================================
+//
+// Bobby, 2026-09-10: *"i just added 2621 Eastlake Ave E but i dont see it on
+// the draw schedule?"*
+//
+// ★★★ THE FOOTER READ `draw_schedule` ROWS with no week assigned — not
+//     projects with no row at all. So a project that never got a row was
+//     invisible to the board AND to the list of things missing from the board.
+//     Project Overview said *"Not scheduled yet — no block on the board"*
+//     (correct); the Draw Schedule footer said *"No unscheduled projects."*
+//     **The one project that most needed placing was the only one you could
+//     not see, and nothing would ever have surfaced it.**
+describe('fix-521 §A: an active project with no draw_schedule row', () => {
+  it('★★★ `2621 Eastlake Ave E` — no row at all — is IN the unscheduled list', () => {
+    renderGrid();
+    expect(screen.getByTestId('unscheduled-p-norow')).toBeInTheDocument();
+    expect(screen.getByText('2621 Eastlake Ave E')).toBeInTheDocument();
+  });
+
+  it('★★★ …and it says WHICH kind of missing it is', () => {
+    // ★ Three states, and the third was unreachable. "No block yet" is a
+    //   different fact from a block missing its week, and somebody deciding
+    //   what to place needs to know which they are looking at.
+    renderGrid();
+    expect(
+      screen.getByTestId('unscheduled-p-norow').getAttribute('data-has-row'),
+    ).toBe('false');
+    expect(screen.getByTestId('unscheduled-p-norow').getAttribute('title')).toContain(
+      'No block yet',
+    );
+    // ★ The row-but-no-week case keeps its own detail, unchanged.
+    expect(
+      screen.getByTestId('unscheduled-p-noda').getAttribute('data-has-row'),
+    ).toBe('true');
+    expect(screen.getByTestId('unscheduled-p-noda').getAttribute('title')).toContain(
+      'no DA',
+    );
+  });
+
+  it('★★★ THE INVARIANT: every active project is on the board OR unscheduled', () => {
+    // ★★★ THIS IS THE POINT, not the missing row. Today's instance is one
+    //     project created without a `lead_da`; the invariant is what stops the
+    //     NEXT cause — whatever it turns out to be — being invisible too.
+    renderGrid();
+    const active = fixtures.projects.filter(
+      (p) => !p.archived && p.id !== 'p-cancelled',
+    );
+    for (const p of active) {
+      const onBoard = screen.queryByTestId(`block-${p.id}`);
+      const onList = screen.queryByTestId(`unscheduled-${p.id}`);
+      expect(
+        !!onBoard || !!onList,
+        `${p.address} is on neither the board nor the unscheduled list`,
+      ).toBe(true);
+      // ★ …and never both: a block IS the thing the list says is missing.
+      expect(!!onBoard && !!onList, `${p.address} is on both`).toBe(false);
+    }
+  });
+
+  it('★★ an ARCHIVED project is on neither, and that is correct', () => {
+    // ★ It is not work waiting to be placed. The invariant above is about
+    //   ACTIVE projects, which is why the filter is stated in it.
+    renderGrid();
+    expect(screen.queryByTestId('unscheduled-p-archived')).toBeNull();
+    expect(screen.queryByTestId('block-p-archived')).toBeNull();
+  });
+
+  it('★★★ a CANCELLED project is not on the list — and this differs from the BOARD on purpose', () => {
+    // ★★★ fix-262 keeps a cancelled project's BLOCK at full width, because the
+    //     DA capacity it consumed is the whole point of that view. A cancelled
+    //     project is still not work waiting to be placed, so it does not belong
+    //     on a list of things to place. Two rules, deliberately, for two
+    //     different questions.
+    holdRows.current = [
+      {
+        id: 'h-cancel',
+        project_id: 'p-cancelled',
+        hold_start: '2026-05-01',
+        hold_end: null,
+        reason: 'Deal died',
+        kind: 'cancelled',
+      } as unknown as import('../lib/database.types').ProjectHold,
+    ];
+    try {
+      renderGrid();
+      expect(screen.queryByTestId('unscheduled-p-cancelled')).toBeNull();
+    } finally {
+      holdRows.current = [];
+    }
   });
 });

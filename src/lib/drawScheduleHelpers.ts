@@ -680,3 +680,130 @@ export function blockOverflow(
   if (endWeek > last) return 'head';
   return null;
 }
+
+// ===========================================================================
+// ★★★ fix-521 §B (P-224) — THE BLOCK'S META LINE
+// ===========================================================================
+//
+// Bobby, 2026-09-10: *"it is, like, stacking, or horizontally, like fighting…
+// Edmonds partially cut off, and then corrections, estimated approval. It needs
+// to be able to stack these vertically."* And: ***"too busy."***
+//
+// ⚠️ THIS IS A DIRECT CONSEQUENCE OF fix-515 §A AND OF MY OWN RECOMMENDATION.
+//    Putting the jurisdiction and the phase chip on ONE row is what made them
+//    both fit and bought a line of height back — *"the tallest case got SHORTER
+//    rather than taller"*. That was true, and it is still true of a wide block.
+//    **On a narrow one the two of them fight for the width and the city name
+//    loses**: `Edmo…` on `548 3rd Ave N`, `Sea…` on `5623 44th Ave SW`,
+//    `Pho…` on `4040 E Via Estrella`.
+//
+// ★★★ THE BUDGET RULE, WHICH IS THE HONEST FRAME: *"to add a line, remove a
+//     line."* Every fix so far has added, and "too busy" is the summary. So §B
+//     is two changes that pay for each other — one may add a line on the
+//     narrow blocks, and the other removes one wherever the block was saying
+//     the same thing twice.
+// ===========================================================================
+
+/**
+ * ★★★ RULE 1 — JURISDICTION MUST NEVER TRUNCATE.
+ *
+ * If something has to give on a 90px block it is not the city name. The PHASE
+ * is repeated in the legend and in the column header; the jurisdiction is
+ * repeated nowhere on this screen. A truncated `Edmo…` is the one piece of
+ * information the block alone was carrying.
+ *
+ * So the pair goes on one line only when BOTH fit whole. Otherwise they stack,
+ * and the jurisdiction gets the full width to itself.
+ *
+ * ★ Measured with `BLOCK_ADDRESS_CHAR_EM`, the same over-estimating advance the
+ *   address ramp uses (0.58 em, above every measured value in
+ *   `harness/draw-block-fit-484.html`). Erring WIDE means stacking one notch
+ *   sooner than strictly necessary, which costs a line; erring narrow would
+ *   leave the city name clipped, which is the defect. The asymmetry is the
+ *   point, and it is the same one fix-484 §A2 settled.
+ */
+export function blockMetaFitsOneLine(
+  jurisLabel: string,
+  chipLabel: string,
+  detailFontPx: number,
+  chipFontPx: number,
+  boxPx: number,
+): boolean {
+  if (boxPx <= 0) return true;
+  const jurisPx = jurisLabel.length * detailFontPx * BLOCK_ADDRESS_CHAR_EM;
+  // ★ The chip carries 3px of padding a side plus a 1px border a side — 8px of
+  //   chrome that is not text and does not scale with the font.
+  const chipPx = chipLabel.length * chipFontPx * BLOCK_ADDRESS_CHAR_EM + 8;
+  // ★ …and the 3px flex gap between them.
+  return jurisPx + chipPx + 3 <= boxPx;
+}
+
+/**
+ * ★★★ RULE 2 — COLLAPSE THE CHIP ONLY WHEN IT AND THE DATE LABEL NAME THE SAME
+ *     STATE.
+ *
+ * `1953 10th Ave W` reads `Cancelled` and then `✕ CANCELLED 09-04-26` — the
+ * identical word twice, on a block already short of room. But `548 3rd Ave N`
+ * reads `Corrections` and then `Est. Approval 10-31-26`, which is **two
+ * different facts**: what it is doing now, and when it is expected to finish.
+ *
+ * ⚠️ SO A FIX THAT SIMPLY DELETES THE CHIP STRIPS REAL INFORMATION FROM EVERY
+ *    IN-FLIGHT BLOCK. The collapse has to be conditional, and the condition is
+ *    what these two functions state.
+ *
+ * ★★ BOTH SIDES ARE CLOSED VOCABULARIES, so this is a mapping and not a string
+ *    heuristic. The chip is `STATUS_PRESENTATION[…].label` or a park label; the
+ *    date label is one of exactly four strings. Comparing them by stemming
+ *    ("approved" ≈ "approval") would be a guess that breaks the first time
+ *    somebody adds a status.
+ */
+export type BlockMetaState =
+  | 'cancelled'
+  | 'held'
+  | 'approved'
+  /** A forecast, or a phase that no date label can name. Never collapses. */
+  | 'other';
+
+/** What the phase chip is saying. */
+export function chipState(chipLabel: string): BlockMetaState {
+  switch (chipLabel) {
+    case 'Cancelled':
+      return 'cancelled';
+    case 'On hold':
+      return 'held';
+    case 'Approved':
+      return 'approved';
+    default:
+      // Scheduled · Schematic · DD / Permit Set · Pending Consultants ·
+      // Under Review · Corrections — none of which any date label names.
+      return 'other';
+  }
+}
+
+/**
+ * What the DATE label is saying.
+ *
+ * ★★★ `Est. Approval` IS DELIBERATELY `other`, and this is the subtle half.
+ *     An `Approved` chip beside an `Approval` date is one fact — the approval
+ *     happened, here is when. An `Approved` chip beside an **`Est. Approval`**
+ *     date is two facts that DISAGREE: the lane says approved and the
+ *     projection is still forecasting. Collapsing there would hide the
+ *     disagreement, and a block that quietly resolves a contradiction is worse
+ *     than one that shows it.
+ */
+export function dateLabelState(dateLabel: string): BlockMetaState {
+  if (dateLabel.startsWith('✕ CANCELLED')) return 'cancelled';
+  if (dateLabel.startsWith('⏸ On hold')) return 'held';
+  if (dateLabel === 'Approval') return 'approved';
+  return 'other';
+}
+
+/**
+ * ★★★ THE RULE, IN ONE LINE: drop the chip when it and the date label name the
+ *     same state — and never when either of them is saying something the other
+ *     is not.
+ */
+export function phaseChipIsRedundant(chipLabel: string, dateLabel: string): boolean {
+  const c = chipState(chipLabel);
+  return c !== 'other' && c === dateLabelState(dateLabel);
+}
