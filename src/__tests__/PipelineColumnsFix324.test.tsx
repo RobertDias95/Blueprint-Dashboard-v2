@@ -200,16 +200,30 @@ describe('fix-324: four columns, siblings in one row', () => {
     expect(columnsRow().className).not.toContain('flex-col');
   });
 
-  it('Approved and Issued are narrower than the working columns when open', () => {
+  it('★★★ SUPERSEDED by fix-516 §A: all four lanes share the row on ONE rule', () => {
+    // ★★ WHAT THIS PINNED: `flex: 0 0 264px` on Approved and Issued — a fixed
+    //    basis with no grow and no shrink — against `1 1 0%` on the two working
+    //    columns. It came from the prop's own reason: *"Approved and Issued are
+    //    narrower OPEN than the two working groups — they are for glancing at,
+    //    not working in."*
+    //
+    // ★★★ BOBBY OVERRULED IT, 2026-09-09: *"Approved and Issued should open to
+    //     the same width as Permitting and Design & Engineering, versus they
+    //     seem like they're stuck at this max width, which is not very wide."*
+    //     With the two working lanes folded, Approved opened to 264px and left
+    //     908px of the row empty at 1600.
+    //
+    // ★ AND 264 WAS NEVER A MEASUREMENT — it was a mock-up pixel, filed in this
+    //   file's `/** Folded widths */` block while governing the OPEN state.
+    //   Nothing had measured what an Approved lane's content needs. There is no
+    //   replacement number, which is the point: the exception goes rather than
+    //   moves.
     renderDash();
     openGlanceColumns();
-    expect(group('ap').dataset.narrow).toBe('true');
-    expect(group('is').dataset.narrow).toBe('true');
-    expect(group('ap').style.flex).toContain('264px');
-    expect(group('de').dataset.narrow).toBe('false');
-    // The two working columns share what is left.
-    expect(group('de').style.flex).toBe('1 1 0%');
-    expect(group('pm').style.flex).toBe('1 1 0%');
+    for (const k of ['de', 'pm', 'ap', 'is'] as const) {
+      expect(group(k).style.flex, k).toBe('1 1 0%');
+      expect(group(k).dataset.narrow, k).toBeUndefined();
+    }
   });
 });
 
