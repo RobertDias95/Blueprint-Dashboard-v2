@@ -95,6 +95,9 @@ interface Props {
    *  out of the already-cached project list. */
   allProjects?: readonly Project[];
   initialTab?: ProjectDataTab;
+  /** ★ fix-517 §E: `?data=permits&focus=<id>` — the permit the PERMITS table's
+   *  row ✎ was clicked on. Scrolled to and ringed in the Permits tab. */
+  initialFocusPermitId?: number | null;
   onClose: () => void;
   onSpawnRedesign?: () => void;
   onReassignDa?: () => void;
@@ -108,6 +111,7 @@ export default function ProjectDetailsModal({
   bp,
   allProjects = [],
   initialTab = 'site',
+  initialFocusPermitId = null,
   onClose,
   onSpawnRedesign,
   onReassignDa,
@@ -310,7 +314,7 @@ export default function ProjectDetailsModal({
               lands on the same rows. */}
           {tab === 'permits' && (
             <TabPanel caption="Permit rows save with the Save button — type, ENT, DA, number, portal URL, structure address and the ACQ target date all ride in one atomic write.">
-              <PermitsFormSection ctl={ctl} />
+              <PermitsFormSection ctl={ctl} focusPermitId={initialFocusPermitId} />
             </TabPanel>
           )}
           {tab === 'builder' && (

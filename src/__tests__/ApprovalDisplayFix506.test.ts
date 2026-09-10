@@ -97,8 +97,13 @@ describe('fix-506 §I: Schedule Health reads the shared helper', () => {
   it('★★★ col 6 no longer decides the word for itself', () => {
     // ★★ It read `{isActual ? 'Actual' : 'Est. Approval'}` inline — a second
     //    place that knew the rule. It reads `approval.label` now.
+    // ★ fix-517 §C hoisted every derivation into the parent so the sortable
+    //   headers can order by values the cells print; the label rides on the row
+    //   model as `approvalLabel`. Same helper, same single decision — the
+    //   assertion follows the EXPRESSION rather than the old cell-local name.
     expect(src).toContain("approvalDisplay(projectedResult, 'scheduleHealth')");
-    expect(src).toContain('{approval.label}');
+    expect(src).toContain('approvalLabel: approval.label');
+    expect(src).toContain('{approvalLabel}');
     expect(src).not.toContain("isActual ? 'Actual' : 'Est. Approval'");
   });
 
@@ -116,13 +121,17 @@ describe('fix-506 §I: Schedule Health reads the shared helper', () => {
     //         candidates while displaying the answer is P-179 in miniature.
     //         The editor moved to Project Data as the ACQ date — it was not
     //         deleted, and this file's sibling suite asserts it landed.
-    expect(src).toContain('<Th>Target Approval</Th>');
+    // ★ fix-517 §C made the headers sortable, so a `<Th>` carries a sort key.
+    //   The header TEXT and the read-only cell are what this test is about.
+    expect(src).toContain('sortKey="target"');
+    expect(src).toContain('Target Approval');
     expect(src).toContain('<TargetApprovalCell');
     expect(src).not.toContain('<AcqTargetCell');
     // ★ …and the OTHER header moved too: `Estimated Approval` → `Permit
     //   Approval`, because the column prints the ACTUAL date once the city
     //   approves and only projects before that.
-    expect(src).toContain('<Th>Permit Approval</Th>');
+    expect(src).toContain('sortKey="approval"');
+    expect(src).toContain('Permit Approval');
   });
 
   it('★★ computeProjectedApproval itself is untouched', () => {

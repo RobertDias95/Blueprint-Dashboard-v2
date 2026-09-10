@@ -358,46 +358,50 @@ export const OVERVIEW_ROW_MIN_WIDTH: number =
   (OVERVIEW_CARD_COLUMNS.length - 1) * OVERVIEW_GRID_GAP;
 
 /**
- * ★★★ THE CHROME BETWEEN THE VIEWPORT AND THIS ROW — ALL SEVEN BOXES.
+ * ★★★ THE CHROME BETWEEN THE VIEWPORT AND THIS ROW — ALL FIVE BOXES.
  *
  * ★★ fix-417 listed three of these and was 278px optimistic as a result. Each
  * entry names the file and class it is read from, so the next person to change
  * a padding can find what depends on it.
  */
 /**
- * ★★★ fix-507 §A — THE PERMITS RAIL PAYS FOR THE SITE/DATES PAIR: 240 → 190.
+ * ★★★ fix-517 §A — THE PERMITS RAIL IS GONE, AND WITH IT TWO OF THESE BOXES.
  *
- * Bobby's own offer, 2026-09-09: *"we could take a little bit of width out of
- * the Permits column and provide it elsewhere as needed."* 190 is essentially
- * the **188px rail the v14 mock was drawn on** — i.e. the shell the layout was
- * actually signed off against ([[a-mock-measures-a-drawing-not-the-control-you-
- * ship]]) — so this is not a new proportion, it is the drawing's.
+ * `PERMITS_RAIL_WIDTH` (190) and `permitsRailGap` (12) are deleted rather than
+ * zeroed. A constant set to 0 is a box that still exists; the rail does not.
  *
- * ★★★ AND IT IS NOT FREE, WHICH STEP 0-3 MEASURED RATHER THAN ASSUMED. A rail
- *     row's content box is `width − 29` (the aside's 1px border a side, the
- *     row's 3px stage accent and its `px-3`). Measured in Chrome on
- *     `233 31st Ave E`:
+ * ★★★ AND THE SHIPPED NUMBER WAS 190, NOT 240. fix-517 STEP 0 was asked to
+ *     confirm the rail's real width because the brief priced the whole ticket
+ *     against 240 — the pre-fix-507 value. fix-507 §A had already narrowed it
+ *     to 190 (essentially the 188px rail the v14 mock was drawn on). So the
+ *     row gains **202px**, not 240: the rail's 190 plus its 12px gap.
  *
- *       permit number   `SDOTTRLA0002500 ↗`               102   fits at 190
- *       date line       `Target: 2026-10-16`              106   fits at 190
- *       type · stage    `PAR/Pre-Sub · Issued`            120   fits at 190
- *       type · stage    `Building Permit · Corrections`   173   TRUNCATES
- *       type · stage    `Grading / Clearing · Corrections` 188   TRUNCATES
+ * ★★ WHAT 202 BUYS IS NOT PROPORTIONAL, because the floors were binding.
+ *     Row content width goes 1065 → 1267 at 1600 and 1385 → 1587 at 1920, and
+ *     `resolveOverviewWidths` spends it like this:
  *
- *     So `PERMITS_RAIL_NO_TRUNCATION_WIDTH` — the smallest rail at which the
- *     stage breadcrumb never ellipsises — is **217**, and it is recorded here
- *     rather than silently substituted, which is what STEP 0-3 asked for. What
- *     190 costs is the SECONDARY half of the type line (`Building Permit ·
- *     Correc…`); the permit number, the date line and the stage's own colour
- *     dot are all untouched.
+ *       1600   Plan of Record  486 → 486     (+0, pinned at its floor)
+ *              Project         330 → 330     (+0, pinned at its floor)
+ *              Team            229 → 431     (+202 — ALL of it)
+ *
+ *       1920   Plan of Record  486 → 556     (+70)
+ *              Project         382 → 439     (+57)
+ *              Team            497 → 572     (+75)
+ *
+ *     ★★★ At 1600 the entire gain goes to Team, because Plan of Record and
+ *         Project were both sitting on their floors and Team was the only card
+ *         absorbing the shortfall — 229px against the 36.5% share fix-508 gave
+ *         it, which is 455. The rail was being paid for by one card.
+ *
+ * ★ It also moves the width at which the DECLARED SHARES actually govern (the
+ *   first viewport where Plan of Record clears its 486 floor) from **1924 to
+ *   1722**. Bobby's 1920 was four pixels below it.
+ *
+ * ★★ The rail's own width study is not repeated here. It is in fix-507's entry
+ *    in `SHIPPED.md` and in this file's history: the rail truncated
+ *    `Building Permit · Correc…` at 190 and needed 217 not to. The table has
+ *    named columns and does not.
  */
-export const PERMITS_RAIL_WIDTH = 190;
-
-/** ★ The smallest rail at which nothing in a permit row truncates, measured in
- *  Chrome against prod's longest type (`Grading / Clearing`, 7 permits) and
- *  longest stage word (`Corrections`). Reported, not adopted — Bobby ruled 190.
- *  Without `Grading / Clearing` it is 202. */
-export const PERMITS_RAIL_NO_TRUNCATION_WIDTH = 217;
 
 export const SHELL_CHROME_PX = {
   /** Ribbon.tsx `WIDTH_EXPANDED` — and expanded is the default. */
@@ -408,12 +412,6 @@ export const SHELL_CHROME_PX = {
   shellPadding: 24 * 2,
   /** ProjectDetail.tsx body row `px-3`. */
   pageRowPadding: 12 * 2,
-  /** ★ ProjectDetail.tsx `pd-left-rail` — a fixed permits column that is
-   *  rendered on the overview too. The box fix-417 missed; fix-507 §A narrows
-   *  it, and ProjectDetail.tsx reads THIS constant so the two cannot drift. */
-  permitsRail: PERMITS_RAIL_WIDTH,
-  /** ★ …and its `gap-3` to the right pillbox. */
-  permitsRailGap: 12,
   /** ★ `pd-right-pillbox` `border` — 1px a side. */
   pillboxBorder: 2,
   /**
@@ -447,8 +445,6 @@ export function overviewRowWidthAt(
     r -
     SHELL_CHROME_PX.shellPadding -
     SHELL_CHROME_PX.pageRowPadding -
-    SHELL_CHROME_PX.permitsRail -
-    SHELL_CHROME_PX.permitsRailGap -
     SHELL_CHROME_PX.pillboxBorder -
     SHELL_CHROME_PX.pillboxScrollbar -
     SHELL_CHROME_PX.headerPadding
@@ -475,8 +471,6 @@ export function overviewMinViewport(
       : SHELL_CHROME_PX.ribbonCollapsed) +
     SHELL_CHROME_PX.shellPadding +
     SHELL_CHROME_PX.pageRowPadding +
-    SHELL_CHROME_PX.permitsRail +
-    SHELL_CHROME_PX.permitsRailGap +
     SHELL_CHROME_PX.pillboxBorder +
     SHELL_CHROME_PX.pillboxScrollbar +
     SHELL_CHROME_PX.headerPadding

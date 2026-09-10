@@ -339,8 +339,12 @@ describe('fix-423 §A → fix-506 §A: the Milestones floor, and the card that h
     //     to Team, and the Plan of Record on the floor its capped thumbnail
     //     implies. **486 / 382 / 497** at 1920 — TEAM is the widest card now,
     //     which retires fix-417's rank (D-2026-09-09).
+    // ★★★ fix-517 §A moves them once more, and this time by DELETING a box
+    //     rather than re-sharing the row: the permits rail and its gap are gone
+    //     and the row gains 202px. **556 / 439 / 572** at 1920. The proportions
+    //     are fix-508's, unchanged — this is the same ruling on a wider row.
     const w = resolveOverviewWidths(overviewRowWidthAt(1920));
-    [486, 382, 497].forEach((expected, i) => {
+    [556, 439, 572].forEach((expected, i) => {
       expect(Math.abs(w[i] - expected), OVERVIEW_CARD_COLUMNS[i].key).toBeLessThanOrEqual(1);
     });
     // ★★ AND FREEZING IS STILL ITERATIVE, which is the property the old
@@ -355,10 +359,25 @@ describe('fix-423 §A → fix-506 §A: the Milestones floor, and the card that h
     // ★ fix-508: at 1600 the Plan of Record and Project both FREEZE on their
     //   floors again and Team takes the remainder — 486 / 330 / 229 — so the
     //   iterative property this test is about bites there once more.
+    // ★★★ fix-517 §A: 486 / 330 / **431** at 1600. The two frozen tracks are
+    //     the same two — the iterative property this test is about is
+    //     unchanged — and Team, the only unfrozen track, absorbs the whole
+    //     202px the deleted rail gave back. That is the clearest statement of
+    //     what the rail cost and who was paying for it.
     const at1600 = resolveOverviewWidths(overviewRowWidthAt(1600));
-    expect(at1600.map((n) => Math.round(n))).toEqual([486, 330, 229]);
+    expect(at1600.map((n) => Math.round(n))).toEqual([486, 330, 431]);
+    // ★★★ AND THE SECOND FREEZE HAS JUST STOPPED HAPPENING, which is worth
+    //     saying out loud. Before fix-517 both the Plan of Record AND Project
+    //     froze on their floors at 1600. Now only the Plan of Record does:
+    //     Project's share of what is left comes to **330.36**, clearing its own
+    //     330 floor by a third of a pixel. One freeze, not two — the iterative
+    //     re-share still runs, and this is the closest it has ever been to a
+    //     second pass. A floor that binds by 0.36px is a floor about to be
+    //     crossed, so it is asserted as the near-miss it is rather than rounded
+    //     into looking settled.
     expect(at1600[0]).toBe(col('por').minPx);
-    expect(at1600[1]).toBe(col('proj').minPx);
+    expect(at1600[1]).toBeGreaterThan(col('proj').minPx);
+    expect(at1600[1] - col('proj').minPx).toBeLessThan(1);
     // And the widths always fill the row exactly.
     const row = overviewRowWidthAt(1920);
     const sum = resolveOverviewWidths(row).reduce((a, b) => a + b, 0);
@@ -493,8 +512,11 @@ describe('fix-423 §D: two lines below the wrap point, and nothing scrolls', () 
     // ★★★ fix-508: 1439 → 1531. fix-507 moved this with the CHROME; fix-508
     //     moves it with a FLOOR, and in the other direction — the Plan of
     //     Record's, raised to the width its capped sheet actually uses.
-    expect(overviewWrapViewport('expanded')).toBe(1531);
-    expect(overviewWrapViewport('collapsed')).toBe(1375);
+    // ★★★ fix-517 §A: 1531 → 1329, and this time it is the CHROME again — the
+    //     rail is deleted outright. Four tickets have now moved this viewport,
+    //     twice by chrome and twice by a floor, which is why it is derived.
+    expect(overviewWrapViewport('expanded')).toBe(1329);
+    expect(overviewWrapViewport('collapsed')).toBe(1173);
   });
 
   it('★★★ BOTH lines fit at 1280 — which is the whole reason team.minPx stayed 160', () => {
@@ -569,17 +591,31 @@ describe('fix-423 §D: two lines below the wrap point, and nothing scrolls', () 
     // ★★ 1440 is where the GROUPING renders — 905 of row sits inside the band
     //    `[LINE_1_MIN 826, ROW_MIN 996)`, so the forced break is on and the row
     //    reads Plan of Record + Project, then Team.
+    // ★★★ fix-517 §A: 1440 STOPS WRAPPING. The row is 1107 there against a 996
+    //     minimum, so the forced break is off and `overviewLineOf` reports 0 —
+    //     "no declared line" — for all three. fix-507 won this viewport by one
+    //     pixel, fix-508 spent it, and deleting the rail buys it back with 111
+    //     to spare. The assertion follows the row rather than the year.
     const at1440 = overviewRowWidthAt(1440);
-    expect(['por', 'proj'].map((k) => overviewLineOf(k, at1440))).toEqual([1, 1]);
-    expect(overviewLineOf('team', at1440)).toBe(2);
-    // ★★★ AND AT 1280 THE BREAK IS OFF, which is the case fix-506 documented
-    //     and this ticket moves rather than changes: 745 of row is below line
-    //     one's own 826 minimum, so the grouping stops being promised and flex
-    //     breaks wherever it must. `overviewLineOf` reports 0 — "no declared
-    //     line" — rather than pretending to a grouping that is not rendered.
+    expect(['por', 'proj'].map((k) => overviewLineOf(k, at1440))).toEqual([0, 0]);
+    expect(overviewLineOf('team', at1440)).toBe(0);
+    // ★★★ AT 1280 THE GROUPING RENDERS NOW, and this is the case that INVERTED.
+    //     fix-506 documented 1280 as "the break is off" — 745 of row was below
+    //     line one's own 826 minimum, so `overviewLineOf` reported 0 for every
+    //     card rather than pretending to a grouping that was not rendered.
+    //     fix-517 §A gives 1280 back 202px: 947 of row sits inside the band
+    //     `[LINE_1_MIN 826, ROW_MIN 996)`, so the forced break is ON and the row
+    //     reads Plan of Record + Project, then Team. **The 0-state has moved
+    //     down to 1152 and below**, and it is asserted there rather than being
+    //     dropped — a state nothing tests is a state that comes back broken.
     const at1280 = overviewRowWidthAt(1280);
-    expect(at1280).toBeLessThan(OVERVIEW_ROW_LINE_1_MIN_WIDTH);
-    expect(['por', 'proj', 'team'].map((k) => overviewLineOf(k, at1280))).toEqual([
+    expect(at1280).toBeGreaterThanOrEqual(OVERVIEW_ROW_LINE_1_MIN_WIDTH);
+    expect(at1280).toBeLessThan(OVERVIEW_ROW_MIN_WIDTH);
+    expect(['por', 'proj'].map((k) => overviewLineOf(k, at1280))).toEqual([1, 1]);
+    expect(overviewLineOf('team', at1280)).toBe(2);
+    const at1152 = overviewRowWidthAt(1152);
+    expect(at1152).toBeLessThan(OVERVIEW_ROW_LINE_1_MIN_WIDTH);
+    expect(['por', 'proj', 'team'].map((k) => overviewLineOf(k, at1152))).toEqual([
       0, 0, 0,
     ]);
   });

@@ -62,7 +62,32 @@ export function isProjectDataTab(v: string | null | undefined): v is ProjectData
   return PROJECT_DATA_TABS.some((t) => t.key === v);
 }
 
-/** The link §H's Library rows carry. */
-export function projectDataHref(projectId: string, tab: ProjectDataTab): string {
-  return `/project/${projectId}?${PARAM_DATA}=${tab}`;
+/**
+ * ★★★ fix-517 §E — THE SECOND PARAMETER, AND WHY IT IS NOT `permit`.
+ *
+ * The PERMITS table's row edit affordance opens Project Details on the Permits
+ * tab **focused on one permit**, which needs the permit's id in the URL.
+ *
+ * ★★★ IT CANNOT BE `?permit=`. That parameter already exists and means
+ *     something else: ProjectDetail reads it to SELECT a permit and swap the
+ *     overview pane for the Permit View (fix-217/218/219). Reusing it would
+ *     open the modal over a page that had silently navigated away underneath
+ *     it, and closing the modal would leave you somewhere you never asked to
+ *     be. Two meanings, one parameter, is exactly what fix-179 is about.
+ */
+export const PARAM_DATA_FOCUS = 'focus';
+
+/**
+ * The link §H's Library rows carry — and, with `focusPermitId`, the link
+ * fix-517 §E's row edit affordance carries.
+ */
+export function projectDataHref(
+  projectId: string,
+  tab: ProjectDataTab,
+  focusPermitId?: number | null,
+): string {
+  const base = `/project/${projectId}?${PARAM_DATA}=${tab}`;
+  return focusPermitId == null
+    ? base
+    : `${base}&${PARAM_DATA_FOCUS}=${focusPermitId}`;
 }

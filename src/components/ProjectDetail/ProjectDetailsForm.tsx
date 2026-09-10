@@ -1,4 +1,4 @@
-import { useMemo } from 'react';
+import { useCallback, useEffect, useMemo, useRef } from 'react';
 import type { ReactNode } from 'react';
 import ZoneSelect from '../shared/ZoneSelect';
 import type { ProjectDetailsFormController } from '../../hooks/useProjectDetailsForm';
@@ -88,6 +88,7 @@ function SelectInput({
   value,
   onChange,
   options,
+  optionLabels,
   placeholderLabel,
   testid,
   disabled = false,
@@ -95,6 +96,9 @@ function SelectInput({
   value: string;
   onChange: (v: string) => void;
   options: string[];
+  /** ★ fix-517 §E: an option whose VALUE is an id needs a readable face.
+   *  Absent for every other select on this form, which shows its values. */
+  optionLabels?: Record<string, string>;
   placeholderLabel: string;
   testid?: string;
   disabled?: boolean;
@@ -115,7 +119,7 @@ function SelectInput({
           </option>
         ) : (
           <option key={o} value={o}>
-            {o}
+            {optionLabels?.[o] ?? o}
           </option>
         ),
       )}
@@ -488,6 +492,7 @@ function PermitRowCard({
   daOptions,
   entOptions,
   typeOptions,
+  parentOptions,
   onChange,
   onRemove,
 }: {
@@ -495,9 +500,16 @@ function PermitRowCard({
   daOptions: string[];
   entOptions: string[];
   typeOptions: string[];
+  /** ★ fix-517 §E: this project's other saved, non-sub permits. */
+  parentOptions: { value: string; label: string }[];
   onChange: (patch: Partial<PermitRow>) => void;
   onRemove: () => void;
 }) {
+  const parentLabels = useMemo(() => {
+    const m: Record<string, string> = {};
+    for (const o of parentOptions) m[o.value] = o.label;
+    return m;
+  }, [parentOptions]);
   // fix-25-feat-d: a row carrying a legacy / custom type not in the catalog
   // surfaces it as the first option so the user can keep it or replace it.
   const typeOptionsWithLegacy = useMemo(() => {
@@ -586,12 +598,102 @@ function PermitRowCard({
           to those.
         </div>
       </div>
+
+      {/* ★★★ fix-517 §E — `Sub-permit of`, THE FIELD THAT CAME WITH THE
+          DELETED QUICK EDIT MODAL.
+
+          fix-194: a permit with `parent_permit_id` set is a placeholder
+          REVIEWED UNDER its parent — it has no review stage of its own and is
+          excluded from Schedule Health, corrections counts, reviewer rollups,
+          on-track % and volume attribution. **3 of 685 prod permits are
+          sub-permits.** Cheap, and §E is explicit that it must not be dropped
+          silently: without an editor a mis-linked placeholder would be
+          permanently uncounted with no way back.
+
+          ★★ THE CANDIDATE LIST IS fix-194's, UNCHANGED: this project's OTHER
+             saved permits that are not themselves sub-permits — no self-link,
+             no two-level chains, and (because this form only ever holds one
+             project's rows) no cross-project parent, which the rest of the app
+             does not model.
+
+          ★ ONLY ON A SAVED ROW. A permit that has not been written yet has no
+            id for anything to point at, and cannot be a parent either. */}
+      {!row.isNew && row.id != null && (
+        <div className="grid gap-2 items-end" style={{ gridTemplateColumns: '1fr 2fr' }}>
+          <TinyField label="Sub-permit of">
+            <SelectInput
+              value={row.parent_permit_id}
+              onChange={(v) => onChange({ parent_permit_id: v })}
+              options={['', ...parentOptions.map((o) => o.value)]}
+              optionLabels={parentLabels}
+              placeholderLabel="— not a sub-permit —"
+              testid={`psm-permit-parent-${row.id}`}
+            />
+          </TinyField>
+          <div className="text-[9.5px] text-dim self-center">
+            A sub-permit is reviewed under its parent, so it carries no review
+            stage of its own and is left out of Schedule Health and every count.
+          </div>
+        </div>
+      )}
     </div>
   );
 }
 
-export function PermitsFormSection({ ctl }: { ctl: ProjectDetailsFormController }) {
+export function PermitsFormSection({
+  ctl,
+  focusPermitId,
+}: {
+  ctl: ProjectDetailsFormController;
+  /**
+   * ★★★ fix-517 §E — THE PERMIT THE ROW'S ✎ WAS CLICKED ON.
+   *
+   * The PERMITS table's edit affordance opens this tab through
+   * `?data=permits&focus=<id>`, and the point of naming a permit in the URL is
+   * that the tab lands ON it. A project with nine permits opens on a form
+   * nine cards long, and "it's in there somewhere" is not the same control
+   * `QuickEditPermitModal` was.
+   */
+  focusPermitId?: number | null;
+}) {
   const live = ctl.form.permits.filter((p) => !p.isDeleted);
+  const focusRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    // ★ Runs after commit, so the ref is populated. `block: 'center'` rather
+    //   than 'start' because the tab body scrolls inside the modal and a row
+    //   pinned to the top edge reads as clipped.
+    if (focusPermitId != null) {
+      focusRef.current?.scrollIntoView({ block: 'center' });
+    }
+  }, [focusPermitId]);
+
+  /**
+   * ★★★ fix-517 §E — fix-194's CANDIDATE RULE, UNCHANGED.
+   *
+   * `QuickEditPermitModal` offered *"the project's OTHER permits, minus
+   * itself and minus anything that is already a sub-permit"* — no self-link
+   * and no two-level chains. Same rule here, read off the FORM rather than
+   * the server, so a type edited in one card is reflected in another card's
+   * selector before either is saved.
+   */
+  const parentOptionsFor = useCallback(
+    (row: PermitRow) =>
+      ctl.form.permits
+        .filter(
+          (p) =>
+            !p.isDeleted &&
+            !p.isNew &&
+            p.id != null &&
+            p.id !== row.id &&
+            !p.parent_permit_id.trim(),
+        )
+        .map((p) => ({
+          value: String(p.id),
+          label: p.num.trim() ? `${p.type} · ${p.num.trim()}` : `${p.type} · no number yet`,
+        })),
+    [ctl.form.permits],
+  );
+
   return (
     <div className="flex flex-col gap-2 w-full">
       {live.length === 0 && (
@@ -599,15 +701,32 @@ export function PermitsFormSection({ ctl }: { ctl: ProjectDetailsFormController 
       )}
       {ctl.form.permits.map((row, idx) =>
         row.isDeleted ? null : (
-          <PermitRowCard
+          <div
             key={row.id ?? `new-${idx}`}
-            row={row}
-            daOptions={ctl.daNames}
-            entOptions={ctl.entNames}
-            typeOptions={ctl.permitTypeNames}
-            onChange={(patch) => ctl.setPermitField(idx, patch)}
-            onRemove={() => ctl.removePermit(idx)}
-          />
+            ref={row.id != null && row.id === focusPermitId ? focusRef : undefined}
+            className={
+              row.id != null && row.id === focusPermitId ? 'rounded' : undefined
+            }
+            style={
+              row.id != null && row.id === focusPermitId
+                ? { boxShadow: '0 0 0 2px var(--color-de)' }
+                : undefined
+            }
+            data-focused={
+              row.id != null && row.id === focusPermitId ? 'true' : undefined
+            }
+            data-testid={`psm-permit-card-${row.id ?? `new-${idx}`}`}
+          >
+            <PermitRowCard
+              row={row}
+              daOptions={ctl.daNames}
+              entOptions={ctl.entNames}
+              typeOptions={ctl.permitTypeNames}
+              parentOptions={parentOptionsFor(row)}
+              onChange={(patch) => ctl.setPermitField(idx, patch)}
+              onRemove={() => ctl.removePermit(idx)}
+            />
+          </div>
         ),
       )}
       <button

@@ -384,8 +384,11 @@ describe('fix-422 §D: the five cards, re-shared against the real row', () => {
     //     uses (368 → 486), replacing fix-417's retired rank. 1440 wraps again;
     //     1600 and 1920 — the widths Bobby works at — still fit, which is the
     //     claim fix-422 wanted and the one that has to survive.
-    expect(overviewMinViewport('expanded')).toBe(1531);
-    expect(overviewRowFitsAt(1440, 'expanded')).toBe(false);
+    // ★★★ AND fix-517 §A MOVES IT DOWN AGAIN, 1531 → 1329, by deleting a box
+    //     rather than by re-sharing: the permits rail and its 12px gap. 1440
+    //     fits once more, with 111px to spare instead of fix-507's one pixel.
+    expect(overviewMinViewport('expanded')).toBe(1329);
+    expect(overviewRowFitsAt(1440, 'expanded')).toBe(true);
     expect(overviewRowFitsAt(1600, 'expanded')).toBe(true);
     expect(overviewRowFitsAt(1920, 'expanded')).toBe(true);
   });
@@ -398,19 +401,24 @@ describe('fix-422 §D: the five cards, re-shared against the real row', () => {
     //   unchanged and still true by a wide margin — fix-417's own floors needed
     //   970 — which is the point of holding it against a derived width rather
     //   than a remembered one.
-    expect(overviewRowWidthAt(1280, 'expanded')).toBe(745);
+    // ★ fix-517 §A: 745 → 947 at 1280, the rail and its gap having gone. The
+    //   claim is unchanged and still true — fix-417's own floors needed 970 —
+    //   which is the point of holding it against a DERIVED width rather than a
+    //   remembered one. Three tickets have now moved this number and the
+    //   assertion has never had to be rewritten to stay meaningful.
+    expect(overviewRowWidthAt(1280, 'expanded')).toBe(947);
     expect(970).toBeGreaterThan(overviewRowWidthAt(1280, 'expanded'));
     // The boxes fix-417 never counted, together, are the whole gap. ★ fix-507
-    // adds the pillbox SCROLLBAR to that list — the one a rect does not show
+    // added the pillbox SCROLLBAR to that list — the one a rect does not show
     // you, because it lives between the border box and the content box — and
-    // subtracts 50 from the rail, so 278 becomes 243.
+    // subtracted 50 from the rail, so 278 became 243. ★ fix-517 deletes the
+    // rail and its gap outright, so 243 becomes 41.
     const missed =
-      SHELL_CHROME_PX.permitsRail +
-      SHELL_CHROME_PX.permitsRailGap +
       SHELL_CHROME_PX.pillboxBorder +
       SHELL_CHROME_PX.pillboxScrollbar +
       SHELL_CHROME_PX.pageRowPadding;
-    expect(missed).toBe(243);
+    expect(missed).toBe(41);
+    expect(243 - missed).toBe(202);
   });
 });
 

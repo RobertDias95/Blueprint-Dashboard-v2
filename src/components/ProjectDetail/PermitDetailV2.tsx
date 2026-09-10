@@ -1603,7 +1603,7 @@ function DateCell({
           }
         }}
         disabled={readOnly}
-        title={readOnly ? 'Edit GO Date in Project Settings' : undefined}
+        title={readOnly ? 'Edit the GO date in Project Details → Dates' : undefined}
         className="text-[11px] px-1.5 py-0.5 border rounded outline-none w-full disabled:opacity-70 disabled:cursor-not-allowed"
         style={{
           // fix-76: amber accent on the input border when dirty — the user can

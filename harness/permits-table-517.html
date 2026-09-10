@@ -1,0 +1,309 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>fix-517 — the top row's height, and the permits table's rows</title>
+<!--
+  ★★★ fix-517 — THE HEIGHT MEASUREMENT THE BRIEF ASKED FOR.
+
+  "The table gains rows the rail used to hold, and the top row gains width.
+   Report: the top row's height at 1600 and 1920 before and after, and the
+   number of permit rows visible without scrolling."
+
+  `harness/pipeline-card-header-516.html`'s pattern: a standalone page carrying
+  the REAL markup and the REAL type scale, opened in Chrome over
+  `python -m http.server`, so the numbers are measured rather than reasoned.
+  No sign-in, no dev server. (`file://` is refused by the browser tool.)
+
+  ============================================================================
+  WHAT DECIDES THE TOP ROW'S HEIGHT
+  ============================================================================
+
+  The row's height is a MAX over its three cards (fix-423), and only ONE of
+  them changes shape with width at the sizes involved:
+
+    · PLAN OF RECORD — a capped 300px image box (fix-507b). Its height does
+      not vary with card width; that is what `PLAN_OF_RECORD_CARD_MIN = 486`
+      is derived from.
+    · PROJECT — the Site/Dates pair sits side by side above
+      `SITE_DATES_SIDE_BY_SIDE_CARD_MIN` and stacks below it. Its body is
+      328px at 1600 both before AND after (the card is pinned at its 330 floor
+      at that viewport), and 380 → 437 at 1920 — both sides of that comparison
+      are above the breakpoint, so the arrangement does not change either.
+    · TEAM — the CONSULTANT BAND wraps. `flex: 1 1 96px` per pill
+      (`CONSULTANT_PILL_COMPACT_MIN`), two declared lines whose split is
+      `consultantRowSplit(n)`, and the number of RENDERED pill-lines is a
+      function of the card's width. This is the binding element and it is what
+      the page below measures.
+
+  So: the top row's height is the Team card's height, and the Team card's
+  height is the consultant band's.
+
+  ============================================================================
+  MEASURED IN CHROME, 2026-09-10 — the numbers the fix-517 PR reports
+  ============================================================================
+
+  Team card widths come from `resolveOverviewWidths(overviewRowWidthAt(vw))`;
+  the band's own width is the card minus `OVERVIEW_CARD_CHROME` (22).
+
+    1600 x 900     Team card    229  ->  431     (+202 — ALL of the rail)
+                   band width   207  ->  409
+                   pill-lines     4  ->    2     (3+3 slots)
+                   TOP ROW      396px -> 185px   (-211)
+
+    1920 x 1080    Team card    497  ->  572     (+75)
+                   band width   475  ->  550
+                   pill-lines     2  ->    2
+                   TOP ROW      185px -> 185px   (+0)
+
+    PERMITS TABLE   header (title + thead)  51px
+                    row height              50-51px
+
+    PERMIT ROWS VISIBLE WITHOUT SCROLLING
+                   1600 x 900     5  ->   9
+                   1920 x 1080   13  ->  13
+
+  ★★★ THE ASYMMETRY IS THE POINT, AND IT IS THE WHOLE ANSWER TO "HEIGHT,
+      AGAIN". At 1920 the rail's deletion buys width and NO height: the band
+      already fitted its ruled 3+3 in two lines, so 185px is 185px. At 1600 it
+      more than halves the top row — 396 -> 185 — because Team was on 229px,
+      which is two pills wide, so a three-pill line wrapped and the band
+      rendered FOUR pill-lines instead of two.
+
+  ★★★ WHICH MAKES 1600 THE VIEWPORT THIS TICKET IS ACTUALLY FOR. Every ticket
+      on this screen since fix-506 has been fighting height, and the thing
+      eating it at 1600 was a 190px rail being paid for by one card. Permit
+      rows visible without scrolling go 5 -> 9 there. At 1920 they are 13
+      either way, because nothing above the table moved.
+
+  The permits table's own row height and the rows visible without scrolling are
+  measured in the second block.
+-->
+<style>
+  :root {
+    --color-bg: #f8fafc;
+    --color-surface: #ffffff;
+    --color-s2: #f1f5f9;
+    --color-s3: #e2e8f0;
+    --color-border: #d7dde5;
+    --color-text: #0f172a;
+    --color-muted: #64748b;
+    --color-dim: #94a3b8;
+    --color-de: #2563eb;
+    --color-pm: #059669;
+    --color-co: #d97706;
+    --color-jv: #7c3aed;
+    --color-is: #0891b2;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    padding: 24px;
+    background: var(--color-bg);
+    color: var(--color-text);
+    font: 14px/1.4 ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto,
+      "Helvetica Neue", Arial, sans-serif;
+  }
+  h1 { font-size: 15px; margin: 0 0 4px; }
+  h2 { font-size: 12px; margin: 22px 0 6px; text-transform: uppercase; letter-spacing: .06em; color: var(--color-muted); }
+  .note { font-size: 11px; color: var(--color-muted); margin: 0 0 12px; max-width: 900px; }
+  .cases { display: flex; gap: 16px; align-items: flex-start; flex-wrap: wrap; }
+  .case { }
+  .case > .cap { font-size: 10px; font-weight: 800; text-transform: uppercase; letter-spacing: .05em; color: var(--color-muted); margin-bottom: 4px; }
+
+  /* ---- the consultant band ------------------------------------------- */
+  .card { border: 1px solid var(--color-border); border-radius: 8px; background: var(--color-surface); overflow: hidden; }
+  .band { border-top: 1px solid var(--color-border); }
+  .bandrow { display: flex; flex-wrap: wrap; }
+  .pillcell { display: flex; flex-direction: column; justify-content: center; flex: 1 1 96px; min-width: 0; }
+  .pill { border-right: 1px solid var(--color-border); border-bottom: 1px solid var(--color-border); height: 100%; display: flex; flex-direction: column; background: var(--color-surface); }
+  .pillbody { padding: 6px 8px; flex: 1; }
+  .prow { display: flex; align-items: center; justify-content: space-between; gap: 6px; min-width: 0; }
+  .disc { font-size: 8.5px; font-weight: 800; text-transform: uppercase; letter-spacing: .06em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+  .status { font-size: 8.5px; font-weight: 800; text-transform: uppercase; letter-spacing: .04em; border-radius: 9999px; padding: 2px 6px; border: 1px solid var(--color-co); background: #fef3c7; color: var(--color-co); flex: none; }
+  .firm { font-size: 11px; font-weight: 700; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; margin: 2px 0; }
+  .dates { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
+  .dlabel { display: block; font-size: 8px; font-weight: 800; text-transform: uppercase; }
+  .dval { display: block; font-size: 9.5px; font-weight: 600; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-variant-numeric: tabular-nums; }
+  .pfoot { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-top: 4px; font-size: 9.5px; font-weight: 700; color: var(--color-de); }
+
+  /* ---- the permits table --------------------------------------------- */
+  table.permits { width: 100%; border-collapse: collapse; font-size: 10px; margin-top: 6px; }
+  table.permits thead tr { background: var(--color-s2); border-bottom: 2px solid var(--color-border); }
+  table.permits th { padding: 6px 8px; font-size: 9px; font-weight: 800; text-transform: uppercase; letter-spacing: .06em; text-align: center; border-left: 1px solid var(--color-border); }
+  table.permits th:first-child { border-left: 0; text-align: left; }
+  table.permits td { padding: 8px 8px; vertical-align: middle; border-left: 1px solid var(--color-border); text-align: center; }
+  table.permits td:first-child { border-left: 0; text-align: left; padding-left: 12px; font-size: 11px; }
+  table.permits tbody tr { border-bottom: 1px solid var(--color-border); }
+  .thead-title { text-align: center; padding: 6px 0 2px; font-size: 12px; font-weight: 800; text-transform: uppercase; letter-spacing: .06em; }
+  .taddr { font-size: 9.5px; color: var(--color-muted); }
+  .tredesign { font-size: 9.5px; color: var(--color-co); }
+  .tnum { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; color: var(--color-de); }
+  .tnonum { font-size: 9px; color: var(--color-dim); font-style: italic; }
+  .tstage { font-size: 9px; font-weight: 700; text-transform: uppercase; letter-spacing: .04em; color: var(--color-co); }
+  .tsub { font-size: 9px; color: var(--color-dim); margin-top: 2px; }
+  .tbadgewrap { display: flex; flex-direction: column; gap: 2px; align-items: center; }
+  .tbadge { font-size: 9px; font-weight: 800; padding: 2px 8px; border-radius: 4px; border: 1px solid #dc2626; color: #dc2626; background: rgba(248,113,113,.08); }
+  .tdays { font-size: 9px; font-weight: 700; color: #dc2626; }
+  .src { font-size: 8px; font-weight: 700; padding: 2px 8px; border-radius: 4px; border: 1px solid var(--color-border); background: var(--color-s2); color: var(--color-dim); }
+
+  #out { margin-top: 20px; white-space: pre; font: 12px/1.55 ui-monospace, SFMono-Regular, Menlo, monospace; background: #0f172a; color: #e2e8f0; padding: 14px 16px; border-radius: 8px; overflow-x: auto; }
+</style>
+
+<h1>fix-517 — the top row's height, and the permits table's rows</h1>
+<p class="note">
+  Real markup, real type scale, no Tailwind and no sign-in. The four consultant
+  bands below are the Team card at its rendered width before and after the
+  permits rail was deleted; the table beneath them is the PERMITS table. Every
+  number in the readout is measured off this page.
+</p>
+
+<h2>Team card — the consultant band at four widths</h2>
+<div class="cases" id="bands"></div>
+
+<h2>The PERMITS table — one row, and the rows a pane holds</h2>
+<div id="tablewrap"></div>
+
+<pre id="out">measuring…</pre>
+
+<script>
+  // `consultantRowSplit(6)` = 3 + 3 — Bobby's ruled split for six consultants,
+  // which is the shape fix-508 §F sized the pill for and the case that binds.
+  const SLOTS = [
+    ['Survey', 'Sound Engineering'],
+    ['Geotech', 'PanGEO'],
+    ['Civil', 'CPH Consulting'],
+    ['Arborist', 'Tree Solutions'],
+    ['Landscape', 'Weisman Design'],
+    ['Structural', 'Swenson Say Faget'],
+  ];
+  const SPLIT = [3, 3];
+
+  function pill(disc, firm) {
+    return `
+      <div class="pillcell"><div class="pill"><div class="pillbody">
+        <div class="prow"><span class="disc">${disc}</span><span class="status">Pending</span></div>
+        <div class="firm">${firm}</div>
+        <div class="dates">
+          <span><span class="dlabel">Sent</span><span class="dval">09/02/26</span></span>
+          <span><span class="dlabel">Est. back</span><span class="dval">09/16/26</span></span>
+        </div>
+        <div class="pfoot"><span></span><span>Expand · 3 rounds ⌄</span></div>
+      </div></div></div>`;
+  }
+
+  function band(cardPx) {
+    const bodyPx = cardPx - 22; // OVERVIEW_CARD_CHROME
+    let i = 0;
+    const rows = SPLIT.map((n) => {
+      const cells = SLOTS.slice(i, i + n).map(([d, f]) => pill(d, f)).join('');
+      i += n;
+      return `<div class="bandrow">${cells}</div>`;
+    }).join('');
+    return `<div class="case">
+      <div class="cap">Team card ${cardPx}px · band ${bodyPx}px</div>
+      <div class="card" style="width:${cardPx}px">
+        <div class="band" data-band="${cardPx}" style="width:${bodyPx}px">${rows}</div>
+      </div>
+    </div>`;
+  }
+
+  // 1600: 229 before -> 431 after.  1920: 497 before -> 572 after.
+  const CASES = [229, 431, 497, 572];
+  document.getElementById('bands').innerHTML = CASES.map(band).join('');
+
+  // ---- the permits table -------------------------------------------------
+  const ROWS = [
+    { type: 'Building Permit', addr: 'SFR 1', num: '7102488-CN', stage: 'Corrections', status: 'In corrections', sub: '03/01/26' },
+    { type: 'Grading / Clearing', addr: '', num: '', stage: 'D&E', status: 'Pre-Submittal — GO', sub: '' },
+    { type: 'ULS', addr: '', num: 'SDOTTRLA0002500', stage: 'Permitting', status: 'In review', sub: '01/06/26' },
+    { type: 'Demolition', addr: '', num: '6912233-DM', stage: 'Issued', status: 'Issued', sub: '02/01/26' },
+  ];
+  document.getElementById('tablewrap').innerHTML = `
+    <div class="card" style="width:1267px" id="permits-card">
+      <div class="thead-title">Permits (4)</div>
+      <table class="permits">
+        <colgroup>
+          <col style="width:150px"><col style="width:120px"><col style="width:120px"><col style="width:90px">
+          <col style="width:130px"><col style="width:90px"><col style="width:110px"><col style="width:110px"><col style="width:130px">
+        </colgroup>
+        <thead><tr>
+          <th>Permit Type</th><th>Permit Number</th><th>Reviewers</th><th>Stage</th>
+          <th>Permit Status</th><th>Data Source</th><th>Permit Approval</th>
+          <th>Target Approval</th><th>Schedule Health</th>
+        </tr></thead>
+        <tbody>
+          ${ROWS.map((r, i) => `
+            <tr data-row="${i}">
+              <td>
+                <div style="font-weight:700">${r.type}</div>
+                ${r.addr ? `<div class="taddr">${r.addr}</div>` : ''}
+              </td>
+              <td>${r.num ? `<span class="tnum">${r.num} ↗</span>` : `<span class="tnonum">No permit # yet</span>`}</td>
+              <td><span class="src">3 · 1 ✓</span></td>
+              <td><span class="tstage">${r.stage}</span></td>
+              <td><div>${r.status}</div>${r.sub ? `<div class="tsub">${r.sub}</div>` : ''}</td>
+              <td><span class="src">Learned (12)</span></td>
+              <td><div style="font-weight:700;font-family:ui-monospace,monospace">Mar 23, 2027</div><div class="tsub">Est. Approval</div></td>
+              <td><span style="font-family:ui-monospace,monospace;font-weight:700;font-size:10px">02/14/2027</span></td>
+              <td><div class="tbadgewrap"><span class="tbadge">↓ Behind</span><span class="tdays">37d Behind</span></div></td>
+            </tr>`).join('')}
+        </tbody>
+      </table>
+    </div>`;
+
+  // ---- measure -----------------------------------------------------------
+  function h(el) { return Math.round(el.getBoundingClientRect().height); }
+
+  const lines = [];
+  const bandH = {};
+  for (const w of CASES) {
+    const el = document.querySelector(`[data-band="${w}"]`);
+    // How many RENDERED pill-lines: distinct offsetTop values across all cells.
+    const tops = new Set(
+      Array.from(el.querySelectorAll('.pillcell')).map((c) => c.getBoundingClientRect().top),
+    );
+    bandH[w] = h(el);
+    lines.push({ card: w, band: w - 22, height: h(el), pillLines: tops.size });
+  }
+
+  const tbl = document.querySelector('#permits-card');
+  const rowEls = Array.from(tbl.querySelectorAll('tbody tr'));
+  const rowH = rowEls.map(h);
+  const headH = h(tbl.querySelector('.thead-title')) + h(tbl.querySelector('thead'));
+
+  // Chrome above the permits table on the overview pane, measured off the app's
+  // own constants: shell header 80 + main p-6 48 + the page's own address
+  // sub-header 46 + the pillbox border 2 + the OVERVIEW ROW itself.
+  const SHELL_ABOVE = 80 + 48 + 46 + 2;
+  const NOTES_BELOW = 0; // Notes scrolls with the pane; it does not clip the table.
+
+  function visible(viewportH, rowPx, topRowPx) {
+    const pane = viewportH - SHELL_ABOVE - topRowPx - headH;
+    return Math.max(0, Math.floor(pane / rowPx));
+  }
+
+  const R = Math.max(...rowH); // the tallest row is what binds
+  const before1600 = bandH[229], after1600 = bandH[431];
+  const before1920 = bandH[497], after1920 = bandH[572];
+
+  document.getElementById('out').textContent = [
+    'CONSULTANT BAND — the Team card, and therefore the TOP ROW',
+    ...lines.map(
+      (l) =>
+        `  card ${String(l.card).padStart(4)}px  band ${String(l.band).padStart(4)}px  ` +
+        `pill-lines ${l.pillLines}  HEIGHT ${String(l.height).padStart(4)}px`,
+    ),
+    '',
+    `  1600  top row ${before1600}px -> ${after1600}px   (${after1600 - before1600 >= 0 ? '+' : ''}${after1600 - before1600})`,
+    `  1920  top row ${before1920}px -> ${after1920}px   (${after1920 - before1920 >= 0 ? '+' : ''}${after1920 - before1920})`,
+    '',
+    'PERMITS TABLE',
+    `  header (title + thead)      ${headH}px`,
+    `  row heights                 ${rowH.join(', ')}px   (tallest ${R})`,
+    '',
+    'PERMIT ROWS VISIBLE WITHOUT SCROLLING',
+    `  1600 x 900   before ${visible(900, R, before1600)}   after ${visible(900, R, after1600)}`,
+    `  1920 x 1080  before ${visible(1080, R, before1920)}  after ${visible(1080, R, after1920)}`,
+    '',
+    `  (chrome above the table: ${SHELL_ABOVE}px of shell + the top row + ${headH}px of table header)`,
+  ].join('\n');
+</script>

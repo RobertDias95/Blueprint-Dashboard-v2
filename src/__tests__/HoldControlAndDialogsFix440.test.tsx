@@ -219,7 +219,6 @@ describe('fix-440 §A (P-061) — "Hold this permit" IS the reason dropdown', ()
 // P-057 — the dialogs
 // ---------------------------------------------------------------------------
 
-import quickEditSrc from '../components/ProjectDetail/QuickEditPermitModal.tsx?raw';
 // ★ fix-514 §A: `ProjectSettingsModal` is DELETED. Its form state and atomic
 //   save are `hooks/useProjectDetailsForm`; its controls are
 //   `components/ProjectDetail/ProjectDetailsForm`. The claims below are
@@ -254,22 +253,29 @@ function backdropProps(src: string): string {
 
 describe('fix-440 §B (P-057) — only the ones holding unsaved input go inert', () => {
   it('the comment stripper actually stripped', () => {
-    expect(quickEditSrc).toContain('THE BACKDROP DOES NOTHING');
-    expect(code(quickEditSrc)).not.toContain('THE BACKDROP DOES NOTHING');
+    expect(projectSettingsSrc).toContain('HOLD UNSAVED INPUT');
+    expect(code(projectSettingsSrc)).not.toContain('HOLD UNSAVED INPUT');
   });
 
-  it('★★★ QuickEditPermitModal: backdrop inert AND the Escape listener is GONE', () => {
-    const src = code(quickEditSrc);
-    expect(backdropProps(quickEditSrc)).not.toContain('onClick');
-    // ★★★ Its own comment said the Escape handler "matches v1's
-    //     overlay-click-closes behavior" — it was built to pair with the
-    //     backdrop click, and it loses the identical work for the identical
-    //     reason. Removing one and keeping the other would have left the defect
-    //     with a keyboard shortcut.
-    expect(src).not.toContain("e.key === 'Escape'");
-    expect(src).not.toMatch(/addEventListener\('keydown'/);
-    // The two real exits are untouched.
-    expect(src).toContain('onClick={onClose}');
+  it('★★★ SUPERSEDED by fix-517 §E: QuickEditPermitModal is DELETED', () => {
+    // ★★★ WHAT THIS TEST HELD, AND WHY IT HAS NOTHING LEFT TO HOLD IT ON.
+    //     fix-440 §B made the Quick Edit modal's backdrop inert and deleted its
+    //     Escape listener, because a dialog holding unsaved input must not
+    //     close on a stray outside click. Both were right.
+    //
+    // ★★★ fix-517 §E DELETES THE MODAL. It and fix-514's Project Details →
+    //     Permits tab were editing the same six fields — the third instance of
+    //     that shape in one week (P-207, P-221) — so a permit is edited in ONE
+    //     place now, reached by a hover ✎ on the PERMITS table's row.
+    //
+    // ★★ THE RULE IS NOT WEAKER FOR IT; IT IS NARROWER. There is one project
+    //    modal holding unsaved input and the test below is on it. The
+    //    assertion here is INVERTED rather than deleted, so a future ticket
+    //    that re-adds a second permit editor has to walk past this.
+    const files = Object.keys(
+      import.meta.glob('../components/ProjectDetail/*.tsx', { eager: false }),
+    );
+    expect(files.some((f) => f.includes('QuickEditPermitModal'))).toBe(false);
   });
 
   it('★★★ SUPERSEDED by fix-514 §A: the project modal is Project Details now', () => {
@@ -287,11 +293,10 @@ describe('fix-440 §B (P-057) — only the ones holding unsaved input go inert',
     expect(src).toContain('project-data-done');
   });
 
-  it('★★ both carry the rule in a comment pointing at fix-411 §1 (B3)', () => {
-    for (const src of [quickEditSrc, projectSettingsSrc]) {
-      expect(src).toContain('fix-411');
-      expect(src).toMatch(/HOLD UNSAVED INPUT/);
-    }
+  it('★★ it carries the rule in a comment pointing at fix-411 §1 (B3)', () => {
+    // ★ fix-517 §E: one modal, not two — see the superseded test above.
+    expect(projectSettingsSrc).toContain('fix-411');
+    expect(projectSettingsSrc).toMatch(/HOLD UNSAVED INPUT/);
   });
 
   it('★★★ the house pattern is REUSED, not reinvented — AddPersonDialog is the third', () => {

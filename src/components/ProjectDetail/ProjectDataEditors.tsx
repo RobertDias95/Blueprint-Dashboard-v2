@@ -301,7 +301,7 @@ export function KeyDatesSection({ project }: { project: Project }) {
         <MilestoneDateRow
           label="GO Date"
           value={project.go_date ?? ''}
-          title="GO date is set on the Project Settings page"
+          title="The GO date is set in Project Details → Dates"
           testId="pd-go-date"
         />
         <ClosingRow project={project} />

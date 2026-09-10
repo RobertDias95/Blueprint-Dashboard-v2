@@ -83,6 +83,20 @@ export interface PermitRow {
    *    P-207's writer count fall from two to one.
    */
   expected_issue: string;
+  /**
+   * ★★★ fix-517 §E — THE ONE FIELD fix-514's PERMITS TAB DID NOT HAVE.
+   *
+   * `QuickEditPermitModal` held Permit Type · ENT/DA/CA · Permit Number ·
+   * Sub-permit of · Structure Address · Portal URL, and this tab already held
+   * every one of those except this. §E deletes the modal, so the field comes
+   * here rather than becoming uneditable — 3 of 685 prod permits are
+   * sub-permits, and fix-194 built the marker to keep them out of every
+   * rollup, so an unclearable one is a permanently mis-counted permit.
+   *
+   * ★ A STRING, like every other box on this form: it is a `<select>` value,
+   *   `''` means "not a sub-permit", and the save converts once.
+   */
+  parent_permit_id: string;
   updated_at?: string | null;
 }
 
@@ -111,6 +125,8 @@ export function permitToRow(p: PermitWithCycles): PermitRow {
     num: p.num ?? '',
     struct_address: p.struct_address ?? '',
     expected_issue: p.expected_issue ?? '',
+    parent_permit_id:
+      p.parent_permit_id != null ? String(p.parent_permit_id) : '',
     updated_at: p.updated_at,
   };
 }
