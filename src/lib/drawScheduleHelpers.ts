@@ -20,34 +20,101 @@ export const NP_BLOCK_COLOR: StatusColor = {
   text: '#1a2540',
 };
 
-/** v1 jurisdiction → border color (index.html line 7318). */
-export function jurisBorder(juris: string | null | undefined): string {
-  if (!juris) return '#16a34a'; // green default
-  const j = juris.toLowerCase();
-  if (j === 'seattle') return '#1d4ed8'; // blue
-  if (j === 'phoenix' || j === 'scottsdale' || j === 'arizona') {
-    return '#dc2626'; // red
-  }
-  return '#16a34a';
+// ===========================================================================
+// ★★★ fix-515 §B (P-212) — THE BORDER IS THE FILL, DARKENED. ONE FUNCTION.
+// ===========================================================================
+//
+// Bobby, 2026-09-10: *"we want to get rid of the border colors. Right now I
+// think we have like blue, green, red, and gold, and I think we just want to
+// make the border color whatever the current color is, dependent on the legend,
+// and then just maybe a slightly darker version of that."*
+//
+// ---------------------------------------------------------------------------
+// ★★★ WHAT THE OLD PALETTE WAS ENCODING — READ BEFORE IT WAS DELETED
+// ---------------------------------------------------------------------------
+// §B asked for this, and it was carrying real information, so this is a finding
+// rather than a cleanup. `jurisBorder` (v1, index.html:7318) + `blockBorderColor`
+// (fix-126) encoded TWO facts the fill does not:
+//
+//   blue   #1d4ed8  Seattle
+//   red    #dc2626  Phoenix · Scottsdale · Arizona
+//   green  #16a34a  everywhere else — AND the no-jurisdiction default
+//   gold   #eab308  a REDESIGN (fix-126, deliberately outside the juris palette
+//                   so the "this is a redesign" cue did not compete with it)
+//
+// ★★★ BOTH FACTS SURVIVE THE DELETION, WHICH IS WHY IT IS SAFE:
+//   · JURISDICTION is now printed as WORDS on every block — that is §A of this
+//     same ticket, and the two sections are the same move seen twice: a fact
+//     that lived in an untaught colour key becomes a fact the block says.
+//     Green also meant "no jurisdiction", which no reader could distinguish
+//     from Kirkland; §A prints "No jurisdiction" instead.
+//   · REDESIGN is in the address. Every redesign project carries the
+//     " [Redesign N]" suffix `makeRedesignWizardState` writes, and the block's
+//     first and largest line is that address. Verified on prod 2026-09-10: 17
+//     of 17 redesign lanes carry the suffix.
+//
+// ★★ AND THE THIRD THING IT ENCODED WAS NOTHING AT ALL: green was the fallback
+//    for "not Seattle, not Arizona", so Kirkland, Edmonds and every other
+//    jurisdiction shared one colour with each other and with the blanks.
+//
+// ---------------------------------------------------------------------------
+// ★★★ DERIVED, NOT TABULATED
+// ---------------------------------------------------------------------------
+// §B: *"do not hand-pick four dark values. A per-status table of border colours
+// is the same defect with better colours — add a fifth status and someone has to
+// remember the fifth border."*
+//
+// ★★★ AND THAT TABLE ALREADY EXISTED: `STATUS_PRESENTATION[s].colors.border`
+//     holds a hand-picked darker shade per status, which the BLOCK never used
+//     (it used the jurisdiction palette) and the LEGEND swatch does. So the
+//     grid was showing one key while its own legend showed another. `darkenHex`
+//     replaces the block's use of both; the legend keeps its literal for now
+//     and the two agree to within a few points, which is checked in the tests.
+//
+// ★★ IT RUNS ON WHATEVER THE FILL IS, which is what §B's `color_override`
+//    warning is really asking for. ⚠️ FINDING: the brief says
+//    `draw_schedule.color_override` "exists and is honoured" — **it is not
+//    read anywhere in `src`.** 14 of 219 prod rows carry one and every one is
+//    ignored at render. Taking the FILL as the argument rather than the status
+//    key means the day it is wired up the border follows it for free, which is
+//    the property the warning wanted.
+
+/** Clamp to a byte. */
+function byte(n: number): number {
+  return Math.max(0, Math.min(255, Math.round(n)));
 }
 
-/** fix-126: yellow border for redesign blocks. Sits outside the
- *  jurisdiction-color palette so the visual "this is a redesign" cue
- *  doesn't compete with the Seattle blue / AZ red signal. Picked
- *  Tailwind yellow-500 for visibility on both light and dark surfaces.
+/**
+ * ★★★ THE ONE DERIVATION. A hex colour, moved toward black by `amount`.
  *
- *  Exported as a named constant so the test suite + any future surfaces
- *  (matrix view, reports) can reference the same value. */
-export const REDESIGN_BORDER_COLOR = '#eab308';
+ * ★ Multiplicative, not subtractive: `#ffffff` (Scheduled) has to darken into a
+ *   visible grey while `#02267e` (Pending Consultants) must not clip to black.
+ *   `c * (1 - amount)` keeps the ratio, so a pale fill and a deep one both get a
+ *   border a reader can see against it.
+ * ★ A non-hex input is returned UNCHANGED — the park palette is CSS variables
+ *   (`var(--color-hold-border)`) and a cancelled block is a hatch, neither of
+ *   which is a colour this can operate on. Returning the input means a caller
+ *   that hands one over gets the value it already had rather than a crash or a
+ *   silent black.
+ */
+export function darkenHex(hex: string, amount = 0.28): string {
+  const m = /^#([0-9a-f]{6})$/i.exec(hex.trim());
+  if (!m) return hex;
+  const v = parseInt(m[1], 16);
+  const r = byte(((v >> 16) & 0xff) * (1 - amount));
+  const g = byte(((v >> 8) & 0xff) * (1 - amount));
+  const b = byte((v & 0xff) * (1 - amount));
+  return `#${[r, g, b].map((n) => n.toString(16).padStart(2, '0')).join('')}`;
+}
 
-/** fix-126: pick the right block border color. Redesigns get yellow;
- *  everything else falls back to the jurisdiction palette. */
-export function blockBorderColor(
-  juris: string | null | undefined,
-  redesignOfProjectId: string | null | undefined,
-): string {
-  if (redesignOfProjectId) return REDESIGN_BORDER_COLOR;
-  return jurisBorder(juris);
+/**
+ * The border a block wears: its own fill, darkened.
+ *
+ * ★ Takes the RENDERED fill rather than a status, so it cannot go out of step
+ *   with what is actually painted — including a future `color_override`.
+ */
+export function blockBorderFromFill(fill: string): string {
+  return darkenHex(fill);
 }
 
 /** Returns the Monday of the week containing `d` (00:00 local). */
@@ -398,12 +465,32 @@ export function blockFontPx(visibleSpanWeeks: number): number {
 export const BLOCK_STACK_PAD_Y = 1;
 export const BLOCK_STACK_GAP = 1;
 
-/** How many text lines the stack renders BESIDE the address.
- *  compact → "Est. Approval" + the date. full → juris + status + both of those.
- *  ★ A held block adds its "⏸ On hold" line; counted as full's 4 either way,
- *    which errs toward top-anchoring — the safe direction. */
-export function blockDetailLines(isCompact: boolean): number {
-  return isCompact ? 2 : 4;
+/**
+ * How many text lines the stack renders BESIDE the address.
+ *
+ * ★★★ fix-515 §A (P-211) — IT IS A CONSTANT NOW, AND THAT IS THE FIX.
+ *
+ * It used to read `isCompact ? 2 : 4`: a compact block (a cross-quarter slice,
+ * or a one-week lane) dropped the jurisdiction line AND the phase pill. That is
+ * exactly Bobby's complaint — *"they'll just say the address, estimated
+ * approval, and then the date… they won't say the jurisdiction"* — and on prod
+ * it was **40 of 219 lanes (18.3%)**: 34 crossing a quarter, 6 one week long.
+ * The data was present in every one of them (§A0's three counts were 0, 0, 0).
+ *
+ * ★★★ THREE, NOT FOUR, BECAUSE JURIS AND PHASE SHARE A ROW. Putting them on
+ *     one line is what lets every block carry both without a height gate: the
+ *     compact block gains a line and the full block LOSES one, so the tallest
+ *     stack on the grid got shorter while the shortest got complete.
+ *
+ *     address (1–2, its own arithmetic) + juris·phase + "Est. Approval" + date.
+ *
+ * ★ A held block adds its "⏸ On hold" line, which is still counted in the 3 —
+ *   erring toward top-anchoring, the safe direction, exactly as before.
+ * ★ It takes no argument at all rather than an ignored one: a parameter nobody
+ *   reads is a gate somebody re-adds.
+ */
+export function blockDetailLines(): number {
+  return 3;
 }
 
 /** The height the block's content stack needs, in px.

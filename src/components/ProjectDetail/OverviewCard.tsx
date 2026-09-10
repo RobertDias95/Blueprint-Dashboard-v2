@@ -172,6 +172,24 @@ interface SectionProps {
    *  row. Where the sections above do grow they consume the free space first
    *  and the auto margin resolves to zero, so the two never fight. */
   pinBottom?: boolean;
+  /**
+   * ★★★ fix-515 §D (P-213) — LET THE BODY FILL, SO A CHILD CAN SIT ON ITS FLOOR.
+   *
+   * The section already GROWS (`flexGrow: 1`), but it is a `block`, so its body
+   * div is its content's height and a `mt-auto` child inside has no slack to
+   * push against. This makes the section a column flex and lets the body take
+   * the space, which is what turns "last in the DOM" into "at the bottom".
+   *
+   * ★ ONE CALLER, DELIBERATELY: the Chat cell's action. Moving that button OUT
+   *   of the section would have been the other way to pin it, and it costs 8px
+   *   of `pb-2` in the one case where the chat cell is the tallest cell in the
+   *   card. This costs nothing at all — no child, no padding, no line — which
+   *   is what §D asked to be able to say in numbers.
+   * ★ Inert without spare height, exactly like `flexGrow` and `centerVertically`
+   *   above it: in an auto-height parent the body is its content and nothing
+   *   moves.
+   */
+  fillBody?: boolean;
 }
 
 /**
@@ -235,6 +253,7 @@ export function OverviewSection({
   titleRight,
   centerVertically = false,
   pinBottom = false,
+  fillBody = false,
 }: SectionProps) {
   return (
     <section
@@ -259,6 +278,12 @@ export function OverviewSection({
         ...(centerVertically
           ? { display: 'flex', flexDirection: 'column', justifyContent: 'center' }
           : null),
+        // ★ fix-515 §D: same mechanism as `centerVertically`, different
+        //   question — that one asks where the content sits, this one asks the
+        //   BODY to take the room so a child of it can.
+        ...(fillBody && !centerVertically
+          ? { display: 'flex', flexDirection: 'column' }
+          : null),
       }}
       data-testid={testId}
       data-center-vertically={centerVertically ? 'true' : undefined}
@@ -273,7 +298,11 @@ export function OverviewSection({
           {titleRight}
         </div>
       )}
-      <div className={`px-2.5 pb-2 ${title ? 'pt-0.5' : 'pt-2'} ${bodyClassName}`}>
+      <div
+        className={`px-2.5 pb-2 ${title ? 'pt-0.5' : 'pt-2'} ${bodyClassName}`}
+        style={fillBody ? { flex: '1 1 auto', minHeight: 0, display: 'flex', flexDirection: 'column' } : undefined}
+        data-fill-body={fillBody ? 'true' : undefined}
+      >
         {children}
       </div>
     </section>

@@ -155,7 +155,7 @@ function Block({
       ? !isCompact
       : blockCentresStack(
           height,
-          blockStackHeight(addrLines, addrFont, detailFont, blockDetailLines(isCompact)),
+          blockStackHeight(addrLines, addrFont, detailFont, blockDetailLines()),
         );
 
   const oneLine = {

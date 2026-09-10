@@ -1,6 +1,8 @@
 import { describe, it, expect } from 'vitest';
 import {
   DS_STATUS_COLORS,
+  blockBorderFromFill,
+  darkenHex,
   addWeeks,
   addWeeksToWeekKey,
   computeNpSegments,
@@ -13,10 +15,7 @@ import {
   getQuarterLabel,
   getQuarterStart,
   getQuarterWeeks,
-  jurisBorder,
-  blockBorderColor,
-  REDESIGN_BORDER_COLOR,
-  multiMatchAddress,
+    multiMatchAddress,
   planPushDown,
   rangeOverlapsWeeks,
   weekRangeOverlap,
@@ -439,34 +438,45 @@ describe('DS_STATUS_COLORS + jurisBorder', () => {
     expect(DS_STATUS_COLORS.Approved.bg).toBe('#5abf75');
   });
 
-  it('jurisdiction borders match v1 (Seattle blue, Phoenix red, default green)', () => {
-    expect(jurisBorder('Seattle')).toBe('#1d4ed8');
-    expect(jurisBorder('PHOENIX')).toBe('#dc2626');
-    expect(jurisBorder('Bellevue')).toBe('#16a34a');
-    expect(jurisBorder(null)).toBe('#16a34a');
-  });
-
-  // fix-126: redesign blocks override the juris palette with yellow.
-  describe('blockBorderColor (fix-126)', () => {
-    it('returns yellow when the project is a redesign (regardless of juris)', () => {
-      expect(blockBorderColor('Seattle', 'parent-uuid')).toBe(REDESIGN_BORDER_COLOR);
-      expect(blockBorderColor('Phoenix', 'parent-uuid')).toBe(REDESIGN_BORDER_COLOR);
-      expect(blockBorderColor(null, 'parent-uuid')).toBe(REDESIGN_BORDER_COLOR);
-    });
-
-    it('falls back to juris border when not a redesign (null FK)', () => {
-      expect(blockBorderColor('Seattle', null)).toBe('#1d4ed8');
-      expect(blockBorderColor('Phoenix', null)).toBe('#dc2626');
-      expect(blockBorderColor('Bellevue', null)).toBe('#16a34a');
-    });
-
-    it('treats undefined FK as not-a-redesign', () => {
-      expect(blockBorderColor('Seattle', undefined)).toBe('#1d4ed8');
-    });
-
-    it('treats empty-string FK as not-a-redesign (defensive)', () => {
-      expect(blockBorderColor('Seattle', '')).toBe('#1d4ed8');
-    });
+  // =========================================================================
+  // ★★★ fix-515 §B (P-212) — THE JURISDICTION / REDESIGN BORDER PALETTE IS GONE
+  // =========================================================================
+  //
+  // WHAT THESE FIVE TESTS PINNED, and it was all true when they were written:
+  //
+  //     jurisBorder('Seattle')  → #1d4ed8  blue
+  //     jurisBorder('PHOENIX')  → #dc2626  red
+  //     jurisBorder('Bellevue') → #16a34a  green — AND the null default
+  //     blockBorderColor(*, parentId) → #eab308  gold, a redesign (fix-126)
+  //
+  // ★★★ BOBBY RULED IT OUT, 2026-09-10: *"we want to get rid of the border
+  //     colors… make the border color whatever the current color is, dependent
+  //     on the legend, and then just maybe a slightly darker version of that."*
+  //     Two colour systems on one rectangle: the fill said what the block IS,
+  //     the border said where it is and whether it is a redesign, and nobody
+  //     was taught the second key.
+  //
+  // ★★★ BOTH FACTS SURVIVED THE DELETION — checked before deleting, because a
+  //     palette carrying information the fill does not is a finding rather
+  //     than a cleanup:
+  //       · JURISDICTION is printed as WORDS on every block now (§A of the same
+  //         ticket). Green also meant "no jurisdiction", which no reader could
+  //         tell from Kirkland; §A prints "No jurisdiction" instead.
+  //       · REDESIGN is in the address — verified on prod 2026-09-10, **17 of
+  //         17** redesign lanes carry the " [Redesign N]" suffix, and the
+  //         address is the block's first and largest line.
+  //
+  // The replacement is asserted in `DrawScheduleConsistencyFix515`.
+  it('★★★ SUPERSEDED: the border is the fill darkened, in ONE derivation', () => {
+    // §B: *"do not hand-pick four dark values. A per-status table of border
+    // colours is the same defect with better colours."*
+    expect(darkenHex('#5abf75')).toBe(blockBorderFromFill('#5abf75'));
+    // A fifth status needs no fifth border.
+    expect(blockBorderFromFill('#123456')).toMatch(/^#[0-9a-f]{6}$/);
+    // …and none of the four old values is reachable from it.
+    for (const old of ['#1d4ed8', '#dc2626', '#16a34a', '#eab308']) {
+      expect(blockBorderFromFill('#5abf75')).not.toBe(old);
+    }
   });
 });
 
