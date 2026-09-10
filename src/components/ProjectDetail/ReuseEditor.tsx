@@ -48,7 +48,7 @@ export default function ReuseEditor({
     if (
       hasUnits &&
       !confirm(
-        `Replace this project's product type + unit types with those from "${s.address}"? Your current units will be overwritten.`,
+        `Replace this project's types and units with those from "${s.address}"? Your current units will be overwritten.`,
       )
     ) {
       return; // don't silently clobber — user declined

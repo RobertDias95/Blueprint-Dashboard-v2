@@ -217,15 +217,25 @@ describe('fix-386: editable after creation, quietly', () => {
     // changing the address does not quietly assert "not a backfill".
     // ★ fix-514 §A: the PAYLOAD is in the controller hook now, the CONTROL in
     //   the form component. Same two halves, two files.
+    // ★★★ fix-520 §A (P-227) — THE RULE SURVIVES AND IS NOW STRUCTURAL.
+    //     The modal used to send every project scalar on every save, so
+    //     `is_backfill` needed a key-presence guard to avoid asserting "not a
+    //     backfill" on a project nobody had asked. **Nothing sends it any more
+    //     unless somebody ticks the box**: the checkbox writes one column, on
+    //     change, and an untouched project's save carries no `is_backfill` key
+    //     because it carries no project columns at all.
+    // ★ So the guard is not weakened — it is the only shape available.
     expect(settingsPayloadSource).toContain(
-      "...(form.is_backfill === null ? {} : { is_backfill: form.is_backfill })",
+      'const projectPatch: Record<string, unknown> = {};',
     );
+    expect(settingsPayloadSource).not.toContain('is_backfill');
     expect(sqlCode).toContain("ELSE is_backfill END");
   });
 
   it('★ the control exists, is checked only on true, and says what it does', () => {
     expect(settingsSource).toContain('data-testid="psm-is-backfill"');
-    expect(settingsSource).toContain('checked={ctl.form.is_backfill === true}');
+    // ★ fix-520 §A: off the PROJECT, not the form — the box commits on tick.
+    expect(settingsSource).toContain('checked={project.is_backfill === true}');
     expect(settingsSource).toContain('Not recorded');
   });
 });

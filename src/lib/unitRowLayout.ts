@@ -107,7 +107,7 @@ export const UNIT_ROW_COLUMNS: readonly UnitRowColumn[] = [
     //    the full label on hover (Scope 8). Sizing the column for nine rows
     //    would tax the other 226 and every project that has none of them.
     width: 52,
-    tooltip: 'The unit type these numbers describe. The list comes from Settings.',
+    tooltip: 'The type these numbers describe. The list comes from Settings.',
   },
   {
     key: 'width_ft',
@@ -116,13 +116,13 @@ export const UNIT_ROW_COLUMNS: readonly UnitRowColumn[] = [
     //   prod holds `72.5` — a three-digit box would clip a real value, and
     //   rounding it away is not available (fix-411: this cell COMMITS).
     width: 30,
-    tooltip: 'How wide this unit type is, in feet.',
+    tooltip: 'How wide this type is, in feet.',
   },
   {
     key: 'depth_ft',
     header: 'D',
     width: 30,
-    tooltip: 'How deep this unit type is, in feet.',
+    tooltip: 'How deep this type is, in feet.',
   },
   {
     key: 'qty',
@@ -135,7 +135,7 @@ export const UNIT_ROW_COLUMNS: readonly UnitRowColumn[] = [
     key: 'stories',
     header: 'Sty',
     width: 22,
-    tooltip: 'How many stories tall this unit type is.',
+    tooltip: 'How many stories tall this type is.',
   },
   {
     key: 'parking_kind',
@@ -156,7 +156,7 @@ export const UNIT_ROW_COLUMNS: readonly UnitRowColumn[] = [
     key: 'parking_stalls',
     header: '#',
     width: 20,
-    tooltip: 'How many parking stalls this unit type gets.',
+    tooltip: 'How many parking stalls this type gets.',
   },
   {
     key: 'roof_deck',
@@ -170,7 +170,7 @@ export const UNIT_ROW_COLUMNS: readonly UnitRowColumn[] = [
     //     short AND the meaning is one hover or one Tab away, which is more than
     //     either previous version offered.
     width: 26,
-    tooltip: 'Whether this unit type has a roof deck.',
+    tooltip: 'Whether this type has a roof deck.',
   },
   {
     key: 'remove',

@@ -260,7 +260,7 @@ describe('fix-412 §C (third edition, fix-422): one template, header and rows', 
     // than either previous edition offered.
     const rd = UNIT_ROW_COLUMNS.find((c) => c.key === 'roof_deck')!;
     expect(rd.header).toBe('RD');
-    expect(rd.tooltip).toBe('Whether this unit type has a roof deck.');
+    expect(rd.tooltip).toBe('Whether this type has a roof deck.');
     expect(UNIT_ROW_COLUMNS.map((c) => c.header)).not.toContain('Deck');
   });
 

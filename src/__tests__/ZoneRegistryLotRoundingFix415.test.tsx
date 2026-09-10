@@ -178,10 +178,23 @@ describe('fix-415 §A: the remap reproduces all 21 counts', () => {
 // ---------------------------------------------------------------------------
 
 describe('fix-415 §A3: no zone input accepts free text', () => {
-  it('★★★ all three write surfaces mount ZoneSelect', () => {
-    for (const src of [headerSource, psmSource, step1Source]) {
+  it('★★★ every surface that WRITES zone mounts ZoneSelect', () => {
+    // ★★★ fix-520 §A: there are TWO of them now, not three. `psmSource` is the
+    //     Project Details form, which carried `AtomicZoneField` — a picker for
+    //     the atomic save's `zone` value that rendered nowhere and was kept
+    //     with a note saying a future tab might want it. §A empties that save's
+    //     project patch, so the field it fed no longer exists and the control
+    //     is deleted: **a control kept for a write path that has been removed
+    //     is worse than no control**, because the next person wires it up.
+    // ★ Zone is still a dropdown everywhere it is editable — `SiteEditor` on
+    //   the Site data tab (which is `headerSource`) and the wizard's Step 1.
+    //   fix-415's rule is untouched; one of its three surfaces stopped being a
+    //   surface.
+    for (const src of [headerSource, step1Source]) {
       expect(strip(src)).toContain('<ZoneSelect');
     }
+    expect(strip(psmSource)).not.toContain('<ZoneSelect');
+    expect(strip(psmSource)).not.toContain('AtomicZoneField');
   });
 
   it('★★★ none of them still renders a free-text zone input', () => {
@@ -242,9 +255,12 @@ describe('fix-415 §B: the rounding rule', () => {
     // ★ Rounding on KEYSTROKE would destroy "100.5" at the "100." keystroke.
     //   Each of these is a blur or a submit.
     expect(strip(headerSource)).toContain('roundLotForStorage');
-    // ★ fix-514 §A: the SUBMIT-time rounding rode the atomic save into the
-    //   controller hook. Same call, same helper.
-    expect(strip(psmPayloadSource)).toContain('roundLotForStorage(toNumOrNull(');
+    // ★★★ fix-520 §A: the atomic save no longer carries the lot at all, so
+    //     there is no submit-time rounding left to do there — `LotSizeEditor`
+    //     and the lot W/D boxes round on BLUR, in `headerSource` above, which
+    //     is the path that writes the column. fix-514 §A moved this call into
+    //     the controller; §A removes the value it was rounding.
+    expect(strip(psmPayloadSource)).not.toContain('roundLotForStorage');
     expect(strip(wizardSource)).toContain('roundLotForStorage(numOrNull(');
     // ★ ...and never from an onChange.
     expect(strip(headerSource)).not.toMatch(/onChange=\{[^}]*roundLotForStorage/);
@@ -328,7 +344,10 @@ describe('fix-415 §C: the section says what it holds', () => {
   it('★★ the description names what is actually in there, zones included', () => {
     const section = SETTINGS_SECTIONS.find((s) => s.id === 'projects')!;
     expect(section.desc.toLowerCase()).toContain('zones');
-    expect(section.desc.toLowerCase()).toContain('product types');
+    // ★ fix-520 §C (P-229): the section says `types` now — *"unit type and
+    //   product type are the same thing"*. `app_config.productTypeOptions` and
+    //   `projects.product_types` are untouched.
+    expect(section.desc.toLowerCase()).toContain('types');
   });
 });
 

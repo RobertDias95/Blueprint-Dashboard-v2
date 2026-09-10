@@ -815,7 +815,7 @@ function Body({ projects, permits }: BodyProps) {
               </select>
             </FieldLabel>
 
-            <FieldLabel label="Product Type">
+            <FieldLabel label="Type">
               {/* fix-91: multi-select. Pick adds a chip; chip × removes it.
                   Matching is any-of in libraryHelpers.filterLibraryRows. */}
               <div className="flex flex-wrap items-center gap-1">

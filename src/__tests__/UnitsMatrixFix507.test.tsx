@@ -58,40 +58,59 @@ function renderMatrix(types: readonly UnitType[]) {
 }
 
 describe('fix-507 §E: the columns are ordinals and Type is a row', () => {
-  it('★★★ the headers read `Unit 1 … Unit n`, never the type name', () => {
+  it('★★★ SUPERSEDED by fix-520 §B — the headers read `<Type> <n>`', () => {
     renderMatrix(SIX);
     const table = screen.getByTestId('pd-units-matrix-grid');
     const headers = Array.from(within(table).getAllByRole('columnheader'))
       .filter((h) => h.getAttribute('data-testid')?.startsWith('pd-units-col-'))
       .map((h) => h.textContent);
+    // ★★★ fix-507 §E's OBJECTION IS ANSWERED, NOT OVERRULED. It moved these
+    //     headers OFF the type name because six columns reading `Detach…` and
+    //     truncating identify nothing — which was right, and is still right of
+    //     a naive `Detached 2`.
+    //     ★★ What fix-520 §B adds is the PER-TYPE ORDINAL, rendered as a
+    //        `flex-none` sibling of a truncating type span. `Detached 1` and
+    //        `Detached 2` are distinguishable where `Detached` twice was not,
+    //        and at any width the worst case is `Detac… 2` — still an
+    //        identifier. Bobby: *"if there are 4 detached, it would say
+    //        detached 1, 2, 3"*, and underneath it *"How do I know which unit
+    //        I am updating sqft on?"*
     expect(headers).toEqual([
-      'Unit 1', 'Unit 2', 'Unit 3', 'Unit 4', 'Unit 5', 'Unit 6',
+      'Detached1', 'Detached2', 'Detached3', 'Detached4', 'Detached5', 'Detached6',
     ]);
-    // ★★★ THE ASSERTION THAT WOULD HAVE FAILED BEFORE, and it is stated as an
-    //     absence on purpose: the defect was the type NAME in the header, so
-    //     "the headers are ordinals" is only half of it — the other half is
-    //     that the name is not up there at all.
-    for (const h of headers) expect(h).not.toContain('Detached');
+    // ★ The two halves are separate elements — that is what makes the ordinal
+    //   survive a narrow card, and it is why the text runs together here.
+    const first = Array.from(within(table).getAllByRole('columnheader')).find(
+      (h) => h.getAttribute('data-testid') === 'pd-units-col-0',
+    )!;
+    expect(first.getAttribute('data-unit-label')).toBe('Detached 1');
+    expect(first.querySelector('.flex-none')?.textContent).toBe('1');
   });
 
-  it('★★★ …and `Type` is the FIRST attribute row, like every other attribute', () => {
+  it('★★★ SUPERSEDED by fix-520 §B — `Type` is no longer a row; it is the heading', () => {
     renderMatrix(SIX);
     const table = screen.getByTestId('pd-units-matrix-grid');
     const rows = Array.from(table.querySelectorAll('tbody tr'));
     // ★ The order is Bobby's: Type · Width · Depth · Size (sf) · Qty · Stories ·
     //   Parking · Stalls · Roof deck.
+    // ★★★ fix-507 §E made `Type` an attribute ROW *because the headers could
+    //     not carry it*. They carry it now, so the row is the same fact printed
+    //     twice — and the transpose costs height, which is the currency every
+    //     ticket on this screen has been short of since fix-506.
     expect(
       rows.map((r) => r.querySelector('th')?.textContent),
     ).toEqual([
-      'Type', 'Width', 'Depth', 'Size (sf)', 'Qty', 'Stories', 'Parking',
+      'Width', 'Depth', 'Size (sf)', 'Qty', 'Stories', 'Parking',
       'Stalls', 'Roof deck',
     ]);
-    // ★★ PARENTAGE, NOT PRESENCE (fix-422's rule): the type has to be a CELL of
-    //    the first body row, not merely somewhere in the table.
+    // ★★ PARENTAGE, NOT PRESENCE (fix-422's rule) — applied to where the type
+    //    lives NOW. It has to be a CELL of the header row, not merely somewhere
+    //    in the table, and the first body row has to be `Width`.
+    const head = screen.getByTestId('pd-units-col-0');
+    expect(head.closest('thead')).toBeTruthy();
+    expect(head).toHaveTextContent('Detached');
     const first = rows[0];
-    expect(
-      within(first as HTMLElement).getByTestId('pd-units-cell-type-0'),
-    ).toHaveTextContent('Detached');
+    expect(first.querySelector('th')?.textContent).toBe('Width');
     expect(first.children).toHaveLength(SIX.length + 1);
   });
 

@@ -483,7 +483,7 @@ export default function Step1ProjectInfo({
                 Reuse an existing plan?
               </span>
               <span className="text-[10px] text-dim">
-                Copy a proven project's product type + unit dimensions as a
+                Copy a proven project's type + unit dimensions as a
                 starting point. You can edit everything before creating.
               </span>
             </span>
@@ -503,7 +503,7 @@ export default function Step1ProjectInfo({
                 <span className="font-semibold" data-testid="wizard-reuse-selected-address">
                   {value.reused_from_project_address || '(source)'}
                 </span>
-                {' '}— product type + units copied below.
+                {' '}— type + units copied below.
               </span>
               <button
                 type="button"
@@ -1435,7 +1435,7 @@ function ProductTypesField({
       data-testid="wizard-product-types"
     >
       <span className="text-[10px] uppercase tracking-wide text-dim">
-        Product Types
+        Types
       </span>
       <div className="flex flex-wrap gap-1 mb-1 min-h-[20px]">
         {types.length === 0 ? (
@@ -1452,7 +1452,7 @@ function ProductTypesField({
                 type="button"
                 onClick={() => onRemove(t)}
                 className="text-dim hover:text-text leading-none"
-                title="Remove product type"
+                title="Remove type"
                 data-testid={`wizard-product-type-remove-${t}`}
               >
                 ×

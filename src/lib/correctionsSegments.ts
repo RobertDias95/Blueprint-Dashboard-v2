@@ -88,7 +88,7 @@ export const SEGMENTS: SegmentDef[] = [
     order: ['Corner', 'Mid-block'],
   },
   {
-    key: 'product_types', label: 'Product type', multi: true,
+    key: 'product_types', label: 'Type', multi: true,
     valueOf: (p) => (p.product_types ?? []).map((t) => t.trim()).filter(Boolean)[0] ?? null,
     valuesOf: (p) => (p.product_types ?? []).map((t) => t.trim()).filter(Boolean),
   },

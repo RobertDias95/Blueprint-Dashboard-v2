@@ -1,4 +1,5 @@
 import { useMemo } from 'react';
+import { unitLabelParts } from '../../lib/unitLabels';
 import type { CSSProperties, ReactNode } from 'react';
 import OriginLink from '../OriginLink';
 import { OverviewSection } from './OverviewCard';
@@ -504,36 +505,41 @@ const UNIT_ATTRIBUTES: ReadonlyArray<{
   //     truncates it identifies nothing. The mock heads the columns `Unit 1 …
   //     Unit n` (an ordinal the reader can point at) and prints the type as the
   //     first row, like every other attribute.
-  {
-    key: 'type',
-    label: 'Type',
-    title: 'The product type this unit is.',
-    read: (u) => (u.label ?? '').trim() || '—',
-  },
-  { key: 'width', label: 'Width', title: 'How wide this unit type is, in feet.', read: (u) => num(u.width_ft) },
-  { key: 'depth', label: 'Depth', title: 'How deep this unit type is, in feet.', read: (u) => num(u.depth_ft) },
+  // ★★★ fix-520 §B (P-226) — `Type` IS GONE FROM THE ROWS BECAUSE IT IS IN
+  //     THE HEADINGS NOW. fix-507 §E made it an attribute row precisely
+  //     BECAUSE the headers could not carry it — heading each column with the
+  //     type name ellipsised to `Detach…Detach…` on the 59 prod projects whose
+  //     units are all `Detached`, which identifies nothing.
+  //     ★★ WHAT CHANGED IS THE ORDINAL. `Detached 1` / `Detached 2` are
+  //        distinguishable where `Detached` / `Detached` were not, and the
+  //        header renders the type as the truncating half with the ordinal
+  //        pinned beside it — `Detac… 2` still identifies the unit. So the
+  //        heading can carry what fix-507 §E correctly said it could not, and
+  //        the row it displaced is a fact said twice.
+  { key: 'width', label: 'Width', title: 'How wide this type is, in feet.', read: (u) => num(u.width_ft) },
+  { key: 'depth', label: 'Depth', title: 'How deep this type is, in feet.', read: (u) => num(u.depth_ft) },
   {
     key: 'size',
     label: 'Size (sf)',
     // ★★★ P-150 SHIPS HERE. fix-488 §B built this column, measured it at +38px
     //     of matrix, and reverted it because the horizontal row could not
     //     afford the width. Transposed, an attribute is a ROW: it costs height.
-    title: 'Floor area for this unit type, in square feet. Typed, never computed from width × depth.',
+    title: 'Floor area for this type, in square feet. Typed, never computed from width × depth.',
     read: (u) => (u.size_sf == null ? '—' : u.size_sf.toLocaleString()),
   },
   { key: 'qty', label: 'Qty', title: 'How many units on this project match these dimensions.', read: (u) => num(u.qty) },
-  { key: 'stories', label: 'Stories', title: 'How many stories tall this unit type is.', read: (u) => num(u.stories) },
+  { key: 'stories', label: 'Stories', title: 'How many stories tall this type is.', read: (u) => num(u.stories) },
   {
     key: 'parking',
     label: 'Parking',
     title: 'What kind of parking is proposed. G garage · S surface · B both · N none · — not recorded',
     read: (u) => parkingKindCode(u.parking_kind ?? null),
   },
-  { key: 'stalls', label: 'Stalls', title: 'How many parking stalls this unit type gets.', read: (u) => num(u.parking_stalls) },
+  { key: 'stalls', label: 'Stalls', title: 'How many parking stalls this type gets.', read: (u) => num(u.parking_stalls) },
   {
     key: 'roof_deck',
     label: 'Roof deck',
-    title: 'Whether this unit type has a roof deck.',
+    title: 'Whether this type has a roof deck.',
     read: (u) => (u.roof_deck == null ? '—' : u.roof_deck ? 'Y' : 'N'),
   },
 ];
@@ -576,7 +582,7 @@ export function UnitsMatrix({ unitTypes }: { unitTypes: readonly UnitType[] }) {
     return (
       <OverviewSection title="Units" testId="pd-units-matrix">
         <div className="text-[9px] text-dim italic" data-testid="pd-units-matrix-empty">
-          No unit types recorded.
+          No types recorded.
         </div>
       </OverviewSection>
     );
@@ -631,15 +637,25 @@ export function UnitsMatrix({ unitTypes }: { unitTypes: readonly UnitType[] }) {
                      width derivation with it. An empty corner cell is the
                      conventional shape for a transposed table. */}
             </th>
-            {unitTypes.map((_, i) => (
+            {unitLabelParts(unitTypes).map((u, i) => (
               <th
                 scope="col"
                 key={`h-${i}`}
                 className="text-center font-extrabold uppercase"
                 style={headCell}
+                title={u.full}
                 data-testid={`pd-units-col-${i}`}
+                data-unit-label={u.full}
               >
-                {`Unit ${i + 1}`}
+                {/* ★★★ fix-520 §B — TWO PIECES, AND ONLY ONE OF THEM MAY
+                    TRUNCATE. The ordinal is what identifies the column, so it
+                    is `flex-none`; the type is what runs out of room, so it is
+                    the half that ellipsises. `Detac… 2` still answers "which
+                    unit am I updating?", which `Detached` twice never did. */}
+                <span className="flex items-baseline justify-center gap-[0.2em] min-w-0">
+                  <span className="truncate min-w-0">{u.type}</span>
+                  <span className="flex-none">{u.ordinal}</span>
+                </span>
               </th>
             ))}
           </tr>

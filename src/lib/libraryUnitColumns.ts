@@ -105,7 +105,7 @@ export interface LibraryUnitColumn {
 export const LIBRARY_UNIT_COLUMNS: readonly LibraryUnitColumn[] = [
   {
     col: 'unitLabel',
-    label: 'Unit type',
+    label: 'Type',
     align: 'left',
     sourceKey: null,
     testId: 'label',

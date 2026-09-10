@@ -221,7 +221,10 @@ describe('fix-519 §A (P-230) — every unit column reads its own key', () => {
     // The full row, by heading. Before this ticket four of these were wrong.
     renderUnitView();
     const row = screen.getByTestId('library-unit-row-p-519-0');
-    expect(cellUnderHeading(row, 'Unit type')).toContain('Detached');
+    // ★ fix-520 §C (P-229): the heading is `Type` now — *"unit type and
+    //   product type are the same thing"*. The COLUMN is unchanged; only the
+    //   word above it is.
+    expect(cellUnderHeading(row, 'Type')).toContain('Detached');
     expect(cellUnderHeading(row, 'Width')).toBe('24');
     expect(cellUnderHeading(row, 'Depth')).toBe('50.5');
     expect(cellUnderHeading(row, 'Size (sf)')).toBe('3352');
@@ -272,8 +275,10 @@ describe('fix-519 §A (P-230) — every unit column reads its own key', () => {
     // *"the table reads in the order the filter reads"* — width, depth, size,
     // parking, stalls, roof deck, stories; with the type identifying the row
     // and Qty (which has no filter) counting it at the end.
+    // ★ fix-520 §C: `Unit type` → `Type`. The ORDER, which is what this test
+    //   is about, is fix-514 §H's and is unchanged.
     expect(LIBRARY_UNIT_COLUMN_LABELS).toEqual([
-      'Unit type',
+      'Type',
       'Width',
       'Depth',
       'Size (sf)',
