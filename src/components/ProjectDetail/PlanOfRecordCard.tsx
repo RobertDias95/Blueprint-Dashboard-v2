@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { stalenessNote } from '../../lib/planOfRecordStaleness';
 import {
   usePlanOfRecord,
@@ -16,6 +16,10 @@ import {
   missingThumbnailReason,
   planOfRecordSetButtons,
   planOfRecordSetCaption,
+  // ★★★ fix-522 §A/§B/§C: the one resolution the chip, the preview and the
+  //     viewer all read, and the rule that decides which viewer.
+  planOfRecordViewerMode,
+  shownPlanOfRecord,
   stageLabel,
   type PlanOfRecordVariant,
 } from '../../lib/planOfRecord';
@@ -27,7 +31,14 @@ import {
   pagePaths,
   type PlanOfRecordSetRow,
 } from '../../hooks/usePlanOfRecordSets';
-import { SHARE_TOAST, signPlanShareUrl } from '../../lib/planOfRecordShare';
+import {
+  SHARE_TOAST,
+  SHARE_TTL_DAYS,
+  planShareBody,
+  planShareMailto,
+  planShareSubject,
+  signPlanShareUrl,
+} from '../../lib/planOfRecordShare';
 import {
   POR_BUTTON_GAP,
   POR_BUTTON_MIN_WIDTH,
@@ -165,7 +176,15 @@ export default function PlanOfRecordCard({ projectId }: Props) {
           row={row}
           verdict={verdictKnown ? verdict : null}
           onClose={() => setLightbox(false)}
-          shownSet={findVariant(setsQ.data, variant)}
+          // ★★★ fix-522 §C (P-217) — THE SET, RESOLVED THE SAME WAY THE CARD
+          //     FACE RESOLVES IT. This was `findVariant(sets, variant)`, which
+          //     matches `set_type === 'marketing'` and nothing else — so a
+          //     SCHEMATIC always got `null`, `pages` came back empty, and the
+          //     viewer fell back to a single thumbnail. **86 of 101 schematics
+          //     have pages** (fix-510's backfill) and none of them could be
+          //     paged through. `shownPlanOfRecord` matches the row's own
+          //     `set_type`, so every stage reaches its pages.
+          shownSet={shownPlanOfRecord(row, setsQ.data, variant).set}
         />
       )}
     </OverviewCard>
@@ -299,10 +318,16 @@ function PlanOfRecordBody({
   variant: 'internal' | 'external';
   onPickVariant: (v: 'internal' | 'external') => void;
 }) {
+  // ★★★ fix-522 §A/§B — ONE RESOLUTION, THREE READERS. The chip, the preview
+  //     and (through the card) the viewer all read this. Before, the buttons
+  //     resolved the variant, the chip printed `row.set_type` and the preview
+  //     was bound to `row` — three readers, three sources, and only one of them
+  //     right.
+  const shown = shownPlanOfRecord(row, sets, variant);
   return (
     <>
-      <StageChip stage={row.set_type} />
-      <Preview row={row} onEnlarge={onEnlarge} />
+      <StageChip stage={row.set_type} label={shown.label} />
+      <Preview row={row} thumbPath={shown.thumbPath} onEnlarge={onEnlarge} />
 
       {/* ★★ fix-331 §2: THE FILENAME AND THE MODIFIED/SIZE LINE ARE NOT HERE
           ANY MORE. Bobby, highlighting them: "It should just be, here's the
@@ -379,14 +404,37 @@ function PlanOfRecordBody({
 // ★ SAME BOX, SAME SIZE, SAME WEIGHT, SAME POSITION — only the hue goes.
 //   Nothing else on the card moves. `--color-muted` on `--color-s2` measures
 //   4.65:1, so the neutral chip clears the same floor the coloured ones did.
-function StageChip({ stage }: { stage: PlanOfRecordStage }) {
+//
+// ★★★ fix-522 §A (P-217) — AND IT NAMES WHAT IS ON SCREEN, NOT THE SET TYPE.
+//
+//     Bobby: *"right now it is displaying site plan (marketing internal) but if
+//     i click marketing, it should show marketing external."*
+//
+//     The buttons were already correct — `3505 Densmore Ave N` really does have
+//     `marketing/internal` (1 page) and `marketing/external` (6), and the right
+//     one was being chosen. **What was wrong is that this chip read `MARKETING`
+//     in BOTH states**, because both rows are `set_type = 'marketing'`.
+//     "Marketing" was doing double duty — a set type AND a variant label — so
+//     pressing *Site Plan* left a badge saying MARKETING and nothing confirmed
+//     the switch had happened.
+//
+// ★★ IT IS KEPT RATHER THAN DELETED, though §A offered the choice. The pressed
+//    button IS an indicator, but it sits BELOW the drawing; the chip sits above
+//    it, and on a card this tall the two are not in one glance. A label that
+//    now agrees with the button costs nothing and answers "what am I looking
+//    at" where the eye already is.
+//
+// ★ The testid keeps the STAGE, not the label — four suites reach for
+//   `plan-of-record-stage-marketing`, and the element they name has not moved.
+function StageChip({ stage, label }: { stage: PlanOfRecordStage; label: string }) {
   return (
     <span
       className="inline-block text-[9px] font-extrabold uppercase tracking-wider px-2 py-0.5 rounded-full mb-2"
       style={{ background: 'var(--color-s2)', color: 'var(--color-muted)' }}
       data-testid={`plan-of-record-stage-${stage}`}
+      data-label={label}
     >
-      {stageLabel(stage)}
+      {label}
     </span>
   );
 }
@@ -395,13 +443,32 @@ function StageChip({ stage }: { stage: PlanOfRecordStage }) {
 
 function Preview({
   row,
+  thumbPath,
   onEnlarge,
 }: {
   row: ProjectPlanOfRecordRow;
+  /** ★★★ fix-522 §B (P-217) — THE SELECTED SET'S THUMBNAIL.
+   *
+   *  Bobby: *"clicking the button would change the picture from internal to
+   *  external… but the ui is showing marketing internal regardless."*
+   *
+   *  ★★★ WHAT IT WAS BOUND TO BEFORE: `row.thumb_path` — the single
+   *      `project_plan_of_record` row — while the buttons and the Lightbox's
+   *      caption resolved `findVariant(sets, variant)`. So the caption tracked
+   *      the button and the image never did. Both sets have carried a distinct
+   *      thumbnail since fix-504 and both are `ok`; `usePlanOfRecordSets`
+   *      simply never selected the column.
+   *
+   *  ★ Still falls back to the row's own thumbnail — a set whose image has not
+   *    rendered degrades to the plan of record's, which is what the card did
+   *    for every set before this. */
+  thumbPath: string | null;
   onEnlarge: () => void;
 }) {
-  const usable = hasThumbnail(row);
-  const thumbQ = usePlanOfRecordThumbnail(usable ? row.thumb_path : null);
+  // ★ `hasThumbnail` still guards the ROW, because that is what
+  //   `missingThumbnailReason` explains and what the fallback below is about.
+  const usable = hasThumbnail(row) || !!thumbPath;
+  const thumbQ = usePlanOfRecordThumbnail(usable ? thumbPath : null);
 
   // ★ Never a broken image and never an error. A row with no usable thumbnail,
   // or one whose signature could not be minted, falls back to a plain note and
@@ -566,6 +633,37 @@ function SetButtons({
   const shown = shownVariant === 'external' ? externalSet : internalSet;
   const archived = shown?.is_archived_fallback === true;
 
+  /** ★ The object a share points at: the set's FIRST PAGE, falling back to its
+   *  thumbnail and then to the plan-of-record row's. One definition, so Copy
+   *  link and Email it can never send different things. */
+  function sharePath(v: PlanOfRecordVariant): string | null {
+    const set = v === 'external' ? externalSet : internalSet;
+    return pagePaths(set)[0] ?? set?.thumb_path ?? row.thumb_path ?? null;
+  }
+
+  async function emailPlanPage(objectPath: string | null, label: string) {
+    if (!objectPath) {
+      pushToast('Nothing to share yet — the page image has not been generated', 'error');
+      return;
+    }
+    try {
+      const url = await signPlanShareUrl(objectPath);
+      const set = label === buttons[1]?.label ? externalSet : internalSet;
+      const name = set?.file_name ?? row.file_name;
+      const subject = planShareSubject(name, label);
+      const body = planShareBody(name, label, url, set?.page_count ?? 1);
+      // ★ Navigate, never `window.open`: a `mailto:` opened in a new tab
+      //   leaves an empty tab behind in every browser that honours it.
+      // ★★ `assign()` rather than `location.href = …` — the React Compiler
+      //    rejects assigning to a value it did not create ("This value cannot
+      //    be modified"), and only LINT catches it. Same method, same
+      //    behaviour, and it is a call rather than a mutation.
+      window.location.assign(planShareMailto(subject, body));
+    } catch {
+      pushToast('Could not create the share link', 'error');
+    }
+  }
+
   return (
     <div className="mt-1.5 flex flex-col gap-1">
       <div className="flex" style={{ gap: POR_BUTTON_GAP }}>
@@ -576,15 +674,14 @@ function SetButtons({
             picked={shownVariant === b.variant}
             disabled={b.variant === 'external' && !externalReady}
             onPick={() => onPickVariant(b.variant)}
-            onShare={() =>
-              void sharePlanPage(
-                b.variant === 'external'
-                  ? pagePaths(externalSet)[0] ?? null
-                  : internalSet
-                    ? pagePaths(internalSet)[0] ?? row.thumb_path
-                    : row.thumb_path,
-              )
-            }
+            onShare={() => void sharePlanPage(sharePath(b.variant))}
+            // ★★★ fix-522 §D4 — THE SAME LINK, IN AN EMAIL THE SUBJECT OF WHICH
+            //     NAMES THE SET. Bobby: *"boom, create the email, open it, and
+            //     it's already got the subject line, what you're sharing."*
+            //     ⚠️ No image — a `mailto:` cannot carry one. See
+            //     `planOfRecordShare` for the two ways it could and why neither
+            //     is in this ticket.
+            onEmail={() => void emailPlanPage(sharePath(b.variant), b.label)}
             testId={`plan-of-record-set-${b.variant}`}
           />
         ))}
@@ -639,6 +736,7 @@ function SetButton({
   disabled,
   onPick,
   onShare,
+  onEmail,
   testId,
 }: {
   label: string;
@@ -646,6 +744,8 @@ function SetButton({
   disabled?: boolean;
   onPick: () => void;
   onShare: () => void;
+  /** ★ fix-522 §D4: open a mail client with the subject and link filled in. */
+  onEmail: () => void;
   testId: string;
 }) {
   return (
@@ -672,25 +772,18 @@ function SetButton({
       >
         {label}
       </button>
-      {/* ★ The share glyph sits INSIDE the button's frame, at its right end, as
-          the mock draws it — but it is its own <button>, because picking a set
-          and copying a link are two actions and one control cannot be both. */}
-      <button
-        type="button"
-        onClick={onShare}
+      {/* ★ The share control sits INSIDE the button's frame, at its right end,
+          as the mock draws it — but it is its own control, because picking a
+          set and sharing it are two actions and one button cannot be both.
+          ★★ fix-522 §D3: it opens a MENU now. See `ShareMenu`. */}
+      <ShareMenu
+        label={label}
+        picked={picked}
         disabled={disabled}
-        className="px-1.5 flex items-center border-l disabled:cursor-default"
-        style={{
-          borderLeftColor: picked ? 'rgba(255,255,255,.4)' : 'var(--color-border)',
-          background: picked ? 'var(--color-de)' : 'var(--color-surface)',
-          color: picked ? '#fff' : 'var(--color-de)',
-        }}
-        title={`Copy a 30-day link to this set's first page — no login needed`}
-        aria-label={`Share ${label}`}
-        data-testid={`${testId}-share`}
-      >
-        <ShareGlyph />
-      </button>
+        onCopy={onShare}
+        onEmail={onEmail}
+        testId={testId}
+      />
     </div>
   );
 }
@@ -736,7 +829,25 @@ function Lightbox({
   //   back to the single thumbnail when it does not. One line, and it is right
   //   for every stage this card will ever grow.
   const pages = pagePaths(shownSet);
-  const thumbQ = usePlanOfRecordThumbnail(hasThumbnail(row) ? row.thumb_path : null);
+  // ★★★ fix-522 §C — TWO DOCUMENTS, TWO VIEWERS, AND THE PAGE COUNT DECIDES.
+  //
+  //     *"A site plan is one technical drawing an internal reader studies; a
+  //     marketing set is a multi-page piece you page through and send out."*
+  //     Driven off the SET'S OWN `page_count`, never off the variant string —
+  //     a one-page marketing set should read like a site plan, and a
+  //     multi-page schematic should page. **The document decides, not its
+  //     label**, and on prod that distinction is worth 102 of the 334 sets.
+  const mode = planOfRecordViewerMode(Math.max(1, shownSet?.page_count ?? pages.length ?? 1));
+  // ★★★ fix-522 §B: the single-drawing fallback shows the SELECTED set's
+  //     thumbnail, not the plan-of-record row's — the same binding the card
+  //     face was missing. The row is still the fallback behind it.
+  const singleThumb =
+    shownSet?.thumb_status === 'ok' && shownSet.thumb_path
+      ? shownSet.thumb_path
+      : hasThumbnail(row)
+        ? row.thumb_path
+        : null;
+  const thumbQ = usePlanOfRecordThumbnail(singleThumb);
   // ★ fix-295: THE ENLARGE IS CAPPED, AND NOT BY THIS REPO.
   //
   // The thumbnails are rendered by the SCRAPER (file_indexer/thumbnails.py,
@@ -792,6 +903,8 @@ function Lightbox({
       onClick={onClose}
       role="presentation"
       data-testid="plan-of-record-lightbox"
+      data-viewer-mode={mode}
+      data-page-count={String(Math.max(1, shownSet?.page_count ?? 1))}
     >
       <div
         className="bg-surface rounded-lg p-3.5 w-full max-w-[min(96vw,1400px)] max-h-full overflow-y-auto"
@@ -971,5 +1084,145 @@ function PageImage({
         </div>
       )}
     </figure>
+  );
+}
+
+/**
+ * ★★★ fix-522 §D3 (P-187) — A SHARE MENU, NOT ONE ACTION.
+ *
+ * Bobby: *"share button doesn't have the updates we have talked about
+ * either"*, against the v14 mock's `shareMenu`.
+ *
+ * ★★★ TWO ITEMS SHIP, AND A THIRD IS DELIBERATELY ABSENT:
+ *
+ *   · **Copy link** — fix-506's behaviour, unchanged to the character: a
+ *     30-day signed URL to this set's FIRST PAGE, copied, with the same toast.
+ *   · **Email it** — the same link in a `mailto:` whose subject names the set
+ *     (§D4). No image: a `mailto:` cannot carry one, and the alternatives are
+ *     a real send path or a world-readable bucket. See `planOfRecordShare`.
+ *   · ⏸ **Share the whole set** is NOT here. It needs a Bridge route, a
+ *     `plan_share_links` table and an access ruling — reported in the fix-522
+ *     PR and not built. **The menu exists so it drops in as one more item**
+ *     rather than as a redesign of this control.
+ *
+ * ★ The menu closes on pick, on Escape and on an outside click. It is a
+ *   `<div role="menu">` over a real `<button>` rather than a `<select>`,
+ *   because the items DO things rather than choose a value.
+ */
+function ShareMenu({
+  label,
+  picked,
+  disabled,
+  onCopy,
+  onEmail,
+  testId,
+}: {
+  label: string;
+  picked: boolean;
+  disabled?: boolean;
+  onCopy: () => void;
+  onEmail: () => void;
+  testId: string;
+}) {
+  const [open, setOpen] = useState(false);
+  const wrapRef = useRef<HTMLDivElement>(null);
+
+  // ★ fix-440's lesson: a keydown listener belongs on the DOCUMENT, not on a
+  //   non-focusable div — `onKeyDown` on a div with no `tabIndex` never fires.
+  useEffect(() => {
+    if (!open) return;
+    function onKey(e: KeyboardEvent) {
+      if (e.key === 'Escape') setOpen(false);
+    }
+    function onDown(e: MouseEvent) {
+      if (!wrapRef.current?.contains(e.target as Node)) setOpen(false);
+    }
+    document.addEventListener('keydown', onKey);
+    document.addEventListener('mousedown', onDown);
+    return () => {
+      document.removeEventListener('keydown', onKey);
+      document.removeEventListener('mousedown', onDown);
+    };
+  }, [open]);
+
+  return (
+    <div ref={wrapRef} className="relative flex">
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        disabled={disabled}
+        className="px-1.5 flex items-center border-l disabled:cursor-default"
+        style={{
+          borderLeftColor: picked ? 'rgba(255,255,255,.4)' : 'var(--color-border)',
+          background: picked ? 'var(--color-de)' : 'var(--color-surface)',
+          color: picked ? '#fff' : 'var(--color-de)',
+        }}
+        title={`Share ${label}`}
+        aria-label={`Share ${label}`}
+        aria-haspopup="menu"
+        aria-expanded={open}
+        data-testid={`${testId}-share`}
+      >
+        <ShareGlyph />
+      </button>
+      {open && (
+        <div
+          role="menu"
+          className="absolute right-0 top-full mt-1 z-20 rounded border shadow-lg overflow-hidden min-w-[168px]"
+          style={{
+            borderColor: 'var(--color-border)',
+            background: 'var(--color-surface)',
+          }}
+          data-testid={`${testId}-share-menu`}
+        >
+          <ShareMenuItem
+            testId={`${testId}-share-copy`}
+            onPick={() => {
+              setOpen(false);
+              onCopy();
+            }}
+            title={`Copy a ${SHARE_TTL_DAYS}-day link to this set's first page — no login needed`}
+          >
+            Copy link
+          </ShareMenuItem>
+          <ShareMenuItem
+            testId={`${testId}-share-email`}
+            onPick={() => {
+              setOpen(false);
+              onEmail();
+            }}
+            title="Open an email with the subject and the link filled in"
+          >
+            Email it…
+          </ShareMenuItem>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function ShareMenuItem({
+  children,
+  onPick,
+  title,
+  testId,
+}: {
+  children: React.ReactNode;
+  onPick: () => void;
+  title: string;
+  testId: string;
+}) {
+  return (
+    <button
+      type="button"
+      role="menuitem"
+      onClick={onPick}
+      title={title}
+      className="block w-full text-left text-[10.5px] px-2.5 py-1.5 hover:bg-s2 transition"
+      style={{ color: 'var(--color-text)' }}
+      data-testid={testId}
+    >
+      {children}
+    </button>
   );
 }

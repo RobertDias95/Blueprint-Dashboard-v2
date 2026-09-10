@@ -254,3 +254,157 @@ export function missingThumbnailReason(
   }
   return 'No preview has been generated yet. It will appear after the next file-server index.';
 }
+
+// ===========================================================================
+// ★★★ fix-522 §A/§B/§C (P-217) — WHAT IS ON SCREEN, DECIDED ONCE
+// ===========================================================================
+//
+// Bobby, 2026-09-10, three complaints that are one question:
+//   §A *"right now it is displaying site plan (marketing internal) but if i
+//      click marketing, it should show marketing external."*
+//   §B *"clicking the button would change the picture from internal to
+//      external since they display different elements on the first page… but
+//      the ui is showing marketing internal regardless."*
+//   §C a site plan is one drawing you study; a marketing set is a piece you
+//      page through and send out.
+//
+// ★★★ ALL THREE WERE THE SAME DEFECT: three readers, three sources.
+//
+//     · the BUTTONS resolved `findVariant(sets, variant)` — correct;
+//     · the CHIP printed `row.set_type`, so BOTH marketing buttons left a
+//       badge reading `MARKETING`. "Marketing" was doing double duty as a set
+//       type AND a variant label, so pressing *Site Plan* changed nothing
+//       visible and nothing confirmed the switch;
+//     · the PREVIEW was bound to `row` — the single `project_plan_of_record`
+//       row — so the card face showed `marketing_internal.jpg` whichever
+//       button was pressed. On `3505 Densmore Ave N` the two sets carry
+//       distinct thumbnails and both are `ok`; the Bridge simply never asked
+//       for the column (see `usePlanOfRecordSets`).
+//
+// ★★★ SO THIS RESOLVES ALL OF IT ONCE, and the three readers read it. Same
+//     discipline fix-519 §A applied to the Library's unit columns after two
+//     hand-written lists drifted: **a heading and its value cannot be
+//     separated if they come from one declaration.**
+// ===========================================================================
+
+/**
+ * ★★ THE SHAPE THIS FILE NEEDS, DECLARED STRUCTURALLY RATHER THAN IMPORTED.
+ *
+ * `PlanOfRecordSetRow` and `findVariant` live in `hooks/usePlanOfRecordSets`,
+ * and importing a HOOK module from a lib pulls React Query, the Supabase
+ * client and the auth store into every consumer of this file — which is what
+ * broke 86 suites in fix-415, where the recorded remedy was *"inline the
+ * helper"*. So the resolver takes the fields it reads and nothing else, and
+ * the hook's row satisfies it by shape.
+ */
+export interface PlanOfRecordSetLike {
+  set_type: PlanOfRecordStage;
+  variant: string;
+  page_count: number | null;
+  thumb_path: string | null;
+  thumb_status: string | null;
+  file_name: string | null;
+}
+
+/** How the set on screen should be READ, not what it is called. */
+export type PlanOfRecordViewerMode =
+  /** One sheet. Open it large and let somebody study it; a pager offering
+   *  "page 1 of 1" would be inventing a sequence. */
+  | 'drawing'
+  /** Several pages. Scroll them the way you scroll the PDF. */
+  | 'pager';
+
+export interface ShownPlanOfRecord<T extends PlanOfRecordSetLike = PlanOfRecordSetLike> {
+  /** The set row the pressed button names, when the sets view has one.
+   *  ★ Generic so a caller that passes the hook's full `PlanOfRecordSetRow`
+   *    gets one back — the Lightbox needs `pages_prefix`, which this file has
+   *    no business knowing about. */
+  set: T | null;
+  /** ★★★ §A: what the CHIP says — the pressed BUTTON's label, never the set
+   *  type. `Site Plan` / `Marketing` / `Schematic` / `Design Guidance`. */
+  label: string;
+  /** ★★★ §B: the thumbnail to paint. The selected set's own, falling back to
+   *  the plan-of-record row's when the set has none that rendered. */
+  thumbPath: string | null;
+  /** Pages in this set. 1 when nothing better is known — never 0, which would
+   *  make a real set look empty. */
+  pageCount: number;
+  /** ★★★ §C: decided by the PAGE COUNT, never by the variant string. */
+  mode: PlanOfRecordViewerMode;
+  /** The set's own file name, for §D4's email subject. */
+  fileName: string | null;
+}
+
+/**
+ * ★★★ §C's RULING, AND THE DATA THAT SETTLES IT: **the document decides, not
+ *     its label.**
+ *
+ * Measured on prod 2026-09-10, all 334 sets, none with a null `page_count`:
+ *
+ *     design_guidance          48 sets     48 one-page      0 multi
+ *     marketing · internal     58 sets     58 one-page      0 multi
+ *     marketing · external    127 sets      1 one-page    126 multi   (max 10)
+ *     schematic               101 sets     15 one-page     86 multi   (max 13)
+ *     ─────────────────────────────────────────────────────────────
+ *     total                   334 sets    122 one-page    212 multi
+ *
+ * ★★★ KEYING OFF THE LABEL WOULD BE WRONG FOR 102 OF THE 334. The one
+ *     single-page marketing/external set would get a pager for one sheet; the
+ *     86 multi-page schematics would be stuck on page one with no way to reach
+ *     the rest, which is precisely what fix-508 §H's scroller was built to
+ *     avoid and what nothing could feed until fix-510's backfill.
+ */
+export function planOfRecordViewerMode(pageCount: number): PlanOfRecordViewerMode {
+  return pageCount > 1 ? 'pager' : 'drawing';
+}
+
+/**
+ * Resolve the one answer the chip, the preview and the viewer all read.
+ *
+ * ★ `row` is the fallback throughout, never the primary: it is the project's
+ *   single chosen plan of record, which is the right thing to show when the
+ *   sets view is absent (it was, until fix-504) or when a set's own thumbnail
+ *   has not rendered — and the wrong thing to show when a specific variant has
+ *   been asked for and has one.
+ */
+export function shownPlanOfRecord<T extends PlanOfRecordSetLike>(
+  row: Pick<
+    ProjectPlanOfRecordRow,
+    'set_type' | 'thumb_path' | 'thumb_status' | 'file_name'
+  >,
+  sets: { available: boolean; rows: T[] } | undefined,
+  variant: PlanOfRecordVariant,
+): ShownPlanOfRecord<T> {
+  const buttons = planOfRecordSetButtons(row.set_type);
+  // ★ The pressed button, resolved off the LIST rather than off state — a
+  //   variant with no button (a schematic asked for `external`) falls back to
+  //   the first, which is what `SetButtons` already does. One rule, so the chip
+  //   and the pressed button cannot name different things.
+  const pressed = buttons.find((b) => b.variant === variant) ?? buttons[0] ?? null;
+  const shownVariant = pressed?.variant ?? 'internal';
+  // ★ The variant lookup, inline for the reason above. It is fix-504's rule
+  //   unchanged: only `marketing` has variants, and a row whose `variant` is
+  //   neither of the two is ignored rather than guessed at.
+  const set =
+    sets?.available
+      ? (sets.rows.find(
+          (r) =>
+            r.set_type === row.set_type &&
+            (row.set_type === 'marketing'
+              ? r.variant?.toLowerCase() === shownVariant
+              : true),
+        ) ?? null)
+      : null;
+  const setThumbOk = set?.thumb_status === 'ok' && !!set.thumb_path;
+  return {
+    set,
+    // ★★★ §A: the button's label. `stageLabel(row.set_type)` is the fallback
+    //     for a stage with no buttons at all, so the chip is never blank.
+    label: pressed?.label ?? stageLabel(row.set_type),
+    // ★★★ §B: the SELECTED set's thumbnail, and the row's only as a fallback.
+    thumbPath: setThumbOk ? set.thumb_path : (row.thumb_path ?? null),
+    pageCount: Math.max(1, set?.page_count ?? 1),
+    mode: planOfRecordViewerMode(Math.max(1, set?.page_count ?? 1)),
+    fileName: set?.file_name ?? row.file_name ?? null,
+  };
+}

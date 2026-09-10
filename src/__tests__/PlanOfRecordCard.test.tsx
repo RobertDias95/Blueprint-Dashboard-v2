@@ -140,8 +140,25 @@ beforeEach(() => {
 // ------------------------------------------------------------ the stages --
 
 describe('fix-285 the card renders each stage with its own chip', () => {
+  // ★★★ SUPERSEDED BY fix-522 §A (P-217) — THE CHIP NAMES WHAT IS ON SCREEN.
+  //
+  //     fix-285 had it name the STAGE, which was right while a stage had one
+  //     document. Marketing has two — a Site Plan and a Marketing set, chosen
+  //     by two buttons — and BOTH rows are `set_type = 'marketing'`, so the
+  //     chip read `MARKETING` in both states. Bobby: *"right now it is
+  //     displaying site plan (marketing internal) but if i click marketing, it
+  //     should show marketing external."* "Marketing" was doing double duty as
+  //     a set type AND a variant label, so pressing *Site Plan* changed nothing
+  //     above the drawing and nothing confirmed the switch.
+  //
+  // ★★ THE OTHER TWO STAGES ARE UNCHANGED, which is the tell that this is a
+  //    narrowing rather than a rewrite: they have one button each, so the
+  //    button's label and the stage's name are the same word.
+  //
+  // ★ The chip's TESTID still carries the stage — the element four suites
+  //   reach for has not moved.
   it.each([
-    ['marketing', 'Marketing'],
+    ['marketing', 'Site Plan'],
     ['schematic', 'Schematic'],
     ['design_guidance', 'Design Guidance'],
   ] as const)('%s', async (setType, label) => {
@@ -341,7 +358,14 @@ describe('fix-285 the file card', () => {
     Object.assign(navigator, { clipboard: { writeText } });
     state.row = row();
     renderCard();
+    // ★★★ fix-522 §D3 (P-187): the share glyph opens a MENU now, so copying is
+    //     one item in it rather than the whole control. Bobby: *"share button
+    //     doesn't have the updates we have talked about either"*, against the
+    //     v14 mock's `shareMenu`. **fix-506 §E's behaviour is unchanged to the
+    //     character** — one more click reaches it, and everything this test
+    //     asserts about the signature, the TTL and the toast is untouched.
     fireEvent.click(await screen.findByTestId('plan-of-record-set-internal-share'));
+    fireEvent.click(await screen.findByTestId('plan-of-record-set-internal-share-copy'));
     // ★ The signature is minted against the caller's own session, so the
     //   storage policy authorises it: a user who cannot see the project cannot
     //   mint a link to its plan. The mock returns the object path back.

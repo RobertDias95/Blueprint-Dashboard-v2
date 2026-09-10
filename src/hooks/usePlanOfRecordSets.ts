@@ -48,6 +48,30 @@ export interface PlanOfRecordSetRow {
    *  in the label — an archived plan of record is still the plan of record, but
    *  a reader must not mistake it for a current one. */
   is_archived_fallback: boolean | null;
+  /**
+   * ★★★ fix-522 §B (P-217) — THE SET'S OWN THUMBNAIL, AND IT WAS ALWAYS THERE.
+   *
+   * The view has carried `thumb_path` and `thumb_status` since fix-504; this
+   * interface and `SELECT_COLUMNS` below never asked for them, so the card had
+   * no per-variant image to bind to and fell back to the plan-of-record row's
+   * one thumbnail for both buttons. **The select list is explicit, so an
+   * unlisted column arrives as `undefined` and the feature that needs it looks
+   * impossible rather than unwired** — the trap this codebase has now recorded
+   * six times (fix-122, fix-386, fix-410, fix-487, fix-488, and here).
+   *
+   * Prod, 2026-09-10 — `3505 Densmore Ave N` carries two distinct thumbs and
+   * both are `ok`:
+   *   marketing/internal  →  …/marketing_internal.jpg   1 page
+   *   marketing/external  →  …/marketing_external.jpg   6 pages
+   */
+  thumb_path: string | null;
+  /** `ok` | `pending` | `failed` | null. Anything but `ok` degrades to the
+   *  plan-of-record row's thumbnail, exactly as the card already does. */
+  thumb_status: string | null;
+  /** ★ fix-522 §D4: the set's own file name, which is what a shared email's
+   *  subject is built from — *"is this schematic, design guidance, marketing
+   *  internal or external?"* */
+  file_name: string | null;
 }
 
 export interface PlanOfRecordSets {
@@ -59,8 +83,11 @@ export interface PlanOfRecordSets {
 
 const MISSING_RELATION = '42P01';
 
+// ★★★ fix-522 §B: `thumb_path`, `thumb_status` and `file_name` join the list.
+//     They have existed on the view since fix-504 — see the note on the
+//     interface for why an unlisted column makes a feature look impossible.
 const SELECT_COLUMNS =
-  'project_id,set_type,variant,page_count,pages_status,pages_prefix,is_archived_fallback';
+  'project_id,set_type,variant,page_count,pages_status,pages_prefix,is_archived_fallback,thumb_path,thumb_status,file_name';
 
 export function usePlanOfRecordSets(projectId: string | undefined) {
   const tenantId = useAuthStore((s) => s.activeTenantId);
