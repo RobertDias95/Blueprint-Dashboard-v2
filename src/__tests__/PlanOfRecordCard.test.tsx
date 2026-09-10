@@ -31,6 +31,14 @@ const PROJECT_ID = '3e1f84c4-92fe-4c70-aaa2-2758c5f13d68';
 const state = vi.hoisted(() => ({
   row: null as unknown,
   rowError: null as unknown,
+  // ★★★ fix-523 §B2: `project_plan_of_record_sets` IS ON PROD NOW (334 rows,
+  //     measured 2026-09-11) and the card's availability guard reads it, so the
+  //     suite declares set rows instead of leaving the query to resolve into
+  //     nothing. `null` keeps the pre-fix-504 behaviour — no set information for
+  //     the stage, so nothing grays.
+  sets: null as null | Array<Record<string, unknown>>,
+  rpcCalls: [] as Array<[string, unknown]>,
+  rpcResult: null as unknown,
   signedUrl: 'https://example.supabase.co/storage/v1/object/sign/plan-thumbnails/x.jpg?token=abc',
   signError: null as unknown,
   calls: [] as string[],
@@ -41,11 +49,34 @@ const state = vi.hoisted(() => ({
 
 vi.mock('../lib/supabase', () => ({
   supabase: {
+    rpc: (name: string, args: unknown) => {
+      state.rpcCalls.push([name, args]);
+      return Promise.resolve({ data: state.rpcResult, error: null });
+    },
+    functions: {
+      invoke: () => Promise.resolve({ data: { pages: [], thumb: null }, error: null }),
+    },
     from: (table: string) => {
       state.calls.push(`from:${table}`);
       const chain: Record<string, unknown> = {};
       chain.select = () => chain;
       chain.eq = () => chain;
+      chain.is = () => chain;
+      chain.gt = () => chain;
+      // ★ Awaitable, so a query that ends at `.eq()` gets a real answer rather
+      //   than the chain object itself — which destructures to
+      //   `{ data: undefined }` and quietly reads as "the view exists and is
+      //   empty", a state that does not occur on prod.
+      chain.then = (
+        resolve: (v: { data: unknown; error: unknown }) => unknown,
+      ) =>
+        Promise.resolve({
+          data:
+            table === 'project_plan_of_record_sets' ? state.sets : [],
+          error: table === 'project_plan_of_record_sets' && state.sets === null
+            ? { code: '42P01' }
+            : null,
+        }).then(resolve);
       chain.maybeSingle = () =>
         Promise.resolve({ data: state.row, error: state.rowError });
       // Anything that would WRITE is recorded so the read-only test can see it.
@@ -129,6 +160,9 @@ beforeEach(() => {
   });
   state.row = null;
   state.rowError = null;
+  state.sets = null;
+  state.rpcCalls = [];
+  state.rpcResult = null;
   state.signError = null;
   state.calls = [];
   state.publicUrlCalls = 0;
@@ -337,51 +371,143 @@ describe('fix-285 the file card', () => {
     expect(screen.queryByTestId('plan-of-record-copy-hint')).toBeNull();
   });
 
-  it('★★★ fix-506 §E: External is DISABLED until the indexer writes its pages', async () => {
-    // ★★★ STEP 0-4 CONFIRMED `project_plan_of_record_sets` ABSENT ON PROD
-    //     (fix-504 is in flight in the scraper repo), so this is the branch
-    //     that actually runs today. The button states a FACT about now and
-    //     becomes live on its own — which is what separates it from the P-032
-    //     placeholder this same ticket removed from the Project card.
+  // ★★★ SUPERSEDED BY fix-523 §B2 (P-239), AND ITS PREMISE IS THE PART THAT
+  //     EXPIRED. This asserted *"External is DISABLED until the indexer writes
+  //     its pages"* on the strength of `project_plan_of_record_sets` being
+  //     ABSENT from prod. It landed with fix-504 and carries 334 rows, all of
+  //     them `pages_status = 'ok'` (measured 2026-09-11), so the branch this
+  //     test called *"the one that actually runs today"* runs for nothing.
+  //
+  // ★★★ AND THE GUARD IT PINNED WAS ONE-SIDED. `b.variant === 'external' &&
+  //     !externalReady` names one direction, so it can only ever ask about one:
+  //     the 74 external-only projects rendered a live Site Plan with nothing
+  //     behind it, against 5 internal-only ones where the guard fired. **Same
+  //     assertion, arguments swapped** is the replacement, because a one-sided
+  //     guard that only ever gets a one-sided test is how this class keeps
+  //     shipping.
+  it('★★★ fix-523 §B2: the empty button grays — in BOTH directions', async () => {
+    const marketing = (variant: string) => ({
+      project_id: PROJECT_ID,
+      set_type: 'marketing',
+      variant,
+      page_count: variant === 'external' ? 6 : 1,
+      pages_status: 'ok',
+      pages_prefix: `${PROJECT_ID}/marketing_${variant}/`,
+      is_archived_fallback: false,
+      thumb_path: `${PROJECT_ID}/marketing_${variant}.jpg`,
+      thumb_status: 'ok',
+      file_name: `3505 - Marketing - ${variant}.pdf`,
+    });
+
+    // ── the 5: Site Plan only ────────────────────────────────────────────
     state.row = row();
-    renderCard();
-    const external = await screen.findByTestId('plan-of-record-set-external');
-    expect((external as HTMLButtonElement).disabled).toBe(true);
-    fireEvent.click(external);
+    state.sets = [marketing('internal')];
+    const first = renderCard();
     expect(
-      screen.getByTestId('plan-of-record-set-internal').getAttribute('aria-pressed'),
+      ((await screen.findByTestId('plan-of-record-set-external')) as HTMLButtonElement)
+        .disabled,
+    ).toBe(true);
+    expect(
+      (screen.getByTestId('plan-of-record-set-internal') as HTMLButtonElement).disabled,
+    ).toBe(false);
+    first.unmount();
+
+    // ── the 74: Marketing only. SAME ASSERTION, ARGUMENTS SWAPPED. ───────
+    state.sets = [marketing('external')];
+    renderCard();
+    expect(
+      ((await screen.findByTestId('plan-of-record-set-internal')) as HTMLButtonElement)
+        .disabled,
+    ).toBe(true);
+    expect(
+      (screen.getByTestId('plan-of-record-set-external') as HTMLButtonElement).disabled,
+    ).toBe(false);
+    // ★ …and the card OPENS on the button that works, rather than on a grayed
+    //   Site Plan with the live control unpicked beside it.
+    expect(
+      screen.getByTestId('plan-of-record-set-external').getAttribute('aria-pressed'),
     ).toBe('true');
+
+    // ★★★ AND THE SHARE GLYPH BESIDE THE GRAY BUTTON IS **GONE**, by the same
+    //     guard. Bobby's screenshot of `5947 32ND AVE SW` shows one rendered
+    //     beside a gray Marketing button, reading as an offer. **A set you
+    //     cannot open is a set you cannot share** — and `bp_create_plan_share`
+    //     raises `P0002` when no current set matches, so the UI was able to
+    //     reach a call that could only fail.
+    expect(screen.queryByTestId('plan-of-record-set-internal-share')).toBeNull();
+    expect(screen.getByTestId('plan-of-record-set-external-share')).toBeInTheDocument();
+
+    // ★★ Clicking the gray button opens neither a viewer nor a menu.
+    fireEvent.click(screen.getByTestId('plan-of-record-set-internal'));
+    expect(
+      screen.getByTestId('plan-of-record-set-external').getAttribute('aria-pressed'),
+    ).toBe('true');
+    expect(screen.queryByTestId('plan-of-record-set-internal-share-menu')).toBeNull();
+    expect(screen.queryByTestId('plan-of-record-lightbox')).toBeNull();
+
+    // ⚠⚠ AND NO EXPLANATORY TEXT. Ruled 2026-09-11: *"just dont make it
+    //    clickable if it isnt available… adding that additional text makes it
+    //    more busy."* The gray IS the message.
+    expect(screen.queryByText(/External pages arrive/i)).toBeNull();
+    expect(screen.queryByText(/no set available/i)).toBeNull();
+    expect(
+      screen.getByTestId('plan-of-record-set-internal').getAttribute('title'),
+    ).toBeNull();
   });
 
-  it('★★★ fix-506 §E: Share copies a 30-day signed URL and says so', async () => {
+  // ★★★ SUPERSEDED BY fix-523 §A (P-187) — THE LINK IS A ROUTE NOW.
+  //
+  //     This asserted that Copy link signs ONE PAGE OBJECT in the private
+  //     bucket for `SHARE_TTL_SECONDS`. That was fix-506's ruling and it was
+  //     right for a ticket with no table, no RPC and no route — P-187 is the
+  //     complaint that the result is *"one page and unpresentable"*, 500-odd
+  //     characters of query string carrying one sheet out of a set.
+  //
+  // ★★★ WHAT THE ASSERTION WAS PROTECTING IS UNCHANGED AND IS ALL STILL HERE:
+  //     thirty days from one constant, no login, and the bucket still private —
+  //     `getPublicUrl` is still never called. What moved is that the SERVER
+  //     mints the credential (`bp_create_plan_share`, `authenticated` only) and
+  //     the browser hands over `/s/<token>` instead of a signature.
+  it('★★★ fix-523 §A: Copy link hands over /s/<token>, not a signed object', async () => {
     const writeText = vi.fn().mockResolvedValue(undefined);
     Object.assign(navigator, { clipboard: { writeText } });
     state.row = row();
+    state.rpcResult = [{ token: 'a7Kd92xQ', expires_at: '2026-10-11T00:00:00Z' }];
     renderCard();
-    // ★★★ fix-522 §D3 (P-187): the share glyph opens a MENU now, so copying is
-    //     one item in it rather than the whole control. Bobby: *"share button
-    //     doesn't have the updates we have talked about either"*, against the
-    //     v14 mock's `shareMenu`. **fix-506 §E's behaviour is unchanged to the
-    //     character** — one more click reaches it, and everything this test
-    //     asserts about the signature, the TTL and the toast is untouched.
     fireEvent.click(await screen.findByTestId('plan-of-record-set-internal-share'));
     fireEvent.click(await screen.findByTestId('plan-of-record-set-internal-share-copy'));
-    // ★ The signature is minted against the caller's own session, so the
-    //   storage policy authorises it: a user who cannot see the project cannot
-    //   mint a link to its plan. The mock returns the object path back.
     await waitFor(() => expect(writeText).toHaveBeenCalled());
-    expect(writeText).toHaveBeenCalledWith(state.signedUrl);
-    // ★★★ THIRTY DAYS, AND THE TOAST'S WORDS COME FROM THE SAME CONSTANT — a
-    //     control whose promise and behaviour can disagree is the fix-306
-    //     defect class applied to a promise about access.
-    const [path, ttl] = state.signArgs[state.signArgs.length - 1];
-    expect(path).toBe(`${PROJECT_ID}/marketing.jpg`);
-    expect(ttl).toBe(SHARE_TTL_SECONDS);
+
+    // ★★★ §A4: minted on the PICK, and by the RPC — never on the menu opening,
+    //     which would write a row every time a card was looked at.
+    const mint = state.rpcCalls.filter(([n]) => n === 'bp_create_plan_share');
+    expect(mint).toHaveLength(1);
+    expect(mint[0][1]).toMatchObject({
+      p_project_id: PROJECT_ID,
+      p_set_type: 'marketing',
+      p_variant: 'internal',
+    });
+    // ★ No `p_ttl_days`: the RPC defaults to 30 and caps at 90, and a client
+    //   sending its own number is a second place for the copy and the expiry to
+    //   disagree.
+    expect(mint[0][1]).not.toHaveProperty('p_ttl_days');
+
+    const url = String(writeText.mock.calls[0][0]);
+    expect(url).toContain('/s/a7Kd92xQ');
+    // ★★★ §A5: A TOKEN AND NOTHING ELSE. No project id, no set id, no address.
+    expect(url).not.toContain(PROJECT_ID);
+    expect(url).not.toMatch(/marketing/i);
+
+    // ★★ NOTHING WAS SIGNED **FOR THE SHARE**, and the bucket is still
+    //    private. The card face still signs its own thumbnail for the person
+    //    looking at it — that is a logged-in read at the preview's own short
+    //    TTL — so the assertion is that no signature was minted at the SHARE
+    //    TTL, which is the one a recipient would have been handed.
+    expect(state.signArgs.map(([, ttl]) => ttl)).not.toContain(SHARE_TTL_SECONDS);
+    expect(state.publicUrlCalls).toBe(0);
+    // ★ Thirty days, still one constant, still saying "no login".
     expect(SHARE_TOAST).toContain(String(SHARE_TTL_DAYS));
     expect(SHARE_TOAST).toMatch(/no login/i);
-    // ★ …and the bucket stays PRIVATE: a public URL would either 400 or, far
-    //   worse, work.
-    expect(state.publicUrlCalls).toBe(0);
   });
 
   // ★ fix-289: the whole point of the ticket. Chrome and Edge silently refuse

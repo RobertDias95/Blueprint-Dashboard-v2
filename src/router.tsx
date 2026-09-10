@@ -28,6 +28,7 @@ import SettingsPage from './pages/SettingsPage';
 import CustomReport from './pages/CustomReport';
 import ReportBuilder from './pages/ReportBuilder';
 import ErrorsPage from './pages/Errors';
+import SharedPlan from './pages/SharedPlan';
 
 // Q2: routes wired to real read-side pages.
 // Q9.5.a: structural realignment to v1's top-nav.
@@ -45,6 +46,21 @@ import ErrorsPage from './pages/Errors';
 
 export const router = createBrowserRouter([
   { path: '/login', element: <Login /> },
+  // ★★★ fix-523 §A (P-187) — THE SHARED PLAN, AND IT IS A SIBLING OF /login
+  //     RATHER THAN A CHILD OF THE APP, DELIBERATELY.
+  //
+  // A builder opens this with no session. Putting it inside the `/` subtree
+  // would wrap it in `AuthGuard` (which would bounce them to the login screen)
+  // and in `Chrome` (which would give a page anybody holding a link can open a
+  // ribbon into every project in the tenant). §A5's *"no navigation into the
+  // app, no link back to a logged-in surface"* is enforced by WHERE this route
+  // sits, not by remembering not to add a header to the page.
+  //
+  // ★★★ THE URL CARRIES A TOKEN AND NOTHING ELSE — no project id, no set id,
+  //     no address. `/s/a7Kd92…` is short enough to read out and gives away
+  //     nothing to anyone who sees it in a proxy log. A test asserts the
+  //     absence rather than the presence, because that is the property.
+  { path: '/s/:token', element: <SharedPlan /> },
   {
     path: '/',
     element: (

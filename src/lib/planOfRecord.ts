@@ -367,6 +367,120 @@ export function planOfRecordViewerMode(pageCount: number): PlanOfRecordViewerMod
  *   has not rendered — and the wrong thing to show when a specific variant has
  *   been asked for and has one.
  */
+// ===========================================================================
+// ★★★ fix-523 §B2 (P-239) — THE SET LOOKUP, EXTRACTED, BECAUSE THE GUARD NEEDS
+//     THE SAME ANSWER THE PICTURE NEEDS
+// ===========================================================================
+//
+// Bobby, 2026-09-11: *"if marketing internal (site plan) is the only option, it
+// grays out marketing but if there is marketing external, and no site plan
+// (marketing internal) you can click both?"*
+//
+// ★★★ HE IS RIGHT, AND THE DIRECTION THAT WORKS IS THE RARE ONE. Measured on
+//     prod 2026-09-11 across the 167 projects holding any plan-of-record set:
+//
+//       Site Plan (marketing/internal) only — Marketing grays        5
+//       Marketing (marketing/external) only — ⚠ BOTH stay clickable  74
+//       both                                                        53
+//       neither (schematic / design guidance only)                  35
+//
+//     So **Site Plan is a live control with nothing behind it on 74 of 167
+//     projects**, and the case the guard was written for happens on 5.
+//
+// ★★★ IT IS ONE ONE-SIDED GUARD, NOT TWO THAT DISAGREE. `SetButtons` read
+//     `disabled={b.variant === 'external' && !externalReady}` — a single
+//     expression that names `external` and can therefore only ever ask about
+//     `external`. There was never a second guard to be inconsistent with; the
+//     question about the other direction was never asked at all. That is
+//     [[an-invariant-with-two-directions-must-be-checked-in-both]] for the
+//     third time here (fix-511, then P-223, now this) and the remedy is the
+//     same each time: **make the predicate take the direction as an argument**,
+//     so a caller cannot express one side without the other.
+//
+// ★★★ AND THE REASON IT GRAYS IS EXACTLY ONE THING: **there is no current set
+//     of that type.** The old guard also folded in `pages_status === 'ok'` and
+//     `page_count > 0`, so a set that existed but had not rendered grayed as if
+//     it were absent — two causes wearing one colour. All 334 current sets read
+//     `pages_status = 'ok'` on prod today, so the second cause has never once
+//     fired, and the guard must not quietly acquire one later. A gray button
+//     means *somebody needs to go put that set on the share*.
+
+/**
+ * The set row a given button names, or `null`.
+ *
+ * ★ fix-504's rule, unchanged and now in one place: only `marketing` has
+ *   variants, and a row whose `variant` is neither of the two is ignored rather
+ *   than guessed at. `shownPlanOfRecord` inlined this; the availability guard
+ *   needs the identical answer, and two copies of "which row is this button" is
+ *   the drift fix-522 spent a ticket collapsing.
+ */
+export function planOfRecordSetFor<T extends PlanOfRecordSetLike>(
+  stage: PlanOfRecordStage | null | undefined,
+  sets: { available: boolean; rows: T[] } | undefined,
+  variant: PlanOfRecordVariant,
+): T | null {
+  if (!sets?.available || !stage) return null;
+  return (
+    sets.rows.find(
+      (r) =>
+        r.set_type === stage &&
+        (stage === 'marketing' ? r.variant?.toLowerCase() === variant : true),
+    ) ?? null
+  );
+}
+
+/**
+ * ★★★ Is there a set behind this button? **Asked in both directions by
+ *     construction**, because the variant is an argument rather than a literal.
+ *
+ * ★ A project whose sets view is not available at all is ALL available. The
+ *   view is the only thing that can say "no such set"; without it the card
+ *   still has its single plan-of-record row and its thumbnail, and graying
+ *   every button because a relation is missing would take the card away from
+ *   everyone rather than telling anyone anything. That branch was the live one
+ *   until fix-504 landed and it stays honest.
+ */
+export function planOfRecordSetAvailable<T extends PlanOfRecordSetLike>(
+  stage: PlanOfRecordStage | null | undefined,
+  sets: { available: boolean; rows: T[] } | undefined,
+  variant: PlanOfRecordVariant,
+): boolean {
+  if (!sets?.available) return true;
+  // ★★★ AND NOR DOES A STAGE THE VIEW HAS NOTHING ON GRAY. The card only
+  //     renders at all because `project_plan_of_record` has a row — a document
+  //     the indexer picked and a thumbnail it rendered. If the sets view holds
+  //     no row for that stage, we cannot say *"there is no current set of that
+  //     type"*; we can only say we have no set information, which is absence of
+  //     evidence. Graying then would take a document we know about away from
+  //     the person who needs it.
+  //
+  // ★ Measured 2026-09-11: **0 of 167** plan-of-record rows have no set row of
+  //   their own stage, so this is defensive rather than live — but it is the
+  //   branch the pre-fix-504 card ran for its whole life, and it is what keeps
+  //   the guard scoped to the defect it was written for: a stage that HAS sets
+  //   and does not have THIS one.
+  if (!sets.rows.some((r) => r.set_type === stage)) return true;
+  return planOfRecordSetFor(stage, sets, variant) !== null;
+}
+
+/**
+ * The variant a card should OPEN on.
+ *
+ * ★ The first button with a set behind it. Defaulting to `internal` and then
+ *   graying it would leave 74 of 167 projects opening on a dead control with
+ *   the live one unpicked beside it — a guard that is correct and a card that
+ *   is useless. Falls back to the first button when nothing is available, so a
+ *   stage with no sets still renders its buttons in their normal order.
+ */
+export function firstAvailableVariant<T extends PlanOfRecordSetLike>(
+  stage: PlanOfRecordStage | null | undefined,
+  sets: { available: boolean; rows: T[] } | undefined,
+): PlanOfRecordVariant {
+  const buttons = planOfRecordSetButtons(stage);
+  const live = buttons.find((b) => planOfRecordSetAvailable(stage, sets, b.variant));
+  return live?.variant ?? buttons[0]?.variant ?? 'internal';
+}
+
 export function shownPlanOfRecord<T extends PlanOfRecordSetLike>(
   row: Pick<
     ProjectPlanOfRecordRow,
@@ -382,19 +496,9 @@ export function shownPlanOfRecord<T extends PlanOfRecordSetLike>(
   //   and the pressed button cannot name different things.
   const pressed = buttons.find((b) => b.variant === variant) ?? buttons[0] ?? null;
   const shownVariant = pressed?.variant ?? 'internal';
-  // ★ The variant lookup, inline for the reason above. It is fix-504's rule
-  //   unchanged: only `marketing` has variants, and a row whose `variant` is
-  //   neither of the two is ignored rather than guessed at.
-  const set =
-    sets?.available
-      ? (sets.rows.find(
-          (r) =>
-            r.set_type === row.set_type &&
-            (row.set_type === 'marketing'
-              ? r.variant?.toLowerCase() === shownVariant
-              : true),
-        ) ?? null)
-      : null;
+  // ★ fix-523 §B2: the lookup moved OUT of this function rather than being
+  //   copied for the availability guard. Same rule, one implementation.
+  const set = planOfRecordSetFor(row.set_type, sets, shownVariant);
   const setThumbOk = set?.thumb_status === 'ok' && !!set.thumb_path;
   return {
     set,

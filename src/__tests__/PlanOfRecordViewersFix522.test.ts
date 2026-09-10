@@ -328,28 +328,50 @@ describe('fix-522 §D3 (P-187) — a share MENU, and what is deliberately not in
     expect(card).toContain('aria-haspopup="menu"');
   });
 
-  it('★★★ the WHOLE-SET share is NOT built — it is a route with an access ruling', () => {
-    // ★★★ §D1 requires the shape to be reported BEFORE it is built: a Bridge
-    //     route is the app's second unauthenticated surface and the first to
-    //     serve tenant content, and it needs a table and an RPC besides — which
-    //     means Cowork applies a migration and it cannot ship here anyway.
-    //     **The menu exists so it drops in as one more item** rather than as a
-    //     redesign of this control.
-    expect(code(card)).not.toContain('/s/');
-    expect(code(card)).not.toContain('plan_share_links');
+  // ★★★ SUPERSEDED BY fix-523 §A (P-187), AND THE ORIGINAL WAS NOT MISTAKEN.
+  //
+  //     These three assertions pinned fix-522's deliberate NON-decision: the
+  //     whole-set route was reported and not built, so the menu had to copy a
+  //     signed Storage URL to page one and had to do it through ONE resolver.
+  //     Both halves were right for a ticket with no table, no RPC and no route.
+  //
+  //     All three landed on prod on 2026-09-11 (applied from Cowork), so the
+  //     absence assertion is now an assertion that the ticket did not happen.
+  //     **The property it was protecting survives verbatim** and is what these
+  //     replacements pin: one resolver, and no second spelling of the shared
+  //     object. `sharePlanPage` and `sharePath` are gone because minting moved
+  //     into `usePlanShareActions` — which collapsed a THIRD control, the
+  //     enlarged view's Share button, that fix-522 had left signing on its own.
+  it('★★★ the whole-set share IS built now, and everything mints through one path', () => {
+    expect(code(card)).toContain('usePlanShareActions(row.project_id)');
+    expect(code(card)).toContain('share.copy(');
+    expect(code(card)).toContain('share.email(');
+    // ★ …and nothing in this file signs a Storage object any more.
+    expect(code(card)).not.toContain('signPlanShareUrl');
+    expect(code(card)).not.toContain('sharePlanPage(');
   });
 
-  it('★★ Copy link is fix-506’s behaviour, unchanged to the character', () => {
-    expect(card).toContain('sharePlanPage(');
-    expect(card).toContain('SHARE_TOAST');
+  it('★★ Copy link still says thirty days and still needs no login', () => {
+    const shareLib = readFileSync(
+      resolve(process.cwd(), 'src/lib/planOfRecordShare.ts'),
+      'utf8',
+    );
+    // ★ fix-506's promise is unchanged by the link becoming a route: the
+    //   constant is the same, the toast is built from it, and the words and the
+    //   expiry therefore still cannot disagree.
+    expect(shareLib).toContain('export const SHARE_TTL_DAYS = 30');
+    expect(code(shareLib)).toContain('SHARE_TOAST');
   });
 
-  it('★★ Copy and Email send the SAME object — one definition', () => {
-    // ★ Two controls that resolve the shared object separately is how they end
-    //   up sending different things.
-    expect(card).toContain('function sharePath(');
-    expect(card).toContain('void sharePlanPage(sharePath(b.variant))');
-    expect(card).toContain('void emailPlanPage(sharePath(b.variant), b.label)');
+  it('★★ Copy, Email and the viewer send the SAME thing — one definition', () => {
+    // ★ Three controls resolving the shared object separately is how they end
+    //   up sending three different things. fix-522 collapsed two of them.
+    const hook = readFileSync(resolve(process.cwd(), 'src/hooks/usePlanShare.ts'), 'utf8');
+    expect(code(hook)).toContain('async function mint(');
+    // ★★ The viewer's Share button was the third, and it is on the same path.
+    expect(code(card)).toContain('data-testid="plan-of-record-lightbox-share"');
+    const lightbox = card.slice(card.indexOf('function Lightbox('));
+    expect(lightbox).toContain('share.copy(');
   });
 
   it('★★★ no `getPublicUrl` for the plan bucket — the snip is out for a reason', () => {
