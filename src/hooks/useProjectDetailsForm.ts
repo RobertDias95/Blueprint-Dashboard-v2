@@ -91,12 +91,16 @@ export function useProjectDetailsForm(
   const appConfigQ = useAppConfig();
   const updateProjectWithPermits = useUpdateProjectWithPermits();
 
-  const [form, setForm] = useState<ProjectDetailsFormState>(() =>
-    initProjectDetailsForm(project, permits),
-  );
-  const [saving, setSaving] = useState(false);
   /**
-   * ★ §B: the form AS IT LOADED. Compared against, never written to.
+   * ★★★ fix-519 §B (P-227) — THE FORM AND ITS BASELINE ARE ONE STATE.
+   *
+   * `baseline` is the form AS IT LOADED: compared against, never written to.
+   * `form` is what the user has typed. They only ever move TOGETHER — a
+   * rebuild replaces both — and holding them in one object is what lets the
+   * rebuild below decide, inside a functional updater, whether it is safe to
+   * run at all. Two `useState`s could not: the check needs the current `form`
+   * AND the current `baseline`, and reaching for either through the effect's
+   * dependency array re-runs the rebuild on every keystroke.
    *
    * ★★ IT IS STATE, NOT A REF, AND ONLY LINT CATCHES THE DIFFERENCE. Reading
    *    `ref.current` during render is `react-hooks/refs` — an ERROR in this
@@ -104,8 +108,20 @@ export function useProjectDetailsForm(
    *    codebase has tripped it (fix-403, fix-408, fix-426). The dirty flag IS
    *    render output, so its input has to be state.
    */
-  const [baseline, setBaseline] = useState<ProjectDetailsFormState>(form);
+  const [state, setState] = useState<{
+    form: ProjectDetailsFormState;
+    baseline: ProjectDetailsFormState;
+  }>(() => {
+    const initial = initProjectDetailsForm(project, permits);
+    return { form: initial, baseline: initial };
+  });
+  const { form, baseline } = state;
+  const [saving, setSaving] = useState(false);
 
+  /** ★ Every setter writes through `setState` DIRECTLY rather than through a
+   *  `setForm` wrapper. A `useCallback` wrapper is not a React setter, so
+   *  `react-hooks/exhaustive-deps` wants it in six dependency arrays — six
+   *  warnings for an indirection that buys nothing. */
   useEffect(() => {
     // fix-36's rule, unchanged: never rebuild mid-save — the atomic save's own
     // invalidation and the engine cascade's realtime invalidation must not
@@ -113,9 +129,33 @@ export function useProjectDetailsForm(
     if (saving) return;
     const next = initProjectDetailsForm(project, permits);
     // eslint-disable-next-line react-hooks/set-state-in-effect
-    setBaseline(next);
-    // eslint-disable-next-line react-hooks/set-state-in-effect
-    setForm(next);
+    setState((s) =>
+      // ★★★ fix-519 §B (P-227) — …AND NEVER WHILE THE USER HAS UNSAVED EDITS.
+      //
+      // This effect rebuilds the whole form whenever the `project` object
+      // changes identity, and one of the things that changes it is a SIBLING
+      // CONTROL IN THIS SAME MODAL: the Schematic Designer saves immediately
+      // through `bp_reassign_project_sd` and invalidates `projects`. So
+      // changing the schematic designer — which sits directly beneath the five
+      // roles that ride the Save button — silently threw away every unsaved
+      // edit on the tab. Prod's ledger shows Dave doing exactly that three
+      // times in twenty-one seconds on `5627 44th Ave SW`.
+      //
+      // ★★★ THE OCC TOKENS SURVIVE THE GUARD, WHICH IS WHY IT IS SAFE. The
+      //     PROJECT's token is read from the live `project` prop at save time,
+      //     not from this form, so it is never stale. A PERMIT row's token can
+      //     be, and the atomic save answers that correctly already: it returns
+      //     a conflict and says "modified elsewhere — reload and retry".
+      //     Telling somebody their edit collided is a service; discarding it
+      //     without a word is not.
+      //
+      // ★ `currentSd` is derived from `project` on every render rather than
+      //   held in this form, so the Schematic Designer select still shows its
+      //   new value the moment the reassign lands. The guard costs it nothing.
+      projectDetailsFormIsDirty(s.baseline, s.form)
+        ? s
+        : { form: next, baseline: next },
+    );
   }, [project, permits, saving]);
 
   const dirty = useMemo(
@@ -164,33 +204,39 @@ export function useProjectDetailsForm(
   // --- setters -------------------------------------------------------------
   const set = useCallback(
     <K extends keyof ProjectDetailsFormState>(key: K, value: ProjectDetailsFormState[K]) => {
-      setForm((f) => ({ ...f, [key]: value }));
+      setState((s) => ({ ...s, form: { ...s.form, [key]: value } }));
     },
     [],
   );
   const setProj = useCallback(
     <K extends keyof ProjectScalarFields>(key: K, value: ProjectScalarFields[K]) => {
-      setForm((f) => ({ ...f, projectFields: { ...f.projectFields, [key]: value } }));
+      setState((s) => ({
+        ...s,
+        form: { ...s.form, projectFields: { ...s.form.projectFields, [key]: value } },
+      }));
     },
     [],
   );
   const setBpRole = useCallback(
     <K extends keyof BpRoleFields>(key: K, value: BpRoleFields[K]) => {
-      setForm((f) => ({ ...f, bpRole: { ...f.bpRole, [key]: value } }));
+      setState((s) => ({
+        ...s,
+        form: { ...s.form, bpRole: { ...s.form.bpRole, [key]: value } },
+      }));
     },
     [],
   );
   const setPermitField = useCallback((idx: number, patch: Partial<PermitRow>) => {
-    setForm((f) => ({
-      ...f,
-      permits: f.permits.map((p, i) => (i === idx ? { ...p, ...patch } : p)),
-    }));
+    setState((s) => ({ ...s, form: {
+      ...s.form,
+      permits: s.form.permits.map((p, i) => (i === idx ? { ...p, ...patch } : p)),
+    } }));
   }, []);
   const addPermit = useCallback(() => {
-    setForm((f) => ({
-      ...f,
+    setState((s) => ({ ...s, form: {
+      ...s.form,
       permits: [
-        ...f.permits,
+        ...s.form.permits,
         {
           id: null,
           isNew: true,
@@ -205,13 +251,13 @@ export function useProjectDetailsForm(
           parent_permit_id: '',
         },
       ],
-    }));
+    } }));
   }, []);
   const removePermit = useCallback((idx: number) => {
-    setForm((f) => ({
-      ...f,
-      permits: f.permits.map((p, i) => (i === idx ? { ...p, isDeleted: true } : p)),
-    }));
+    setState((s) => ({ ...s, form: {
+      ...s.form,
+      permits: s.form.permits.map((p, i) => (i === idx ? { ...p, isDeleted: true } : p)),
+    } }));
   }, []);
 
   // --- the atomic save, unchanged from fix-36 ------------------------------
@@ -346,6 +392,11 @@ export function useProjectDetailsForm(
         pushToast('This project was modified elsewhere — reload and retry.', 'warn');
         return false;
       }
+      // ★★★ fix-519 §B — REBASE, so the modal reads CLEAN and the next
+      //     `project` refresh is free to rebuild. Without this the new
+      //     dirty-guard above would see the just-saved edits as unsaved for
+      //     ever and never take the server's fresh OCC tokens.
+      setState((s) => ({ ...s, baseline: s.form }));
       pushToast('Project details saved.', 'success');
       return true;
     } catch {

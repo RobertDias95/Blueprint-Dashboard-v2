@@ -37,7 +37,8 @@ import { PARKING_KINDS, type ParkingKind } from '../lib/database.types';
 import {
   NOT_RECORDED,
   PARKING_KIND_LABEL,
-  parkingKindCode,
+  // ★ fix-519 §A: `parkingKindCode` moved to `lib/libraryUnitColumns` with the
+  //   cell that calls it — the column declares what it prints.
   type RoofDeckFilter,
   type StallsTier,
 } from '../lib/unitParking';
@@ -58,6 +59,13 @@ import {
   type UnitSortState,
   type UnitSortableColumn,
 } from '../lib/libraryUnitRows';
+// ★★★ fix-519 §A (P-230): the unit table's columns, declared ONCE. The
+// `<thead>` and `LibraryUnitRow`'s cells both render from this list, which is
+// what stops a heading and its value drifting apart again.
+import { LIBRARY_UNIT_COLUMNS } from '../lib/libraryUnitColumns';
+// ★★★ fix-519 §C (P-228): the SITE fields whose order the filter box and the
+// table share — jurisdiction, then zone, then alley, in both.
+import { LIBRARY_SITE_SHARED_FIELDS } from '../lib/librarySiteFields';
 import { useAuthStore } from '../stores/authStore';
 import { zoneOptions } from '../lib/zoneOptions';
 // ★ fix-488: `formatLotPair` is no longer imported here — the site row's lot
@@ -544,56 +552,63 @@ function Body({ projects, permits }: BodyProps) {
           </div>
 
           <div className="flex flex-wrap items-end gap-3">
-            {/* ★★★ fix-415 SCOPE A5 — THE FILTER THAT GROUPING WAS FOR.
-                This was a free-text box doing a substring match, over a column
-                holding 33 spellings of 21 zones: asking for LR1 found three of
-                the ten projects that ARE LR1, because the other seven were
-                stored "LR 1", "LR1 (M)", "LR1 (M1)" or "LR1 M". Both halves are
-                fixed — the data is canonical now, and the control offers only
-                the canonical list, so a person cannot type a spelling that
-                matches nothing. */}
-            <FieldLabel label="Zone">
-              <select
-                value={filters.zone}
-                onChange={(e) => update('zone', e.target.value)}
-                className={`w-28 ${FIELD_CLASS}`}
-                data-testid="filter-zone"
-              >
-                <option value="">Any</option>
-                {zoneFilterOptions.map((z) => (
-                  <option key={z} value={z}>
-                    {z}
-                  </option>
-                ))}
-              </select>
-            </FieldLabel>
+            {/* ★★★ fix-519 §C (P-228) — JURISDICTION FIRST, AND THE ORDER
+                COMES FROM THE SAME LIST THE TABLE'S HEADERS DO.
 
-            <FieldLabel label="Jurisdiction">
-              <select
-                value={filters.juris}
-                onChange={(e) => update('juris', e.target.value)}
-                className={FIELD_CLASS}
-                data-testid="filter-juris"
-              >
-                <option value="">Any</option>
-                {jurisOptions.map((j) => (
-                  <option key={j}>{j}</option>
-                ))}
-              </select>
-            </FieldLabel>
+                This box asked `Zone · Jurisdiction` while the table read
+                `Juris · Zone`. The table was following P-196's ruling and this
+                was not. Jurisdiction is the coarser fact and **0 of 219 active
+                projects are missing one, where 3 have no zone** — you narrow
+                from the field everybody has. So the FILTER moved.
 
-            <FieldLabel label="Alley">
-              <select
-                value={filters.alley}
-                onChange={(e) => update('alley', e.target.value)}
-                className={FIELD_CLASS}
-                data-testid="filter-alley"
-              >
-                <option value="">Any</option>
-                <option value="Yes">Yes</option>
-                <option value="No">No</option>
-              </select>
-            </FieldLabel>
+                ★★★ fix-415 SCOPE A5 is untouched and is why the Zone control
+                    is a `<select>` rather than a text box: the column held 33
+                    spellings of 21 zones, so asking for LR1 found three of the
+                    ten projects that ARE LR1. Both halves stay fixed — the data
+                    is canonical and the control offers only the canonical
+                    list. */}
+            {LIBRARY_SITE_SHARED_FIELDS.map((f) => (
+              <FieldLabel key={f.key} label={f.filterLabel}>
+                {f.key === 'juris' ? (
+                  <select
+                    value={filters.juris}
+                    onChange={(e) => update('juris', e.target.value)}
+                    className={FIELD_CLASS}
+                    data-testid="filter-juris"
+                  >
+                    <option value="">Any</option>
+                    {jurisOptions.map((j) => (
+                      <option key={j}>{j}</option>
+                    ))}
+                  </select>
+                ) : f.key === 'zone' ? (
+                  <select
+                    value={filters.zone}
+                    onChange={(e) => update('zone', e.target.value)}
+                    className={`w-28 ${FIELD_CLASS}`}
+                    data-testid="filter-zone"
+                  >
+                    <option value="">Any</option>
+                    {zoneFilterOptions.map((z) => (
+                      <option key={z} value={z}>
+                        {z}
+                      </option>
+                    ))}
+                  </select>
+                ) : (
+                  <select
+                    value={filters.alley}
+                    onChange={(e) => update('alley', e.target.value)}
+                    className={FIELD_CLASS}
+                    data-testid="filter-alley"
+                  >
+                    <option value="">Any</option>
+                    <option value="Yes">Yes</option>
+                    <option value="No">No</option>
+                  </select>
+                )}
+              </FieldLabel>
+            ))}
 
             {/* fix-122: Corner Lot filter — tri-state mirroring Alley.
                 fix-402 moved it under SITE (Bobby's correction); its meaning
@@ -889,27 +904,33 @@ function Body({ projects, permits }: BodyProps) {
                   because there is no unit row beside it. Here the next column
                   along says it per unit, which is the more specific answer to
                   the same question. */}
-              {/* ★★★ fix-514 §H (P-196): *unit width · unit depth · unit size ·
-                  parking · stalls · … · stage* — the same rule as the Site
-                  tab, against the UNIT filter box, which asks Width, Depth,
-                  Size, Parking, Stalls, Roof Deck, Stories in that order.
-                  ★ `Unit type` and `Qty` have no filter, so they sit either
-                    side of the filtered run: the type IDENTIFIES the row (like
-                    Address above) and Qty is a count of it. */}
-              <UTh sort={unitSort} col="unitLabel" onClick={toggleUnitSort} align="left">Unit type</UTh>
-              <UTh sort={unitSort} col="width" onClick={toggleUnitSort} align="center">Width</UTh>
-              <UTh sort={unitSort} col="depth" onClick={toggleUnitSort} align="center">Depth</UTh>
-              {/* ★★★ fix-488 §B — the column the size filter returns you to.
-                  A filter you cannot read the result of is half a feature.
-                  ★ fix-514 §E made the value TYPEABLE in Project Details, so
-                    this column stops being a filter over a field nobody could
-                    fill. */}
-              <UTh sort={unitSort} col="size" onClick={toggleUnitSort} align="center">Size (sf)</UTh>
-              <UTh sort={unitSort} col="parking" onClick={toggleUnitSort} align="center">Parking</UTh>
-              <UTh sort={unitSort} col="stalls" onClick={toggleUnitSort} align="center">Stalls</UTh>
-              <UTh sort={unitSort} col="roofDeck" onClick={toggleUnitSort} align="center">Roof Deck</UTh>
-              <UTh sort={unitSort} col="stories" onClick={toggleUnitSort} align="center">Stories</UTh>
-              <UTh sort={unitSort} col="qty" onClick={toggleUnitSort} align="center">Qty</UTh>
+              {/* ★★★ fix-519 §A (P-230) — THE HEADER RENDERS FROM
+                  `LIBRARY_UNIT_COLUMNS`, AND SO DO THE CELLS.
+
+                  This strip and `LibraryUnitRow`'s `<td>`s were two
+                  hand-written lists 500 lines apart, and they had drifted:
+                  fix-514 §H reordered THIS one to match the filter box and
+                  left the row on fix-402's order, so every value after
+                  `Size (sf)` printed under somebody else's heading — a
+                  parking code under ROOF DECK on `10150 NE 64th St`.
+
+                  ★★★ fix-412's ruling — *"the header strip and the row are
+                      one declaration, so read-only cells line up under their
+                      headers for free"* — was quoted at the bottom of this
+                      file as still true. It had been false since fix-447 §B6
+                      split the row out. **It is true again now, and this list
+                      is the declaration.** */}
+              {LIBRARY_UNIT_COLUMNS.map((c) => (
+                <UTh
+                  key={c.col}
+                  sort={unitSort}
+                  col={c.col}
+                  onClick={toggleUnitSort}
+                  align={c.align}
+                >
+                  {c.label}
+                </UTh>
+              ))}
               {/* ★ fix-483 §A2: the `Work` column went with its filter. */}
               <UTh sort={unitSort} col="stage" onClick={toggleUnitSort} align="center">Stage</UTh>
             </tr>
@@ -1055,9 +1076,23 @@ function Body({ projects, permits }: BodyProps) {
                   (Bobby's rule: the number is the number), with the derived
                   ones marked only by the `~` a hover explains. */}
               <Th sort={sort} col="lotSizeSf" onClick={toggleSort} align="center">Lot SF</Th>
-              <Th sort={sort} col="juris" onClick={toggleSort} align="left">Juris</Th>
-              <Th sort={sort} col="zone" onClick={toggleSort} align="center">Zone</Th>
-              <Th sort={sort} col="alley" onClick={toggleSort} align="center">Alley</Th>
+              {/* ★★★ fix-519 §C (P-228) — THESE THREE AND THE FILTER BOX'S
+                  THREE ARE ONE LIST NOW. fix-514 §H named the deviation in a
+                  comment — *"Bobby's list reads jurisdiction before zone; the
+                  filter box asks Zone first"* — and a comment is not a rule.
+                  Jurisdiction is first in both, and the order is declared in
+                  `lib/librarySiteFields` so it cannot drift again. */}
+              {LIBRARY_SITE_SHARED_FIELDS.map((f) => (
+                <Th
+                  key={f.key}
+                  sort={sort}
+                  col={f.key}
+                  onClick={toggleSort}
+                  align={f.align}
+                >
+                  {f.columnLabel}
+                </Th>
+              ))}
               {/* fix-122: Corner Lot — same dimensions feel very different on a
                   corner. */}
               <Th sort={sort} col="isCornerLot" onClick={toggleSort} align="center">Corner</Th>
@@ -1400,9 +1435,21 @@ function Row({ row, bandClass }: RowProps) {
 //    tab of Project Data, which is the same `unit_types` array through the same
 //    hook with the same OCC token.
 //
-// ★ fix-412's ruling SURVIVES and is why this reads cleanly: the header strip
-//   and the row are still one declaration, so read-only cells line up under
-//   their headers for free.
+// ★★★ fix-519 §A (P-230) — THIS PARAGRAPH USED TO SAY fix-412's RULING
+//     SURVIVED, AND IT WAS THE LIE THAT LET P-230 HAPPEN.
+//
+//     It read: *"the header strip and the row are still one declaration, so
+//     read-only cells line up under their headers for free."* That stopped
+//     being true at fix-447 §B6, which pulled this row out to serve the UNIT
+//     view directly — the header went to `LibraryMatrix`'s own `<thead>` and
+//     the cells stayed here, 500 lines apart. Nobody noticed, because the
+//     comment said otherwise and the columns still lined up by luck. fix-514
+//     §H then reordered the header alone and the luck ran out.
+//
+// ★★★ IT IS TRUE AGAIN, AND FOR REAL: both render from
+//     `lib/libraryUnitColumns.LIBRARY_UNIT_COLUMNS`. ★ A comment claiming an
+//     invariant is not an invariant — if it is worth writing down it is worth a
+//     test, and `LibraryUnitColumnsFix519` holds this one.
 
 function LibraryUnitRow({
   row,
@@ -1445,36 +1492,44 @@ function LibraryUnitRow({
       data-band={bandClass ? 'on' : 'off'}
     >
       {leading}
-      <td className="px-2 py-0.5 font-mono text-text whitespace-nowrap">
-        <span data-testid={`library-unit-${projectId}-${index}-label`}>
-          {shown || '—'}
-        </span>
-        {offList && (
-          // ★ fix-449 §C's mark, unchanged: this label is not in the registry,
-          //   so nothing in the app offers it.
-          <span
-            className="ml-1 text-[9px] font-bold text-co"
-            title="Not in the product-type registry"
-            data-testid={`library-unit-${projectId}-${index}-offlist`}
+      {/* ★★★ fix-519 §A (P-230) — ONE LIST, TWO READERS. Every cell below is
+          bound to its `unit_types` key BY NAME through
+          `LIBRARY_UNIT_COLUMNS`, which is the same list the `<thead>` renders
+          from. A column and its value can no longer be separated: inserting
+          one changes both, or neither.
+          ★ `unitLabel` is the exception and is handled inline, because its
+            text is RESOLVED against the project's product types (fix-209/212)
+            and it carries fix-449 §C's off-list mark. It stays FIRST in the
+            list either way, so its position is declared with the rest. */}
+      {LIBRARY_UNIT_COLUMNS.map((c) =>
+        c.read === null ? (
+          <td
+            key={c.col}
+            className="px-2 py-0.5 font-mono text-text whitespace-nowrap"
           >
-            ⚠
-          </span>
-        )}
-      </td>
-      <UnitCell testId={`library-unit-${projectId}-${index}-width`} value={row.width_ft} />
-      <UnitCell testId={`library-unit-${projectId}-${index}-depth`} value={row.depth_ft} />
-      <UnitCell testId={`library-unit-${projectId}-${index}-size`} value={row.size_sf} />
-      <UnitCell testId={`library-unit-${projectId}-${index}-qty`} value={row.qty} />
-      <UnitCell testId={`library-unit-${projectId}-${index}-stories`} value={row.stories} />
-      <UnitCell
-        testId={`library-unit-${projectId}-${index}-parking`}
-        text={parkingKindCode(row.parking_kind ?? null)}
-      />
-      <UnitCell testId={`library-unit-${projectId}-${index}-stalls`} value={row.parking_stalls} />
-      <UnitCell
-        testId={`library-unit-${projectId}-${index}-roofdeck`}
-        text={row.roof_deck == null ? NOT_RECORDED : row.roof_deck ? 'Y' : 'N'}
-      />
+            <span data-testid={`library-unit-${projectId}-${index}-${c.testId}`}>
+              {shown || '—'}
+            </span>
+            {offList && (
+              // ★ fix-449 §C's mark, unchanged: this label is not in the
+              //   registry, so nothing in the app offers it.
+              <span
+                className="ml-1 text-[9px] font-bold text-co"
+                title="Not in the product-type registry"
+                data-testid={`library-unit-${projectId}-${index}-offlist`}
+              >
+                ⚠
+              </span>
+            )}
+          </td>
+        ) : (
+          <UnitCell
+            key={c.col}
+            testId={`library-unit-${projectId}-${index}-${c.testId}`}
+            {...c.read(row)}
+          />
+        ),
+      )}
       {trailing}
     </tr>
   );
