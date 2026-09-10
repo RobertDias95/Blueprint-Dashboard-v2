@@ -73,10 +73,13 @@ describe('fix-449 §A: alley is a list on every write surface', () => {
     expect(header).toContain("label=\"Alley\"");
     expect(header).toMatch(/label="Alley"[\s\S]{0,200}options=\{\['', 'Yes', 'No'\]\}/);
 
-    const modal = read('src/components/ProjectDetail/ProjectSettingsModal.tsx');
-    // ★ One definition, imported — not a second literal.
-    expect(modal).toContain('WIZARD_ALLEY_OPTIONS');
-    expect(modal).not.toMatch(/const ALLEY_OPTIONS = \['', 'Yes', 'No'\]/);
+    // ★★ fix-514 §A: `ProjectSettingsModal` is deleted, and its alley picker
+    //    went with it — Site data's per-field `SiteSelectRow` above is now the
+    //    ONLY alley control outside the wizard. The rule this test defends
+    //    ("one definition, not a second literal") therefore has one fewer
+    //    surface to defend, which is a smaller claim and a true one.
+    const detailsForm = read('src/components/ProjectDetail/ProjectDetailsForm.tsx');
+    expect(detailsForm).not.toMatch(/const ALLEY_OPTIONS = \['', 'Yes', 'No'\]/);
 
     const wizard = read('src/components/wizard/wizardState.ts');
     expect(wizard).toContain("export const ALLEY_OPTIONS = ['Yes', 'No'] as const;");
@@ -85,7 +88,7 @@ describe('fix-449 §A: alley is a list on every write surface', () => {
   it('★★ no surface offers a free-text alley input', () => {
     for (const f of [
       'src/components/ProjectDetail/ProjectDataEditors.tsx',
-      'src/components/ProjectDetail/ProjectSettingsModal.tsx',
+      'src/components/ProjectDetail/ProjectDetailsForm.tsx',
       'src/components/wizard/Step1ProjectInfo.tsx',
     ]) {
       const src = read(f);

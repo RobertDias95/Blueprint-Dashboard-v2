@@ -53,6 +53,10 @@ vi.mock('../hooks/useSetBpDdDates', () => ({
   useSetBpDdDates: () => ({ mutateAsync: vi.fn(), isPending: false }),
 }));
 vi.mock('../hooks/useAppConfig', () => ({
+  // ★ fix-514 §F: `ProjectDataEditors` reads the project-tag registry now,
+  //   so this partial mock has to carry the reader as well as the hook —
+  //   the partial-mock trap, which this repo keeps meeting.
+  readAppConfigStringArray: () => [],
   useAppConfig: () => ({ map: new Map() }),
   readConsultantTypes: () => [] as { type: string; firms: string[] }[],
 }));
@@ -91,7 +95,9 @@ vi.mock('../stores/toastStore', () => ({ pushToast: vi.fn() }));
 // hooks the overview uses today; no new RPC, same OCC tokens, same toasts"* —
 // so every assertion below is unchanged and still means what it meant. Only the
 // mount point moved, to the modal's **Units** tab.
-import ProjectDataModal from '../components/ProjectDetail/ProjectDataModal';
+// ★ fix-514 §A: the file and the component are `ProjectDetailsModal` now —
+//   Project Settings is deleted and this is the one project modal.
+import ProjectDetailsModal from '../components/ProjectDetail/ProjectDetailsModal';
 
 function setup(unitTypes: UnitType[], productTypes: string[] = ['Remodel', 'SFR']) {
   const queryClient = new QueryClient({
@@ -121,7 +127,7 @@ function setup(unitTypes: UnitType[], productTypes: string[] = ['Remodel', 'SFR'
     project_tags: null,
     created_at: TOKEN,
     updated_at: TOKEN,
-  } as unknown as Parameters<typeof ProjectDataModal>[0]['project'];
+  } as unknown as Parameters<typeof ProjectDetailsModal>[0]['project'];
   queryClient.setQueryData(queryKeys.projects(T), [project]);
   const wrapper = ({ children }: { children: ReactNode }) => (
     <QueryClientProvider client={queryClient}>
@@ -129,13 +135,12 @@ function setup(unitTypes: UnitType[], productTypes: string[] = ['Remodel', 'SFR'
     </QueryClientProvider>
   );
   return render(
-    <ProjectDataModal
+    <ProjectDetailsModal
       project={project}
       permits={[]}
       bp={null}
       initialTab="units"
       onClose={() => {}}
-      onOpenSettings={() => {}}
     />,
     { wrapper },
   );

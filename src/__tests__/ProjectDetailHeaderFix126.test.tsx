@@ -71,9 +71,11 @@ vi.mock('../stores/toastStore', () => ({ pushToast: vi.fn() }));
 // list are Project Data's), and a list of a project's children belongs beside
 // **Spawn redesign** — which is on the **Actions** tab. Same component, same
 // ordering, same links; one surface further in.
-import ProjectDataModal from '../components/ProjectDetail/ProjectDataModal';
+// ★ fix-514 §A: the file and the component are `ProjectDetailsModal` now —
+//   Project Settings is deleted and this is the one project modal.
+import ProjectDetailsModal from '../components/ProjectDetail/ProjectDetailsModal';
 
-type Project = Parameters<typeof ProjectDataModal>[0]['project'];
+type Project = Parameters<typeof ProjectDetailsModal>[0]['project'];
 
 function projectFixture(over: Partial<Record<string, unknown>> = {}): Project {
   return {
@@ -135,14 +137,13 @@ function setup(opts: {
     </QueryClientProvider>
   );
   return render(
-    <ProjectDataModal
+    <ProjectDetailsModal
       project={project}
       permits={[]}
       bp={null}
       allProjects={[project, ...allProjects]}
       initialTab="actions"
       onClose={() => {}}
-      onOpenSettings={() => {}}
     />,
     { wrapper },
   );

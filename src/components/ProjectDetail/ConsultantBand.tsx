@@ -11,6 +11,7 @@ import {
   useProjectConsultants,
   useSetConsultantDate,
   useSetConsultantFirm,
+  useRemoveProjectConsultant,
   useSetConsultantPhase,
   useSetConsultantStatus,
 } from '../../hooks/useProjectConsultants';
@@ -382,7 +383,10 @@ function ConsultantPill({
   const setDate = useSetConsultantDate(projectId);
   const setPhase = useSetConsultantPhase(projectId);
   const setFirm = useSetConsultantFirm(projectId);
+  const removeConsultant = useRemoveProjectConsultant(projectId);
   const [open, setOpen] = useState(false);
+  /** ★ fix-514 §D: the two-step remove. One click arms it, the second does it. */
+  const [removing, setRemoving] = useState(false);
   const [firmPrompt, setFirmPrompt] = useState<string | null>(null);
   /** ★ fix-506 §F: the status the person clicked, awaiting Confirm. */
   const [statusPrompt, setStatusPrompt] = useState<ConsultantStatus | null>(null);
@@ -699,19 +703,79 @@ function ConsultantPill({
           </div>
         )}
 
-        {/* History */}
-        {row.round_count > 1 || open ? (
-          <button
-            type="button"
-            className="w-full text-right text-[9.5px] font-bold mt-1"
-            style={{ color: 'var(--color-de)' }}
-            onClick={() => setOpen((v) => !v)}
-            aria-expanded={open}
-            data-testid={`pd-consultant-expand-${row.discipline}`}
-          >
-            {open ? 'Collapse ⌃' : `Expand · ${row.round_count} rounds ⌄`}
-          </button>
-        ) : null}
+        {/* History, and — in manage mode — Remove. */}
+        <div className="flex items-center justify-between gap-2 mt-1">
+          {/* ★★★ fix-514 §D (P-181) — REMOVE, THE OTHER HALF OF fix-508 §I.
+              `+ Add consultant` shipped; this never existed.
+              ★★★ IT ASKS FIRST, AND SAYS WHAT SURVIVES. Removing is
+                  destructive, and P-131 is the precedent — the confirm names
+                  the round count because "removed" and "history deleted" are
+                  two different promises and only the first one is being made.
+              ★ `manage` only: the Overview band is read-only for structure
+                (fix-508 §F2), and a remove control there would be the widest
+                possible version of the thing that rule exists to prevent. */}
+          {manage ? (
+            removing ? (
+              <span className="flex items-center gap-1.5 text-[9px]">
+                <span style={{ color: 'var(--color-muted)' }}>
+                  {row.round_count > 0
+                    ? `Remove ${row.discipline}? ${row.round_count} round${row.round_count === 1 ? '' : 's'} kept as history.`
+                    : `Remove ${row.discipline}?`}
+                </span>
+                <button
+                  type="button"
+                  className="font-bold"
+                  style={{ color: 'var(--color-er)' }}
+                  disabled={removeConsultant.isPending}
+                  onClick={() =>
+                    removeConsultant.mutate({
+                      consultantId: row.consultant_id,
+                      expectedUpdatedAt: row.updated_at ?? null,
+                    })
+                  }
+                  data-testid={`pd-consultant-remove-confirm-${row.discipline}`}
+                >
+                  Remove
+                </button>
+                <button
+                  type="button"
+                  className="font-bold"
+                  style={{ color: 'var(--color-muted)' }}
+                  onClick={() => setRemoving(false)}
+                  data-testid={`pd-consultant-remove-cancel-${row.discipline}`}
+                >
+                  Cancel
+                </button>
+              </span>
+            ) : (
+              <button
+                type="button"
+                className="text-[9px] font-bold"
+                style={{ color: 'var(--color-muted)' }}
+                onClick={() => setRemoving(true)}
+                data-testid={`pd-consultant-remove-${row.discipline}`}
+              >
+                Remove
+              </button>
+            )
+          ) : (
+            <span />
+          )}
+          {row.round_count > 1 || open ? (
+            <button
+              type="button"
+              className="text-right text-[9.5px] font-bold"
+              style={{ color: 'var(--color-de)' }}
+              onClick={() => setOpen((v) => !v)}
+              aria-expanded={open}
+              data-testid={`pd-consultant-expand-${row.discipline}`}
+            >
+              {open ? 'Collapse ⌃' : `Expand · ${row.round_count} rounds ⌄`}
+            </button>
+          ) : (
+            <span />
+          )}
+        </div>
       </div>
 
       {open && (

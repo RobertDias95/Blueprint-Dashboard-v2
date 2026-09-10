@@ -120,7 +120,9 @@ vi.mock('../hooks/useProjectConsultants', () => ({
 //    the mount point moved, from `<ProjectDetailHeader>` to the modal's
 //    **Dates** tab. A suite that had been repointed AND weakened would stop
 //    catching the regression it was written for; this one can still catch it.
-import ProjectDataModal from '../components/ProjectDetail/ProjectDataModal';
+// ★ fix-514 §A: the file and the component are `ProjectDetailsModal` now —
+//   Project Settings is deleted and this is the one project modal.
+import ProjectDetailsModal from '../components/ProjectDetail/ProjectDetailsModal';
 
 function projectFixture(over: Partial<Project> = {}): Project {
   return {
@@ -203,13 +205,12 @@ function renderHeader(
     </QueryClientProvider>
   );
   return render(
-    <ProjectDataModal
+    <ProjectDetailsModal
       project={project}
       permits={permits}
       bp={bp}
       initialTab="dates"
       onClose={() => {}}
-      onOpenSettings={() => {}}
     />,
     { wrapper },
   );
@@ -319,10 +320,13 @@ describe('fix-311: one presentation for every date on the card', () => {
     const boxes = valueBoxes();
     // The eight briefed rows plus the Consultant date, which the brief adds
     // between DD start and DD end — nine boxes, one component.
-    // ★ fix-508 §D makes it TEN: the `ACQ date` input, which moved here from
-    //   Schedule Health when Target Approval became a derived value. It is the
-    //   same shared component, which is the whole point of the assertion below.
-    expect(boxes).toHaveLength(10);
+    // ★ fix-508 §D made it TEN: the `ACQ date` input, which moved here from
+    //   Schedule Health when Target Approval became a derived value.
+    // ★★ fix-514 §G makes it NINE again — that input is per-permit now, on the
+    //    Permits tab, because a Dates-tab row can only address the Building
+    //    Permit and 153 non-BP permits across 105 projects carry a different
+    //    ACQ date by design. Moved, not removed.
+    expect(boxes).toHaveLength(9);
 
     // ★ Same component ⇒ same box class string and same inline style, read off
     // the rendered DOM and compared row to row. Editable rows differ ONLY in

@@ -430,6 +430,10 @@ vi.mock('../hooks/useSetBpDdDates', () => ({
   useSetBpDdDates: () => ({ mutateAsync: vi.fn(), isPending: false }),
 }));
 vi.mock('../hooks/useAppConfig', () => ({
+  // ★ fix-514 §F: `ProjectDataEditors` reads the project-tag registry now,
+  //   so this partial mock has to carry the reader as well as the hook —
+  //   the partial-mock trap, which this repo keeps meeting.
+  readAppConfigStringArray: () => [],
   useAppConfig: () => ({ map: new Map() }),
   readConsultantTypes: () => [] as { type: string; firms: string[] }[],
 }));

@@ -283,15 +283,21 @@ describe('fix-483 §A2/§A4/§A5: the controls and columns Bobby named are gone'
     expect(screen.queryByTestId('library-uth-work')).not.toBeInTheDocument();
   });
 
-  it('★★★ the Shape FILTER is gone and the Shape COLUMN stays', () => {
-    // ★★ The one asymmetry in this ticket, and it is Bobby's wording: Tag and
-    //    Work each lost their column in the same sentence; Shape was named
-    //    alone. A column he did not ask about is not removed on inference.
+  it('★★★ SUPERSEDED by fix-514 §H: the Shape filter went here, the COLUMN went later', () => {
+    // ★★ WHAT THIS TEST USED TO SAY, and it was right when written: *"the one
+    //    asymmetry in this ticket, and it is Bobby's wording: Tag and Work each
+    //    lost their column in the same sentence; Shape was named alone. A
+    //    column he did not ask about is not removed on inference."*
+    //
+    // ★★★ HE HAS NOW ASKED. fix-514 §H strikes `Shape` out of the Site table in
+    //     his own markup — so the column goes on a RULING rather than on the
+    //     inference this test correctly refused to make. The restraint was the
+    //     right call on the evidence it had, which is why it is superseded
+    //     rather than deleted.
     renderIt();
     expect(screen.queryByTestId('filter-regular-shape')).not.toBeInTheDocument();
-    expect(screen.getByTestId('library-th-isRegularShape')).toBeInTheDocument();
-    expect(screen.getByTestId('library-regular-shape-a').textContent).toBe('Regular');
-    expect(screen.getByTestId('library-regular-shape-b').textContent).toBe('Irregular');
+    expect(screen.queryByTestId('library-th-isRegularShape')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('library-regular-shape-a')).not.toBeInTheDocument();
   });
 
   it('★★★ the search box and the PAGE-LEVEL Clear are gone; the two card Clears are not', () => {

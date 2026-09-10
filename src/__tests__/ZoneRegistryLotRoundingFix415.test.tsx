@@ -389,7 +389,9 @@ vi.mock('../stores/toastStore', () => ({ pushToast: vi.fn() }));
 //    the mount point moved, from `<ProjectDetailHeader>` to the modal's
 //    **Site data** tab. A suite that had been repointed AND weakened would stop
 //    catching the regression it was written for; this one can still catch it.
-import ProjectDataModal from '../components/ProjectDetail/ProjectDataModal';
+// ★ fix-514 §A: the file and the component are `ProjectDetailsModal` now —
+//   Project Settings is deleted and this is the one project modal.
+import ProjectDetailsModal from '../components/ProjectDetail/ProjectDetailsModal';
 
 function setupSite(over: Record<string, unknown> = {}) {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
@@ -400,7 +402,7 @@ function setupSite(over: Record<string, unknown> = {}) {
     go_date: null, units: 4, zone: 'NR', lot_width: null, lot_depth: null, lot_size_sf: null,
     unit_types: null, alley: null, product_types: [], project_tags: null,
     created_at: TOKEN, updated_at: TOKEN, ...over,
-  } as unknown as Parameters<typeof ProjectDataModal>[0]['project'];
+  } as unknown as Parameters<typeof ProjectDetailsModal>[0]['project'];
   queryClient.setQueryData(queryKeys.projects(T), [project]);
   const wrapper = ({ children }: { children: ReactNode }) => (
     <QueryClientProvider client={queryClient}>
@@ -408,13 +410,12 @@ function setupSite(over: Record<string, unknown> = {}) {
     </QueryClientProvider>
   );
   return render(
-    <ProjectDataModal
+    <ProjectDetailsModal
       project={project}
       permits={[]}
       bp={null}
       initialTab="site"
       onClose={() => {}}
-      onOpenSettings={() => {}}
     />,
     { wrapper },
   );

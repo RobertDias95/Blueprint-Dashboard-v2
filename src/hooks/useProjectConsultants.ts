@@ -169,6 +169,69 @@ export function useAddProjectConsultant(projectId: string | null | undefined) {
   });
 }
 
+// ===========================================================================
+// ★★★ fix-514 §D (P-181) — REMOVE, AS AN RPC AND AS A SOFT DELETE
+// ===========================================================================
+//
+// fix-508 §I shipped `+ Add consultant` and remove was never built — a gap
+// rather than a deferral, because the write surface had no remove of any kind.
+//
+// ★★★ RULED ON THE NEURON: PREFER THE RPC over the feature's first direct
+//     write. *"A lone direct write is how a feature grows two rules"* — and
+//     this PR closes two tickets that were exactly that (P-207, P-221).
+//
+// ★★★ AND NOTHING IS HARD-DELETED. `project_consultant_rounds` has
+//     `ON DELETE CASCADE` on its consultant FK, so deleting the row — the
+//     obvious implementation — would silently destroy the round history the
+//     vendor forecast reads. The RPC stamps `project_consultants.removed_at`
+//     and VOIDS the live rounds instead, using `voided_at`, the idiom
+//     [[P-131-consultant-clear-rounds-is-destructive]] established and which
+//     prod has used exactly ONCE across 182 rounds.
+//
+// ★ `out_rounds_voided` comes back so the toast can say what happened rather
+//   than claiming a clean removal over a consultant that had five rounds.
+
+export interface ConsultantRemoveResult {
+  out_id: string;
+  out_rounds_voided: number;
+  out_conflict: boolean;
+}
+
+export function useRemoveProjectConsultant(projectId: string | null | undefined) {
+  const invalidate = useInvalidate(projectId);
+  return useMutation({
+    mutationFn: async (input: {
+      consultantId: string;
+      /** ★ The CONSULTANT's `updated_at` — this write is on that row. */
+      expectedUpdatedAt: string | null;
+    }) => {
+      const { data, error } = await supabase.rpc('bp_remove_project_consultant', {
+        p_consultant_id: input.consultantId,
+        p_expected_updated_at: input.expectedUpdatedAt,
+      });
+      if (error) throw error;
+      const row = firstRow<ConsultantRemoveResult>(data);
+      if (row?.out_conflict) {
+        throw new Error(
+          'This consultant changed since you loaded it — refresh and try again.',
+        );
+      }
+      return row;
+    },
+    onSuccess: (row) => {
+      invalidate();
+      const n = row?.out_rounds_voided ?? 0;
+      pushToast(
+        n > 0
+          ? `Consultant removed — ${n} round${n === 1 ? '' : 's'} kept as history.`
+          : 'Consultant removed.',
+        'success',
+      );
+    },
+    onError: (e: Error) => pushToast(e.message, 'error'),
+  });
+}
+
 /**
  * Set the status of a consultant's latest round.
  *

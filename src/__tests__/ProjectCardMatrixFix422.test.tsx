@@ -508,7 +508,9 @@ vi.mock('../hooks/useProjectConsultants', () => ({
 
 
 import ProjectDetailHeader from '../components/ProjectDetail/ProjectDetailHeader';
-import ProjectDataModal from '../components/ProjectDetail/ProjectDataModal';
+// ★ fix-514 §A: the file and the component are `ProjectDetailsModal` now —
+//   Project Settings is deleted and this is the one project modal.
+import ProjectDetailsModal from '../components/ProjectDetail/ProjectDetailsModal';
 import {
   PROJECT_CARD_MIN_WIDTH,
   UNIT_MATRIX_TRANSPOSED_WIDTH,
@@ -577,13 +579,12 @@ function makeProject(over: Partial<Project> = {}): Project {
 //     regression in the editor. Only the mount point moved.
 function header(project: Project): ReactElement {
   return (
-    <ProjectDataModal
+    <ProjectDetailsModal
       project={project}
       permits={[] as PermitWithCycles[]}
       bp={null}
       initialTab="units"
       onClose={() => {}}
-      onOpenSettings={() => {}}
     />
   );
 }

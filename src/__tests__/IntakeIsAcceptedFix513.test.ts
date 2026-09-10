@@ -9,6 +9,8 @@ import overviewSrc from '../components/ProjectDetail/ProjectOverviewBoxes.tsx?ra
 import myBoardSrc from '../lib/myBoard.ts?raw';
 import permitDetailSrc from '../components/ProjectDetail/PermitDetailV2.tsx?raw';
 import projectDataSrc from '../components/ProjectDetail/ProjectDataEditors.tsx?raw';
+import detailsFormSrc from '../hooks/useProjectDetailsForm.ts?raw';
+import detailsFormComponentSrc from '../components/ProjectDetail/ProjectDetailsForm.tsx?raw';
 
 // ===========================================================================
 // fix-513 (P-208 · P-182 · P-209 · P-207) — A DATE IS NOT A STATE
@@ -275,49 +277,64 @@ describe('fix-513 §D — the derived affordance is deleted, not repainted', () 
 // §E — one column, two authors
 // ---------------------------------------------------------------------------
 
-describe('fix-513 §E — expected_issue has TWO writers, and the exception is documented', () => {
-  // ★★★ §E BRIEFED A MOVE AND THE MEASUREMENT REFUSED IT, under §E's own escape
-  //     clause ("if the move is not clean … a documented exception beats an
-  //     undocumented one"). Project Data's `AcqDateRow` is BUILDING-PERMIT ONLY
-  //     — `permitUpserts` carries exactly `bp.id` — and on prod **153 non-BP
-  //     permits across 105 projects hold an ACQ date that differs from their own
-  //     Building Permit's**, by design (`permitSeedingDefaults` seeds ULS at
-  //     `bp_acq + 120`). Deleting the per-permit editor would strand all 153
-  //     while Schedule Health kept deriving a per-permit Target Approval from
-  //     the value. Full numbers in the fix-513 PR.
+describe('fix-513 §E → fix-514 §G — expected_issue has exactly ONE writer', () => {
+  // ★★★ THE INVARIANT'S NUMBER CHANGED; THE INVARIANT DID NOT.
+  //
+  // fix-513 §E was briefed to move `PermitDetailV2`'s ACQ editor into Project
+  // Data and REFUSED, under §E's own escape clause, because Project Data's
+  // `AcqDateRow` addressed `bp.id` and nothing else while **153 non-Building-
+  // Permit permits across 105 projects carry a different ACQ date by design**
+  // (`permitSeedingDefaults` seeds a ULS at `bp_acq + 120`). Moving it would
+  // have stranded all 153. So the count was pinned at TWO with the reason
+  // written at both controls.
+  //
+  // ★★★ fix-514 §G BUILT WHAT THE REFUSAL ASKED FOR: Project Details' Permits
+  //     tab edits ACQ ROW BY ROW, in the same atomic write as that row's type,
+  //     ENT and DA. Both old writers then went — `PermitDetailV2`'s box AND
+  //     `AcqDateRow`, which was a second writer of the same column once the
+  //     Permits tab could reach the Building Permit too.
+  //
+  // ★★ §G was explicit that this test *"must go to one, not be deleted.
+  //    Changing an invariant's number is the fix; removing the invariant is
+  //    not."* A third writer still fails here, which was always the point.
 
-  it('★★★ exactly TWO writers, and they are named', () => {
+  it('★★★ exactly ONE writer, and it is the atomic project form', () => {
     const writers: string[] = [];
     for (const [name, src] of [
       ['PermitDetailV2', permitDetailSrc],
       ['ProjectDataEditors', projectDataSrc],
       ['ProjectOverviewBoxes', overviewSrc],
       ['myBoard', myBoardSrc],
+      ['useProjectDetailsForm', detailsFormSrc],
     ] as const) {
       // ★ A WRITE is a commit/upsert CARRYING the column, not a read of it.
       //   `ProjectOverviewBoxes` and `myBoard` both mention `expected_issue`
       //   and neither writes it, which is what this distinction is for.
-      // ★ Matched on the RAW source: neither signature can occur in prose, and
-      //   a comment stripper is not worth the risk of a false NEGATIVE on the
-      //   one assertion whose whole job is to catch a new writer.
       const writesIt =
-        src.includes("commit('expected_issue'") || src.includes('expected_issue: next');
+        src.includes("commit('expected_issue'") ||
+        src.includes('expected_issue: next') ||
+        src.includes('expected_issue: row.expected_issue');
       if (writesIt) writers.push(name);
     }
-    expect(writers.sort()).toEqual(['PermitDetailV2', 'ProjectDataEditors']);
+    expect(writers.sort()).toEqual(['useProjectDetailsForm']);
   });
 
-  it('★★★ Project Data writes the BUILDING PERMIT and only it — the reason for the second', () => {
-    const c = code(projectDataSrc);
-    // One element, addressed by bp.id. This is what cannot reach the other 153.
-    expect(c).toMatch(/permitUpserts:\s*\[\s*\{\s*id:\s*bp\.id/);
+  it('★★★ and it addresses permits ROW BY ROW, which is what the 153 needed', () => {
+    // ★ The BP-only shape — `permitUpserts: [{ id: bp.id }]` — is what could
+    //   not reach them. `ProjectDataEditors` still has one, for
+    //   `target_submit`, and that is CORRECT: target submit IS a
+    //   Building-Permit anchor (fix-36's engine owns the rest). What must not
+    //   survive there is an `expected_issue` write.
+    expect(projectDataSrc).not.toContain('expected_issue: next');
+    expect(projectDataSrc).not.toContain("commit('expected_issue'");
+    // …and the form loops over every row instead.
+    expect(detailsFormSrc).toContain('for (const row of form.permits)');
+    expect(detailsFormSrc).toContain('for (const row of form.permits)');
+    expect(detailsFormSrc).toContain('expected_issue: row.expected_issue.trim() || null');
   });
 
-  it('★★★ the exception is written down where the second writer lives', () => {
-    // A documented exception beats an undocumented one — so the document has to
-    // be AT the control, not only in a PR nobody re-reads.
-    expect(permitDetailSrc).toContain('fix-513 §E (P-207)');
-    expect(permitDetailSrc).toContain('153 NON-BP PERMITS');
-    expect(projectDataSrc).toContain('fix-513 §E (P-207)');
+  it('★★ the per-permit control exists and is reachable', () => {
+    expect(detailsFormComponentSrc).toContain('ACQ target date');
+    expect(detailsFormComponentSrc).toContain('onChange({ expected_issue: v })');
   });
 });

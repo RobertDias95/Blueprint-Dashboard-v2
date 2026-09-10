@@ -1,6 +1,5 @@
 import { useMemo, useState } from 'react';
 import OriginLink from './OriginLink';
-import { projectDataHref } from '../lib/projectDataTabs';
 import { PREVIOUS_ORIGINS } from '../lib/previousOrigin';
 import { useProjects } from '../hooks/useProjects';
 import { usePermits } from '../hooks/usePermits';
@@ -890,17 +889,27 @@ function Body({ projects, permits }: BodyProps) {
                   because there is no unit row beside it. Here the next column
                   along says it per unit, which is the more specific answer to
                   the same question. */}
+              {/* ★★★ fix-514 §H (P-196): *unit width · unit depth · unit size ·
+                  parking · stalls · … · stage* — the same rule as the Site
+                  tab, against the UNIT filter box, which asks Width, Depth,
+                  Size, Parking, Stalls, Roof Deck, Stories in that order.
+                  ★ `Unit type` and `Qty` have no filter, so they sit either
+                    side of the filtered run: the type IDENTIFIES the row (like
+                    Address above) and Qty is a count of it. */}
               <UTh sort={unitSort} col="unitLabel" onClick={toggleUnitSort} align="left">Unit type</UTh>
               <UTh sort={unitSort} col="width" onClick={toggleUnitSort} align="center">Width</UTh>
               <UTh sort={unitSort} col="depth" onClick={toggleUnitSort} align="center">Depth</UTh>
               {/* ★★★ fix-488 §B — the column the size filter returns you to.
-                  A filter you cannot read the result of is half a feature. */}
+                  A filter you cannot read the result of is half a feature.
+                  ★ fix-514 §E made the value TYPEABLE in Project Details, so
+                    this column stops being a filter over a field nobody could
+                    fill. */}
               <UTh sort={unitSort} col="size" onClick={toggleUnitSort} align="center">Size (sf)</UTh>
-              <UTh sort={unitSort} col="qty" onClick={toggleUnitSort} align="center">Qty</UTh>
-              <UTh sort={unitSort} col="stories" onClick={toggleUnitSort} align="center">Stories</UTh>
               <UTh sort={unitSort} col="parking" onClick={toggleUnitSort} align="center">Parking</UTh>
               <UTh sort={unitSort} col="stalls" onClick={toggleUnitSort} align="center">Stalls</UTh>
               <UTh sort={unitSort} col="roofDeck" onClick={toggleUnitSort} align="center">Roof Deck</UTh>
+              <UTh sort={unitSort} col="stories" onClick={toggleUnitSort} align="center">Stories</UTh>
+              <UTh sort={unitSort} col="qty" onClick={toggleUnitSort} align="center">Qty</UTh>
               {/* ★ fix-483 §A2: the `Work` column went with its filter. */}
               <UTh sort={unitSort} col="stage" onClick={toggleUnitSort} align="center">Stage</UTh>
             </tr>
@@ -942,23 +951,33 @@ function Body({ projects, permits }: BodyProps) {
                 }
                 trailing={
                   <>
-                    {/* ★★★ fix-506 §H (P-167) — THE ONE-CLICK PATH OUT.
-                        Bobby: every inline edit becomes read-only *"with a
-                        one-click path to that project's Project Data"*. It
-                        carries the project id AND the tab, so the link opens on
-                        the Units editor rather than on the modal's first tab —
-                        `?data=units`, built from `projectDataHref` so a renamed
-                        tab cannot leave a dead link here (fix-367's rule). */}
-                    <td className="px-2 py-1.5 whitespace-nowrap">
-                      <OriginLink
-                        to={projectDataHref(u.project.projectId, 'units')}
-                        state={{ from: PREVIOUS_ORIGINS.library }}
-                        className="text-[10px] font-bold text-de hover:underline"
-                        data-testid={`library-unit-edit-${u.key}`}
-                      >
-                        Edit in Project Data →
-                      </OriginLink>
-                    </td>
+                    {/* ★★★ fix-514 §H (P-196) — THE `Edit in Project Data →`
+                        LINK IS GONE, AND THIS SUPERSEDES fix-506 §H RATHER
+                        THAN CONTRADICTING IT.
+
+                        fix-506 §H added it as the REPLACEMENT when
+                        [[P-167-library-fields-are-not-a-write-surface]] made
+                        these cells read-only — *"a one-click path to that
+                        project's Project Data"* — and that was the right call
+                        with the evidence it had. Bobby, 2026-09-10: *"I'm not
+                        sure why it says Edit in Project Data — that's something
+                        people should already know… If it's blank, it's blank,
+                        and then you know to go edit that in Project Details."*
+
+                        ★★ RECORDED AS SUPERSEDING SO NOBODY RE-ADDS IT IN SIX
+                           WEEKS CITING P-167. P-167 is untouched: these cells
+                           are still read-only, and that is still right. What
+                           changed is whether every row needs to carry a
+                           signpost to the same place.
+
+                        ★ And they were about to carry a STALE NAME anyway —
+                          §A renames the destination to Project Details, so the
+                          choice was rename N links or remove them. Removing is
+                          cheaper and is what was asked.
+                        ★ `projectDataHref` STAYS in `lib/projectDataTabs`: the
+                          `?data=` deep link is still how the modal opens on a
+                          tab, and fix-362 §2's rule (a link you cannot paste is
+                          not a link) is unaffected. */}
                     {/* ★ fix-483 §A2: fix-412's read-only work-scope cell went
                         with the filter it existed to let you SEE. */}
                     <td className="px-2 py-1.5 text-center">
@@ -996,52 +1015,78 @@ function Body({ projects, permits }: BodyProps) {
           <thead>
             <tr className="bg-s2 border-b-2 border-border">
               {/* ★ fix-447 §B2: the caret column is gone with fix-81's path. */}
+              {/* =================================================================
+                  ★★★ fix-514 §H (P-196) — THE TABLE READS IN THE ORDER THE
+                      FILTER BOX READS
+                  =================================================================
+
+                  Bobby's markup: **address · lot width · lot depth · lot size ·
+                  jurisdiction · zone · alley · corner · stage.**
+
+                  ★★★ THE RULE, STATED SO FUTURE TABS INHERIT IT: *the table
+                      reads left-to-right in the order the filter box reads.* A
+                      person narrows with the filters and then reads the result;
+                      making them re-find each column in a different order is a
+                      cost paid on every scan.
+
+                  ★★★ WHICH IS ALSO WHY `Lot W×D` SPLITS INTO TWO. It has been
+                      one combined cell since fix-402, and the filter box has
+                      offered Lot Width and Lot Depth as two independent ± boxes
+                      for just as long — one column can never line up with two
+                      controls. `lotDepth` gained a sort key and an arm in
+                      `libraryHelpers` in the same change.
+
+                  ★★ `Type` AND `Units` KEEP THEIR CELLS AND MOVE TO THE END.
+                     They are not in Bobby's list and they are not struck out
+                     either, and there is no SITE filter for either of them —
+                     Product Type filters the UNIT view. So the rule places
+                     them after the filtered columns rather than inventing a
+                     position for them. Nothing was dropped silently.
+
+                  ★ ONE DEVIATION, NAMED: Bobby's list reads jurisdiction before
+                    zone; the filter box asks Zone first. His list wins — it is
+                    the ruling, and the filter-order sentence is the reason
+                    behind it rather than a second authority. */}
               <Th sort={sort} col="address" onClick={toggleSort} align="left">Address</Th>
-              <Th sort={sort} col="juris" onClick={toggleSort} align="left">Juris</Th>
-              <Th sort={sort} col="productTypes" onClick={toggleSort} align="left">Type</Th>
-              <Th sort={sort} col="units" onClick={toggleSort} align="center">Units</Th>
-              {/* ★★★ fix-406 — THE LOTS COLUMN IS GONE BY RULING.
-                  Bobby, 2026-08-26: *"we can remove lots from the vertical bar
-                  below for the sort column as it isnt really relevant here."*
-
-                  ★★ fix-402 removed the lots FILTER and DELIBERATELY KEPT this
-                  column, recording that decision three lines above the filter
-                  it deleted. He has now ruled the column out too, so the note
-                  is superseded rather than mistaken — the earlier call was
-                  right on the evidence it had.
-
-                  ★ The DATA is untouched: `projects.num_lots` still renders in
-                  the New Project wizard, the Project Overview header, the
-                  redesign modal, the corrections segments and the team-volume
-                  report. This is the Library table only. */}
-              <Th sort={sort} col="zone" onClick={toggleSort} align="center">Zone</Th>
-              <Th sort={sort} col="lotWidth" onClick={toggleSort} align="center">Lot W×D</Th>
+              <Th sort={sort} col="lotWidth" onClick={toggleSort} align="center">Lot W</Th>
+              <Th sort={sort} col="lotDepth" onClick={toggleSort} align="center">Lot D</Th>
               {/* ★★★ fix-488 §A — LOT SIZE, BESIDE THE PAIR IT RELATES TO.
                   A DERIVED size renders in the same face as a typed one
                   (Bobby's rule: the number is the number), with the derived
-                  ones marked only by the `~` a hover explains — see the cell. */}
+                  ones marked only by the `~` a hover explains. */}
               <Th sort={sort} col="lotSizeSf" onClick={toggleSort} align="center">Lot SF</Th>
+              <Th sort={sort} col="juris" onClick={toggleSort} align="left">Juris</Th>
+              <Th sort={sort} col="zone" onClick={toggleSort} align="center">Zone</Th>
               <Th sort={sort} col="alley" onClick={toggleSort} align="center">Alley</Th>
-              {/* fix-122: Corner Lot — same dimensions feel very
-                  different on a corner. */}
+              {/* fix-122: Corner Lot — same dimensions feel very different on a
+                  corner. */}
               <Th sort={sort} col="isCornerLot" onClick={toggleSort} align="center">Corner</Th>
-              {/* ★ fix-410: beside Corner — the two shape-of-the-lot columns
-                  read together, and both sort NULLs last through the one
-                  shared tri-state arm in sortLibraryRows. */}
-              <Th sort={sort} col="isRegularShape" onClick={toggleSort} align="center">Shape</Th>
-              {/* ★★★ fix-447 §B2 — THE UNIT ROLLUPS LEAVE THE SITE VIEW.
-                  fix-402 added "Parking" and "Roof Deck" here as derived
-                  summaries of a project's units, because there was one table
-                  and unit facts had nowhere else to go. There are two tables
-                  now: *"Click SITE and … the results below reformat to address
-                  + site information."* The rollups are not site information,
-                  and the real per-unit values are one click away in the UNIT
-                  view — a summary sentence ("Mixed · 4 stalls") replaced by the
-                  rows it was summarising. `parkingRollup`/`roofDeckRollup` stay
-                  in libraryHelpers: Project Overview still reads them. */}
+              {/* ★★★ fix-514 §H — THE `Shape` COLUMN IS GONE, STRUCK OUT IN
+                  BOBBY'S OWN MARKUP.
+                  ★★ AND IT IS CONSISTENT RATHER THAN NEW:
+                     [[P-161-lot-shape-is-implied-by-its-dimensions-not-labelled]]
+                     removed the same restatement from the Project Overview in
+                     fix-506 §C, on the ruling *"the shape is IMPLIED BY THE
+                     DIMENSIONS"* — and the two dimension columns are now the
+                     second and third things on this row. fix-410's note that
+                     the two shape-of-the-lot columns "read together" is
+                     superseded: Corner is a fact about the parcel's position,
+                     Shape was a restatement of the pair beside it.
+                  ★ `projects.is_regular_shape` is UNTOUCHED — fix-410's column,
+                    its wizard control and its tri-state NULL rule all stay.
+                    This is the Library table only, and the fix-512 read found
+                    the stored flag disagreeing with the implied shape on 10 of
+                    219 rows, which is a reason to stop printing it here rather
+                    than to delete it. */}
+              {/* ★★★ fix-406 — THE LOTS COLUMN IS GONE BY RULING (2026-08-26):
+                  *"we can remove lots from the vertical bar below for the sort
+                  column as it isnt really relevant here."* The DATA is
+                  untouched — `projects.num_lots` still renders in five other
+                  places. */}
+              <Th sort={sort} col="productTypes" onClick={toggleSort} align="left">Type</Th>
+              <Th sort={sort} col="units" onClick={toggleSort} align="center">Units</Th>
               {/* ★ fix-483 §A2: the `Tags` header went with the Tag filter —
-                  one ruling, both halves. It was never sortable (a plain <th>,
-                  not a <Th>), so no sort column left with it. */}
+                  one ruling, both halves. */}
               <Th sort={sort} col="stage" onClick={toggleSort} align="center">Stage</Th>
             </tr>
           </thead>
@@ -1174,85 +1219,54 @@ function Row({ row, bandClass }: RowProps) {
           <OriginLink
             to={`/project/${row.projectId}`}
             // ★ fix-403: tell Project Overview where this click came from, so
-            //   its Previous button knows which list to go back to. The FILTERS
-            //   do not travel here — they live in sessionStorage, so the
-            //   browser back button and the ribbon restore them too.
+            //   its Previous button knows which list to go back to.
             state={{ from: PREVIOUS_ORIGINS.library }}
             className="hover:underline"
           >
             {row.address}
           </OriginLink>
         </td>
-        <td className="px-2 py-1.5 text-muted">{row.juris || '—'}</td>
-        <td className="px-2 py-1.5 text-text">
-          {row.productTypes.length === 0 ? (
-            <span className="text-dim">—</span>
-          ) : (
-            row.productTypes.join(', ')
-          )}
-        </td>
-        <td className="px-2 py-1.5 text-center font-mono font-bold text-text">
-          {row.units || '—'}
-        </td>
-        {/* ★★★ fix-406: the Lots cell left with its header — see the ruling
-            quoted at the <Th> block above. */}
-        <td className="px-2 py-1.5 text-center">
-          {row.zone ? (
-            <span className="font-mono text-text">{row.zone}</span>
-          ) : (
-            <span className="text-dim">—</span>
-          )}
-        </td>
-        <td className="px-2 py-1.5 text-center">
-          {/* ★ fix-411 §2: whole feet. The SORT still reads row.lotWidth
-              unrounded (see SORTABLE_COLUMNS' lotWidth arm), so 100.47 and
-              100.4 keep their real order while both render "100". */}
-          {/* ★★★ fix-488 §A — THE PAIR NOW KNOWS ABOUT "VARIES".
-              `formatLotPair`'s both-or-neither rule is still right for its
-              other callers and is unchanged; this cell asks `lotSizeView`,
-              which says "60 × varies" where a size was typed and one dimension
-              was not. The 0 sentinels in `LibraryRow` are mapped back to null
-              first, because `lotWidth: 0` means "not recorded" here. */}
+        {/* ★★★ fix-514 §H: LOT WIDTH AND LOT DEPTH, two cells, in filter order.
+            ★ fix-411 §2's rule survives the split: the SORT reads the
+              unrounded value, the CELL renders whole feet, so 100.47 and 100.4
+              keep their real order while both print "100".
+            ★★ AND `lotSizeView` STILL DECIDES WHAT EACH SIDE SAYS. It is what
+               knows about "varies" — a typed size beside a missing dimension —
+               so splitting the cell must not mean splitting the rule. The 0
+               sentinels map back to null first: `lotWidth: 0` means "not
+               recorded" in a `LibraryRow`. */}
+        <td className="px-2 py-1.5 text-center" data-testid={`library-lot-w-${row.projectId}`}>
           {(() => {
-            const v = lotSizeView(
-              row.lotWidth || null,
-              row.lotDepth || null,
-              row.lotSizeSf,
+            const v = lotSizeView(row.lotWidth || null, row.lotDepth || null, row.lotSizeSf);
+            if (v.widthText === null) return <span className="text-dim">—</span>;
+            return v.widthVaries ? (
+              <span className="italic text-dim font-mono">{v.widthText}</span>
+            ) : (
+              <span className="font-mono text-text">{v.widthText}</span>
             );
-            if (v.pairText === null) return <span className="text-dim">—</span>;
-            return (
-              <span className="font-mono text-text">
-                {v.widthVaries ? (
-                  <span className="italic text-dim">{v.widthText}</span>
-                ) : (
-                  v.widthText
-                )}
-                {' × '}
-                {v.depthVaries ? (
-                  <span className="italic text-dim">{v.depthText}</span>
-                ) : (
-                  v.depthText
-                )}
-              </span>
+          })()}
+        </td>
+        <td className="px-2 py-1.5 text-center" data-testid={`library-lot-d-${row.projectId}`}>
+          {(() => {
+            const v = lotSizeView(row.lotWidth || null, row.lotDepth || null, row.lotSizeSf);
+            if (v.depthText === null) return <span className="text-dim">—</span>;
+            return v.depthVaries ? (
+              <span className="italic text-dim font-mono">{v.depthText}</span>
+            ) : (
+              <span className="font-mono text-text">{v.depthText}</span>
             );
           })()}
         </td>
         <td className="px-2 py-1.5 text-center">
           {(() => {
-            const v = lotSizeView(
-              row.lotWidth || null,
-              row.lotDepth || null,
-              row.lotSizeSf,
-            );
+            const v = lotSizeView(row.lotWidth || null, row.lotDepth || null, row.lotSizeSf);
             if (v.sizeText === null) return <span className="text-dim">—</span>;
             return (
               <span
                 className="font-mono text-text"
-                // ★★ A DERIVED SIZE IS MARKED, NOT HIDDEN AND NOT RESTYLED.
-                //    It is the same number in the same face — a `~` and a title
-                //    are the whole distinction, because a person scanning this
-                //    column wants areas, and greying half of them would make
-                //    the column look half-empty when it is not.
+                // ★★ A DERIVED SIZE IS MARKED, NOT HIDDEN AND NOT RESTYLED. It
+                //    is the same number in the same face — a `~` and a title
+                //    are the whole distinction.
                 title={
                   v.sizeDerived
                     ? 'Width × depth — nobody has typed a lot size'
@@ -1269,6 +1283,14 @@ function Row({ row, bandClass }: RowProps) {
             );
           })()}
         </td>
+        <td className="px-2 py-1.5 text-muted">{row.juris || '—'}</td>
+        <td className="px-2 py-1.5 text-center">
+          {row.zone ? (
+            <span className="font-mono text-text">{row.zone}</span>
+          ) : (
+            <span className="text-dim">—</span>
+          )}
+        </td>
         <td className="px-2 py-1.5 text-center">
           {row.alley ? (
             <span className="font-mono text-text">{row.alley}</span>
@@ -1276,9 +1298,8 @@ function Row({ row, bandClass }: RowProps) {
             <span className="text-dim">—</span>
           )}
         </td>
-        {/* fix-122: Corner column. Tri-state — NULL renders as the dim
-            em dash so unanswered rows are visually distinct from a
-            confirmed No. */}
+        {/* fix-122: Corner column. Tri-state — NULL renders as the dim em dash
+            so unanswered rows are visually distinct from a confirmed No. */}
         <td
           className="px-2 py-1.5 text-center"
           data-testid={`library-corner-${row.projectId}`}
@@ -1291,32 +1312,19 @@ function Row({ row, bandClass }: RowProps) {
             <span className="text-dim">—</span>
           )}
         </td>
-        {/* ★★ fix-410: Regular / Irregular / em dash. THREE renderings for
-            three states — a null must never read as "Regular", which is the
-            same rule the Site section follows and the reason the column has no
-            DDL default. The words match the filter's, so a row and the control
-            that found it say the same thing. */}
-        <td
-          className="px-2 py-1.5 text-center"
-          data-testid={`library-regular-shape-${row.projectId}`}
-        >
-          {row.isRegularShape === true ? (
-            <span className="font-mono text-text">Regular</span>
-          ) : row.isRegularShape === false ? (
-            <span className="font-mono text-text">Irregular</span>
-          ) : (
+        {/* ★★★ fix-514 §H: the `Shape` CELL went with its header — see the
+            ruling quoted there. `projects.is_regular_shape` is untouched. */}
+        <td className="px-2 py-1.5 text-text">
+          {row.productTypes.length === 0 ? (
             <span className="text-dim">—</span>
+          ) : (
+            row.productTypes.join(', ')
           )}
         </td>
-        {/* ★★★ fix-447 §B2 — fix-402's PARKING and ROOF DECK rollups leave the
-            site view with their headers. They are unit facts summarised into a
-            sentence because there was one table and the units had nowhere else
-            to go; the UNIT view now shows the rows they were summarising, per
-            unit and with the real numbers. `parkingRollup`/`roofDeckRollup` stay
-            in libraryHelpers — Project Overview still reads them. */}
-        {/* ★ fix-483 §A2: the Tags cell went with its header. `row.tags` is
-            still built — the Project Overview chip editor reads the same
-            column — but nothing in the Library prints or filters it. */}
+        <td className="px-2 py-1.5 text-center font-mono font-bold text-text">
+          {row.units || '—'}
+        </td>
+        {/* ★ fix-483 §A2: the Tags cell went with its header. */}
         <td className="px-2 py-1.5 text-center">
           <span
             className={`text-[9px] font-bold uppercase px-2 py-0.5 rounded border ${STAGE_BADGE[row.stage]}`}

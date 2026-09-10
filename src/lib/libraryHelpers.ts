@@ -679,6 +679,15 @@ export const SORTABLE_COLUMNS = [
   'units',
   'zone',
   'lotWidth',
+  // ★★★ fix-514 §H (P-196): `Lot W×D` SPLITS INTO TWO COLUMNS, so depth gets a
+  //   sort key of its own. Bobby's markup lists them separately, and the rule
+  //   §H states is that *the table reads left-to-right in the order the filter
+  //   box reads* — the filter box has offered Lot Width and Lot Depth as two
+  //   independent ± boxes since fix-402, so one combined column could never
+  //   line up with them.
+  //   ★ Its arm rides the `units`/`lotWidth` 0-sentinel branch below, which is
+  //     right for it: `LibraryRow.lotDepth` uses the same sentinel as lotWidth.
+  'lotDepth',
   // ★★★ fix-488 §A: `lotSizeSf` is sortable, AND ITS ARM IS BELOW. fix-410's
   //   warning three lines down is not decoration — a name listed here without
   //   a handler falls through to `a[col].localeCompare(...)` on a number and
@@ -753,7 +762,7 @@ export function sortLibraryRows(
     sorted.sort((a, b) => (STAGE_ORDER[a.stage] - STAGE_ORDER[b.stage]) * dir);
     return sorted;
   }
-  if (col === 'units' || col === 'lotWidth') {
+  if (col === 'units' || col === 'lotWidth' || col === 'lotDepth') {
     sorted.sort((a, b) => (a[col] - b[col]) * dir);
     return sorted;
   }

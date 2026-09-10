@@ -157,10 +157,17 @@ function renderTable(permits: PermitWithCycles[], projects?: Project[]) {
   //     ★ So this suite mounts the new home and keeps its assertions
   //       word-for-word. That is the point: if the move changed how the write
   //       works, these would fail.
+  // ★★★ fix-514 §G — IT MOVED AGAIN, AND THIS TIME THE WRITE MODEL MOVED WITH
+  //     IT. fix-508 §D put the box on Project Data's Dates tab, where it could
+  //     address the BUILDING PERMIT and nothing else. fix-513 §E measured what
+  //     that cost — 153 non-BP permits across 105 projects carry a different
+  //     ACQ date by design — and refused to fold `PermitDetailV2`'s box into
+  //     it. §G built the surface the refusal asked for: the **Permits** tab,
+  //     one ACQ box per permit row, riding the modal's atomic Save.
   return renderProjectData(
     (refsProjects.current[0] ?? projectFixture()) as Project,
     permits,
-    'dates',
+    'permits',
   );
 }
 
@@ -175,166 +182,95 @@ beforeEach(() => {
   } as never);
 });
 
-describe('fix-63 ACQ date inline edit — moved to Project Data by fix-508 §D', () => {
-  it('renders the ACQ Target cell as an editable date input pre-populated from expected_issue', () => {
+describe('fix-63 ACQ date inline edit — moved AGAIN by fix-514 §G, now per permit', () => {
+  // =========================================================================
+  // ★★★ WHAT THE NINE TESTS BELOW USED TO ASSERT, AND WHY THEY ARE GONE
+  // =========================================================================
+  //
+  // fix-63 built this as an INLINE, PER-FIELD editor: blur fires the mutation,
+  // Enter saves, Escape resets, a no-op blur writes nothing, an OCC conflict
+  // keeps the typed value. fix-508 §D moved it from Schedule Health to Project
+  // Data's Dates tab and this suite kept every one of those assertions
+  // word-for-word — deliberately, because *"if the move changed how the write
+  // works, these would fail."*
+  //
+  // ★★★ fix-514 §G CHANGES HOW THE WRITE WORKS, ON PURPOSE, and this is the
+  //     honest record of it rather than nine tests quietly deleted. The
+  //     control is now one box per PERMIT ROW on the Permits tab, and it rides
+  //     the modal's atomic `bp_update_project_with_permits` Save with that
+  //     row's type, ENT and DA. So blur no longer writes, Escape no longer
+  //     resets, and there is no per-field OCC round trip to conflict on — the
+  //     whole form has one.
+  //
+  // ★★★ WHAT WAS BOUGHT: **every permit is editable**, not just the Building
+  //     Permit. That is the defect fix-513 §E documented and refused to make
+  //     worse, and it is why the write model had to change rather than the
+  //     control simply moving a third time.
+  //
+  // ★★ WHAT IS STILL ASSERTED, because it is what actually mattered: the box
+  //    is pre-populated from `expected_issue`, an edit is recognised as a
+  //    change, and the Save sends the column through the same RPC. Below.
+
+  it('★★★ every permit row carries its own ACQ box, pre-populated', () => {
+    const bp = permitFixture({ id: 501, type: 'Building Permit', expected_issue: '2026-08-01' });
+    const uls = permitFixture({ id: 502, type: 'ULS', expected_issue: '2026-12-01' });
+    renderTable([bp, uls]);
+    const a = screen.getByTestId('psm-permit-acq-501') as HTMLInputElement;
+    const b = screen.getByTestId('psm-permit-acq-502') as HTMLInputElement;
+    expect(a.value).toBe('2026-08-01');
+    // ★★★ THE WHOLE POINT OF §G: the non-Building-Permit row has its own, and
+    //     it holds a DIFFERENT date — which is the 153-permit case.
+    expect(b.value).toBe('2026-12-01');
+  });
+
+  it('★★ an empty expected_issue renders an empty box, not a guess', () => {
+    const p = permitFixture({ id: 501, expected_issue: null });
+    renderTable([p]);
+    expect((screen.getByTestId('psm-permit-acq-501') as HTMLInputElement).value).toBe('');
+  });
+
+  it('★★★ typing in it makes the MODAL dirty — the §B contract, not a per-field save', () => {
     const p = permitFixture({ id: 501, expected_issue: '2026-08-01' });
     renderTable([p]);
-    const input = screen.getByTestId('pd-acq-date') as HTMLInputElement;
-    expect(input.tagName).toBe('INPUT');
-    expect(input.type).toBe('date');
-    expect(input.value).toBe('2026-08-01');
-  });
-
-  it('renders empty input when expected_issue is null', () => {
-    const p = permitFixture({ id: 502, expected_issue: null });
-    renderTable([p]);
-    const input = screen.getByTestId('pd-acq-date') as HTMLInputElement;
-    expect(input.value).toBe('');
-  });
-
-  it('blur fires the mutation with the right permit_upsert shape', async () => {
-    mutateAsync.mockResolvedValueOnce({
-      conflict: false,
-      conflictKind: null,
-      conflictId: null,
-      projectUpdatedAt: '2026-05-15T12:00:01Z',
-      permits: [{ id: 501, updated_at: '2026-05-15T12:00:01Z' }],
+    const btn = screen.getByTestId('project-data-done');
+    expect(btn.getAttribute('data-dirty')).toBe('false');
+    expect(btn.textContent).toContain('Exit');
+    fireEvent.change(screen.getByTestId('psm-permit-acq-501'), {
+      target: { value: '2026-09-15' },
     });
-    const project = projectFixture({
-      id: 'p-99',
-      updated_at: '2026-05-15T12:00:00Z',
-    });
-    const p = permitFixture({
-      id: 501,
-      project_id: 'p-99',
-      expected_issue: '2026-08-01',
-      updated_at: '2026-05-14T09:00:00Z',
-    } as Partial<PermitWithCycles>);
-    renderTable([p], [project]);
-
-    const input = screen.getByTestId('pd-acq-date') as HTMLInputElement;
-    fireEvent.change(input, { target: { value: '2026-09-15' } });
-    fireEvent.blur(input);
-
-    await waitFor(() => {
-      expect(mutateAsync).toHaveBeenCalledTimes(1);
-    });
-    expect(mutateAsync).toHaveBeenCalledWith({
-      projectId: 'p-99',
-      projectExpectedUpdatedAt: '2026-05-15T12:00:00Z',
-      // No project-row fields — the RPC skips the project update when
-      // project_patch is empty.
-      projectPatch: {},
-      permitUpserts: [
-        {
-          id: 501,
-          expected_updated_at: '2026-05-14T09:00:00Z',
-          expected_issue: '2026-09-15',
-        },
-      ],
-      permitDeletes: [],
-    });
-  });
-
-  it('clearing the input sends expected_issue: null', async () => {
-    mutateAsync.mockResolvedValueOnce({
-      conflict: false,
-      conflictKind: null,
-      conflictId: null,
-      projectUpdatedAt: '2026-05-15T12:00:01Z',
-      permits: [{ id: 501, updated_at: '2026-05-15T12:00:01Z' }],
-    });
-    const p = permitFixture({ id: 501, expected_issue: '2026-08-01' });
-    renderTable([p]);
-
-    const input = screen.getByTestId('pd-acq-date') as HTMLInputElement;
-    fireEvent.change(input, { target: { value: '' } });
-    fireEvent.blur(input);
-
-    await waitFor(() => expect(mutateAsync).toHaveBeenCalledTimes(1));
-    const call = mutateAsync.mock.calls[0][0] as {
-      permitUpserts: { expected_issue: string | null }[];
-    };
-    expect(call.permitUpserts[0].expected_issue).toBeNull();
-  });
-
-  it('no-op blur (unchanged value) does NOT call the mutation', () => {
-    const p = permitFixture({ id: 501, expected_issue: '2026-08-01' });
-    renderTable([p]);
-    const input = screen.getByTestId('pd-acq-date') as HTMLInputElement;
-    fireEvent.blur(input);
+    expect(screen.getByTestId('project-data-done').getAttribute('data-dirty')).toBe('true');
+    expect(screen.getByTestId('project-data-done').textContent).toContain('Save');
+    // ★ And NOTHING was written on change — the per-field model is gone.
     expect(mutateAsync).not.toHaveBeenCalled();
   });
 
-  it('out_conflict (kind="permit") surfaces refresh toast and keeps the typed value', async () => {
-    mutateAsync.mockResolvedValueOnce({
-      conflict: true,
-      conflictKind: 'permit',
-      conflictId: '501',
-      projectUpdatedAt: null,
-      permits: [],
-    });
+  it('★★★ Save sends expected_issue on the row that changed, through the same RPC', async () => {
+    mutateAsync.mockResolvedValue({ conflict: false });
     const p = permitFixture({ id: 501, expected_issue: '2026-08-01' });
     renderTable([p]);
-
-    const input = screen.getByTestId('pd-acq-date') as HTMLInputElement;
-    fireEvent.change(input, { target: { value: '2026-10-31' } });
-    fireEvent.blur(input);
-
-    await waitFor(() => expect(pushToastMock).toHaveBeenCalled());
-    const args = pushToastMock.mock.calls[0];
-    expect(args[0]).toMatch(/modified elsewhere/i);
-    expect(args[1]).toBe('warn');
-    // Typed value preserved — user reloads + retries without re-typing.
-    expect(input.value).toBe('2026-10-31');
-  });
-
-  it('Enter triggers a save with the typed value', async () => {
-    mutateAsync.mockResolvedValueOnce({
-      conflict: false,
-      conflictKind: null,
-      conflictId: null,
-      projectUpdatedAt: '2026-05-15T12:00:01Z',
-      permits: [{ id: 501, updated_at: '2026-05-15T12:00:01Z' }],
+    fireEvent.change(screen.getByTestId('psm-permit-acq-501'), {
+      target: { value: '2026-09-15' },
     });
-    const p = permitFixture({ id: 501, expected_issue: '2026-08-01' });
-    renderTable([p]);
-
-    const input = screen.getByTestId('pd-acq-date') as HTMLInputElement;
-    fireEvent.change(input, { target: { value: '2027-01-15' } });
-    fireEvent.keyDown(input, { key: 'Enter' });
-
-    await waitFor(() => expect(mutateAsync).toHaveBeenCalledTimes(1));
-    const call = mutateAsync.mock.calls[0][0] as {
-      permitUpserts: { expected_issue: string | null }[];
+    fireEvent.click(screen.getByTestId('project-data-done'));
+    await waitFor(() => expect(mutateAsync).toHaveBeenCalled());
+    const arg = mutateAsync.mock.calls[0][0] as {
+      permitUpserts: { id?: number; expected_issue?: string | null }[];
     };
-    expect(call.permitUpserts[0].expected_issue).toBe('2027-01-15');
+    const row = arg.permitUpserts.find((u) => u.id === 501);
+    expect(row?.expected_issue).toBe('2026-09-15');
   });
 
-  it('Esc resets to the stored value and does NOT save', () => {
+  it('★★ clearing the box sends null — Target Approval falls back to its other two candidates', async () => {
+    mutateAsync.mockResolvedValue({ conflict: false });
     const p = permitFixture({ id: 501, expected_issue: '2026-08-01' });
     renderTable([p]);
-    const input = screen.getByTestId('pd-acq-date') as HTMLInputElement;
-    fireEvent.change(input, { target: { value: '2026-12-31' } });
-    expect(input.value).toBe('2026-12-31');
-    fireEvent.keyDown(input, { key: 'Escape' });
-    expect(input.value).toBe('2026-08-01');
-    expect(mutateAsync).not.toHaveBeenCalled();
-  });
-
-  it('input is disabled when project.updated_at is missing (no OCC token)', () => {
-    // ★ fix-508 §D: the row takes the project as a PROP now rather than looking
-    //   it up in a `projectsById` map, so "no OCC token" is expressed as a
-    //   project whose `updated_at` is missing rather than as an absent row. The
-    //   contract — no token, no write, and the control says so — is identical.
-    const p = permitFixture({
-      id: 501,
-      project_id: 'p-missing',
-      expected_issue: '2026-08-01',
-    });
-    renderTable([p], [projectFixture({ id: 'p-missing', updated_at: null as unknown as string })]);
-    const input = screen.getByTestId('pd-acq-date') as HTMLInputElement;
-    expect(input.disabled).toBe(true);
+    fireEvent.change(screen.getByTestId('psm-permit-acq-501'), { target: { value: '' } });
+    fireEvent.click(screen.getByTestId('project-data-done'));
+    await waitFor(() => expect(mutateAsync).toHaveBeenCalled());
+    const arg = mutateAsync.mock.calls[0][0] as {
+      permitUpserts: { id?: number; expected_issue?: string | null }[];
+    };
+    expect(arg.permitUpserts.find((u) => u.id === 501)?.expected_issue).toBeNull();
   });
 
   it('★★★ SUPERSEDED: column 7 is a DERIVED Target Approval, and it does not edit', () => {
@@ -393,9 +329,10 @@ describe('fix-63 ACQ date inline edit — moved to Project Data by fix-508 §D',
     //    object to both — so what is asserted here is that the ACQ date input
     //    still mirrors `expected_issue` (it is that column's one author) and
     //    that the badge no longer reads it directly.
+    // ★ fix-514 §G: and the box it mirrors is the PERMIT ROW's now.
     const p = permitFixture({ id: 501, expected_issue: '2026-08-01' });
     renderTable([p]);
-    const input = screen.getByTestId('pd-acq-date') as HTMLInputElement;
+    const input = screen.getByTestId('psm-permit-acq-501') as HTMLInputElement;
     expect(input.value).toBe(p.expected_issue);
   });
 });

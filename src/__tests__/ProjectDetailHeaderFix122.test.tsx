@@ -29,6 +29,10 @@ vi.mock('../hooks/useSetBpDdDates', () => ({
   useSetBpDdDates: () => ({ mutateAsync: vi.fn(), isPending: false }),
 }));
 vi.mock('../hooks/useAppConfig', () => ({
+  // ★ fix-514 §F: `ProjectDataEditors` reads the project-tag registry now,
+  //   so this partial mock has to carry the reader as well as the hook —
+  //   the partial-mock trap, which this repo keeps meeting.
+  readAppConfigStringArray: () => [],
   useAppConfig: () => ({ map: new Map() }),
   readConsultantTypes: () => [] as { type: string; firms: string[] }[],
 }));
@@ -71,7 +75,9 @@ vi.mock('../stores/toastStore', () => ({ pushToast: vi.fn() }));
 //    the mount point moved, from `<ProjectDetailHeader>` to the modal's
 //    **Site data** tab. A suite that had been repointed AND weakened would stop
 //    catching the regression it was written for; this one can still catch it.
-import ProjectDataModal from '../components/ProjectDetail/ProjectDataModal';
+// ★ fix-514 §A: the file and the component are `ProjectDetailsModal` now —
+//   Project Settings is deleted and this is the one project modal.
+import ProjectDetailsModal from '../components/ProjectDetail/ProjectDetailsModal';
 import { settle } from '../test/settle';
 
 function projectFixture(over: Partial<Record<string, unknown>> = {}) {
@@ -109,7 +115,7 @@ function projectFixture(over: Partial<Record<string, unknown>> = {}) {
     created_at: OLD_TOKEN,
     updated_at: OLD_TOKEN,
     ...over,
-  } as unknown as Parameters<typeof ProjectDataModal>[0]['project'];
+  } as unknown as Parameters<typeof ProjectDetailsModal>[0]['project'];
 }
 
 /** ★ fix-506 §G: Site data and Dates are different TABS of Project Data, so a
@@ -134,13 +140,12 @@ function setupTab(
     </QueryClientProvider>
   );
   const utils = render(
-    <ProjectDataModal
+    <ProjectDetailsModal
       project={project}
       permits={[]}
       bp={null}
       initialTab={tab}
       onClose={() => {}}
-      onOpenSettings={() => {}}
     />,
     { wrapper },
   );

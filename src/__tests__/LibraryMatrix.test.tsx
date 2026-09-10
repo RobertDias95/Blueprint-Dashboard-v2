@@ -655,17 +655,28 @@ describe('<LibraryMatrix />', () => {
       expect(src).not.toContain('resolveUnitTypesForSave');
     });
 
-    it('★★★ every unit row carries a link to that project\'s Units tab', () => {
-      // ★ The link carries the project id AND the tab — `?data=units` — so it
-      //   opens on the editor rather than on the modal's first tab. Built from
-      //   `projectDataHref` so a renamed tab cannot leave a dead link here.
+    it('★★★ SUPERSEDED by fix-514 §H: the row carries NO edit link', () => {
+      // ★★ WHAT THIS TEST USED TO REQUIRE: *"every unit row carries a link to
+      //    that project's Units tab"* — fix-506 §H's one-click path out, added
+      //    as the REPLACEMENT when P-167 made these cells read-only. Right on
+      //    the evidence it had.
+      //
+      // ★★★ BOBBY, 2026-09-10: *"I'm not sure why it says Edit in Project Data
+      //     — that's something people should already know… If it's blank, it's
+      //     blank, and then you know to go edit that in Project Details."*
+      //
+      // ★ P-167 IS UNTOUCHED — these cells are still read-only, and that is
+      //   still right. What changed is whether every row needs a signpost to
+      //   the same place. Recorded as SUPERSEDING so nobody re-adds the links
+      //   in six weeks citing P-167.
+      // ★ `projectDataHref` itself stays: the `?data=` deep link is still how
+      //   the modal opens on a tab, and fix-362 §2's rule is unaffected.
       renderIt();
       goUnitView();
-      const link = screen.getByTestId('library-unit-edit-a:0') as HTMLAnchorElement;
-      expect(link.getAttribute('href')).toBe(projectDataHref('a', 'units'));
-      expect(link.getAttribute('href')).toContain('/project/a');
-      expect(link.getAttribute('href')).toContain('data=units');
-      expect(link.textContent).toMatch(/Project Data/);
+      expect(screen.queryByTestId('library-unit-edit-a:0')).not.toBeInTheDocument();
+      expect(screen.queryByText(/Edit in Project Data/)).not.toBeInTheDocument();
+      // The deep-link builder is alive and still correct.
+      expect(projectDataHref('a', 'units')).toBe('/project/a?data=units');
     });
 
     it('★★ the VALUES are all still there — this is a control change, not a data one', () => {
@@ -997,12 +1008,17 @@ describe('fix-447: SITE / UNIT are headings, and they switch the view', () => {
     //
     // ★★★ fix-506 §H removes it ON PURPOSE, which is the difference. The ROW
     //     survives — every value, every column, the same sort — and the way to
-    //     change one is a link to the project's Units tab.
+    //     change one was a link to the project's Units tab.
+    //
+    // ★★★ fix-514 §H TAKES THE LINK TOO, and the ROW is still the claim. Bobby:
+    //     *"that's something people should already know."* So what this test
+    //     defends is unchanged and now stated without the signpost: the values
+    //     are all here, and nothing in this table writes.
     renderIt();
     goUnitView();
     expect(screen.getByTestId('library-unit-row-a-0')).toBeInTheDocument();
     expect(screen.getByTestId('library-unit-a-0-width').textContent).toBe('25');
-    expect(screen.getByTestId('library-unit-edit-a:0')).toBeInTheDocument();
+    expect(screen.queryByTestId('library-unit-edit-a:0')).not.toBeInTheDocument();
     expect(updateMutateAsync).not.toHaveBeenCalled();
   });
 });

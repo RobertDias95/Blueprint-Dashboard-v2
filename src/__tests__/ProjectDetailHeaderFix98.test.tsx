@@ -36,6 +36,10 @@ vi.mock('../hooks/useSetBpDdDates', () => ({
   useSetBpDdDates: () => ({ mutateAsync: vi.fn(), isPending: false }),
 }));
 vi.mock('../hooks/useAppConfig', () => ({
+  // ★ fix-514 §F: `ProjectDataEditors` reads the project-tag registry now,
+  //   so this partial mock has to carry the reader as well as the hook —
+  //   the partial-mock trap, which this repo keeps meeting.
+  readAppConfigStringArray: () => [],
   useAppConfig: () => ({ map: new Map() }),
   readConsultantTypes: () => [] as { type: string; firms: string[] }[],
 }));
@@ -74,7 +78,9 @@ vi.mock('../stores/toastStore', () => ({ pushToast: toastMock }));
 // hooks the overview uses today; no new RPC, same OCC tokens, same toasts"* —
 // so every assertion below is unchanged and still means what it meant. Only the
 // mount point moved, to the modal's **Units** tab.
-import ProjectDataModal from '../components/ProjectDetail/ProjectDataModal';
+// ★ fix-514 §A: the file and the component are `ProjectDetailsModal` now —
+//   Project Settings is deleted and this is the one project modal.
+import ProjectDetailsModal from '../components/ProjectDetail/ProjectDetailsModal';
 import { settle } from '../test/settle';
 
 function projectFixture(over: Partial<Record<string, unknown>> = {}) {
@@ -109,7 +115,7 @@ function projectFixture(over: Partial<Record<string, unknown>> = {}) {
     created_at: OLD_TOKEN,
     updated_at: OLD_TOKEN,
     ...over,
-  } as unknown as Parameters<typeof ProjectDataModal>[0]['project'];
+  } as unknown as Parameters<typeof ProjectDetailsModal>[0]['project'];
 }
 
 function setup(over: Partial<Record<string, unknown>> = {}) {
@@ -128,13 +134,12 @@ function setup(over: Partial<Record<string, unknown>> = {}) {
     </QueryClientProvider>
   );
   const utils = render(
-    <ProjectDataModal
+    <ProjectDetailsModal
       project={project}
       permits={[]}
       bp={null}
       initialTab="units"
       onClose={() => {}}
-      onOpenSettings={() => {}}
     />,
     { wrapper },
   );
@@ -214,7 +219,7 @@ function ControlledHost({
   initial,
   hostRef,
 }: {
-  initial: Parameters<typeof ProjectDataModal>[0]['project'];
+  initial: Parameters<typeof ProjectDetailsModal>[0]['project'];
   hostRef: { setProject: (p: typeof initial) => void };
 }) {
   const [project, setProject] = useState(initial);
@@ -224,13 +229,12 @@ function ControlledHost({
   // the test's contract for flipping the project prop in-place.
   // eslint-disable-next-line react-hooks/immutability
   hostRef.setProject = setProject;
-  return <ProjectDataModal
+  return <ProjectDetailsModal
       project={project}
       permits={[]}
       bp={null}
       initialTab="units"
       onClose={() => {}}
-      onOpenSettings={() => {}}
     />;
 }
 

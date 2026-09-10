@@ -396,7 +396,12 @@ const REGISTRY_READERS = [
   //   is read-only and this is the Project Data modal's Units tab. fix-486's
   //   rule is about which files READ the registry, and this is still one.
   'src/components/ProjectDetail/ProjectDataEditors.tsx',
-  'src/components/ProjectDetail/ProjectSettingsModal.tsx',
+  // ★ fix-514 §A: `ProjectSettingsModal` is deleted. Its product-type picker
+  //   is now `ProjectDetailsForm`'s, and the REGISTRY READ moved with the form
+  //   state into `useProjectDetailsForm` — which is the file this rule is
+  //   about. "Which files read the registry" is the claim; the picker that
+  //   renders the answer is a different question.
+  'src/hooks/useProjectDetailsForm.ts',
   'src/components/Settings/AdminProjectsTab.tsx',
   'src/components/wizard/Step1ProjectInfo.tsx',
 ];

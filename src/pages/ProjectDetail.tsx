@@ -35,11 +35,11 @@ import ProjectDetailHeader from '../components/ProjectDetail/ProjectDetailHeader
 import ScheduleHealthTable from '../components/ProjectDetail/ScheduleHealthTable';
 import NotesPanel from '../components/ProjectDetail/NotesPanel';
 import PermitDetailV2 from '../components/ProjectDetail/PermitDetailV2';
-import ProjectSettingsModal from '../components/ProjectDetail/ProjectSettingsModal';
 // ★ fix-506 §G (P-140): the tabbed modal that replaces the overview's inline
 //   editors. Project Settings stays for Address / Jurisdiction / permits /
-//   Product Types / the roster — see the note at the top of ProjectDataModal.
-import ProjectDataModal from '../components/ProjectDetail/ProjectDataModal';
+//   ★★★ fix-514 §A: …and that hand-off is gone. Project Details owns every
+//   field; see the note at the top of ProjectDetailsModal.
+import ProjectDetailsModal from '../components/ProjectDetail/ProjectDetailsModal';
 import {
   PARAM_DATA,
   isProjectDataTab,
@@ -244,10 +244,10 @@ function ProjectDetailBody({
       deepLinkPaneRef.current?.scrollIntoView({ block: 'start' });
     }
   }, [selectedPermitId, permitParamId]);
-  // Q9.5.f-fix-16 D + E: Project Settings modal + Delete confirmation
-  // dialog are owned at the page level so all four entry points (Settings
-  // button / Delete button / future hotkeys) target the same instances.
-  const [settingsOpen, setSettingsOpen] = useState(false);
+  // Q9.5.f-fix-16 D + E: the Delete confirmation dialog is owned at the page
+  // level so every entry point targets the same instance.
+  // ★★★ fix-514 §A: `settingsOpen` is GONE with `ProjectSettingsModal`. There
+  //     is one project modal now — Project Details — and its tab is in the URL.
   // ★★★ fix-506 §G/§H — PROJECT DATA, AND ITS TAB IS IN THE URL.
   //
   // §H's Library links are `?data=units` / `?data=site`, and fix-362 §2's rule
@@ -279,7 +279,7 @@ function ProjectDetailBody({
   }
   const [deleteOpen, setDeleteOpen] = useState(false);
   // fix-126: redesign-wizard state. When non-null the New Project wizard
-  // mounts in redesign mode with this seed; settingsOpen is closed first
+  // mounts in redesign mode with this seed; Project Details is closed first
   // so the two modals never overlap. The seed embeds the parent project's
   // address suffixed " [Redesign N]" — see makeRedesignWizardState +
   // useProjectRedesigns.
@@ -346,20 +346,13 @@ function ProjectDetailBody({
       />
 
       {dataOpen && (
-        <ProjectDataModal
+        <ProjectDetailsModal
           project={project}
           permits={lineagePermits}
           bp={bp}
           allProjects={allProjects}
           initialTab={dataOpen}
           onClose={closeProjectData}
-          // ★ ONE overlay at a time — fix-331 §4's rule, and the reason the
-          //   page owns every dialog instance. Project Data closes itself
-          //   before Project Settings opens.
-          onOpenSettings={() => {
-            closeProjectData();
-            setSettingsOpen(true);
-          }}
           canReassignDa={isAdmin}
           onReassignDa={() => {
             closeProjectData();
@@ -376,40 +369,6 @@ function ProjectDetailBody({
               bp?.da ?? null,
             );
             closeProjectData();
-            setRedesignSeed(seed);
-          }}
-        />
-      )}
-      {settingsOpen && (
-        <ProjectSettingsModal
-          project={project}
-          onClose={() => setSettingsOpen(false)}
-          // ★ fix-331 §4: both destructive/ownership actions are handed in as
-          // callbacks rather than re-implemented inside the modal, so the page
-          // still owns the ONE instance of each dialog — the reason
-          // Q9.5.f-fix-16 put them here in the first place. The modal closes
-          // itself first so two overlays never stack.
-          canReassignDa={isAdmin}
-          onReassignDa={() => {
-            setSettingsOpen(false);
-            setReassignOpen(true);
-          }}
-          onDelete={() => {
-            setSettingsOpen(false);
-            setDeleteOpen(true);
-          }}
-          onSpawnRedesign={() => {
-            // fix-126: close the settings modal first so the wizard
-            // doesn't overlay it. The seed builds the new wizard state
-            // from this project's site facts + auto-suffixes the
-            // address so the unique-address constraint is satisfied.
-            const seed = makeRedesignWizardState(
-              project,
-              redesignsQ.count,
-              // fix-158: seed the Redesign DD Phase DA with the parent's BP DA.
-              bp?.da ?? null,
-            );
-            setSettingsOpen(false);
             setRedesignSeed(seed);
           }}
         />
