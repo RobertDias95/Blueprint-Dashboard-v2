@@ -386,3 +386,44 @@ describe('fix-519 §C (P-228) — jurisdiction before zone, in both', () => {
     expect(headings).not.toContain('Jurisdiction');
   });
 });
+
+// ---------------------------------------------------------------------------
+// The sweep, turned into a guard for the table next door
+// ---------------------------------------------------------------------------
+
+describe('fix-519 §A — the SITE table next door still agrees with itself', () => {
+  it('★★★ every SITE heading sits over the value it names', () => {
+    // ★★★ THE SWEEP FOUND FOUR TABLES BUILT THIS WAY and only the UNIT one had
+    //     drifted. The other three — this table, `ProjectList` and
+    //     `CorrectionsReport`'s items — agree today and NOTHING TESTED THAT.
+    //     This is the cheapest of the three to hold, because it is in the same
+    //     file as the one that broke: the header is in `LibraryMatrix`'s
+    //     `<thead>` and the cells are in `Row`, which is the exact shape that
+    //     produced P-230 one table up.
+    //
+    // ★ Asserted on VALUES rather than on a column list, because this table's
+    //   cells are not declared anywhere — that is the point. A fixture whose
+    //   every field is distinct is the only way to notice a shift.
+    renderLibrary([
+      project({
+        address: '10150 NE 64th St',
+        lot_width: 40,
+        lot_depth: 90,
+        lot_size_sf: 3600,
+        juris: 'Kirkland',
+        zone: 'RM 3.6',
+        alley: 'Yes',
+        units: 3,
+      }),
+    ]);
+    const row = screen.getByTestId('library-row-p-519');
+    expect(cellUnderHeading(row, 'Address')).toContain('10150 NE 64th St');
+    expect(cellUnderHeading(row, 'Lot W')).toContain('40');
+    expect(cellUnderHeading(row, 'Lot D')).toContain('90');
+    expect(cellUnderHeading(row, 'Lot SF')).toContain('3,600');
+    expect(cellUnderHeading(row, 'Juris')).toBe('Kirkland');
+    expect(cellUnderHeading(row, 'Zone')).toBe('RM 3.6');
+    expect(cellUnderHeading(row, 'Alley')).toBe('Yes');
+    expect(cellUnderHeading(row, 'Units')).toBe('3');
+  });
+});
