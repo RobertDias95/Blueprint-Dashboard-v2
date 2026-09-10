@@ -60,7 +60,7 @@ import {
   getMonday,
   getQuarterLabel,
   getQuarterWeeks,
-  blockBorderColor,
+  blockBorderFromFill,
   multiMatchAddress,
   weekKeyToQuarterOffset,
   type DropBlock,
@@ -2067,14 +2067,22 @@ function DrawScheduleBody({
                     // Text colour follows the park when parked; the phase colour
                     // otherwise. One variable so every child line stays in sync.
                     const bodyText = park ? park.text : sc.text;
-                    // fix-126: redesign blocks get a yellow border to
-                    // distinguish them from juris-colored normals. The
-                    // helper falls back to jurisBorder when the FK is
-                    // null, so non-redesign blocks render identically.
-                    const borderColor = blockBorderColor(
-                      project.juris,
-                      project.redesign_of_project_id,
-                    );
+                    // ★★★ fix-515 §B (P-212) — THE BORDER IS THIS BLOCK'S OWN
+                    //     FILL, DARKENED. One derivation, applied to whatever
+                    //     the legend gave this block.
+                    //
+                    // It used to be `blockBorderColor(juris, redesign)` — blue
+                    // for Seattle, red for Arizona, green for everywhere else
+                    // AND for no jurisdiction, gold for a redesign. A second
+                    // colour key nobody was taught, on the same rectangle as the
+                    // first. See `lib/drawScheduleHelpers` for what it encoded
+                    // and where both of those facts now live instead (§A prints
+                    // the jurisdiction; the address already carries "[Redesign
+                    // N]").
+                    //
+                    // ★ It takes `sc.bg`, the FILL, not the status — so an
+                    //   overridden fill would take its border with it.
+                    const borderColor = blockBorderFromFill(sc.bg);
                     // fix-DS-uniform-layout: every non-tail block renders the
                     // same 5-line stack — the visible span only feeds the font
                     // ramp (blockFontPx), not which fields show. Whether the
@@ -2086,17 +2094,26 @@ function DrawScheduleBody({
                       effectiveEndWeek,
                       weeks,
                     );
-                    // fix-DS-compact-rule: a block is "compact" when it can't
-                    // fit the full 5-line stack — either a cross-quarter slice
-                    // (overflow) or a 1-week non-overflow block. Compact blocks
-                    // render minimal content (address + Est. Approval) anchored
-                    // to the top so the address never clips; taller non-overflow
-                    // blocks render the full stack, centered.
-                    // ★ fix-484 §A1: `isCompact` still decides WHICH FIELDS
-                    //   render (fix-DS-overflow-minimal's decluttering, which
-                    //   Bobby did not complain about). It no longer decides the
-                    //   ANCHOR — see `centresStack` below.
-                    const isCompact = !!overflow || visibleSpan <= 1;
+                    // ★★★ fix-515 §A (P-211) — `isCompact` IS GONE, AND THAT IS
+                    //     THE WHOLE TICKET.
+                    //
+                    // It read `!!overflow || visibleSpan <= 1` — a cross-quarter
+                    // slice, or a one-week lane — and fix-DS-compact-rule used
+                    // it for two things. fix-484 §A1 took the first (the ANCHOR;
+                    // `centresStack` asks about height instead, which is the
+                    // question that was actually being asked). This takes the
+                    // second: WHICH FIELDS RENDER.
+                    //
+                    // ★★ Bobby did complain about the decluttering in the end —
+                    //    *"we want to make sure that the draw schedule reads
+                    //    consistent"* — and **40 of 219 lanes (18.3%)** were
+                    //    dropping a jurisdiction and a phase they had the data
+                    //    for. With both on one row (see the stack below) there
+                    //    is no height to gate on, so the variable has no reader
+                    //    left and is removed rather than kept as scenery.
+                    // ★ `overflow` and `visibleSpan` are both still live — the
+                    //   address wrap, the font ramp and the tail marker all read
+                    //   them directly. It is only the two-way tier that went.
                     // fix-DS-fluid-sizing: fluid base font from the visible
                     // span, then textScale (fix-47 row-height scaling) on top.
                     // Address renders one step larger (base + 1, bold); juris /
@@ -2132,7 +2149,7 @@ function DrawScheduleBody({
                         addrLines,
                         addrFont,
                         detailFont,
-                        blockDetailLines(isCompact),
+                        blockDetailLines(),
                       ),
                     );
                     // Duration in weeks is end..start inclusive.
@@ -2388,60 +2405,106 @@ function DrawScheduleBody({
                             ←
                           </button>
                         )}
-                        {/* fix-DS-uniform-layout: the SAME 5-line stack for
-                            every block — address (above) / juris / status /
-                            Est. Approval label / date. juris and the status pill
-                            each get their own line so the rhythm is uniform
-                            across blocks. Sized via blockFontPx; everything fits
-                            even a 1-week row at the low font cap, so there are no
-                            height gates. */}
+                        {/* =========================================================
+                            ★★★ fix-515 §A (P-211) — EVERY BLOCK SAYS THE SAME
+                                THINGS, AND THE CAUSE WAS NOT MISSING DATA
+                            =========================================================
+
+                            Bobby, 2026-09-10: *"a few projects don't say the
+                            jurisdiction that they're in… some of them won't say
+                            the phase… we want to make sure that the draw
+                            schedule reads consistent."*
+
+                            ★★★ §A0's THREE COUNTS, MEASURED ON PROD BEFORE ANY
+                                TEMPLATE WAS TOUCHED — and it is NONE of them:
+                              1. a DATA gap (project has no jurisdiction): **0
+                                 of 219**;
+                              2. a JOIN gap (nothing to derive a phase from):
+                                 **0** — 12 lanes have no permits of their own
+                                 and all 12 are reuse-redesigns, which fix-150
+                                 already chases to the parent's BP;
+                              3. an unselected column
+                                 ([[a-column-missing-from-an-explicit-select-fails-silently]],
+                                 checked FIRST as the brief instructs): **0** —
+                                 `juris` is in `useProjects`'s explicit list.
+
+                            ★★★ THE CAUSE IS A RENDER TIER. `isCompact` gated
+                                BOTH fields off, so **40 of 219 lanes (18.3%)**
+                                dropped them — 34 that cross a quarter boundary
+                                and 6 that are one week long. The data was there
+                                every time. A `?? '—'` would have hidden a
+                                template decision behind a fake data state.
+
+                            ★★★ SO THEY GO ON ONE LINE, WHICH IS WHAT MAKES IT
+                                FIT. `fix-DS-overflow-minimal` dropped them for a
+                                real reason — a 1-week slice cannot hold a
+                                five-line stack. Putting jurisdiction and the
+                                phase chip on ONE row costs a compact block one
+                                line and SAVES a full block one, so every block
+                                renders the same four-line stack (address /
+                                juris · phase / "Est. Approval" / date) and the
+                                tallest case got SHORTER rather than taller.
+                                `blockDetailLines` is a constant now, so the
+                                height arithmetic and the markup cannot drift.
+
+                            ★ Which derivation the phase reads from:
+                              `deriveLaneStatus` → `STATUS_PRESENTATION`, i.e.
+                              the DRAW SCHEDULE's own lane status.
+                              [[P-179-pipeline-stage-and-draw-schedule-disagree]]
+                              is not reconciled here and this does not widen it:
+                              the same value that already COLOURED the block is
+                              now also PRINTED on it, which is strictly one
+                              derivation where there were two renderings. */}
                         <>
-                          {/* fix-DS-overflow-minimal / fix-DS-compact-rule: drop
-                              juris on every compact block (overflow slices AND
-                              1-week non-overflow blocks). A constrained slice
-                              renders only address + Est. Approval; the full juris
-                              still shows in the home quarter, so nothing is lost
-                              — the view just declutters to the most pertinent
-                              fields. Taller non-overflow blocks keep juris. */}
-                          {!isCompact && project.juris && (
+                          <div
+                            style={{
+                              display: 'flex',
+                              alignItems: 'center',
+                              gap: 3,
+                              minWidth: 0,
+                              maxWidth: '100%',
+                            }}
+                            data-testid={`block-meta-${row.project_id}`}
+                          >
+                            {/* ★★ A JURISDICTION IS ALWAYS SAID, and when one is
+                                genuinely absent the block says so rather than
+                                falling silent — §A's rule: *"a row that
+                                legitimately has no phase should read as HAVING
+                                NONE, not as not mentioning it."* Prod has zero
+                                of these today; the branch exists so the first
+                                one is legible instead of invisible. */}
                             <span
                               style={{
                                 fontSize: detailFont,
                                 fontWeight: 500,
                                 lineHeight: 1.1,
-                                opacity: 0.75,
-                                color: sc.text,
+                                opacity: project.juris ? 0.75 : 0.5,
+                                fontStyle: project.juris ? undefined : 'italic',
+                                color: bodyText,
                                 whiteSpace: 'nowrap',
                                 overflow: 'hidden',
                                 textOverflow: 'ellipsis',
-                                maxWidth: '100%',
+                                minWidth: 0,
                               }}
                               data-testid={`block-juris-${row.project_id}`}
                             >
-                              {project.juris}
+                              {project.juris || 'No jurisdiction'}
                             </span>
-                          )}
-                          {/* fix-DS-overflow-no-pill / fix-DS-compact-rule: drop
-                              the status pill on every compact block (overflow
-                              slices AND 1-week non-overflow blocks). The block
-                              fill color already encodes status, and the freed
-                              space lets the address — the most identifying field
-                              — show instead. Taller non-overflow blocks keep the
-                              pill (helps users still learning the color code,
-                              and they have room for it). */}
-                          {/* fix-263: a CANCELLED project has no live phase, so
-                              the phase chip is removed entirely — leaving it is
-                              precisely what made the fix-262 block read as
-                              pending. A HOLD keeps it: a held project is still
-                              ACTIVE and its phase still means something. */}
-                          {!isCompact && (park?.showPhasePill ?? true) && (
+                            {/* fix-263: a CANCELLED project has no live phase, so
+                                the phase chip is removed entirely — leaving it is
+                                precisely what made the fix-262 block read as
+                                pending. A HOLD keeps it: a held project is still
+                                ACTIVE and its phase still means something.
+                                ★★ fix-515 §A: and a cancelled block does not
+                                   simply fall silent either — the park's own
+                                   label takes the chip's place, so the row still
+                                   answers "what phase is this in" with the true
+                                   answer rather than with nothing. */}
                             <span
                               style={{
-                                // fix-DS-pill-and-date: shrink the status pill
-                                // ~25% (8 -> 6px font) with tighter padding +
-                                // corner radius so it stops dominating small
-                                // blocks — the bold address on top now reads
-                                // first. Still keeps the colored border + bg.
+                                // fix-DS-pill-and-date: ~25% smaller than the
+                                // address with tight padding, so it stops
+                                // dominating small blocks.
                                 fontSize: Math.round(6 * textScale),
                                 fontWeight: 700,
                                 padding: '0px 3px',
@@ -2450,12 +2513,13 @@ function DrawScheduleBody({
                                 color: park ? park.border : sc.border,
                                 border: `1px solid ${park ? park.border : sc.border}`,
                                 whiteSpace: 'nowrap',
+                                flex: 'none',
                               }}
                               data-testid={`block-status-${row.project_id}`}
                             >
-                              {pres.label}
+                              {park && !park.showPhasePill ? park.label : pres.label}
                             </span>
-                          )}
+                          </div>
                           {(() => {
                             // Q9.5.f-fix-17.5 C: Est. Approval uses the same
                             // computeProjectedApproval pipeline as Schedule

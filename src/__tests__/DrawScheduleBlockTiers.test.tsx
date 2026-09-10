@@ -147,7 +147,7 @@ beforeEach(() => {
 });
 
 describe('Draw Schedule block layout (fix-DS-uniform-layout)', () => {
-  it('1 week (non-overflow): is COMPACT — address + Est. Approval only, top-anchored, no juris/pill', () => {
+  it('1 week (non-overflow): top-anchored, and — fix-515 §A — it STILL says juris and phase', () => {
     // fix-DS-compact-rule: a 1-week block can't fit the full stack, so it's
     // treated like an overflow slice — minimal content, top-anchored so the
     // address never clips. A permit drives the projection so Est. Approval shows.
@@ -159,9 +159,21 @@ describe('Draw Schedule block layout (fix-DS-uniform-layout)', () => {
     renderGrid();
     const block = screen.getByTestId('block-p1');
     expect(screen.getByTestId('block-address-p1').textContent).toContain('500 Pike St');
-    // Compact: juris + status pill dropped (address is the priority).
-    expect(screen.queryByTestId('block-juris-p1')).toBeNull();
-    expect(screen.queryByTestId('block-status-p1')).toBeNull();
+    // ★★★ SUPERSEDED BY fix-515 §A (P-211). This asserted that a COMPACT block
+    //     drops `block-juris-*` and `block-status-*` — fix-DS-overflow-minimal's
+    //     decluttering, which was a real answer to a real constraint (a one-row
+    //     slice cannot hold a five-line stack).
+    //
+    // ★★★ BOBBY COMPLAINED ABOUT THE RESULT, 2026-09-10: *"some of them won't
+    //     say the phase. They won't say the jurisdiction… we want to make sure
+    //     that the draw schedule reads consistent."* 40 of 219 prod lanes were
+    //     silent about two fields whose data was present every time.
+    //
+    // ★★ THE CONSTRAINT WAS ANSWERED RATHER THAN IGNORED: juris and the phase
+    //    chip now share ONE row, so the compact block gains a line and the full
+    //    block loses one. Every block renders the same stack.
+    expect(screen.getByTestId('block-juris-p1')).toBeInTheDocument();
+    expect(screen.getByTestId('block-status-p1')).toBeInTheDocument();
     // Est. Approval still renders.
     const est = screen.getByTestId('block-est-approval-p1');
     expect(est.textContent).toContain('Est. Approval');
@@ -307,8 +319,11 @@ describe('Draw Schedule block layout (fix-DS-uniform-layout)', () => {
     // ...but overflow slices are stripped to the essentials: the status pill
     // (fix-DS-overflow-no-pill) AND juris (fix-DS-overflow-minimal) both drop —
     // the fill color encodes status and juris still shows in the home quarter.
-    expect(screen.queryByTestId('block-status-pt')).toBeNull();
-    expect(screen.queryByTestId('block-juris-pt')).toBeNull();
+    // ★★★ SUPERSEDED BY fix-515 §A (P-211): every block says its jurisdiction
+    //     and its phase now, compact or not. See the one-week test above for
+    //     the reasoning and the prod counts.
+    expect(screen.getByTestId('block-status-pt')).toBeInTheDocument();
+    expect(screen.getByTestId('block-juris-pt')).toBeInTheDocument();
     const est = screen.getByTestId('block-est-approval-pt');
     expect(est.textContent).toContain('Est. Approval');
     expect(est.textContent).toContain('08-15-26');
@@ -342,7 +357,7 @@ describe('Draw Schedule block layout (fix-DS-uniform-layout)', () => {
     expect(block.style.justifyContent).toBe('center');
   });
 
-  it('head (starts in this quarter, ends after): compact (no juris/pill), no arrow', () => {
+  it('head (starts in this quarter, ends after): no arrow, and — fix-515 §A — it says juris and phase', () => {
     // Starts within the current quarter, ends in the next. A head slice is an
     // overflow block → compact: stripped to address + Est. Approval. The
     // continuation is left to the next quarter's tail slice.
@@ -363,13 +378,14 @@ describe('Draw Schedule block layout (fix-DS-uniform-layout)', () => {
     expect(block.style.justifyContent).toBe('center');
     expect(screen.queryByTestId('block-overflow-nav-ph')).toBeNull();
     expect(screen.getByTestId('block-address-ph')).toBeInTheDocument();
-    // Compact → no status pill (fix-DS-overflow-no-pill) and no juris
-    // (fix-DS-overflow-minimal / fix-DS-compact-rule).
-    expect(screen.queryByTestId('block-status-ph')).toBeNull();
-    expect(screen.queryByTestId('block-juris-ph')).toBeNull();
+    // ★★★ SUPERSEDED BY fix-515 §A (P-211): every block says its jurisdiction
+    //     and its phase now, compact or not. See the one-week test above for
+    //     the reasoning and the prod counts.
+    expect(screen.getByTestId('block-status-ph')).toBeInTheDocument();
+    expect(screen.getByTestId('block-juris-ph')).toBeInTheDocument();
   });
 
-  it('DOM snapshots: ≥2-week non-overflow blocks render the full field set; the 1-week block is compact', () => {
+  it('DOM snapshots: EVERY block renders the same field set — fix-515 §A', () => {
     // manual_status:true so deriveBlockStatus honors the stored "Approved"
     // (no permits in this test → otherwise it derives "Scheduled" from DD math).
     refs.draw.current = [
@@ -398,11 +414,16 @@ describe('Draw Schedule block layout (fix-DS-uniform-layout)', () => {
       expect(screen.getByTestId(`block-juris-${id}`)).toBeInTheDocument();
       expect(screen.getByTestId(`block-status-${id}`)).toBeInTheDocument();
     }
-    // The 1-week block is compact: address shows, juris + status drop.
-    const compact = screen.getByTestId('block-p1');
-    expect(compact.textContent).toContain('500 Pike St');
-    expect(screen.queryByTestId('block-juris-p1')).toBeNull();
-    expect(screen.queryByTestId('block-status-p1')).toBeNull();
+    // ★★★ SUPERSEDED BY fix-515 §A: the one-week block renders the SAME field
+    //     set — which is the whole point of the ticket. What made it possible
+    //     is that juris and the phase chip share a row, so the shortest block
+    //     carries both in one line rather than two.
+    const shortest = screen.getByTestId('block-p1');
+    expect(shortest.textContent).toContain('500 Pike St');
+    expect(screen.getByTestId('block-juris-p1')).toBeInTheDocument();
+    expect(screen.getByTestId('block-status-p1')).toBeInTheDocument();
+    expect(shortest.textContent).toContain('Seattle');
+    expect(shortest.textContent).toContain('Approved');
   });
 
   it('DA columns auto-fit: shared grid template floors each column track at 90px', () => {

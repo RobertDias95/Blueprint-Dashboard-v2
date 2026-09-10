@@ -610,7 +610,26 @@ export function UnitsMatrix({ unitTypes }: { unitTypes: readonly UnitType[] }) {
               }}
               data-testid="pd-units-corner"
             >
-              Units
+              {/* ★★★ fix-515 §C (P-210) — THE WORD IS GONE, THE CELL IS NOT.
+                  Bobby, 2026-09-10, with it highlighted twice: *"redunant to
+                  have units there 2x."* The card chrome prints UNITS as the
+                  section title and this corner printed it again ~20px lower.
+
+                  ★★★ WHICH ONE WAS NEWER, CHECKED RATHER THAN GUESSED: the
+                      card title is fix-506 (`4fc59fb`, PR #447); this corner
+                      arrived with fix-507's transposed matrix (`33ffae9`,
+                      PR #448), which gave the row-name column a header cell for
+                      the first time and reached for the label already on the
+                      card. So the newer copy is the one that goes, and the one
+                      every sibling card carries stays.
+
+                  ★★ THE `<th>` ITSELF STAYS, EMPTY. It is the `scope="col"`
+                     header of the column that holds the attribute names, and
+                     `tableLayout: 'fixed'` sizes that column from
+                     `UNIT_MATRIX_CORNER_PCT` on this cell — deleting it would
+                     collapse the matrix's first column and take fix-508 §C's
+                     width derivation with it. An empty corner cell is the
+                     conventional shape for a transposed table. */}
             </th>
             {unitTypes.map((_, i) => (
               <th

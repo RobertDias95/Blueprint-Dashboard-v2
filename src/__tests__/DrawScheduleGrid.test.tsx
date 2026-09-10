@@ -1584,17 +1584,24 @@ describe('<DrawScheduleGrid /> fix-72 DA->DM cascade', () => {
 // suffix in the title attribute. Non-redesign blocks render exactly as
 // before — the helper falls through to jurisBorder.
 describe('<DrawScheduleGrid /> fix-126 redesign block border', () => {
-  it('non-redesign Seattle block keeps the blue juris border', () => {
+  it('★★★ SUPERSEDED by fix-515 §B: the border is the FILL darkened, not a juris colour', () => {
+    // ★★ WHAT THIS PINNED: `jurisBorder('Seattle') → #1d4ed8` → rgb(29,78,216).
+    //    Bobby ruled the whole palette out, 2026-09-10: *"we want to get rid of
+    //    the border colors… make the border color whatever the current color
+    //    is, dependent on the legend, and then just maybe a slightly darker
+    //    version of that."* Two colour keys on one rectangle, and only one of
+    //    them was in the legend.
+    // ★ The jurisdiction did not stop being said — §A prints it as WORDS on
+    //   every block now.
     renderGrid();
     const block = screen.getByTestId('block-p-now');
-    // jurisBorder('Seattle') → '#1d4ed8' → rgb(29, 78, 216) in the
-    // browser's serialized style string.
-    expect(block.getAttribute('style')).toContain('rgb(29, 78, 216)');
-    // No redesign signal on the block.
+    const style = block.getAttribute('style') ?? '';
+    expect(style).not.toContain('rgb(29, 78, 216)');
     expect(block.getAttribute('data-redesign')).toBeNull();
+    expect(screen.getByTestId('block-juris-p-now').textContent).toContain('Seattle');
   });
 
-  it('redesign block carries the yellow border + data-redesign attribute + tooltip suffix', () => {
+  it('redesign block carries data-redesign + the tooltip suffix (fix-515 §B: no longer a colour)', () => {
     // Seed a redesign relationship: p-now is the parent, p-other is its
     // redesign. Both already have draw_schedule rows.
     const originalProjects = fixtures.projects.map((p) => ({ ...p }));
@@ -1610,10 +1617,14 @@ describe('<DrawScheduleGrid /> fix-126 redesign block border', () => {
     try {
       renderGrid();
       const block = screen.getByTestId('block-p-other');
-      // REDESIGN_BORDER_COLOR = '#eab308' → rgb(234, 179, 8).
-      expect(block.getAttribute('style')).toContain('rgb(234, 179, 8)');
-      // Should NOT carry the Bellevue green '#16a34a' → rgb(22, 163, 74).
-      expect(block.getAttribute('style')).not.toContain('rgb(22, 163, 74)');
+      // ★★★ SUPERSEDED by fix-515 §B: the gold redesign border is gone with the
+      //     rest of the palette. Bobby named gold among the four.
+      // ★★ THE SIGNAL SURVIVES IN TWO PLACES, which is why deleting the colour
+      //    was safe: `data-redesign` (asserted below, unchanged) and the
+      //    ADDRESS — verified on prod 2026-09-10, 17 of 17 redesign lanes carry
+      //    the " [Redesign N]" suffix, and the address is the block's first and
+      //    largest line.
+      expect(block.getAttribute('style')).not.toContain('rgb(234, 179, 8)');
       expect(block.getAttribute('data-redesign')).toBe('true');
       // Tooltip discloses the original address.
       expect(block.getAttribute('title')).toContain(
@@ -1996,16 +2007,22 @@ describe('fix-263 draw schedule — parked block treatment', () => {
     expect(addr).toContain('line-through');
   });
 
-  it('cancelled: the phase pill is REMOVED — a cancelled project has no live phase', () => {
-    // Prove the pill is there first, so the assertion below is meaningful and
-    // not just a testid that never existed on this block.
+  it('cancelled: the chip says CANCELLED — no live PHASE is ever claimed', () => {
+    // ★★ fix-263's rule is unchanged and is what matters: a cancelled project
+    //    has no live phase, and showing one is precisely what made the fix-262
+    //    block read as pending.
+    // ★★★ fix-515 §A AMENDS HOW IT IS SAID. The chip used to be REMOVED, which
+    //     left the row silent — and §A's rule is that *"a row that legitimately
+    //     has no phase should read as HAVING NONE, not as not mentioning it."*
+    //     So the park's own label takes the chip's place: the block answers the
+    //     question with the truth instead of with nothing.
     renderGrid();
-    expect(screen.getByTestId('block-status-p-now')).toBeTruthy();
+    expect(screen.getByTestId('block-status-p-now').textContent).not.toContain('Cancelled');
     document.body.innerHTML = '';
 
     holdRows.current = [parkRow('p-now', 'cancelled', 'Builder pulled out')];
     renderGrid();
-    expect(screen.queryByTestId('block-status-p-now')).toBeNull();
+    expect(screen.getByTestId('block-status-p-now').textContent).toContain('Cancelled');
   });
 
   it('cancelled: the CANCELLED date line still renders (fix-262 behaviour kept)', () => {

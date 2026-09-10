@@ -70,7 +70,7 @@ describe('fix-484 §A1: a block centres when its stack fits', () => {
       BLOCK_ADDRESS_MAX_LINES,
       blockAddressLines(ADDR, font, BOX_1920),
     );
-    const stack = blockStackHeight(lines, font, 13, blockDetailLines(true));
+    const stack = blockStackHeight(lines, font, 13, blockDetailLines());
     expect(blockCentresStack(height, stack)).toBe(true);
   });
 
@@ -79,7 +79,10 @@ describe('fix-484 §A1: a block centres when its stack fits', () => {
     //    TOP of a stack taller than its box, and the address is the first child.
     //    That was always a question about HEIGHT; it is now asked as one.
     const height = 1 * 28 - 3; // one week at BASE_ROW_H
-    const stack = blockStackHeight(2, 9.5, 8, blockDetailLines(true));
+    // ★ fix-515 §A: one stack for every block — `blockDetailLines()` is a
+    //   constant now, and a one-week slice still cannot hold it, which is what
+    //   this test is about.
+    const stack = blockStackHeight(2, 9.5, 8, blockDetailLines());
     expect(stack).toBeGreaterThan(height);
     expect(blockCentresStack(height, stack)).toBe(false);
   });
@@ -89,13 +92,24 @@ describe('fix-484 §A1: a block centres when its stack fits', () => {
     expect(blockCentresStack(59, 60)).toBe(false);
   });
 
-  it('★★ a compact stack counts two detail lines, a full one counts four', () => {
-    // compact → "Est. Approval" + the date. full → juris + status + those two.
-    expect(blockDetailLines(true)).toBe(2);
-    expect(blockDetailLines(false)).toBe(4);
-    expect(
-      blockStackHeight(1, 10, 8, blockDetailLines(false)),
-    ).toBeGreaterThan(blockStackHeight(1, 10, 8, blockDetailLines(true)));
+  it('★★★ SUPERSEDED by fix-515 §A: there is ONE stack, of three detail lines', () => {
+    // ★★ WHAT THIS ASSERTED: `blockDetailLines(true) === 2` and
+    //    `blockDetailLines(false) === 4` — compact rendered "Est. Approval" +
+    //    the date, full added juris and the status pill. True when written.
+    //
+    // ★★★ THAT TIER IS THE fix-515 §A DEFECT. Bobby, 2026-09-10: *"some of
+    //     them won't say the phase. They won't say the jurisdiction… we want to
+    //     make sure that the draw schedule reads consistent."* 40 of 219 prod
+    //     lanes (18.3%) were dropping two fields they had the data for.
+    //
+    // ★★ THREE, NOT FOUR, because juris and the phase chip now share a ROW —
+    //    which is what let the gate go without a height cost: the compact block
+    //    gained a line and the full block LOST one.
+    expect(blockDetailLines()).toBe(3);
+    expect(blockDetailLines.length).toBe(0);
+    // The property this test actually defends — more lines is more height —
+    // is unchanged and still checked.
+    expect(blockStackHeight(1, 10, 8, 3)).toBeGreaterThan(blockStackHeight(1, 10, 8, 2));
   });
 
   it('★ the stack height is built from NAMED parts, not a magic number', () => {
@@ -107,12 +121,17 @@ describe('fix-484 §A1: a block centres when its stack fits', () => {
     expect(BLOCK_STACK_PAD_Y).toBe(1);
   });
 
-  it('★★★ the component asks the HEIGHT question, not the isCompact one', () => {
+  it('★★★ the component asks the HEIGHT question — and now asks nothing else', () => {
     // The regression this file exists to catch: `justifyContent` going back to
-    // `isCompact`. `isCompact` must survive for FIELD SELECTION and nothing else.
+    // `isCompact`. That property is unchanged and still asserted.
     expect(GRID).toContain("justifyContent: centresStack ? 'center' : 'flex-start'");
     expect(GRID).not.toContain("justifyContent: isCompact ? 'flex-start' : 'center'");
-    expect(GRID).toContain('const isCompact ='); // still decides which fields render
+    // ★★★ fix-515 §A: this line used to read *"`isCompact` must survive for
+    //     FIELD SELECTION and nothing else"* — and field selection was the
+    //     remaining defect. With both fields on one row there is no height to
+    //     gate on, so the variable has no reader left and is gone entirely.
+    //     fix-484 took the anchor off it; fix-515 took the last thing.
+    expect(GRID).not.toContain('const isCompact =');
   });
 });
 

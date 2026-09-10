@@ -993,9 +993,15 @@ function TeamCell({
           asked for the mock's own arrangement — Chat beside Builder/Owner and
           Internal rather than under them — because Team is the card setting the
           row's height and a stacked preview costs its full height. fix-346's
-          rule that there is ONE way into the chat is untouched: the pinned
-          button below is still the only opener, and it is still `pinBottom`, so
-          fix-345 §3's baseline holds. */}
+          rule that there is ONE way into the chat is untouched: the button
+          below is still the only opener.
+          ★★ fix-515 §D CORRECTS THE REST OF THIS SENTENCE. It used to end
+             *"and it is still `pinBottom`, so fix-345 §3's baseline holds"* —
+             and it was not: making Chat a grid cell took `pinBottom` off the
+             section and nobody noticed, because the button stayed last in the
+             DOM and only floated when the preview was short. It is pinned to
+             the CELL's floor now, and fix-508 §F4 already recorded that Team's
+             button left the three-card baseline. */}
       </div>
       {/* ★★★ fix-507 §C — CHAT GOES BACK TO THE TOP RIGHT, which is where the
           v14 mock has always drawn it (`.chatcell{grid-column:2/4;grid-row:
@@ -1011,39 +1017,51 @@ function TeamCell({
             than a widget parked inside one, is exactly as true in a cell as it
             was in a stack. */}
       <div className={TEAM_GRID_CHAT_CLASS} data-testid="pd-team-grid-chat">
-      <OverviewSection title="Chat" testId="project-overview-team-chat">
+      <OverviewSection title="Chat" testId="project-overview-team-chat" fillBody>
         <ProjectChatSection projectId={project.id} />
-        {/* ★★★ fix-508 §F4 — THE BUTTON COMES INTO THE CELL, AND THIS REVERSES
-            fix-345 §3. Bobby asked for it deliberately, so the contract it
-            breaks is rewritten here rather than deleted.
+      {/* ★★★ fix-515 §D (P-213) — THE BUTTON IS PINNED TO THE FOOT OF THE CHAT
+          CELL, WHICH IS WHAT "THE BOTTOM OF THE CHAT CARD" MEANS.
 
-            ★★★ WHAT fix-345 §3 BOUGHT: `pinBottom` takes a section out of
-                fix-331 §1's even height distribution so the three card actions
-                — Milestones' draw-schedule link, Project's Connect, Team's chat
-                — land on ONE baseline across the row. Bobby: *"make them all at
-                the bottom … so it kind of points to here are 3 active buttons
-                for each category."*
+          Bobby, 2026-09-10: *"In the project overview, we want to move the chat
+          button at the bottom of the chat card."*
 
-            ★★★ WHAT IT COSTS NOW, STATED: **the shared baseline covers two
-                cards, not three.** Site data's Connect and the Dates card's
-                draw-schedule link are both inside the PROJECT card and both
-                still pinned, so they still align with each other. Team's chat
-                button leaves that line and sits under the preview it opens.
+          ★★★ IT WAS ALREADY LAST IN THE DOM — fix-508 §F4 brought it into this
+              cell, under the preview it opens — SO WHAT WAS ACTUALLY WRONG WAS
+              THAT IT WAS NOT PINNED. The comment above still claimed *"it is
+              still `pinBottom`"*; the JSX had not passed `pinBottom` since
+              fix-507 §C made Chat a grid cell. With a short preview the button
+              floated up behind whatever height the cell had been given and read
+              as a control parked mid-air rather than as the card's conclusion.
+              **A stale comment, and the defect it was describing away.**
 
-            ★★ AND THE REASON IT IS NOT A REGRESSION IS THAT THE ROW CHANGED
-               SHAPE UNDER fix-345. It pinned three buttons on three cards of
-               four, three and four stacked sections. fix-507 §C made Team a
-               two-column grid, so its "floor" is the floor of a card whose
-               right-hand cell ends halfway up — the button was landing level
-               with the consultant band's bottom edge, a long way below the
-               preview it belongs to, pointing at nothing. A baseline shared
-               with a control on another card is worth less than adjacency to
-               the thing the control opens.
+          ★★★ SO IT LEAVES THE `<OverviewSection>` AND BECOMES A SIBLING, which
+              is fix-345 §3's own shape rather than a new one: a card ACTION
+              sits at the card's foot, outside the section flow. The chat cell
+              is already `display:flex; flex-direction:column` (teamCardLayout),
+              so `mt-auto` puts the button on its floor and the preview keeps
+              the top. fix-331's rule — chat reads as a SECTION of Team, not a
+              widget parked in one — is about the preview, which is still an
+              `<OverviewSection>` and is untouched.
 
-            ★ fix-346's rule is untouched and is the one that mattered most:
-              there is still exactly ONE way into the chat, and the unread badge
-              still rides it. */}
-        <div className="mt-1.5">
+          ★★ AND IT COSTS THE ROW NOTHING, WHICH §D REQUIRED IN NUMBERS. The
+             markup is the same children in the same section with the same
+             padding; only the DISTRIBUTION inside the body changed, from
+             `mt-1.5` to `mt-auto pt-1.5` with the body allowed to fill. There
+             is no new element, no new padding and no new line, so the chat
+             cell's CONTENT height — which is what the Team card's height is a
+             max over — is byte-for-byte what it was.
+             ★ THE OTHER WAY TO PIN IT WOULD HAVE COST 8px: making the button a
+               sibling of the section puts it outside the section's `pb-2` and
+               adds its own, in exactly the case where the chat cell is the
+               tallest cell in the card. That is why `fillBody` exists instead.
+
+          ★ fix-346's rule is untouched: still exactly ONE way into the chat,
+            and the unread badge still rides it. */}
+        {/* ★ `mt-auto` is the pin; `pt-1.5` keeps fix-508 §F4's gap from the
+            preview when the cell has no slack to give. It stays INSIDE the
+            section — see `fillBody` on OverviewCard for why that is the
+            height-neutral half of the two ways to do this. */}
+        <div className="mt-auto pt-1.5" data-testid="pd-chat-action-foot">
           <OverviewAction
             onClick={() => setChatOpen(true)}
             testId="project-chat-open"
