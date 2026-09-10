@@ -45,7 +45,7 @@ import { useResolveDaOverlap } from '../../hooks/useResolveDaOverlap';
 import { useIsTenantAdmin } from '../../hooks/useIsTenantAdmin';
 import { useDrawSchedule } from '../../hooks/useDrawSchedule';
 import { useUpdateProjectWithPermits } from '../../hooks/useUpdateProjectWithPermits';
-import { useAppConfig } from '../../hooks/useAppConfig';
+import { useAppConfig, readAppConfigStringArray } from '../../hooks/useAppConfig';
 import { pushToast } from '../../stores/toastStore';
 import OverlapPrompt from '../OverlapPrompt';
 import NpWarningPrompt from '../NpWarningPrompt';
@@ -681,7 +681,18 @@ export function DDPhaseEditor({
               ★ Before this it had NO editor in Project Data at all, so removing
                 the Schedule Health box without adding this would have stranded
                 the column behind the New Project wizard. Checked, not assumed. */}
-          <AcqDateRow project={project} bp={targetSubmitBp} />
+          {/* ★★★ fix-514 §G (P-221/P-207) — `AcqDateRow` IS GONE FROM HERE.
+              fix-508 §D put it on this tab because Schedule Health could not
+              keep an editable box over a derived column. That was right, and it
+              was still BUILDING-PERMIT ONLY: `permitUpserts` carried `bp.id`
+              and nothing else, which is why fix-513 §E refused to fold
+              `PermitDetailV2`'s box into it and 153 non-BP permits on 105
+              projects had exactly one editor in the whole app.
+              ★★★ THE PERMITS TAB EDITS IT PER PERMIT NOW — including the
+                  Building Permit's — so this row is not a smaller version of
+                  that control, it is a SECOND WRITER of the same column, which
+                  is the thing P-207 exists to close. One writer, and a test
+                  that reads ONE rather than two. */}
           {/* ★ Reads the SAME `bp` this card already resolved — no second
               notion of "the primary permit" gets invented here. */}
           <IntakeAcceptedRow bp={bp} />
@@ -849,128 +860,6 @@ export function TargetSubmitRow({
 }
 
 
-/**
- * ★★★ fix-508 §D — THE ACQ DATE, THE ONE PLACE IT IS AUTHORED.
- *
- * `permits.expected_issue` has been on screen as **`ACQ target`** since fix-506
- * and editable inline on Schedule Health since fix-63. §D turns the thing it
- * used to BE — the target approval — into a computed value: the latest of this
- * date, the project's closing date, and the GO date plus six calendar months.
- *
- * ★★★ SO THE EDITOR HAD TO MOVE RATHER THAN STAY OR VANISH. A box on Schedule
- *     Health writing `expected_issue` while the cell above it printed a `max`
- *     over three dates is [[P-179-pipeline-stage-and-draw-schedule-disagree]]
- *     in miniature: type a date earlier than the closing and the number would
- *     refuse to move. Here it is one input among the project's other dates, and
- *     what it feeds is derived everywhere it appears.
- *
- * ★★ THE WRITE PATH IS fix-63's, UNCHANGED — same column, same
- *    `useUpdateProjectWithPermits`, same two OCC tokens, same conflict copy.
- *    A moved control that also changes how it writes is two changes wearing one
- *    ticket number.
- *
- * ★★★ fix-513 §E (P-207) — THIS ROW EDITS THE BUILDING PERMIT AND NOTHING ELSE,
- *     which is why `PermitDetailV2`'s ACQ Target box is still there. `bp.id` is
- *     the only element `permitUpserts` ever carries, and on prod **153 non-BP
- *     permits across 105 projects hold an ACQ date that differs from their own
- *     Building Permit's** — by design, since `permitSeedingDefaults` seeds ULS
- *     at `bp_acq + 120` and Land Use at `go_date + 30`. Deleting the per-permit
- *     editor would strand every one of them while Schedule Health kept deriving
- *     a Target Approval from the value. The exception is written up at that
- *     control and pinned by `ExpectedIssueWritersFix513`. */
-function AcqDateRow({
-  project,
-  bp,
-}: {
-  project: Project;
-  bp: PermitWithCycles | null;
-}) {
-  const stored = bp?.expected_issue ?? '';
-  const [draft, setDraft] = useState(stored);
-  // ★ The React 19 in-render reseed `TargetSubmitRow` above uses, for the same
-  //   reason: `useState` seeds once, so a BP swap or a save→refetch would leave
-  //   the draft stale. `-1` is the no-BP sentinel.
-  const bpId = bp?.id ?? -1;
-  const [snapshot, setSnapshot] = useState<{ id: number; value: string }>({
-    id: bpId,
-    value: stored,
-  });
-  if (snapshot.id !== bpId || snapshot.value !== stored) {
-    setSnapshot({ id: bpId, value: stored });
-    setDraft(stored);
-  }
-
-  const mut = useUpdateProjectWithPermits();
-  const occMissing = !bp || !bp.updated_at || !project.updated_at;
-
-  async function commit() {
-    if (!bp || !bp.updated_at || !project.updated_at) return;
-    const next = draft.trim() || null;
-    if (next === (bp.expected_issue ?? null)) return;
-    try {
-      const result = await mut.mutateAsync({
-        projectId: project.id,
-        projectExpectedUpdatedAt: project.updated_at,
-        projectPatch: {},
-        permitUpserts: [
-          {
-            id: bp.id,
-            expected_updated_at: bp.updated_at,
-            // ★ The RPC casts `NULLIF(elem->>'expected_issue','')::date`, so an
-            //   emptied box clears the column — and Target Approval falls back
-            //   to whichever of the other two candidates is latest, which is
-            //   the point of it being a `max` rather than a single field.
-            expected_issue: next,
-          },
-        ],
-        permitDeletes: [],
-      });
-      if (result.conflict) {
-        pushToast('This project was modified elsewhere — reload and retry.', 'warn');
-      }
-    } catch {
-      // hook-level onError already toasted.
-    }
-  }
-
-  function onKeyDown(e: React.KeyboardEvent<HTMLInputElement>) {
-    if (e.key === 'Enter') {
-      e.preventDefault();
-      void commit();
-    } else if (e.key === 'Escape') {
-      e.preventDefault();
-      setDraft(stored);
-      e.currentTarget.blur();
-    }
-  }
-
-  return bp ? (
-    <MilestoneDateRow
-      label="ACQ date"
-      value={draft}
-      onChange={setDraft}
-      onBlur={() => void commit()}
-      onKeyDown={onKeyDown}
-      disabled={occMissing || mut.isPending}
-      title="ACQ date — Acquisitions' own target. Target Approval is the latest of this, the closing date, and the GO date plus 6 months."
-      testId="pd-acq-date"
-      ariaLabel="ACQ date"
-    />
-  ) : (
-    <MilestoneDateRow
-      label="ACQ date"
-      value=""
-      title="No Building Permit to hold the ACQ date"
-      testId="pd-acq-date-empty"
-    />
-  );
-}
-
-
-// ============================================================
-// fix-22 Mig 3: Site editor — writes zone / lot / alley / parking_type /
-// parking_stalls to projects via useUpdateProject. Previously wrote to
-// permits via useUpdatePermit on the BP.
 // ============================================================
 
 export function SiteEditor({ project }: { project: Project }) {
@@ -1025,32 +914,9 @@ export function SiteEditor({ project }: { project: Project }) {
         }}
       />
       {/* ★★★ fix-488 §A: TAGS, moved here from Proposal — Bobby asked for it
-          beside the lot size, and it is a fact about the parcel. Read-only
-          chips, exactly as they rendered before; `project_tags` is written
-          elsewhere and this ticket does not change that. */}
-      <div className="flex items-baseline gap-1.5">
-        <span className="text-[9px] text-dim min-w-[32px]">Tags</span>
-        <div className="flex flex-wrap gap-0.5">
-          {(Array.isArray(project.project_tags) ? project.project_tags : [])
-            .length === 0 ? (
-            <span className="text-[9px] text-dim italic">none</span>
-          ) : (
-            (project.project_tags as string[]).map((t) => (
-              <span
-                key={t}
-                className="text-[8px] font-bold px-1.5 py-0.5 rounded border"
-                style={{
-                  background: 'var(--color-de-bg)',
-                  color: 'var(--color-de)',
-                  borderColor: 'var(--color-de-border)',
-                }}
-              >
-                {t}
-              </span>
-            ))
-          )}
-        </div>
-      </div>
+          beside the lot size, and it is a fact about the parcel.
+          ★★★ fix-514 §F (P-216): and EDITABLE now. */}
+      <ProjectTagsEditor project={project} />
       {/* fix-122: Number of Lots (1-20 dropdown, blank = unset). Lives in
           Site because a subdivision count is a parcel-level fact, not a
           proposal/scope fact. Users who need >20 can backfill via the
@@ -1388,6 +1254,258 @@ function SiteLotSizeRow({
 // lib/unitTypeNaming so the Library matrix shares the identical read/write
 // shape (one store, two editable views).
 // ============================================================
+
+// ===========================================================================
+// ★★★ fix-514 §E (P-215) — A UNIT'S SQUARE FOOTAGE BECOMES EDITABLE
+// ===========================================================================
+//
+// Bobby, 2026-09-10: *"we need the ability to edit the square footage of a
+// unit."* His screenshot: Unit 1 = 20 × 35, Unit 2 = 20 × 32.5, and
+// **`Size (sf)` reads `—` on both.**
+//
+// ★★★ THE DASH IS CORRECT, AND THIS IS NOT A DERIVATION. `unit_types[].size_sf`
+//     is TYPED ([[P-150-unit-size-typed-and-searchable]]) — `—` means nobody
+//     has typed it, and until now there was nowhere to. **A unit's footprint is
+//     not its bounding box**: 20 × 35 is the rectangle it fits inside, not its
+//     floor area, and [[P-161-lot-shape-is-implied-by-its-dimensions-not-labelled]]
+//     reopened on 2026-09-09 when two lots recorded as "regular" turned out to
+//     hold MORE area than their own box. Computing this would put the same
+//     wrong number on 235 unit rows at once.
+//
+// ★★★ AND IT IS NOT A NINTH MATRIX COLUMN, WHICH IS THE PART WORTH READING.
+//     fix-488 §B built it as one, MEASURED it and reverted: `UNIT_ROW_COLUMNS`
+//     drives `UNIT_MATRIX_GRID` **and** `overviewCardLayout`'s PROJECT card
+//     floor, so a ninth column takes the matrix 274px → 312px and the overview
+//     row minimum with it — 736px needed against 710 available at 1280, i.e. a
+//     horizontal scrollbar on the Overview, the exact defect fix-417 exists to
+//     prevent. That measurement is still true, so the editor lives BELOW the
+//     matrix instead: this modal is 760px wide and owes the Overview nothing.
+//
+// ★ SAME WRITE PATH AS WIDTH AND DEPTH — `useUpdateProject` with a whole
+//   `unit_types` array, through `resolveUnitTypesForSave`. One more field, not
+//   a second mechanism, which is §E's own instruction.
+
+/** One unit type's typed floor area. */
+export function UnitSizeEditor({ project }: { project: Project }) {
+  const updateMutation = useUpdateProject();
+  const occMissing = !project.updated_at;
+  const types = parseUnitTypes(project.unit_types);
+  const productTypes = Array.isArray(project.product_types)
+    ? project.product_types.filter(
+        (t): t is string => typeof t === 'string' && t.trim().length > 0,
+      )
+    : [];
+
+  async function writeTypes(next: UnitType[]) {
+    if (!project.updated_at) return;
+    await updateMutation
+      .mutateAsync({
+        projectId: project.id,
+        expectedUpdatedAt: project.updated_at,
+        patch: { unit_types: resolveUnitTypesForSave(next, productTypes) },
+        fieldLabel: 'Unit Size',
+      })
+      .catch(() => {
+        /* hook's onError already pushed the user-visible message */
+      });
+  }
+
+  if (types.length === 0) {
+    return (
+      <p className="text-[10px] text-dim italic" data-testid="pd-unit-size-empty">
+        Add a unit type above to record its square footage.
+      </p>
+    );
+  }
+
+  return (
+    <div className="flex flex-col gap-1" data-testid="pd-unit-size-editor">
+      {types.map((t, idx) => (
+        <UnitSizeRow
+          key={`${t.label}-${idx}`}
+          row={t}
+          disabled={occMissing}
+          onCommit={(size) => {
+            if (size === (t.size_sf ?? null)) return;
+            void writeTypes(types.map((u, i) => (i === idx ? { ...u, size_sf: size } : u)));
+          }}
+        />
+      ))}
+      {/* ★ The sentence that stops the next person adding the derivation. */}
+      <p className="text-[9px] text-dim italic mt-0.5">
+        Typed, never computed — a unit&rsquo;s floor area is not its width × depth.
+      </p>
+    </div>
+  );
+}
+
+function UnitSizeRow({
+  row,
+  disabled,
+  onCommit,
+}: {
+  row: UnitType;
+  disabled: boolean;
+  onCommit: (size: number | null) => void;
+}) {
+  const stored = row.size_sf != null ? String(row.size_sf) : '';
+  const [draft, setDraft] = useState(stored);
+  const dirtyRef = useRef(false);
+  // ★ The fix-73/98 dirty-flag pattern: follow the row unless somebody is
+  //   mid-edit.
+  useEffect(() => {
+    if (dirtyRef.current) return;
+    setDraft(row.size_sf != null ? String(row.size_sf) : '');
+  }, [row.size_sf]);
+
+  return (
+    <div className="flex items-baseline gap-1.5">
+      <span className="text-[9px] text-dim min-w-[64px] truncate" title={row.label}>
+        {row.label || 'Unit'}
+      </span>
+      <input
+        type="number"
+        min={0}
+        step={1}
+        value={draft}
+        placeholder="—"
+        onChange={(e) => {
+          dirtyRef.current = true;
+          setDraft(e.target.value);
+        }}
+        onBlur={() => {
+          const t = draft.trim();
+          const n = t === '' ? null : Math.round(Number(t));
+          // ★ Blank CLEARS — "not recorded" is a real answer and is what every
+          //   one of the 235 prod rows says today. Zero and negatives clear too,
+          //   matching the lot-size box one section up.
+          const next = n !== null && Number.isFinite(n) && n > 0 ? n : null;
+          setDraft(next != null ? String(next) : '');
+          onCommit(next);
+          dirtyRef.current = false;
+        }}
+        disabled={disabled}
+        className="w-16 text-[10px] font-semibold text-text border-0 border-b outline-none bg-transparent px-0 py-0.5 text-center disabled:opacity-50"
+        style={{ borderBottomColor: 'var(--color-border)' }}
+        data-testid={`pd-unit-size-${row.label || 'unit'}`}
+      />
+      <span className="text-[9px] text-dim">sf</span>
+    </div>
+  );
+}
+
+// ===========================================================================
+// ★★★ fix-514 §F (P-216) — PROJECT TAGS BECOME EDITABLE
+// ===========================================================================
+//
+// Bobby, 2026-09-10: *"we need the ability to edit tags inside of project
+// details as well."* They were read-only chips here since fix-488 §A, written
+// only by the wizard.
+//
+// ★★★ TAGS ARE A VOCABULARY, SO THIS READS THE REGISTRY — never a free-text
+//     box. Standing rule [[a-vocabulary-dropdown-reads-its-registry]], and the
+//     registry is `app_config.projectTagOptions`, the same key the wizard's
+//     Step 1 picker and Settings → Admin → Projects already read.
+//
+// ★★★ AND THAT IS WHAT KEEPS [[P-163-project-tag-excludes-schematic-construction-admin-and-acquisitions]]
+//     TRUE WITHOUT RESTATING IT. P-163 ruled Schematic, Construction Admin and
+//     Acquisitions OUT of the tag set; a free-text box — or a hard-coded list —
+//     would put all three straight back the first time somebody typed them.
+//     Reading the registry means the ruling is enforced where it was made.
+//     ★ VERIFIED ON PROD 2026-09-10: `projectTagOptions` holds seven values —
+//       ECA · SIP · TRAO · LBA · Short Plat · Through Lot · Trolley Lines — and
+//       none of the three is among them. [[P-173-a-dropdown-offers-more-than-settings-holds]]
+//       asks whether the registry holds the right things; it is NOT resolved
+//       here, and the read is reported in the fix-514 PR rather than acted on.
+//
+// ★★ SAME WRITE PATH AS §E — `useUpdateProject` with a whole array, which is
+//    why the two are one section apart rather than one ticket apart.
+// ★ A STORED TAG NO LONGER IN THE REGISTRY STILL RENDERS, and is still
+//   removable. Pruning the option list must never strand historical data —
+//   fix-93's rule for product types, applied to the tag next door.
+
+export function ProjectTagsEditor({ project }: { project: Project }) {
+  const updateMutation = useUpdateProject();
+  const appConfigQ = useAppConfig();
+  const options = readAppConfigStringArray(appConfigQ.map, 'projectTagOptions');
+  const chosen = Array.isArray(project.project_tags)
+    ? (project.project_tags as string[]).filter((t) => typeof t === 'string')
+    : [];
+  const occMissing = !project.updated_at;
+
+  async function write(next: string[]) {
+    if (!project.updated_at) return;
+    await updateMutation
+      .mutateAsync({
+        projectId: project.id,
+        expectedUpdatedAt: project.updated_at,
+        patch: { project_tags: next.length > 0 ? next : null } as Partial<Project>,
+        fieldLabel: 'Project Tags',
+      })
+      .catch(() => {
+        /* hook's onError already pushed the user-visible message */
+      });
+  }
+
+  const addable = options.filter((t) => !chosen.includes(t));
+
+  return (
+    <div className="flex items-baseline gap-1.5" data-testid="pd-tags-editor">
+      <span className="text-[9px] text-dim min-w-[32px]">Tags</span>
+      <div className="flex flex-wrap items-center gap-0.5">
+        {chosen.map((t) => (
+          <span
+            key={t}
+            className="inline-flex items-center gap-1 text-[8px] font-bold px-1.5 py-0.5 rounded border"
+            style={{
+              background: 'var(--color-de-bg)',
+              color: 'var(--color-de)',
+              borderColor: 'var(--color-de-border)',
+            }}
+            data-testid={`pd-tag-chip-${t}`}
+          >
+            {t}
+            <button
+              type="button"
+              disabled={occMissing}
+              onClick={() => void write(chosen.filter((x) => x !== t))}
+              className="leading-none disabled:opacity-40"
+              title={`Remove ${t}`}
+              data-testid={`pd-tag-remove-${t}`}
+            >
+              ×
+            </button>
+          </span>
+        ))}
+        <select
+          value=""
+          disabled={occMissing || addable.length === 0}
+          onChange={(e) => {
+            const v = e.target.value;
+            if (!v || chosen.includes(v)) return;
+            void write([...chosen, v]);
+          }}
+          className="text-[9px] font-semibold text-text border-0 border-b outline-none bg-transparent px-0 py-0.5 disabled:opacity-50"
+          style={{ borderBottomColor: 'var(--color-border)' }}
+          data-testid="pd-tag-add"
+        >
+          <option value="">
+            {options.length === 0
+              ? 'No tags — add them in Settings → Projects'
+              : addable.length === 0
+                ? 'All tags added'
+                : '+ Add tag'}
+          </option>
+          {addable.map((t) => (
+            <option key={t} value={t}>
+              {t}
+            </option>
+          ))}
+        </select>
+      </div>
+    </div>
+  );
+}
 
 export function UnitDimensions({ project }: { project: Project }) {
   const updateMutation = useUpdateProject();

@@ -3105,54 +3105,28 @@ function IssueDates({ permit }: { permit: PermitWithCycles }) {
   return (
     <div className="px-3 py-2 flex flex-col gap-2">
       {/* =====================================================================
-          ★★★ fix-513 §E (P-207) — THE SECOND WRITER OF `expected_issue`,
-              AND WHY IT STAYS. A DOCUMENTED EXCEPTION, NOT AN UNDOCUMENTED ONE.
+          ★★★ fix-514 §G (P-221) — THE ACQ TARGET BOX IS GONE, AND P-207 CLOSES
           =====================================================================
 
-          fix-508 §D moved Schedule Health's inline edit of this column into
-          Project Data **on the rule that one surface writes it**, and fix-512's
-          enumeration then found this editor — never in scope for that move.
-          §E briefed the same move again. **It does not survive the measurement.**
+          fix-513 §E was briefed to move this control into Project Data and
+          **refused**, with the measurement: Project Data's `AcqDateRow`
+          addresses `bp.id` and nothing else, and **153 non-Building-Permit
+          permits across 105 projects carry a different ACQ date by design** —
+          `permitSeedingDefaults` seeds a ULS at `bp_acq + 120` days. Moving it
+          would have stranded all 153 while Schedule Health kept deriving a
+          per-permit Target Approval from a value nobody could edit.
 
-          ★★★ PROJECT DATA'S EDITOR IS BUILDING-PERMIT ONLY. `AcqDateRow` reads
-              `bp?.expected_issue` and its `permitUpserts` array carries exactly
-              one element, `bp.id`. It has no way to address any other permit.
+          ★★★ THE REFUSAL WAS THE REQUIREMENT, AND §G BUILT WHAT IT ASKED FOR.
+              Project Details' **Permits** tab edits ACQ row by row, in the same
+              atomic `bp_update_project_with_permits` write as that row's type,
+              ENT and DA. Every one of the 153 is reachable, so the second
+              writer has somewhere to go and this box comes out.
 
-          ★★★ AND 153 NON-BP PERMITS CARRY A DIFFERENT ACQ DATE FROM THEIR OWN
-              BUILDING PERMIT, across 105 PROJECTS — measured on prod
-              2026-09-09 (333 non-BP permits have an `expected_issue` at all;
-              175 match their BP, 153 differ, 5 have no BP date to compare).
-              Moving this control would leave those 153 with no editor anywhere
-              in the app, while `targetApproval(project, permit)` keeps deriving
-              a visible Target Approval **per permit** from the value they can
-              no longer change. That is worse than two writers: it is one writer
-              and a column of numbers nobody can correct.
-
-          ★★ AND THE DIVERGENCE IS DELIBERATE, not drift. `lib/permitSeedingDefaults`
-             seeds by TYPE off the BP's ACQ — ULS at `bp_acq + 120 days`, Land
-             Use and Design Review at `go_date + 30` — so a project whose permits
-             all shared one ACQ date would mean the seeding rules had been
-             overwritten by hand.
-
-          ★ SO THE TWO WRITERS ARE: this one (any permit, from its own detail
-            screen) and `AcqDateRow` (the Building Permit, from Project Data).
-            They write the same column with the same meaning through the same
-            RPC. **The test pins the count at two and names them**, so a THIRD
-            still fails and this exception is structural rather than remembered.
-
-          ★★ THE REAL FIX, NOT DONE HERE: give Project Data a per-permit ACQ
-             row rather than a BP-only one, then delete this control. That is a
-             new section on that screen, not a move, and it is P-207's own next
-             step. Reported in the fix-513 PR. */}
-      <IssueDateField
-        label="ACQ Target Date"
-        labelColor="var(--color-dim)"
-        value={permit.expected_issue}
-        disabled={occMissing}
-        onCommit={(v) =>
-          commit('expected_issue', v || null, permit.expected_issue, 'ACQ Target')
-        }
-      />
+          ★★ THE INVARIANT MOVED TO ONE, IT WAS NOT DELETED. fix-513 pinned the
+             writer count at TWO so a third would fail the build; §G's
+             instruction was explicit — *"That test must go to one, not be
+             deleted. Changing an invariant's number is the fix; removing the
+             invariant is not."* See `ExpectedIssueOneWriterFix514`. */}
       <IssueDateField
         label="Approval Date"
         labelColor="var(--color-pm)"

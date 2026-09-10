@@ -292,7 +292,7 @@ vi.mock('../hooks/useProjectConsultants', () => ({
 //     **Dates** tab. fix-310's ruling is about the WORDS ("Draw window" →
 //     "DD window", with the DB vocabulary untouched underneath), and the
 //     components carrying them are byte-for-byte what shipped.
-const ProjectDataModal = (await import('../components/ProjectDetail/ProjectDataModal'))
+const ProjectDetailsModal = (await import('../components/ProjectDetail/ProjectDetailsModal'))
   .default;
 
 const T = 'test-tenant-uuid';
@@ -333,13 +333,12 @@ function renderHeader() {
     </QueryClientProvider>
   );
   return render(
-    <ProjectDataModal
+    <ProjectDetailsModal
       project={project}
       permits={[bp]}
       bp={bp}
       initialTab="dates"
       onClose={() => {}}
-      onOpenSettings={() => {}}
     />,
     { wrapper },
   );

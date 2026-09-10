@@ -7,7 +7,11 @@ import {
 import { mutationErrorContext } from '../lib/mutationErrorContext';
 
 import editorsSrc from '../components/ProjectDetail/ProjectDataEditors.tsx?raw';
-import modalSrc from '../components/ProjectDetail/ProjectSettingsModal.tsx?raw';
+// ★ fix-514 §A: `ProjectSettingsModal` is DELETED. Its form state and atomic
+//   save are `hooks/useProjectDetailsForm`; its controls are
+//   `components/ProjectDetail/ProjectDetailsForm`. The claims below are
+//   unchanged — only the address of the code is.
+import modalSrc from '../hooks/useProjectDetailsForm.ts?raw';
 import wizardSrc from '../components/NewProjectWizard.tsx?raw';
 import appSrc from '../App.tsx?raw';
 import updateProjectSrc from '../hooks/useUpdateProject.ts?raw';

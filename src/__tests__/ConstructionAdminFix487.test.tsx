@@ -431,7 +431,7 @@ describe('fix-487: what this ticket must not have touched', () => {
     // ★★★ THE STRING COLLISION THIS TEST WAS ORIGINALLY WRITTEN WITHOUT.
     //     `'construction_admin'` is BOTH the new department key AND the new
     //     `projects` column name, so a plain "no file may contain this string"
-    //     grep flags `ProjectSettingsModal`, which uses it as a patch key and is
+    //     grep flags the project form, which uses it as a patch key and is
     //     entirely correct to. The two are unrelated vocabularies that happen to
     //     spell the same — the same shape as fix-486's `Condo`, which is a
     //     product type and a permit type.
@@ -454,15 +454,18 @@ describe('fix-487: what this ticket must not have touched', () => {
     // ★ Named so the collision is on the record rather than rediscovered. The
     //   patch key below is `projects.construction_admin`; it is never compared
     //   against `Department` and never reaches `bp_set_team_department`.
-    const modal = stripComments(
+    // ★★ fix-514 §A: the file MOVED — `ProjectSettingsModal` is deleted and its
+    //    atomic save now lives in `hooks/useProjectDetailsForm`. The claim is
+    //    unchanged; only the address of the payload is.
+    const form = stripComments(
       readFileSync(
-        resolve(process.cwd(), 'src/components/ProjectDetail/ProjectSettingsModal.tsx'),
+        resolve(process.cwd(), 'src/hooks/useProjectDetailsForm.ts'),
         'utf8',
       ),
     );
-    expect(modal).toContain('construction_admin:');
-    expect(modal).not.toContain('bp_set_team_department');
-    expect(modal).not.toContain('Department');
+    expect(form).toContain('construction_admin:');
+    expect(form).not.toContain('bp_set_team_department');
+    expect(form).not.toContain('Department');
   });
 });
 

@@ -2,7 +2,7 @@ import type { ReactNode } from 'react';
 import { render } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import ProjectDataModal from '../components/ProjectDetail/ProjectDataModal';
+import ProjectDetailsModal from '../components/ProjectDetail/ProjectDetailsModal';
 import type { ProjectDataTab } from '../lib/projectDataTabs';
 import type { PermitWithCycles, Project } from '../lib/database.types';
 
@@ -46,14 +46,13 @@ export function renderProjectData(
     </QueryClientProvider>
   );
   return render(
-    <ProjectDataModal
+    <ProjectDetailsModal
       project={project}
       permits={permits}
       bp={bp}
       allProjects={allProjects}
       initialTab={tab}
       onClose={() => {}}
-      onOpenSettings={() => {}}
     />,
     { wrapper },
   );

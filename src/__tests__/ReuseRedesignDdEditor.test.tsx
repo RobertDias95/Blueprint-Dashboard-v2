@@ -54,6 +54,10 @@ vi.mock('../hooks/useResolveDaOverlap', () => ({
   useResolveDaOverlap: () => ({ mutateAsync: vi.fn(), isPending: false }),
 }));
 vi.mock('../hooks/useAppConfig', () => ({
+  // ★ fix-514 §F: `ProjectDataEditors` reads the project-tag registry now,
+  //   so this partial mock has to carry the reader as well as the hook —
+  //   the partial-mock trap, which this repo keeps meeting.
+  readAppConfigStringArray: () => [],
   useAppConfig: () => ({ map: new Map() }),
   readConsultantTypes: () => [] as { type: string; firms: string[] }[],
 }));
@@ -99,7 +103,9 @@ import ReuseRedesignDdEditor from '../components/ProjectDetail/ReuseRedesignDdEd
 // hooks the overview uses today; no new RPC, same OCC tokens, same toasts"* —
 // so every assertion below is unchanged and still means what it meant. Only the
 // mount point moved, to the modal's **Dates** tab.
-import ProjectDataModal from '../components/ProjectDetail/ProjectDataModal';
+// ★ fix-514 §A: the file and the component are `ProjectDetailsModal` now —
+//   Project Settings is deleted and this is the one project modal.
+import ProjectDetailsModal from '../components/ProjectDetail/ProjectDetailsModal';
 
 function projectFixture(over: Partial<Project> = {}): Project {
   return {
@@ -320,13 +326,12 @@ describe('DD Phase cell gating (ProjectDetailHeader)', () => {
     return render(
       <QueryClientProvider client={qc()}>
         <MemoryRouter>
-          <ProjectDataModal
+          <ProjectDetailsModal
             project={project}
             permits={permits}
             bp={bp}
             initialTab="dates"
             onClose={() => {}}
-            onOpenSettings={() => {}}
           />
         </MemoryRouter>
       </QueryClientProvider>,

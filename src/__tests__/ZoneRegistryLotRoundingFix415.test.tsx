@@ -14,7 +14,12 @@ import settingsSource from '../lib/settingsSections.ts?raw';
 //     change: fix-415's three-write-surfaces rule is about which files can
 //     write a zone or a lot dimension, and this is still one of them.
 import headerSource from '../components/ProjectDetail/ProjectDataEditors.tsx?raw';
-import psmSource from '../components/ProjectDetail/ProjectSettingsModal.tsx?raw';
+// ★ fix-514 §A: `ProjectSettingsModal` is DELETED. Its form state and atomic
+//   save are `hooks/useProjectDetailsForm`; its controls are
+//   `components/ProjectDetail/ProjectDetailsForm`. The claims below are
+//   unchanged — only the address of the code is.
+import psmSource from '../components/ProjectDetail/ProjectDetailsForm.tsx?raw';
+import psmPayloadSource from '../hooks/useProjectDetailsForm.ts?raw';
 import wizardSource from '../components/NewProjectWizard.tsx?raw';
 import step1Source from '../components/wizard/Step1ProjectInfo.tsx?raw';
 import {
@@ -237,7 +242,9 @@ describe('fix-415 §B: the rounding rule', () => {
     // ★ Rounding on KEYSTROKE would destroy "100.5" at the "100." keystroke.
     //   Each of these is a blur or a submit.
     expect(strip(headerSource)).toContain('roundLotForStorage');
-    expect(strip(psmSource)).toContain('roundLotForStorage(toNumOrNull(');
+    // ★ fix-514 §A: the SUBMIT-time rounding rode the atomic save into the
+    //   controller hook. Same call, same helper.
+    expect(strip(psmPayloadSource)).toContain('roundLotForStorage(toNumOrNull(');
     expect(strip(wizardSource)).toContain('roundLotForStorage(numOrNull(');
     // ★ ...and never from an onChange.
     expect(strip(headerSource)).not.toMatch(/onChange=\{[^}]*roundLotForStorage/);
@@ -389,7 +396,9 @@ vi.mock('../stores/toastStore', () => ({ pushToast: vi.fn() }));
 //    the mount point moved, from `<ProjectDetailHeader>` to the modal's
 //    **Site data** tab. A suite that had been repointed AND weakened would stop
 //    catching the regression it was written for; this one can still catch it.
-import ProjectDataModal from '../components/ProjectDetail/ProjectDataModal';
+// ★ fix-514 §A: the file and the component are `ProjectDetailsModal` now —
+//   Project Settings is deleted and this is the one project modal.
+import ProjectDetailsModal from '../components/ProjectDetail/ProjectDetailsModal';
 
 function setupSite(over: Record<string, unknown> = {}) {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
@@ -400,7 +409,7 @@ function setupSite(over: Record<string, unknown> = {}) {
     go_date: null, units: 4, zone: 'NR', lot_width: null, lot_depth: null, lot_size_sf: null,
     unit_types: null, alley: null, product_types: [], project_tags: null,
     created_at: TOKEN, updated_at: TOKEN, ...over,
-  } as unknown as Parameters<typeof ProjectDataModal>[0]['project'];
+  } as unknown as Parameters<typeof ProjectDetailsModal>[0]['project'];
   queryClient.setQueryData(queryKeys.projects(T), [project]);
   const wrapper = ({ children }: { children: ReactNode }) => (
     <QueryClientProvider client={queryClient}>
@@ -408,13 +417,12 @@ function setupSite(over: Record<string, unknown> = {}) {
     </QueryClientProvider>
   );
   return render(
-    <ProjectDataModal
+    <ProjectDetailsModal
       project={project}
       permits={[]}
       bp={null}
       initialTab="site"
       onClose={() => {}}
-      onOpenSettings={() => {}}
     />,
     { wrapper },
   );

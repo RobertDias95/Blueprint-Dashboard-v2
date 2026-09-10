@@ -116,7 +116,9 @@ vi.mock('../hooks/useIsTenantAdmin', () => ({ useIsTenantAdmin: () => true }));
 //    the mount point moved, from `<ProjectDetailHeader>` to the modal's
 //    **Dates** tab. A suite that had been repointed AND weakened would stop
 //    catching the regression it was written for; this one can still catch it.
-import ProjectDataModal from '../components/ProjectDetail/ProjectDataModal';
+// ★ fix-514 §A: the file and the component are `ProjectDetailsModal` now —
+//   Project Settings is deleted and this is the one project modal.
+import ProjectDetailsModal from '../components/ProjectDetail/ProjectDetailsModal';
 import Ribbon from '../components/Ribbon';
 
 function projectFixture(over: Partial<Project> = {}): Project {
@@ -194,13 +196,12 @@ function renderHeader(
     </QueryClientProvider>
   );
   return render(
-    <ProjectDataModal
+    <ProjectDetailsModal
       project={project}
       permits={permits}
       bp={bp}
       initialTab="dates"
       onClose={() => {}}
-      onOpenSettings={() => {}}
     />,
     { wrapper },
   );
@@ -346,11 +347,16 @@ describe('fix-320 #1: the Milestones card reads in ONE date format', () => {
     renderHeader();
     const card = screen.getByTestId('project-data-body');
     const boxes = Array.from(card.querySelectorAll('[data-milestone-value]')) as HTMLElement[];
-    // ★ fix-508 §D adds the **ACQ date** to the Dates tab — the input that left
-    //   Schedule Health when Target Approval became derived. Nine rows → ten.
-    //   fix-311's rule is that every date on the card resolves to ONE shared
-    //   component, which is the assertion below; the count moves with the card.
-    expect(boxes.length).toBe(10);
+    // ★ fix-508 §D added the **ACQ date** to the Dates tab — the input that
+    //   left Schedule Health when Target Approval became derived. Nine → ten.
+    // ★★ fix-514 §G TAKES IT AWAY AGAIN, back to nine: the ACQ date is edited
+    //    PER PERMIT on the Permits tab now, because the Dates-tab row could
+    //    only ever address the Building Permit and 153 non-BP permits on 105
+    //    projects carry a different one. The row did not disappear, it moved to
+    //    a tab that can hold N of them.
+    // ★ fix-311's rule is what this actually defends — every date on the card
+    //   resolves to ONE shared component — and the count moves with the card.
+    expect(boxes.length).toBe(9);
     expect(
       new Set(boxes.map((b) => b.className.replace(' cursor-default', ''))).size,
     ).toBe(1);

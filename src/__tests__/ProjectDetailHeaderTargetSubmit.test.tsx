@@ -49,6 +49,10 @@ vi.mock('../hooks/useDrawSchedule', () => ({
   useDrawSchedule: () => ({ data: [], isLoading: false }),
 }));
 vi.mock('../hooks/useAppConfig', () => ({
+  // ★ fix-514 §F: `ProjectDataEditors` reads the project-tag registry now,
+  //   so this partial mock has to carry the reader as well as the hook —
+  //   the partial-mock trap, which this repo keeps meeting.
+  readAppConfigStringArray: () => [],
   useAppConfig: () => ({ map: new Map() }),
   readConsultantTypes: () => [] as { type: string; firms: string[] }[],
 }));
@@ -93,7 +97,9 @@ vi.mock('../hooks/useProjectConsultants', () => ({
 //    the mount point moved, from `<ProjectDetailHeader>` to the modal's
 //    **Dates** tab. A suite that had been repointed AND weakened would stop
 //    catching the regression it was written for; this one can still catch it.
-import ProjectDataModal from '../components/ProjectDetail/ProjectDataModal';
+// ★ fix-514 §A: the file and the component are `ProjectDetailsModal` now —
+//   Project Settings is deleted and this is the one project modal.
+import ProjectDetailsModal from '../components/ProjectDetail/ProjectDetailsModal';
 
 function projectFixture(over: Partial<Project> = {}): Project {
   return {
@@ -186,13 +192,12 @@ function renderHeader(project: Project, permits: PermitWithCycles[]) {
     </QueryClientProvider>
   );
   return render(
-    <ProjectDataModal
+    <ProjectDetailsModal
       project={project}
       permits={permits}
       bp={bp}
       initialTab="dates"
       onClose={() => {}}
-      onOpenSettings={() => {}}
     />,
     { wrapper },
   );

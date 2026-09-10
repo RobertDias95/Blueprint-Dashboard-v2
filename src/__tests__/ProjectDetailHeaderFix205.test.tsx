@@ -27,6 +27,10 @@ vi.mock('../hooks/useSetBpDdDates', () => ({
   useSetBpDdDates: () => ({ mutateAsync: vi.fn(), isPending: false }),
 }));
 vi.mock('../hooks/useAppConfig', () => ({
+  // ★ fix-514 §F: `ProjectDataEditors` reads the project-tag registry now,
+  //   so this partial mock has to carry the reader as well as the hook —
+  //   the partial-mock trap, which this repo keeps meeting.
+  readAppConfigStringArray: () => [],
   // ★ fix-449 §C: the CANONICAL product-type registry, so the off-list mark
   //   has something to judge against. An empty map means "registry not loaded"
   //   and marks nothing — deliberately, or every row would wear a warning for
@@ -78,7 +82,9 @@ vi.mock('../stores/toastStore', () => ({ pushToast: vi.fn() }));
 //    the mount point moved, from `<ProjectDetailHeader>` to the modal's
 //    **Units** tab. A suite that had been repointed AND weakened would stop
 //    catching the regression it was written for; this one can still catch it.
-import ProjectDataModal from '../components/ProjectDetail/ProjectDataModal';
+// ★ fix-514 §A: the file and the component are `ProjectDetailsModal` now —
+//   Project Settings is deleted and this is the one project modal.
+import ProjectDetailsModal from '../components/ProjectDetail/ProjectDetailsModal';
 
 function projectFixture(over: Partial<Record<string, unknown>> = {}) {
   return {
@@ -112,7 +118,7 @@ function projectFixture(over: Partial<Record<string, unknown>> = {}) {
     created_at: TOKEN,
     updated_at: TOKEN,
     ...over,
-  } as unknown as Parameters<typeof ProjectDataModal>[0]['project'];
+  } as unknown as Parameters<typeof ProjectDetailsModal>[0]['project'];
 }
 
 function setup(over: Partial<Record<string, unknown>> = {}) {
@@ -131,13 +137,12 @@ function setup(over: Partial<Record<string, unknown>> = {}) {
     </QueryClientProvider>
   );
   return render(
-    <ProjectDataModal
+    <ProjectDetailsModal
       project={project}
       permits={[]}
       bp={null}
       initialTab="units"
       onClose={() => {}}
-      onOpenSettings={() => {}}
     />,
     { wrapper },
   );

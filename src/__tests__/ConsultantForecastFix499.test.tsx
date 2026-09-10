@@ -55,6 +55,10 @@ vi.mock('../hooks/useWaitingOnTasks', () => ({
   useWaitingOnTasks: () => ({ data: [], isLoading: false, error: null, refetch: vi.fn() }),
 }));
 vi.mock('../hooks/useAppConfig', () => ({
+  // ★ fix-514 §F: `ProjectDataEditors` reads the project-tag registry now,
+  //   so this partial mock has to carry the reader as well as the hook —
+  //   the partial-mock trap, which this repo keeps meeting.
+  readAppConfigStringArray: () => [],
   useAppConfig: () => ({ map: configRef.current, isLoading: false, error: null }),
 }));
 vi.mock('../hooks/useConsultantCurrent', () => ({

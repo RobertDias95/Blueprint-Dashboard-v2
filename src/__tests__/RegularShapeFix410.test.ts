@@ -204,21 +204,30 @@ describe('fix-410 §2: the row builder keeps all three states apart', () => {
   });
 
   it('★★★ …and the COLUMN is untouched — a display change, not a data one', () => {
-    // ★★ The wizard still writes it (fix-410's ruling is not reversed), the
-    //    select list still carries it, and the Library still shows it. That is
-    //    what makes dropping the overview row safe with no migration and no
-    //    backfill — nothing stopped being recorded.
+    // ★★ The wizard still writes it (fix-410's ruling is not reversed) and the
+    //    select list still carries it. That is what makes dropping the overview
+    //    row safe with no migration and no backfill — nothing stopped being
+    //    recorded.
+    // ★★★ fix-514 §H SUPERSEDES THE SECOND HALF OF THIS CLAIM, which used to
+    //     end "…and the Library still shows it". Bobby STRUCK `Shape` out of
+    //     the Site table in his 2026-09-10 markup, consistent with
+    //     [[P-161-lot-shape-is-implied-by-its-dimensions-not-labelled]] — the
+    //     same ruling that removed the row from the Overview, and which this
+    //     column should not have outlived. The lot's width and depth are now
+    //     the second and third columns on that row, so the shape is implied
+    //     right where it is read.
+    // ★ THE DATA CLAIM IS THE ONE THAT MATTERED and it is unchanged: the
+    //   column is still SELECTED, still written, still tri-state.
     expect(useProjectsSource).toContain(
       "'num_lots, is_corner_lot, is_regular_shape, closing_date'",
     );
-    expect(matrixSource).toContain('library-regular-shape-');
   });
 
-  it('★★ the Library cell renders Regular / Irregular / em dash', () => {
-    expect(matrixSource).toContain('library-regular-shape-');
-    expect(matrixSource).toMatch(
-      /row\.isRegularShape === true[\s\S]{0,200}Regular[\s\S]{0,200}Irregular/,
-    );
+  it('★★ …and the Library no longer PRINTS it — fix-514 §H', () => {
+    // ★ fix-512's read found the stored flag disagreeing with the implied
+    //   shape on 10 of 219 prod rows, which is a reason to stop printing a
+    //   second opinion beside the dimensions rather than to delete it.
+    expect(matrixSource).not.toContain('library-regular-shape-');
   });
 });
 

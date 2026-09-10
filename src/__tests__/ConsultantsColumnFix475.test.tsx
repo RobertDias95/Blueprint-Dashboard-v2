@@ -54,6 +54,7 @@ const state = vi.hoisted(() => ({
   added: [] as unknown[],
   status: [] as unknown[],
   firm: [] as unknown[],
+  removed: [] as unknown[],
   dates: [] as unknown[],
 }));
 
@@ -81,6 +82,13 @@ vi.mock('../hooks/useProjectConsultants', () => ({
   useSetConsultantPhase: () => ({ mutate: vi.fn(), isPending: false }),
   useSetConsultantFirm: () => ({
     mutate: (i: unknown) => state.firm.push(i),
+    isPending: false,
+  }),
+  // ★ fix-514 §D: the pill gained a Remove control in `manage` mode. The
+  //   partial mock has to grow with the component or every test in this file
+  //   fails on a missing export — the fix-407 "partial-mock trap", again.
+  useRemoveProjectConsultant: () => ({
+    mutate: (i: unknown) => state.removed.push(i),
     isPending: false,
   }),
 }));
@@ -169,6 +177,7 @@ beforeEach(() => {
   state.added = [];
   state.status = [];
   state.firm = [];
+  state.removed = [];
   state.dates = [];
   void T;
 });

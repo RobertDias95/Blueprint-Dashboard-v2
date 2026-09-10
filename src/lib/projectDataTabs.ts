@@ -18,6 +18,7 @@ export type ProjectDataTab =
   | 'site'
   | 'dates'
   | 'units'
+  | 'permits'
   | 'builder'
   | 'team'
   | 'consultants'
@@ -28,6 +29,20 @@ export const PROJECT_DATA_TABS: ReadonlyArray<{ key: ProjectDataTab; label: stri
   { key: 'site', label: 'Site data' },
   { key: 'dates', label: 'Dates' },
   { key: 'units', label: 'Units' },
+  // ★★★ fix-514 §A0 — THE NINTH TAB, PROPOSED RATHER THAN INVENTED.
+  //
+  // §A0 required the leftover set to be reported before §A was built, and to
+  // say so if the tabs could not absorb it. Everything Project Settings still
+  // owned fits an existing tab EXCEPT the permit rows: six fields per row, N
+  // rows, plus add and remove. Folding those into Site data or Units would
+  // put a repeating sub-form inside a list of scalars.
+  //
+  // ★★ AND §G LANDS HERE TOO, which is what settles it. fix-513 refused to
+  //    move `PermitDetailV2`'s ACQ editor because Project Data could only
+  //    reach the Building Permit; the answer is a surface that addresses
+  //    permits individually, and that is this tab. The leftover and the new
+  //    requirement are the same tab, so it earns its place twice.
+  { key: 'permits', label: 'Permits' },
   { key: 'builder', label: 'Builder / Owner' },
   { key: 'team', label: 'Internal team' },
   { key: 'consultants', label: 'Consultants' },
