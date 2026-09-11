@@ -807,3 +807,188 @@ export function phaseChipIsRedundant(chipLabel: string, dateLabel: string): bool
   const c = chipState(chipLabel);
   return c !== 'other' && c === dateLabelState(dateLabel);
 }
+
+// ===========================================================================
+// ★★★ fix-530 §A/§B (P-245) — A SHORT BLOCK DROPS FIELDS, NOT FONT SIZE
+// ===========================================================================
+//
+// Bobby, 2026-09-11, on `220 North 58th Street`: *"it's really hard to read,
+// like everything. Prioritize address, and then we know that it's approved
+// based on the legend. So then maybe just put the approval date… if we can have
+// it be smart and reformat the text."*
+//
+// ★★★ THIS IS 46% OF THE BOARD. Measured on prod 2026-09-11, 220 blocks:
+//
+//       1 week      6
+//       2 weeks    96
+//       3 weeks    54
+//       4+ weeks   64
+//       ───────────────
+//       ≤ 2 weeks  102  →  46%
+//
+// ★★★ THE PRIORITY ORDER, IN HIS WORDS: **address**, then **the approval date**
+//     (actual, else estimated). Jurisdiction and the status chip are what go,
+//     and they go TOGETHER — *"we know that it's approved based on the
+//     legend"*: colour → status is already carried there, and the jurisdiction
+//     is the cheaper of the two to walk to the popup for.
+//
+// ⚠️⚠️ AND NOTHING SHRINKS. Truncating is how the board got `Edmo…`, `Sea…`,
+//      `Pho…` (P-224) and `0 SW Concord St [Redesig…`. **An omitted field sends
+//      the reader to the legend; a truncated one sends them nowhere.**
+//
+// ★★★ DECIDED BY MEASURED SPACE, NEVER BY WEEK COUNT. A 2-week block at 1920
+//     and at 1600 are different amounts of room — the column width sets the
+//     address font and its line count, which is most of the stack. fix-516 was
+//     the last time a mock-up pixel shipped as a measurement.
+
+/** Which of the block's optional rows survive the room it has. */
+export interface BlockFieldPlan {
+  /** Render the jurisdiction · status row at all. */
+  showMeta: boolean;
+  /** …and if so, on two lines rather than one. */
+  metaStacks: boolean;
+  /** Detail rows the stack will actually draw — meta (0/1/2) plus the date's
+   *  own two. ★ The anchor decision needs this BEFORE anything renders, which
+   *  is why the plan is computed rather than discovered. */
+  detailLines: number;
+}
+
+/** The date label and its value: two rows, always. ★ Named so the arithmetic
+ *  below reads as the rule rather than as a magic 2. */
+export const BLOCK_DATE_LINES = 2;
+
+/**
+ * What this block has room to say.
+ *
+ * ★★★ THE RULE: fit the REQUIRED rows first (address + date), then buy the meta
+ *     row only if the measured stack still fits, then buy its second line the
+ *     same way. Greedy from the top of Bobby's priority order, and every step
+ *     is `blockStackHeight` — the same function the anchor decision uses, so
+ *     the two cannot disagree about what fits.
+ *
+ * ★★ `chipRedundant` collapses the chip to nothing (fix-521 rule 2), which
+ *    leaves the meta row as one short string — so it is passed in rather than
+ *    re-derived here.
+ */
+export function blockFieldPlan(input: {
+  heightPx: number;
+  addressLines: number;
+  addressFontPx: number;
+  detailFontPx: number;
+  /** True when the chip says what the date label already says. */
+  chipRedundant: boolean;
+  /** True when jurisdiction + chip both fit on one line at this width. */
+  metaFitsOneLine: boolean;
+}): BlockFieldPlan {
+  const { heightPx, addressLines, addressFontPx, detailFontPx } = input;
+  const fits = (detailLines: number) =>
+    blockStackHeight(addressLines, addressFontPx, detailFontPx, detailLines) <=
+    heightPx;
+
+  // ★★★ THE FLOOR IS NEVER DROPPED. Address and date survive even when they do
+  //     not fit — a block with no address is not a block. What the plan decides
+  //     is only what is bought ABOVE the floor.
+  const floor = BLOCK_DATE_LINES;
+  if (!fits(floor + 1)) {
+    return { showMeta: false, metaStacks: false, detailLines: floor };
+  }
+
+  // ★★ §B: with room for a second meta line the pair STACKS, because Bobby
+  //    asked for it stacked wherever there is vertical height — and a stacked
+  //    jurisdiction owns the full width, so it cannot truncate.
+  //    ★ A collapsed chip has nothing to stack WITH, so it stays one line.
+  if (metaWantsStack(input.chipRedundant, fits(floor + 2))) {
+    return { showMeta: true, metaStacks: true, detailLines: floor + 2 };
+  }
+  // ★ One line: either the chip collapsed, or there is room for the pair but
+  //   not for two rows of it. ONLY THEN does "do they fit side by side?"
+  //   matter — and if they do not, the block is better off without them than
+  //   with `Edmo…`.
+  if (input.chipRedundant || input.metaFitsOneLine) {
+    return { showMeta: true, metaStacks: false, detailLines: floor + 1 };
+  }
+  return { showMeta: false, metaStacks: false, detailLines: floor };
+}
+
+/**
+ * ★★★ §B — WHAT fix-521's CONDITION ACTUALLY TESTED, AND WHY IT LOOKED FIXED.
+ *
+ * fix-521 §B computed `metaStacks = !chipRedundant && !blockMetaFitsOneLine(…)`
+ * — a pure **WIDTH** test. It never asked how tall the block was.
+ *
+ * ★★★ AND THE REASON IT READ AS *"fixed for Approved, broken for everything
+ *     else"* is that the Approved case never reached it. An `Approved` chip
+ *     beside an `Approval` date is redundant (fix-521 rule 2), so the chip was
+ *     DELETED and the row became one short string — which looks exactly like a
+ *     successful stack. `3921 43rd Ave S` reads `Seattle` + `Under Review`,
+ *     which is not redundant, IS narrow enough to sit side by side, and so
+ *     stayed inline on a block with plenty of vertical room.
+ *
+ * ★★ SO THE GATE WAS NEVER WRONG ABOUT WIDTH — IT WAS ANSWERING THE WRONG
+ *    QUESTION. **The status is not a proxy for the room**, and neither is the
+ *    width: [[P-239]]'s one-sided guard again, a condition that happens to be
+ *    right for one branch.
+ */
+export function metaWantsStack(
+  chipRedundant: boolean,
+  roomForTwoMetaLines: boolean,
+): boolean {
+  return !chipRedundant && roomForTwoMetaLines;
+}
+
+// ===========================================================================
+// ★★★ fix-530 §E — A COLUMN IS NOT CREATED BY A TWO-DAY TAIL
+// ===========================================================================
+//
+// Bobby: *"Jade technically does not have any projects under her name, but it's
+// showing Eastlake… that's part of Q3 2026, not Q2. We show the beginning and
+// ending week of the previous quarters to see how projects hold into the next
+// quarter. We just don't want to show Jade there — it's kind of false
+// advertising."*
+//
+// ★★★ MEASURED, AND IT IS EXACT. `2621 Eastlake Ave E` runs 2026-06-29 →
+//     2026-10-04 (98 days). Q2 2026 ends 6/30, so **two days — 2.0% of the
+//     block — fall in Q2**, and Jade is in neither `dm_da_groups` (12 rows, no
+//     Jade) nor the 2026-Q2 layout (9 DA columns, no Jade). Those two days make
+//     her an ORPHAN LANE in `buildDrawColumns`, and that orphan lane is her
+//     entire column.
+//
+// ★★ THE EDGE WEEKS STAY. They are wanted — they are how you see work carry
+//    into the next quarter — and spillover still renders inside a column that
+//    already exists. **What changes is only whether spillover can CREATE one.**
+//
+// ★ And the block is not lost: its majority is in Q3, where Jade's orphan lane
+//   still appears. Orphan lanes per quarter, today → under this rule:
+//   Q1 `0 → 0` · **Q2 `1 → 0` (Jade)** · Q3 `1 → 1`.
+
+/** Does this block's span fall MOSTLY inside `[rangeStart, rangeEnd]`?
+ *
+ *  ★ Week keys are `YYYY-MM-DD` Mondays, so this is integer arithmetic on week
+ *    counts — no local Date, nothing that moves at 5pm Pacific (fix-433).
+ *
+ *  ★★ A block's END week is inclusive, so a block that starts and ends on the
+ *     same Monday spans ONE week, not zero. Getting that wrong would make every
+ *     single-week block a minority of itself. */
+export function blockMajorityInRange(
+  startWeek: string,
+  endWeek: string,
+  rangeStart: string,
+  rangeEnd: string,
+): boolean {
+  if (!startWeek || !endWeek || !rangeStart || !rangeEnd) return false;
+  if (startWeek > rangeEnd || endWeek < rangeStart) return false;
+  const weeksBetween = (a: string, b: string) =>
+    Math.round(
+      (Date.parse(`${b}T12:00:00Z`) - Date.parse(`${a}T12:00:00Z`)) /
+        (7 * 24 * 60 * 60 * 1000),
+    ) + 1;
+  const total = weeksBetween(startWeek, endWeek);
+  if (total <= 0) return false;
+  const inStart = startWeek > rangeStart ? startWeek : rangeStart;
+  const inEnd = endWeek < rangeEnd ? endWeek : rangeEnd;
+  const inside = weeksBetween(inStart, inEnd);
+  // ★★★ STRICTLY MORE THAN HALF. A block split exactly down the middle creates
+  //     no column in either quarter — the safe direction, because it still
+  //     renders in both wherever a column exists for another reason.
+  return inside * 2 > total;
+}
