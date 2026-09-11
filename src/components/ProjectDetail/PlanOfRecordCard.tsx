@@ -14,31 +14,35 @@ import {
   formatModified,
   hasThumbnail,
   missingThumbnailReason,
+  planOfRecordSetAvailable,
   planOfRecordSetButtons,
   planOfRecordSetCaption,
+  planOfRecordSetFor,
   // ★★★ fix-522 §A/§B/§C: the one resolution the chip, the preview and the
   //     viewer all read, and the rule that decides which viewer.
+  firstAvailableVariant,
   planOfRecordViewerMode,
   shownPlanOfRecord,
   stageLabel,
   type PlanOfRecordVariant,
 } from '../../lib/planOfRecord';
-import { pushToast } from '../../stores/toastStore';
 import { OverviewCard, OverviewSection } from './OverviewCard';
 import {
   usePlanOfRecordSets,
-  findVariant,
+  // ★ fix-523 §B2: `findVariant` is no longer imported here. It matched
+  //   `set_type === 'marketing'` and nothing else, so a schematic's one button
+  //   resolved to `null` — harmless while nothing read it, and a button that
+  //   grays itself the moment an availability guard does.
+  //   `planOfRecordSetFor` matches the row's own stage.
   pagePaths,
   type PlanOfRecordSetRow,
 } from '../../hooks/usePlanOfRecordSets';
+import { SHARE_TTL_DAYS } from '../../lib/planOfRecordShare';
 import {
-  SHARE_TOAST,
-  SHARE_TTL_DAYS,
-  planShareBody,
-  planShareMailto,
-  planShareSubject,
-  signPlanShareUrl,
-} from '../../lib/planOfRecordShare';
+  findShareLink,
+  usePlanShareActions,
+  type PlanShareLinkRow,
+} from '../../hooks/usePlanShare';
 import {
   POR_BUTTON_GAP,
   POR_BUTTON_MIN_WIDTH,
@@ -83,14 +87,30 @@ export default function PlanOfRecordCard({ projectId }: Props) {
   const verdictQ = usePlanOfRecordVerdict(projectId);
   // ★★★ fix-506 §E (P-148): TWO MARKETING VARIANTS, ONE PICKED.
   //
-  // `project_plan_of_record_sets` is fix-504's, and STEP 0-4 confirmed it
-  // ABSENT on prod — so `sets.available` is false today and the External
-  // button renders disabled with the reason. Both branches are written; only
-  // the absent one is reachable until the scraper ticket lands.
+  // ★ fix-523: THE SECOND HALF OF THIS NOTE WAS OUT OF DATE AND SAID SO
+  //   CONFIDENTLY — *"STEP 0-4 confirmed it ABSENT on prod, so `sets.available`
+  //   is false today and the External button renders disabled with the
+  //   reason."* `project_plan_of_record_sets` landed with fix-504 and carries
+  //   334 rows (measured 2026-09-11), the `available: false` branch is now the
+  //   unreachable one, and the "with the reason" caption is deleted by §B2.
+  //   Corrected in place rather than removed: the feature-detect is still real
+  //   and `usePlanOfRecordSets` still has to answer `42P01` without throwing.
   const setsQ = usePlanOfRecordSets(projectId);
-  const [variant, setVariant] = useState<'internal' | 'external'>('internal');
-  const [lightbox, setLightbox] = useState(false);
   const row = q.data ?? null;
+  // ★★★ fix-523 §B2 — THE CARD OPENS ON A BUTTON THAT WORKS.
+  //
+  // This was `useState('internal')`, which is right for the 5 internal-only and
+  // the 53 both projects and wrong for the **74 external-only** ones: with the
+  // guard now two-sided, those would open on a grayed Site Plan with the live
+  // Marketing button unpicked beside it — a correct guard and a useless card.
+  //
+  // ★ `null` means *nobody has pressed anything yet*, resolved at render rather
+  //   than through an effect: the sets query has not answered on the first
+  //   paint, so an initial value cannot know which button is live, and writing
+  //   one in later is a re-render that fights whatever the reader just pressed.
+  const [picked, setVariant] = useState<'internal' | 'external' | null>(null);
+  const variant = picked ?? firstAvailableVariant(row?.set_type, setsQ.data);
+  const [lightbox, setLightbox] = useState(false);
   const verdict = verdictQ.data ?? null;
   // ★ Only trust the verdict once it has actually answered. While it is loading
   // — or if it fails — the card behaves exactly as it did before fix-358, which
@@ -566,24 +586,14 @@ function ShareGlyph() {
   );
 }
 
-/** ★ One place that copies, so the toast wording and the failure path cannot
- *  differ between the two buttons and the viewer. */
-async function sharePlanPage(objectPath: string | null) {
-  if (!objectPath) {
-    pushToast('Nothing to share yet — the page image has not been generated', 'error');
-    return;
-  }
-  try {
-    const url = await signPlanShareUrl(objectPath);
-    await navigator.clipboard.writeText(url);
-    pushToast(SHARE_TOAST, 'success');
-  } catch {
-    // ★ ONE message for both failures — minting and copying. A person who
-    //   cannot share does not need to know which half refused, and naming the
-    //   storage error would leak a path.
-    pushToast('Could not create the share link', 'error');
-  }
-}
+// ★★★ fix-523 §A — `sharePlanPage` IS GONE FROM THIS FILE.
+//
+// It signed one page object and copied the URL. Copy link, Email it… and the
+// enlarged view's Share button now all mint `/s/<token>` through
+// `usePlanShareActions`, which is the same collapse fix-522 made when it put
+// the two menu items on one `sharePath()` — one more control had simply been
+// left outside it. The toast wording and the failure path are unchanged and
+// still declared once, in `lib/planOfRecordShare`.
 
 /**
  * ★★★ THE SET BUTTONS — AND fix-507 §F MAKES THEM NAME THE PROJECT'S STAGE.
@@ -618,11 +628,12 @@ function SetButtons({
   variant: PlanOfRecordVariant;
   onPickVariant: (v: PlanOfRecordVariant) => void;
 }) {
-  const internalSet = findVariant(sets, 'internal');
-  const externalSet = findVariant(sets, 'external');
-  const externalReady =
-    !!externalSet && externalSet.pages_status === 'ok' && (externalSet.page_count ?? 0) > 0;
   const buttons = planOfRecordSetButtons(row.set_type);
+  // ★★★ fix-523 §A — ONE PLACE THAT MINTS. Copy link, Email it… and the
+  //     enlarged view's Share button all hand over the same `/s/<token>` for
+  //     the same set; `usePlanShareActions` is what makes that true by
+  //     construction rather than by three call sites agreeing.
+  const share = usePlanShareActions(row.project_id);
   // ★ A stage with one button can only ever be showing it. Reading the SELECTED
   //   variant off the list rather than off state is what makes "the caption
   //   names the same set as the selected button" true even if a project's stage
@@ -630,38 +641,21 @@ function SetButtons({
   const selected =
     buttons.find((b) => b.variant === variant) ?? buttons[0] ?? null;
   const shownVariant = selected?.variant ?? 'internal';
-  const shown = shownVariant === 'external' ? externalSet : internalSet;
+  // ★★★ fix-523 §B2: the set behind the SHOWN button, resolved by the shared
+  //     lookup rather than by `findVariant` — which matched `set_type ===
+  //     'marketing'` and nothing else, so a schematic's one button resolved to
+  //     `null` and would now have grayed itself under the new guard.
+  const shown = planOfRecordSetFor(row.set_type, sets, shownVariant);
   const archived = shown?.is_archived_fallback === true;
 
-  /** ★ The object a share points at: the set's FIRST PAGE, falling back to its
-   *  thumbnail and then to the plan-of-record row's. One definition, so Copy
-   *  link and Email it can never send different things. */
-  function sharePath(v: PlanOfRecordVariant): string | null {
-    const set = v === 'external' ? externalSet : internalSet;
-    return pagePaths(set)[0] ?? set?.thumb_path ?? row.thumb_path ?? null;
-  }
-
-  async function emailPlanPage(objectPath: string | null, label: string) {
-    if (!objectPath) {
-      pushToast('Nothing to share yet — the page image has not been generated', 'error');
-      return;
-    }
-    try {
-      const url = await signPlanShareUrl(objectPath);
-      const set = label === buttons[1]?.label ? externalSet : internalSet;
-      const name = set?.file_name ?? row.file_name;
-      const subject = planShareSubject(name, label);
-      const body = planShareBody(name, label, url, set?.page_count ?? 1);
-      // ★ Navigate, never `window.open`: a `mailto:` opened in a new tab
-      //   leaves an empty tab behind in every browser that honours it.
-      // ★★ `assign()` rather than `location.href = …` — the React Compiler
-      //    rejects assigning to a value it did not create ("This value cannot
-      //    be modified"), and only LINT catches it. Same method, same
-      //    behaviour, and it is a call rather than a mutation.
-      window.location.assign(planShareMailto(subject, body));
-    } catch {
-      pushToast('Could not create the share link', 'error');
-    }
+  /** ★★★ fix-523 §A4 — THE `variant` THE DATABASE STORES, WHICH IS NOT THE
+   *  BUTTON'S. Only `marketing` has variants: `project_plan_of_record_sets`
+   *  holds `null` for all 101 schematics and all 48 design-guidance sets
+   *  (measured 2026-09-11), and the RPCs compare `coalesce(variant,'')`. Send
+   *  `'internal'` for a schematic and `bp_create_plan_share` raises `P0002` —
+   *  correctly, because no such set exists. */
+  function shareVariant(v: PlanOfRecordVariant): string | null {
+    return row.set_type === 'marketing' ? v : null;
   }
 
   return (
@@ -672,16 +666,36 @@ function SetButtons({
             key={b.variant}
             label={b.label}
             picked={shownVariant === b.variant}
-            disabled={b.variant === 'external' && !externalReady}
+            // ★★★ fix-523 §B2 (P-239) — THE GUARD ASKS ABOUT **THIS** BUTTON.
+            //     It read `b.variant === 'external' && !externalReady`: one
+            //     expression naming one direction, so the 74 external-only
+            //     projects rendered a live Site Plan with nothing behind it.
+            //     The variant is an argument now, which is what makes the
+            //     other direction impossible to forget.
+            disabled={!planOfRecordSetAvailable(row.set_type, sets, b.variant)}
             onPick={() => onPickVariant(b.variant)}
-            onShare={() => void sharePlanPage(sharePath(b.variant))}
+            onShare={() => void share.copy(row.set_type, shareVariant(b.variant))}
             // ★★★ fix-522 §D4 — THE SAME LINK, IN AN EMAIL THE SUBJECT OF WHICH
             //     NAMES THE SET. Bobby: *"boom, create the email, open it, and
             //     it's already got the subject line, what you're sharing."*
-            //     ⚠️ No image — a `mailto:` cannot carry one. See
-            //     `planOfRecordShare` for the two ways it could and why neither
-            //     is in this ticket.
-            onEmail={() => void emailPlanPage(sharePath(b.variant), b.label)}
+            //     ⚠️ No image and, fix-523 §B4, no attachment either — a
+            //     `mailto:` can carry neither. The LINK carries the PDF; the
+            //     email carries the link.
+            onEmail={() =>
+              void share.email(
+                row.set_type,
+                shareVariant(b.variant),
+                b.label,
+                planOfRecordSetFor(row.set_type, sets, b.variant)?.file_name ??
+                  row.file_name,
+                planOfRecordSetFor(row.set_type, sets, b.variant)?.page_count ?? 1,
+              )
+            }
+            // ★★★ fix-523 §A2 — UNSHARE, AND ONLY WHEN THERE IS SOMETHING TO
+            //     UNSHARE. The token is a bearer credential and Bobby's
+            //     standing concern is a link reaching the wrong builder.
+            shareLink={findShareLink(share.links, row.set_type, shareVariant(b.variant))}
+            onUnshare={(token) => void share.unshare(token)}
             testId={`plan-of-record-set-${b.variant}`}
           />
         ))}
@@ -691,24 +705,33 @@ function SetButtons({
         style={{ color: 'var(--color-muted)' }}
         data-testid="plan-of-record-set-caption"
       >
-        {shownVariant === 'external' && !externalReady ? (
-          'External pages arrive with the next indexer run.'
-        ) : (
-          <>
-            {archived && (
-              <span
-                className="font-extrabold mr-1"
-                style={{ color: 'var(--color-co)' }}
-                data-testid="plan-of-record-archived"
-              >
-                ARCHIVED
-              </span>
-            )}
-            {planOfRecordSetCaption(row.set_type, shownVariant)} ·{' '}
-            {formatModified(row.modified_at)} ·{' '}
-            {pageCountLabel(shown, shownVariant)}
-          </>
-        )}
+        {/* ⚠⚠ fix-523 §B2 — RULED BY BOBBY 2026-09-11, NO EXPLANATORY TEXT.
+            *"just dont make it clickable if it isnt available, this way, we
+            know and can go fix that. adding that additional text makes it more
+            busy."* The branch that stood here printed *"External pages arrive
+            with the next indexer run."* and it is DELETED, not moved: no
+            tooltip, no caption, no helper line, no badge, no empty state.
+
+            ★★★ THE GRAY **IS** THE MESSAGE, and its audience is Blueprint
+                rather than the builder — a gray Site Plan means somebody needs
+                to go put one on the share, and Bobby reads that in a glance
+                across many projects, not in a sentence on one. Adding a single
+                line of copy back here would be a regression against an explicit
+                instruction. A test asserts the absence. */}
+        <>
+          {archived && (
+            <span
+              className="font-extrabold mr-1"
+              style={{ color: 'var(--color-co)' }}
+              data-testid="plan-of-record-archived"
+            >
+              ARCHIVED
+            </span>
+          )}
+          {planOfRecordSetCaption(row.set_type, shownVariant)} ·{' '}
+          {formatModified(row.modified_at)} ·{' '}
+          {pageCountLabel(shown, shownVariant)}
+        </>
       </div>
     </div>
   );
@@ -737,6 +760,8 @@ function SetButton({
   onPick,
   onShare,
   onEmail,
+  shareLink,
+  onUnshare,
   testId,
 }: {
   label: string;
@@ -746,6 +771,11 @@ function SetButton({
   onShare: () => void;
   /** ★ fix-522 §D4: open a mail client with the subject and link filled in. */
   onEmail: () => void;
+  /** ★★★ fix-523 §A2: the live link for THIS set, or null. `Unshare` renders
+   *  only when it is non-null — a control that would be offered on every set
+   *  and do nothing on most of them teaches its reader to distrust it. */
+  shareLink: PlanShareLinkRow | null;
+  onUnshare: (token: string) => void;
   testId: string;
 }) {
   return (
@@ -775,15 +805,28 @@ function SetButton({
       {/* ★ The share control sits INSIDE the button's frame, at its right end,
           as the mock draws it — but it is its own control, because picking a
           set and sharing it are two actions and one button cannot be both.
-          ★★ fix-522 §D3: it opens a MENU now. See `ShareMenu`. */}
-      <ShareMenu
-        label={label}
-        picked={picked}
-        disabled={disabled}
-        onCopy={onShare}
-        onEmail={onEmail}
-        testId={testId}
-      />
+          ★★ fix-522 §D3: it opens a MENU now. See `ShareMenu`.
+
+          ★★★ fix-523 §B2 — AND IT IS **GONE** BESIDE AN UNAVAILABLE SET, by
+              the same guard, not a second one. Bobby's screenshot of
+              `5947 32ND AVE SW` shows a share glyph beside the gray Marketing
+              button; it was `disabled`, so it did nothing, but it still read
+              as an offer. **A set you cannot open is a set you cannot share** —
+              and `bp_create_plan_share` already refuses, raising `P0002` when
+              no current set matches, so the UI was able to reach a call that
+              could only fail. Absent is the honest render, and it is what the
+              test asserts. */}
+      {!disabled && (
+        <ShareMenu
+          label={label}
+          picked={picked}
+          onCopy={onShare}
+          onEmail={onEmail}
+          shareLink={shareLink}
+          onUnshare={onUnshare}
+          testId={testId}
+        />
+      )}
     </div>
   );
 }
@@ -863,6 +906,9 @@ function Lightbox({
   // is the correct and honest result -- it is the render resolution showing
   // through, and it is the signal that the fix belongs upstream.
   const [naturalWidth, setNaturalWidth] = useState<number | null>(null);
+  // ★★★ fix-523 §A: the viewer shares through the SAME minting path as the
+  //     card face. It signed a Storage object of its own until this ticket.
+  const share = usePlanShareActions(row.project_id);
 
   // ★★★ fix-440 (P-057 B2) — ESCAPE NOW ACTUALLY WORKS, AND IT NEVER DID.
   //
@@ -956,15 +1002,23 @@ function Lightbox({
             )}
           </div>
           <div className="flex-shrink-0 flex items-center gap-1.5">
-            {/* ★ Shares the FIRST page — see lib/planOfRecordShare for why a
-                multi-page share is a landing page and not a list of URLs. */}
+            {/* ★★★ fix-523 §A — SHARES THE WHOLE SET NOW, not page one.
+                `lib/planOfRecordShare` said a multi-page share needs a landing
+                page rather than a list of URLs; the landing page exists, so
+                this hands over the same `/s/<token>` the card's menu does. It
+                was the third control resolving the shared object on its own. */}
             <button
               type="button"
               onClick={() =>
-                void sharePlanPage(pages[0] ?? row.thumb_path)
+                void share.copy(
+                  row.set_type,
+                  row.set_type === 'marketing'
+                    ? (shownSet?.variant?.toLowerCase() ?? 'internal')
+                    : null,
+                )
               }
               className="text-[11px] font-bold px-2.5 py-1 rounded border border-de bg-surface text-de hover:bg-s2 transition flex items-center gap-1"
-              title="Copy a 30-day link to page 1 — no login needed"
+              title={`Copy a ${SHARE_TTL_DAYS}-day link to this set — no login needed`}
               data-testid="plan-of-record-lightbox-share"
             >
               <ShareGlyph />
@@ -1112,16 +1166,18 @@ function PageImage({
 function ShareMenu({
   label,
   picked,
-  disabled,
   onCopy,
   onEmail,
+  shareLink,
+  onUnshare,
   testId,
 }: {
   label: string;
   picked: boolean;
-  disabled?: boolean;
   onCopy: () => void;
   onEmail: () => void;
+  shareLink: PlanShareLinkRow | null;
+  onUnshare: (token: string) => void;
   testId: string;
 }) {
   const [open, setOpen] = useState(false);
@@ -1150,8 +1206,7 @@ function ShareMenu({
       <button
         type="button"
         onClick={() => setOpen((v) => !v)}
-        disabled={disabled}
-        className="px-1.5 flex items-center border-l disabled:cursor-default"
+        className="px-1.5 flex items-center border-l"
         style={{
           borderLeftColor: picked ? 'rgba(255,255,255,.4)' : 'var(--color-border)',
           background: picked ? 'var(--color-de)' : 'var(--color-surface)',
@@ -1195,6 +1250,33 @@ function ShareMenu({
           >
             Email it…
           </ShareMenuItem>
+          {/* ★★★ fix-523 §A2 — STOP SHARING. Present only when a live link for
+              this set exists; there is nothing to revoke otherwise, and an item
+              that is usually inert is an item people stop reading. */}
+          {shareLink && (
+            <ShareMenuItem
+              testId={`${testId}-share-unshare`}
+              onPick={() => {
+                setOpen(false);
+                onUnshare(shareLink.token);
+              }}
+              title="Stop this link working — anyone holding it loses access immediately"
+            >
+              Unshare
+            </ShareMenuItem>
+          )}
+          {/* ⏸ **Download PDF is NOT here, and its absence is the correct
+              result of fix-523 §B.** Every one of the 334 current sets IS a PDF
+              on `\bpc-file` — `unc_path` is populated on all of them — but the
+              indexer has never uploaded one: `project_file_index.pdf_path` is
+              NULL on every row, and `project_plan_of_record_sets` does not
+              carry the column at all (both measured 2026-09-11). Uploading is a
+              scraper ticket.
+
+              ★★★ SO THERE IS NO DISABLED BUTTON AND NO PROMISE OF ONE — the
+                  affordance appears when there is a file behind it and not one
+                  moment earlier, which is the P-032 placeholder rule this card
+                  already had applied to it once. A test asserts the absence. */}
         </div>
       )}
     </div>

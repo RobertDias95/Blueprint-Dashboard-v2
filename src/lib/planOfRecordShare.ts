@@ -38,6 +38,43 @@ export const SHARE_TTL_SECONDS = SHARE_TTL_DAYS * 24 * 60 * 60;
 /** The words that go with it. Declared beside the number for the same reason. */
 export const SHARE_TOAST = `Link copied — works for ${SHARE_TTL_DAYS} days, no login`;
 
+// ===========================================================================
+// ★★★ fix-523 §A (P-187) — WHAT THE LINK NOW IS, AND WHAT THIS FILE STILL OWNS
+// ===========================================================================
+//
+// Everything above describes a signed Storage URL to ONE PAGE IMAGE. That is
+// what fix-506 shipped and what fix-522 wrapped in a menu and an email, and it
+// is **superseded, not mistaken**: the reasoning was right for a ticket with no
+// table, no RPC and no route. All three landed on prod on 2026-09-11, so Copy
+// link and Email it now mint `/s/<token>` through `bp_create_plan_share` and
+// the whole set travels instead of its first sheet.
+//
+// ★★★ THE THREE PROPERTIES STATED ABOVE ALL SURVIVE THE CHANGE, which is why
+//     the note stays rather than being rewritten:
+//
+//       · minted against the CALLER'S OWN session — `bp_create_plan_share` is
+//         granted to `authenticated` only and raises `42501` for a project
+//         outside the caller's tenants;
+//       · grants ONE SET, not a folder, not a listing, not a token that walks
+//         to a sibling project's drawings;
+//       · it EXPIRES, on the same `SHARE_TTL_DAYS` number, still one constant.
+//
+// ★★ AND `plan-thumbnails` STAYS PRIVATE. There is still no `getPublicUrl` for
+//    this bucket anywhere in the repo. The shared page's images are signed
+//    SERVER-SIDE by the `plan-share` Edge Function with the service-role key —
+//    which is the only way an anonymous reader can see them, because `anon` has
+//    no read policy on that bucket at all.
+//
+// ★ What is left in this file is the WORDS: the TTL constant, the toasts, and
+//   the email's subject and body. The minting lives in `hooks/usePlanShare`,
+//   the URL shape in `lib/planShare`, and the signing in the Edge Function.
+
+/** ★★★ §A2: the token is a bearer credential, so *stop sharing* is a control
+ *  and not a support request. `bp_revoke_plan_share` sets `revoked_at`, and a
+ *  revoked token resolves to zero rows — indistinguishable from expired, from
+ *  a deleted set and from one that never existed. */
+export const UNSHARE_TOAST = 'Link stopped — it no longer opens for anyone';
+
 /**
  * ★★★ ONE PAGE, AND ONLY ONE, IN THIS TICKET.
  *

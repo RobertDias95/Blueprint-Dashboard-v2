@@ -2,6 +2,7 @@ import { useQuery } from '@tanstack/react-query';
 import { supabase } from '../lib/supabase';
 import { useAuthStore } from '../stores/authStore';
 import type { PlanOfRecordStage } from '../lib/database.types';
+import { planSharePagePaths } from '../lib/planShare';
 
 // ===========================================================================
 // ★★★ fix-506 §E (P-148) — THE PLAN OF RECORD'S SETS, BEFORE THEY EXIST
@@ -136,10 +137,9 @@ export function findVariant(
  *  three, which is fix-504's own naming — a page 10 sorting before page 2 is
  *  the classic version of this bug and the padding is what prevents it. */
 export function pagePaths(row: PlanOfRecordSetRow | null): string[] {
-  if (!row?.pages_prefix || !row.page_count || row.page_count < 1) return [];
-  const prefix = row.pages_prefix.endsWith('/') ? row.pages_prefix : `${row.pages_prefix}/`;
-  return Array.from(
-    { length: row.page_count },
-    (_, i) => `${prefix}p${String(i + 1).padStart(3, '0')}.jpg`,
-  );
+  // ★ fix-523 §A6: the rule moved to `lib/planShare` and this delegates. The
+  //   shared page resolves the same pages from an RPC result rather than from
+  //   a view row, and two spellings of "pNNN.jpg, padded to three" is exactly
+  //   the drift that would make a builder's page 10 arrive second.
+  return planSharePagePaths(row?.pages_prefix, row?.page_count);
 }
