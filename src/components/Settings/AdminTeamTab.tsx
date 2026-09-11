@@ -8,6 +8,7 @@ import AgendaMembersPanel from './AgendaMembersPanel';
 //   Agenda members. It lists PEOPLE (not role rows) so it can reach the seven
 //   viewers and the director who appear in none of the role lists below.
 import PersonDetailsEditor from './PersonDetailsEditor';
+import WorkDataNamesPanel from './WorkDataNamesPanel';
 import MentionTagsEditor from './MentionTagsEditor';
 import TeamActiveQuartersEditor from './TeamActiveQuartersEditor';
 import QuarterLayoutEditor from './QuarterLayoutEditor';
@@ -317,6 +318,22 @@ export default function AdminTeamTab() {
           while looking complete. */}
       <Section title="Names and emails">
         <PersonDetailsEditor members={teamQ.all} readOnly={!isAdmin} />
+      </Section>
+
+      {/* ★★★ fix-527 §A (P-243) — THE FOURTH ROSTER-GAP SURFACE, AND IN THE
+          SAME SHAPE AS THE THREE ABOVE IT. fix-457's "active DA with no routing
+          row", TeamStructureEditor's "⚠ Unassigned DAs" and fix-458's
+          lead-less permits are all *"a gap in the roster"*; three visual
+          languages for one idea would already be two too many, so this is the
+          same count-then-list.
+
+          ★★ IT SITS DIRECTLY UNDER "Names and emails" BECAUSE THAT IS WHERE THE
+          FIX IS. Every unmapped name here is a roster row with no email, and
+          the editor one section up is the control that sets one — a screen that
+          reports a gap without naming the control that closes it is a
+          complaint. */}
+      <Section title="Who the work data means">
+        <WorkDataNamesPanel readOnly={!isAdmin} />
       </Section>
 
       {/* ★★★ fix-458 §A (P-106): the THIRD roster-gap surface on this tab, and
