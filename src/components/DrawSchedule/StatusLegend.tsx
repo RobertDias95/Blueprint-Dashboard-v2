@@ -1,3 +1,5 @@
+import { RETIRED_PALETTE, retiredHatch } from '../../lib/retiredState';
+
 // Q9.5.a: status legend bar for the Draw Schedule grid. Exact hex
 // colors lifted from v1's index.html lines 9280-9287 — these are NOT
 // the Tailwind palette; they're the v1-canonical chip colors used by
@@ -41,11 +43,23 @@ const CHIPS: Chip[] = [
     fg: 'var(--color-hold-text)',
     border: 'var(--color-hold-border)',
   },
+  // ★★★ fix-524 §A: the two RETIRED states, built from the one recipe. They
+  //     are adjacent in the legend on purpose — that is the only place in the
+  //     app where the grey and the purple appear side by side, so it is the
+  //     only place a reader can learn that the texture means "retired" and the
+  //     hue means which kind. Same paint as the block and the badge, still.
   {
-    label: 'Cancelled',
-    bg: 'var(--hatch-cancelled)',
-    fg: 'var(--color-cancelled-text)',
-    border: 'var(--color-cancelled-border)',
+    label: RETIRED_PALETTE.cancelled.label,
+    bg: retiredHatch('cancelled'),
+    fg: RETIRED_PALETTE.cancelled.text,
+    border: RETIRED_PALETTE.cancelled.border,
+    strike: true,
+  },
+  {
+    label: RETIRED_PALETTE.redesigned.label,
+    bg: retiredHatch('redesigned'),
+    fg: RETIRED_PALETTE.redesigned.text,
+    border: RETIRED_PALETTE.redesigned.border,
     strike: true,
   },
 ];

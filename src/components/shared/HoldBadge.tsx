@@ -1,4 +1,5 @@
 import { holdKind, type ProjectHold } from '../../lib/database.types';
+import RetiredBadge from './RetiredBadge';
 
 // fix-178: presentational On-Hold badge — mirrors LandUsePhaseBadge (prop-driven,
 // renders nothing when there's no active hold). Fed from the bulk holds fetch
@@ -62,21 +63,19 @@ export function HoldBadge({
     : 'inline-block text-[9px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded border whitespace-nowrap';
 
   if (cancelled) {
+    // ★★★ fix-524 §A: the five style lines that used to live here are in
+    //     `RetiredBadge`, which both retired states render through. The text,
+    //     the tooltip and the testid are unchanged to the character — what
+    //     moved is the paint, so a purple retired badge cannot drift away from
+    //     the grey one.
     return (
-      <span
-        className={cls}
-        style={{
-          background: 'var(--hatch-cancelled)',
-          color: 'var(--color-cancelled-text)',
-          borderColor: 'var(--color-cancelled-border)',
-          textDecoration: 'line-through',
-          textDecorationThickness: '1px',
-        }}
+      <RetiredBadge
+        cause="cancelled"
+        compact={compact}
+        suffix={hold.reason}
         title={`Cancelled ${hold.hold_start}${hold.reason ? ` — ${hold.reason}` : ''}${hold.note ? ` — ${hold.note}` : ''}`}
-        data-testid={`${testid}-cancelled`}
-      >
-        ✕ Cancelled{compact ? '' : ` — ${hold.reason}`}
-      </span>
+        testid={`${testid}-cancelled`}
+      />
     );
   }
 

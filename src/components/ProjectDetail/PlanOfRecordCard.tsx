@@ -26,6 +26,7 @@ import {
   stageLabel,
   type PlanOfRecordVariant,
 } from '../../lib/planOfRecord';
+import { useProjects } from '../../hooks/useProjects';
 import { OverviewCard, OverviewSection } from './OverviewCard';
 import {
   usePlanOfRecordSets,
@@ -81,10 +82,55 @@ interface Props {
 
 export default function PlanOfRecordCard({ projectId }: Props) {
   const q = usePlanOfRecord(projectId);
+  // ═══════════════════════════════════════════════════════════════════════
+  // ★★★ fix-524 §C (P-220) — A REDESIGN READS THROUGH TO ITS ORIGINAL'S SET
+  // ═══════════════════════════════════════════════════════════════════════
+  //
+  // ★★★ MEASURED ON PROD 2026-09-11: of the 17 live redesigns, **0 have a plan
+  //     of record of their own** — not "some", every single one — and **14 of
+  //     their originals do.** The drawings are indexed under the original's
+  //     folder, and `usePlanOfRecordVerdict`'s own note has said so since
+  //     fix-358: *"15 redesigns bound to a base project"* have no verdict row
+  //     at all. So a redesign's card has been empty for its whole life while
+  //     the set it is a redesign OF sits one row away.
+  //
+  // ★★★ READ-THROUGH, NOT A COPY, AND THE REASON IS WHOSE BYTES THEY ARE.
+  //     Bobby's freeze ruling — *"the original project should be kind of
+  //     frozen, like a snapshot"* — is about the ORIGINAL being a snapshot, not
+  //     about the redesign owning drawings. The files still live under the
+  //     original's prefix and the indexer will keep writing them there (and
+  //     this ticket must not touch the indexer), so a "copy" would be a copy in
+  //     name only: a second row pointing at the first one's objects, stale the
+  //     next time the folder changes. Read-through is the one that survives a
+  //     re-index, and it is self-healing — the day a redesign gets its own
+  //     folder, its own row wins here with no code change.
+  //
+  // ★★ AND IT MUST SAY WHOSE THEY ARE, or it quietly lies about provenance.
+  //    `BorrowedFrom` below is not decoration: without it the card asserts that
+  //    these drawings are this project's, which is exactly the class of claim
+  //    fix-358 spent a ticket removing from this card.
+  //
+  // ★ The fallback fires only once the project's OWN query has answered and
+  //   come back empty — never on the loading frame, which would flash the
+  //   original's drawing and then replace it.
+  const projectsQ = useProjects();
+  const originalId =
+    projectsQ.data?.find((p) => p.id === projectId)?.redesign_of_project_id ??
+    null;
+  const wantsFallback = !q.isLoading && !q.data && !!originalId;
+  const borrowedQ = usePlanOfRecord(wantsFallback ? originalId! : undefined);
+  const borrowed = wantsFallback ? (borrowedQ.data ?? null) : null;
+  /** The project whose plan of record is on screen. Everything downstream —
+   *  the sets, the verdict, the share — keys off THIS, so a borrowed card
+   *  shares the original's set rather than minting a link to nothing. */
+  const sourceProjectId = borrowed ? originalId! : projectId;
+  const borrowedFromAddress = borrowed
+    ? (projectsQ.data?.find((p) => p.id === originalId)?.address ?? null)
+    : null;
   // ★★★ fix-358: the REASONING, read and never re-derived. See below for the
   // three states it distinguishes and why the old single empty state was the
   // bug fix-356 was built to end.
-  const verdictQ = usePlanOfRecordVerdict(projectId);
+  const verdictQ = usePlanOfRecordVerdict(sourceProjectId);
   // ★★★ fix-506 §E (P-148): TWO MARKETING VARIANTS, ONE PICKED.
   //
   // ★ fix-523: THE SECOND HALF OF THIS NOTE WAS OUT OF DATE AND SAID SO
@@ -95,8 +141,8 @@ export default function PlanOfRecordCard({ projectId }: Props) {
   //   unreachable one, and the "with the reason" caption is deleted by §B2.
   //   Corrected in place rather than removed: the feature-detect is still real
   //   and `usePlanOfRecordSets` still has to answer `42P01` without throwing.
-  const setsQ = usePlanOfRecordSets(projectId);
-  const row = q.data ?? null;
+  const setsQ = usePlanOfRecordSets(sourceProjectId);
+  const row = q.data ?? borrowed;
   // ★★★ fix-523 §B2 — THE CARD OPENS ON A BUTTON THAT WORKS.
   //
   // This was `useState('internal')`, which is right for the 5 internal-only and
@@ -180,14 +226,32 @@ export default function PlanOfRecordCard({ projectId }: Props) {
           // nothing better is known yet.
           <EmptyState />
         ) : (
-          <PlanOfRecordBody
-            row={row}
-            verdict={verdictKnown ? verdict : null}
-            onEnlarge={() => setLightbox(true)}
-            sets={setsQ.data}
-            variant={variant}
-            onPickVariant={setVariant}
-          />
+          <>
+            {/* ★★★ fix-524 §C — WHOSE DRAWINGS THESE ARE, SAID PLAINLY.
+                Read-through is the cheap half; this is the half that makes it
+                honest. A card showing the original's set without naming it
+                asserts the drawings are this project's — the exact class of
+                silent claim fix-358 spent a ticket removing from here. */}
+            {borrowedFromAddress && (
+              <div
+                className="text-[9px] mb-1.5 leading-snug"
+                style={{ color: 'var(--color-muted)' }}
+                data-testid="plan-of-record-borrowed"
+              >
+                From{' '}
+                <span className="font-bold">{borrowedFromAddress}</span> — this
+                redesign has no set of its own yet.
+              </div>
+            )}
+            <PlanOfRecordBody
+              row={row}
+              verdict={verdictKnown ? verdict : null}
+              onEnlarge={() => setLightbox(true)}
+              sets={setsQ.data}
+              variant={variant}
+              onPickVariant={setVariant}
+            />
+          </>
         )}
       </OverviewSection>
 

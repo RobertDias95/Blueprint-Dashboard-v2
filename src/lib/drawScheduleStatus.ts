@@ -3,6 +3,7 @@ import {
   isTerminalIssuedStatus,
   isTerminalApprovedStatus,
 } from './permitTerminalStatus';
+import { RETIRED_PALETTE, retiredHatch } from './retiredState';
 
 // Q9.5.g: Auto-derive a draw_schedule block's status from the current BP
 // permit data. Mirrors v1 dsAutoStatus at index.html:8404-8445. The
@@ -145,7 +146,19 @@ export interface DsParkPresentation {
   label: string;
 }
 
-export type DsParkKind = 'hold' | 'cancelled';
+// ★★★ fix-524 §A — A THIRD KIND, AND IT IS NOT A `project_holds.kind`.
+//
+//     `hold` and `cancelled` are values of `project_holds.kind`. **`redesigned`
+//     is derived**: a project is redesigned away when another non-archived
+//     project names it in `redesign_of_project_id`. There is no row to read and
+//     nothing to migrate — `draw_schedule.status` holds seven PHASE values and
+//     no retired state at all (measured 2026-09-11), which is exactly why the
+//     hatch is computed at render time.
+//
+// ★★ So this type is *"what a block can be parked as"*, which is a superset of
+//    the hold kinds. `lib/retiredState.retiredCause` decides which one a
+//    project is in; this record only says what each one looks like.
+export type DsParkKind = 'hold' | 'cancelled' | 'redesigned';
 
 export const DS_PARK_PRESENTATION: Record<DsParkKind, DsParkPresentation> = {
   hold: {
@@ -158,15 +171,30 @@ export const DS_PARK_PRESENTATION: Record<DsParkKind, DsParkPresentation> = {
     strikeAddress: false,
     label: 'On hold',
   },
+  // ★★★ fix-524 §A: the two RETIRED states are built from one recipe, taking
+  //     their colours as arguments. They differ in nothing but the palette —
+  //     a test asserts the two hatch strings are identical once the colour
+  //     tokens are swapped out.
   cancelled: {
-    background: 'var(--hatch-cancelled)',
-    border: 'var(--color-cancelled-border)',
-    text: 'var(--color-cancelled-text)',
-    subtext: 'var(--color-cancelled-text)',
+    background: retiredHatch('cancelled'),
+    border: RETIRED_PALETTE.cancelled.border,
+    text: RETIRED_PALETTE.cancelled.text,
+    subtext: RETIRED_PALETTE.cancelled.text,
     // No live phase — see the note above.
     showPhasePill: false,
     strikeAddress: true,
-    label: 'Cancelled',
+    label: RETIRED_PALETTE.cancelled.label,
+  },
+  redesigned: {
+    background: retiredHatch('redesigned'),
+    border: RETIRED_PALETTE.redesigned.border,
+    text: RETIRED_PALETTE.redesigned.text,
+    subtext: RETIRED_PALETTE.redesigned.text,
+    // ★ Same reasoning as cancelled: a superseded project has no live phase of
+    //   its own. Its successor has one, and that is where the phase belongs.
+    showPhasePill: false,
+    strikeAddress: true,
+    label: RETIRED_PALETTE.redesigned.label,
   },
 };
 

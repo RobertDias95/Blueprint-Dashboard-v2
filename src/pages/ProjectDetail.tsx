@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useLocation, useParams, useSearchParams } from 'react-router-dom';
 import OriginLink from '../components/OriginLink';
+import { RETIRED_PALETTE, retiredHatch } from '../lib/retiredState';
 import { previousTarget } from '../lib/previousOrigin';
 import { useProjects } from '../hooks/useProjects';
 import { usePermitsByProject } from '../hooks/usePermitsByProject';
@@ -164,6 +165,26 @@ function ProjectDetailBody({
   // "Redesigns (N)" subsection look up siblings without prop drilling.
   const projectsQ = useProjects();
   const allProjects = projectsQ.data ?? [];
+  // ★★★ fix-524 §D — HAS THIS PROJECT BEEN SUPERSEDED, AND BY WHAT.
+  //
+  //     Derived, never stored: a project is redesigned away when another
+  //     non-archived project names it in `redesign_of_project_id`. The same
+  //     rule the Draw Schedule block and the Pipeline read, through the same
+  //     module — §A: *"put that predicate in exactly one place."*
+  //
+  // ★ 17 originals on prod (2026-09-11), 0 of them also cancelled. The list is
+  //   already cached and already in this component for the `Redesign of` badge,
+  //   so this costs one pass.
+  // ★ Keyed off `projectsQ.data` rather than the `?? []` alias: the fallback is
+  //   a fresh array literal on every render, which would make this memo useless
+  //   and add an `exhaustive-deps` warning to the baseline.
+  const supersededBy = useMemo(
+    () =>
+      projectsQ.data?.find(
+        (p) => !p.archived && p.redesign_of_project_id === project.id,
+      ) ?? null,
+    [projectsQ.data, project.id],
+  );
   // Building Permit is the canonical anchor for project-level fields
   // (matches v1's `bp = ps.filter(p => p.type === 'Building Permit')[0] || ps[0]`).
   const bp = useMemo(() => {
@@ -236,7 +257,24 @@ function ProjectDetailBody({
   // adjust-on-change pattern (never a setState-in-effect — the React Compiler
   // rejects that form outright, as fix-350 found twice), so somebody can CLOSE
   // the modal and have it stay closed.
-  const [dataOpen, setDataOpen] = useState<ProjectDataTab | null>(null);
+  const [dataOpenState, setDataOpenState] = useState<ProjectDataTab | null>(null);
+  // ★★★ fix-524 §D — THE FREEZE IS STRUCTURAL, NOT A HIDDEN BUTTON.
+  //
+  //     *"The original project should be kind of frozen, like a snapshot… if an
+  //     edit surface is still reachable on it, the freeze is decorative."*
+  //     Removing the ⚙ button would leave TWO other doors open: the permits
+  //     table's hover ✎ (fix-517 §E) and `?data=` in the URL, which fix-517
+  //     made a deep link. Both route through this one state, so the gate goes
+  //     HERE — the modal cannot be opened on a superseded project by any path,
+  //     including one somebody bookmarks.
+  //
+  // ★ The state is still SET by every path that used to set it — the gate is on
+  //   the READ, so nothing has to remember to check. A superseded project
+  //   resolves `dataOpen` to null no matter what was stored, which is what makes
+  //   `?data=permits` on a frozen original render the overview rather than an
+  //   editor.
+  const dataOpen = supersededBy ? null : dataOpenState;
+  const setDataOpen = setDataOpenState;
   const dataParam = searchParams.get(PARAM_DATA);
   const [appliedDataParam, setAppliedDataParam] = useState<string | null>(null);
   if (dataParam === null) {
@@ -348,6 +386,7 @@ function ProjectDetailBody({
       <ProjectPageChrome
         onSettings={() => setDataOpen('site')}
         projects={allProjects}
+        frozen={!!supersededBy}
       />
 
       {dataOpen && (
@@ -426,6 +465,26 @@ function ProjectDetailBody({
             originalId={project.redesign_of_project_id}
             projects={allProjects}
           />
+        )}
+        {/* ★★★ fix-524 §D — AND THE OTHER DIRECTION, WHICH HAS NEVER EXISTED.
+            Bobby: *"maybe there's this button that takes you back and forth
+            between the original and the current. But we almost have it
+            reversed where we're looking back at the original, and the current
+            is not really the primary focus."*
+
+            fix-126 shipped HALF of that switch: a redesign has carried a
+            "↗ Redesign of X" badge since then. The original has carried
+            nothing — you could walk from the current work to the snapshot and
+            not back, which is the wrong way round if the current one is the
+            primary focus.
+
+            ★★★ THIS RETIRES [[P-073]] ASK 2 RATHER THAN ANSWERING IT. That ask
+            was *"how do we show both at once"* and produced three shapes and an
+            unresolvable asymmetry — milestones compare, units supersede, team
+            undecided. **You do not show both.** There is no comparison view
+            here and none is coming. */}
+        {supersededBy && (
+          <SupersededBadge successor={supersededBy} />
         )}
         {/* fix-167: "On Hold — <reason>" badge — the answer to "why hasn't
             this issued?". Renders only when an active hold exists. */}
@@ -600,6 +659,37 @@ function RedesignOfBadge({
   );
 }
 
+/**
+ * ★★★ fix-524 §D — THE ORIGINAL SAYS PLAINLY THAT IT HAS BEEN SUPERSEDED.
+ *
+ * ★ It is the retired PURPLE, and it is the same paint the Draw Schedule block
+ *   and the legend use — §A's whole point is that a reader learns one texture
+ *   and one hue and then recognises them everywhere. `RETIRED_PALETTE` is the
+ *   single definition; nothing here picks a colour.
+ *
+ * ★★ "Superseded by" rather than "Redesigned": on the board the reader is
+ *    scanning many projects and wants the EVENT; standing on this page they
+ *    want the CONSEQUENCE — that this is not where the work is any more, and
+ *    where it went instead.
+ */
+function SupersededBadge({ successor }: { successor: { id: string; address: string } }) {
+  const p = RETIRED_PALETTE.redesigned;
+  return (
+    <OriginLink
+      to={`/project/${successor.id}`}
+      className="inline-block mt-1 text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full border hover:opacity-80 transition"
+      style={{
+        background: retiredHatch('redesigned'),
+        color: p.text,
+        borderColor: p.border,
+      }}
+      data-testid="pd-superseded-badge"
+    >
+      ↻ Superseded by {successor.address}
+    </OriginLink>
+  );
+}
+
 // Q9.5.e-fix-1: page chrome bar per v1 :751-756. Three-section layout
 // using absolute centering on the title so the side buttons can grow
 // without shifting the title off-center.
@@ -625,8 +715,16 @@ function RedesignOfBadge({
 function ProjectPageChrome({
   onSettings,
   projects,
+  frozen,
 }: {
   onSettings: () => void;
+  /** ★★★ fix-524 §D: this project has been superseded by a redesign, so its own
+   *  data is a SNAPSHOT. *"If an edit surface is still reachable on it, the
+   *  freeze is decorative."* fix-331 §4 consolidated every project-level edit
+   *  onto this one button — Reassign DA and Delete live inside the modal it
+   *  opens — so removing it removes the whole surface rather than hiding one
+   *  control and leaving three. */
+  frozen: boolean;
   /** ★ fix-408: the cached project list, used ONLY to name an origin that is
    *  itself a project — see previousOrigin.projectIdFromPath. */
   projects: { id: string; address: string }[];
@@ -685,13 +783,32 @@ function ProjectPageChrome({
         Project Overview
       </div>
       <div className="flex items-center gap-2">
-        <button
-          onClick={onSettings}
-          className="px-3 py-1 rounded-md text-xs font-bold border border-border bg-s2 text-text hover:bg-s3 transition"
-          data-testid="project-data-btn"
-        >
-          ⚙ Project Details
-        </button>
+        {frozen ? (
+          // ★★ NOT a disabled button. A disabled ⚙ says *"you may not do this"*,
+          //    which invites somebody to go looking for permission; this says
+          //    what is true — the project is a snapshot, and the place to edit
+          //    is the one that superseded it. fix-523 §B2's ruling, generalised:
+          //    do not offer an affordance that cannot work.
+          <span
+            className="px-3 py-1 rounded-md text-xs font-bold border"
+            style={{
+              background: retiredHatch('redesigned'),
+              color: RETIRED_PALETTE.redesigned.text,
+              borderColor: RETIRED_PALETTE.redesigned.border,
+            }}
+            data-testid="project-frozen-note"
+          >
+            ↻ Snapshot — read only
+          </span>
+        ) : (
+          <button
+            onClick={onSettings}
+            className="px-3 py-1 rounded-md text-xs font-bold border border-border bg-s2 text-text hover:bg-s3 transition"
+            data-testid="project-data-btn"
+          >
+            ⚙ Project Details
+          </button>
+        )}
       </div>
     </div>
   );

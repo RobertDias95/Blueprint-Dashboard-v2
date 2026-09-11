@@ -2,6 +2,8 @@ import { useMemo, useState } from 'react';
 import OriginLink from './OriginLink';
 import { PREVIOUS_ORIGINS } from '../lib/previousOrigin';
 import { useProjects } from '../hooks/useProjects';
+import { useAllProjectHolds, cancelledProjectIds } from '../hooks/useProjectHolds';
+import { excludeRetired } from '../lib/retiredState';
 import { usePermits } from '../hooks/usePermits';
 import {
   DEFAULT_LIBRARY_SORT,
@@ -147,6 +149,12 @@ const FIELD_CLASS =
 export default function LibraryMatrix() {
   const projectsQ = useProjects();
   const permitsQ = usePermits();
+  // ★★★ fix-524 §B — A RETIRED PROJECT IS NOT IN THE LIBRARY.
+  //
+  //     Bobby, 2026-09-10: *"for simplicity's sake, it does not appear."* The
+  //     Library answers *what do we have*, and a cancelled project is not part
+  //     of the answer.
+  const holdsQ = useAllProjectHolds();
 
   const error = projectsQ.error ?? permitsQ.error;
   if (error) {
@@ -166,13 +174,38 @@ export default function LibraryMatrix() {
   }
 
   return (
-    <Body projects={projectsQ.data ?? []} permits={permitsQ.data ?? []} />
+    <Body
+      projects={projectsQ.data ?? []}
+      permits={permitsQ.data ?? []}
+      cancelledIds={cancelledProjectIds(holdsQ.data)}
+    />
   );
 }
 
 interface BodyProps {
   projects: Project[];
   permits: PermitWithCycles[];
+  /** ★★★ fix-524 §B: projects with an OPEN cancel row, hidden from both views.
+   *
+   *  ⚠️⚠️ **THE REDESIGN-ORIGINAL HALF OF §B IS DELIBERATELY NOT HERE**, and it
+   *  is the one thing in this ticket that was reported rather than shipped. §B
+   *  rules that a retired project disappears from the Library, and §0.3 flags
+   *  that hiding a redesign's ORIGINAL could remove real data — it gates the
+   *  hide on §C mirroring the plan of record first.
+   *
+   *  ★★★ MEASURED 2026-09-11, AND §C DOES NOT COVER IT: **the Library does not
+   *  render plan-of-record sets at all.** It renders `projects.unit_types`. Of
+   *  the 17 redesign pairs, **11 have unit data on the ORIGINAL and none on the
+   *  redesign** — so hiding the originals would empty 11 projects out of the
+   *  unit matrix, and mirroring the drawings onto the redesign's card (§C) does
+   *  not put a single unit row back. The two halves of the fix are about
+   *  different columns on different surfaces.
+   *
+   *  ★★ AND THE OBVIOUS PATCH IS WORSE: the Library's unit table is an EDITOR
+   *  (fix-206), so a read-through unit row on a redesign would be an editable
+   *  control writing to the ORIGINAL — which §D has just declared frozen. See
+   *  the PR; this is reported for a ruling, not quietly skipped. */
+  cancelledIds: ReadonlySet<string>;
 }
 const INITIAL_FILTERS: LibraryFilters = {
   // ★★★ fix-447 ruling 4 (Bobby, 2026-08-29): *"the Library OPENS ON SITE"*.
@@ -222,7 +255,7 @@ const INITIAL_FILTERS: LibraryFilters = {
   roofDeck: '',
 };
 
-function Body({ projects, permits }: BodyProps) {
+function Body({ projects, permits, cancelledIds }: BodyProps) {
   // ★★★ fix-403: the filter panel remembers, for this tab and this login.
   //
   // ★★ READ IN A LAZY INITIALISER, not an effect — fix-324's rule. An effect
@@ -302,9 +335,22 @@ function Body({ projects, permits }: BodyProps) {
   //    unit filter is on'" still holds; this component simply no longer needs
   //    to ask the question itself.
 
+  // ★★★ fix-524 §B: the hide happens BEFORE the rows are built, not after they
+  //     are filtered — so every downstream count, band and unit row is derived
+  //     from the same population and none of them can disagree about which
+  //     projects the Library holds.
+  const visibleProjects = useMemo(
+    () => excludeRetired(projects, { cancelledIds }),
+    [projects, cancelledIds],
+  );
+  /** ★ How many the hide removed, so the count line can SAY SO. §B: *"a number
+   *  that changes because a filter changed, with nothing saying so, is a bug
+   *  report waiting to happen."* fix-447 §B5 made exactly this argument about
+   *  the unit view's project count. */
+  const hiddenRetiredCount = projects.length - visibleProjects.length;
   const allRows = useMemo(
-    () => buildLibraryRows(projects, permits),
-    [projects, permits],
+    () => buildLibraryRows(visibleProjects, permits),
+    [visibleProjects, permits],
   );
 
   const jurisOptions = useMemo(() => {
@@ -880,6 +926,16 @@ function Body({ projects, permits }: BodyProps) {
           {filters.view === 'unit'
             ? `${unitRows.length} unit${unitRows.length === 1 ? '' : 's'} across ${unitProjectCount} project${unitProjectCount === 1 ? '' : 's'}`
             : `${sorted.length} project${sorted.length === 1 ? '' : 's'}`}
+          {/* ★★★ fix-524 §B — THE HIDE SAYS SO. The Library's population drops
+              by the number of cancelled projects the moment this ships, and a
+              total that moves with nothing explaining it reads as a filter that
+              broke. Same argument fix-447 §B5 made about the unit view's
+              project count, applied to a filter the reader did not set. */}
+          {hiddenRetiredCount > 0 && (
+            <span data-testid="library-retired-hidden">
+              {` · ${hiddenRetiredCount} cancelled hidden`}
+            </span>
+          )}
         </span>
       </div>
 
