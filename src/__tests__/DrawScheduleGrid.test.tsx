@@ -365,6 +365,7 @@ vi.mock('../hooks/useResizeDaTimeBlock', () => ({
 }));
 
 import DrawScheduleGrid from '../components/DrawScheduleGrid';
+import { DS_PARK_PRESENTATION } from '../lib/drawScheduleStatus';
 
 beforeEach(() => {
   // The grid renders a QUARTER-relative view off the system clock, and every
@@ -2006,7 +2007,12 @@ describe('fix-263 draw schedule — parked block treatment', () => {
     holdRows.current = [parkRow('p-now', 'cancelled', 'Builder pulled out')];
     renderGrid();
     const style = screen.getByTestId('block-p-now').getAttribute('style') ?? '';
-    expect(style).toContain('var(--hatch-cancelled)');
+    // ★★ fix-524 §A: the hatch is built by `lib/retiredState` now and takes its
+    //    colours as arguments — §A rules that writing it twice would be the
+    //    ticket failing. Asserting against the presentation record is stronger
+    //    than asserting a token NAME: the block's fill IS the one the legend
+    //    and the badge paint from.
+    expect(style).toContain(DS_PARK_PRESENTATION.cancelled.background);
     expect(style).toContain('var(--color-cancelled-border)');
   });
 

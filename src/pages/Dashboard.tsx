@@ -23,7 +23,10 @@ import {
   activeHoldPermitIds,
   activeHoldByPermitId,
 } from '../hooks/usePermitHolds';
-import { isCancelledProject } from '../lib/projectViewHelpers';
+import {
+  isRetiredProject,
+  redesignedAwayProjectIds,
+} from '../lib/retiredState';
 import { structAddressHaystack } from '../lib/structAddressSearch';
 import HoldFilter from '../components/shared/HoldFilter';
 import {
@@ -173,6 +176,16 @@ export default function Dashboard() {
   // cancelled project never reaches a dashboard card. The map stays wired so
   // nothing breaks in the window between the holds fetch and the projects fetch.
   const cancelMap = useMemo(() => cancelByProjectId(holdsQ.data), [holdsQ.data]);
+  // ★★★ fix-524 §A/§B: the two retired causes, resolved once. `cancelledIds`
+  //     stays exported above because fix-264's other consumers still take it;
+  //     what the PIPELINE filters on is the union.
+  const retiredSets = useMemo(
+    () => ({
+      cancelledIds,
+      redesignedIds: redesignedAwayProjectIds(projectsQ.data),
+    }),
+    [cancelledIds, projectsQ.data],
+  );
   const activeHoldMap = useMemo(
     () => activeHoldByProjectId(holdsQ.data),
     [holdsQ.data],
@@ -474,7 +487,19 @@ export default function Dashboard() {
       // deliberately no "show cancelled" control here: the Project List's Active
       // toggle is the one place you go to find an inactive project and bring it
       // back. A project on HOLD is untouched — it is still active work.
-      if (isCancelledProject(project.id, cancelledIds)) continue;
+      // ★★★ fix-524 §B — AND A REDESIGNED-AWAY PROJECT GOES WITH IT.
+      //
+      //     fix-264's reasoning transfers exactly: *"no need to see it if it
+      //     isn't active/nothing being done on it."* A project another one has
+      //     superseded is not work to pick up — the successor is, and it is
+      //     already on this board under its own address. Measured 2026-09-11:
+      //     17 originals, 0 of which are also cancelled.
+      //
+      // ★ Still no "show retired" control here. The Project List's Active
+      //   toggle is the one place you go to find an inactive project and bring
+      //   it back, and adding a second door would make "why can I not see it"
+      //   a two-answer question.
+      if (isRetiredProject(project.id, retiredSets)) continue;
       const projectPermits = permitsByProjectId.get(project.id) ?? [];
       if (!matchesSearch(project, projectPermits.map((b) => b.permit))) continue;
       // fix-178: hold filter is project-level (a permit is held iff its project
@@ -533,7 +558,10 @@ export default function Dashboard() {
     identity.scope,
     holdMode,
     activeHeld,
-    cancelledIds,
+    // ★ fix-524: `cancelledIds` is still read here through `retiredSets`, which
+    //   is the dependency that matters now — it changes whenever either cause's
+    //   set does.
+    retiredSets,
   ]);
 
   const dashCtx: DashContext = useMemo(

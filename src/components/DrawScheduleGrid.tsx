@@ -76,8 +76,14 @@ import {
   useAllProjectHolds,
   holdsByProjectId as holdsIndexByProjectId,
   cancelByProjectId,
+  cancelledProjectIds,
   activeHoldByProjectId,
 } from '../hooks/useProjectHolds';
+import {
+  isRetiredProject,
+  redesignedAwayProjectIds,
+  retiredCause,
+} from '../lib/retiredState';
 import {
   computeLearnedSchedule,
   type LearnedEstimate,
@@ -301,6 +307,33 @@ function DrawScheduleBody({
   // (consumed DA capacity is the whole point of this view) — only the date
   // column and the block's chrome change. There is deliberately no filter here.
   const cancelMap = useMemo(() => cancelByProjectId(holdsQ.data), [holdsQ.data]);
+  // ★★★ fix-524 §A — THE RETIRED SETS, RESOLVED ONCE FOR THIS SCREEN.
+  //
+  //     Two causes, one predicate: an open `kind='cancelled'` hold, or another
+  //     non-archived project naming this one in `redesign_of_project_id`.
+  //     Measured on prod 2026-09-11: 5 cancelled · 17 redesign originals · 0 in
+  //     both · 22 distinct. All 5 cancelled are already on this board.
+  /** ★ fix-524 §B: original id → the live redesign that superseded it. One
+   *  pass, so a block can name its successor without a lookup per render.
+   *  ★★ LAST ONE WINS if a project has been redesigned twice — 17 originals
+   *     for 17 redesigns on prod (measured 2026-09-11), so there is no such
+   *     case today, and the block names *a* successor rather than pretending
+   *     to rank them. */
+  const redesignByOriginalId = useMemo(() => {
+    const m = new Map<string, Project>();
+    for (const p of projects) {
+      if (p.archived || !p.redesign_of_project_id) continue;
+      m.set(p.redesign_of_project_id, p);
+    }
+    return m;
+  }, [projects]);
+  const retiredSets = useMemo(
+    () => ({
+      cancelledIds: cancelledProjectIds(holdsQ.data),
+      redesignedIds: redesignedAwayProjectIds(projects),
+    }),
+    [holdsQ.data, projects],
+  );
   // fix-263: held projects get their own block treatment too (fix-262 gave them
   // none). Same bulk fetch, indexed by kind — a project is never in both maps.
   const heldMap = useMemo(() => activeHoldByProjectId(holdsQ.data), [holdsQ.data]);
@@ -1484,7 +1517,18 @@ function DrawScheduleBody({
   const unscheduled = useMemo(() => {
     const rowByProject = new Map(draw.map((r) => [r.project_id, r]));
     return projects
-      .filter((project) => !project.archived && !cancelMap.has(project.id))
+      // ★★★ fix-524 §B: RETIRED, not just cancelled. fix-262's argument for
+      //     dropping a cancelled project from this list is *"a cancelled
+      //     project is not work waiting to be placed"* — and that is equally
+      //     true of one another project has already superseded. Leaving the 17
+      //     redesign originals here would have filled a list of *things to go
+      //     schedule* with work nobody is going to do.
+      // ★ The list still starts from PROJECTS (fix-521 §A) and the row is still
+      //   the optional half; what changed is one word in the filter.
+      .filter(
+        (project) =>
+          !project.archived && !isRetiredProject(project.id, retiredSets),
+      )
       .map((project) => ({ project, row: rowByProject.get(project.id) ?? null }))
       .filter(
         ({ row }) => !row || !row.da_assigned || !row.start_week || !row.end_week,
@@ -1494,7 +1538,7 @@ function DrawScheduleBody({
           !search.trim() || multiMatchAddress(search, projectSearchHay(project)),
       )
       .sort((a, b) => a.project.address.localeCompare(b.project.address));
-  }, [draw, projects, cancelMap, search, projectSearchHay]);
+  }, [draw, projects, retiredSets, search, projectSearchHay]);
 
   // ★★★ fix-484 §A2 — THE RESOLVED DA COLUMN WIDTH, DERIVED THE WAY CSS
   //     RESOLVES IT: equal `1fr` tracks over what is left after the label
@@ -2100,9 +2144,31 @@ function DrawScheduleBody({
                       cancelMap.get(row.project_id) ??
                       heldMap.get(row.project_id) ??
                       null;
-                    const parkKind: DsParkKind | null = parkRow
-                      ? (holdKind(parkRow) as DsParkKind)
-                      : null;
+                    // ★★★ fix-524 §B — THE BLOCK STAYS, HATCHED. Bobby: *"It
+                    //     still stays on draw schedule because that block now
+                    //     gets that purple hashing, just like canceled."*
+                    //
+                    // ★★★ The Draw Schedule is the one surface that KEEPS a
+                    //     retired project, and the reason is capacity: a
+                    //     cancelled or superseded block still consumed a
+                    //     designer's weeks, and a board that hid it would be
+                    //     lying about where the time went. Pipeline and Library
+                    //     are both *"what should I work on / what do we have"*,
+                    //     and a retired project is neither.
+                    //
+                    // ★★ `redesigned` has no `project_holds` row to read — it
+                    //    is derived from another project naming this one — so
+                    //    it is resolved through the shared predicate rather
+                    //    than from `parkRow`. A CANCEL still wins: it is the
+                    //    stronger statement, and `retiredCause` owns that
+                    //    tie-break so two surfaces cannot decide it differently.
+                    const retired = retiredCause(row.project_id, retiredSets);
+                    const parkKind: DsParkKind | null =
+                      retired === 'redesigned'
+                        ? 'redesigned'
+                        : parkRow
+                          ? (holdKind(parkRow) as DsParkKind)
+                          : null;
                     const park = parkKind ? DS_PARK_PRESENTATION[parkKind] : null;
                     // Text colour follows the park when parked; the phase colour
                     // otherwise. One variable so every child line stays in sync.
@@ -2202,9 +2268,15 @@ function DrawScheduleBody({
                       ? `⏸ On hold — ${heldForMeta.reason}`
                       : cancelledForMeta
                         ? '✕ CANCELLED'
-                        : projectionByProjectId.get(row.project_id)?.isActual
-                          ? 'Approval'
-                          : 'Est. Approval';
+                        : // ★ fix-524 §B: the same shape for the second retired
+                          //   state, so fix-521's collapse rule keeps working —
+                          //   the chip disappears when the date line already
+                          //   says what the chip would say.
+                          retired === 'redesigned'
+                          ? '↻ REDESIGNED'
+                          : projectionByProjectId.get(row.project_id)?.isActual
+                            ? 'Approval'
+                            : 'Est. Approval';
                     // ★★★ RULE 2: the chip goes ONLY when the date label
                     //     already says the same state. `Cancelled` +
                     //     `✕ CANCELLED` is one fact twice; `Corrections` +
@@ -2699,6 +2771,67 @@ function DrawScheduleBody({
                                       }}
                                     >
                                       {formatProjectionDate(proj.projection)}
+                                    </span>
+                                  )}
+                                </div>
+                              );
+                            }
+                            // ★★★ fix-524 §B — REDESIGNED AWAY, ON THE BLOCK.
+                            //
+                            //     The successor's address is the useful fact
+                            //     here: an estimated approval date on a project
+                            //     nobody is working any more is noise, and the
+                            //     one thing a reader of this block wants is
+                            //     *where did the work go*. Same shape as the
+                            //     cancelled branch below it, which is what
+                            //     makes the two read as one state with two
+                            //     causes rather than two features.
+                            //
+                            // ★ Checked BEFORE the cancel branch would matter:
+                            //   `retiredCause` already gave cancel precedence,
+                            //   so this can only be true when there is no open
+                            //   cancel row.
+                            if (retired === 'redesigned') {
+                              const successor = redesignByOriginalId.get(
+                                row.project_id,
+                              );
+                              return (
+                                <div
+                                  style={{
+                                    display: 'flex',
+                                    flexDirection: 'column',
+                                    alignItems: 'center',
+                                    lineHeight: 1.1,
+                                    color: park ? park.subtext : sc.text,
+                                  }}
+                                  data-testid={`block-redesigned-${row.project_id}`}
+                                  title={
+                                    successor
+                                      ? `Redesigned — superseded by ${successor.address}`
+                                      : 'Redesigned — superseded'
+                                  }
+                                >
+                                  <span
+                                    style={{
+                                      fontSize: Math.max(7, detailFont - 1),
+                                      fontWeight: 700,
+                                      letterSpacing: '0.04em',
+                                    }}
+                                  >
+                                    ↻ REDESIGNED
+                                  </span>
+                                  {successor && (
+                                    <span
+                                      style={{
+                                        fontSize: detailFont,
+                                        fontWeight: 800,
+                                        maxWidth: '100%',
+                                        overflow: 'hidden',
+                                        textOverflow: 'ellipsis',
+                                        whiteSpace: 'nowrap',
+                                      }}
+                                    >
+                                      {successor.address}
                                     </span>
                                   )}
                                 </div>

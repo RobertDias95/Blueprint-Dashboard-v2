@@ -127,15 +127,24 @@
   --color-cancelled-b:      #b4b2a9;
   --color-cancelled-border: #5f5e5a;
   --color-cancelled-text:   #2c2c2a;
-  /* 5px stripes. Referenced by the block fill and the legend swatch so the
-     chip is literally the same paint as the thing it explains. */
-  --hatch-cancelled: repeating-linear-gradient(
-    45deg,
-    var(--color-cancelled-a) 0,
-    var(--color-cancelled-a) 5px,
-    var(--color-cancelled-b) 5px,
-    var(--color-cancelled-b) 10px
-  );
+
+  /* fix-524 §A: REDESIGNED AWAY is the second retired state, and Bobby asked
+     for it in the same shape — "instead of grey on grey, maybe it's like a
+     purple on purple". Same 45-degree texture, same stripe width, same
+     lightness relationship between the two tones, so the two states read as
+     the same KIND of thing at a glance and only the hue says which.
+
+     ★★★ THE GRADIENT ITSELF IS NOT HERE ANY MORE, and that is the ticket's
+     whole §A. A CSS custom property cannot take an argument, so a second
+     `--hatch-*` literal would have been the hatch written twice — and the
+     second copy is where the stripe width drifts. The recipe lives in
+     lib/retiredState.hatch(), which takes these tokens by name; the COLOURS
+     stay here, where fix-263's three consumers (block, badge, legend) can
+     still reach them and still paint from one definition. */
+  --color-redesigned-a:      #d8d0e4;
+  --color-redesigned-b:      #bcb0d0;
+  --color-redesigned-border: #5b4a76;
+  --color-redesigned-text:   #2e2540;
 
   /* Team accents (index.html:54-56) */
   --color-ent:      #0284c7;
