@@ -141,6 +141,23 @@ function row(over: Partial<ProjectPlanOfRecordRow> = {}): ProjectPlanOfRecordRow
   };
 }
 
+/** ★ fix-525: a `project_plan_of_record_sets` row, so the card's availability
+ *  guard (fix-523 §B2) leaves the button live and its share glyph mounted. */
+function marketingSet(variant: 'internal' | 'external') {
+  return {
+    project_id: PROJECT_ID,
+    set_type: 'marketing',
+    variant,
+    page_count: variant === 'external' ? 6 : 1,
+    pages_status: 'ok',
+    pages_prefix: `${PROJECT_ID}/marketing_${variant}/`,
+    is_archived_fallback: false,
+    thumb_path: `${PROJECT_ID}/marketing_${variant}.jpg`,
+    thumb_status: 'ok',
+    file_name: `3505 - Marketing - ${variant}.pdf`,
+  };
+}
+
 function renderCard() {
   const qc = new QueryClient({
     defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
@@ -508,6 +525,123 @@ describe('fix-285 the file card', () => {
     // ★ Thirty days, still one constant, still saying "no login".
     expect(SHARE_TOAST).toContain(String(SHARE_TTL_DAYS));
     expect(SHARE_TOAST).toMatch(/no login/i);
+  });
+
+  // =========================================================================
+  // ★★★ fix-525 §A (P-241) — THE CARD'S OWN SHARE ICON, CLICKED WHERE BOBBY
+  //     CLICKS IT
+  // =========================================================================
+  //
+  // Bobby, 2026-09-11: *"the share icon still doesnt open with options."*
+  // Measured in his browser: no menu in the accessibility tree, no network
+  // call, no console error. **Nothing fired at all.**
+  //
+  // ★★★ AND IT WAS NEVER A HANDLER. The menu mounted every time. It was
+  //     rendered `absolute … top-full` INSIDE `SetButton`'s frame, which has
+  //     carried `overflow-hidden` since fix-506 — and inside `OverviewCard`'s
+  //     root, which has carried it since fix-290. `top-full` puts the menu
+  //     entirely below the frame's content box, so it was clipped to nothing by
+  //     two separate ancestors. **The control has never opened in a browser**,
+  //     which makes this a fix-522 defect, not a fix-523 regression.
+  //
+  // ★★★ WHY THE SUITE MISSED IT, AND WHAT CHANGED: fix-523's test DID click
+  //     this icon and DID find the item — because **jsdom has no layout engine
+  //     and cannot see clipping** (fix-417 banked exactly that). Clicking
+  //     harder would never have caught it. The assertion that does is
+  //     structural: the menu must not have a clipping ancestor.
+  function clippingAncestors(el: HTMLElement | null): string[] {
+    const out: string[] = [];
+    for (let n = el?.parentElement ?? null; n; n = n.parentElement) {
+      if (n.className && String(n.className).includes('overflow-hidden')) {
+        out.push(String(n.className));
+      }
+    }
+    return out;
+  }
+
+  it.each(['internal', 'external'] as const)(
+    '★★★ fix-525 §A: the %s button’s share icon opens a menu with its items',
+    async (variant) => {
+      // ★★ BOTH BUTTONS, because fix-523 §B2 made one of them conditional —
+      //    the glyph is absent beside a set that does not exist, so a test that
+      //    only ever presses `internal` cannot tell "no menu" from "no button".
+      state.row = row();
+      state.sets = [marketingSet('internal'), marketingSet('external')];
+      renderCard();
+      fireEvent.click(
+        await screen.findByTestId(`plan-of-record-set-${variant}-share`),
+      );
+      const menu = await screen.findByTestId(
+        `plan-of-record-set-${variant}-share-menu`,
+      );
+      expect(menu).toBeInTheDocument();
+      expect(menu.getAttribute('role')).toBe('menu');
+      expect(
+        screen.getByTestId(`plan-of-record-set-${variant}-share-copy`),
+      ).toBeInTheDocument();
+      expect(
+        screen.getByTestId(`plan-of-record-set-${variant}-share-email`),
+      ).toBeInTheDocument();
+
+      // ★★★ THE ASSERTION THAT WOULD HAVE CAUGHT IT. jsdom cannot see the
+      //     clipping, so the test asks about the ANCESTRY instead.
+      expect(clippingAncestors(menu)).toEqual([]);
+      // ★★ And the strongest form of that: it is not inside the card at all.
+      expect(
+        screen.getByTestId('plan-of-record-card').contains(menu),
+      ).toBe(false);
+    },
+  );
+
+  it('★★★ fix-525 §A: the LIGHTBOX share is a SEPARATE control, asserted separately', async () => {
+    // ★★★ *"Two controls, two tests — this is the whole lesson of P-241."* The
+    //     Lightbox share DID fire in Bobby's browser (it is what produced the
+    //     `expires_at` server error), and the card's did not. They were
+    //     verified as one thing and they are not one thing: this one is a plain
+    //     button in a fixed-position dialog with nothing clipping it.
+    state.row = row();
+    state.sets = [marketingSet('internal')];
+    state.rpcResult = [{ token: 'a7Kd92xQrTvB', expires_at: '2026-10-11T00:00:00Z' }];
+    const writeText = vi.fn().mockResolvedValue(undefined);
+    Object.assign(navigator, { clipboard: { writeText } });
+    renderCard();
+    fireEvent.click(await screen.findByTestId('plan-of-record-preview'));
+    const share = await screen.findByTestId('plan-of-record-lightbox-share');
+    // ★★ IT IS IN FLOW, which is why it survived where the card's did not. A
+    //    clipping ancestor only destroys an element that has been taken OUT of
+    //    the flow — this one is a plain button laid out inside the dialog, so
+    //    the panel's own `overflow-hidden` cannot swallow it. That difference,
+    //    and not a handler, is the entire distance between the two controls.
+    expect(String(share.className)).not.toContain('absolute');
+    expect(share.tagName).toBe('BUTTON');
+    fireEvent.click(share);
+    await waitFor(() => expect(writeText).toHaveBeenCalled());
+    expect(
+      state.rpcCalls.filter(([n]) => n === 'bp_create_plan_share'),
+    ).toHaveLength(1);
+  });
+
+  it('★★ fix-525 §A: picking an item still reaches its handler through the portal', async () => {
+    // ★★★ THE TRAP THE PORTAL INTRODUCES, GUARDED. The outside-click handler
+    //     closes on any mousedown outside `wrapRef` — and a portaled menu is
+    //     outside it. Without checking the menu's own ref too, mousedown would
+    //     unmount the item before its `click` fired: the menu would open, look
+    //     right, and do nothing when pressed. Which is the bug this section is
+    //     about, reintroduced one layer down.
+    state.row = row();
+    state.sets = [marketingSet('internal')];
+    state.rpcResult = [{ token: 'a7Kd92xQrTvB', expires_at: '2026-10-11T00:00:00Z' }];
+    const writeText = vi.fn().mockResolvedValue(undefined);
+    Object.assign(navigator, { clipboard: { writeText } });
+    renderCard();
+    fireEvent.click(await screen.findByTestId('plan-of-record-set-internal-share'));
+    const copy = await screen.findByTestId('plan-of-record-set-internal-share-copy');
+    fireEvent.mouseDown(copy);
+    expect(
+      screen.queryByTestId('plan-of-record-set-internal-share-menu'),
+    ).toBeInTheDocument();
+    fireEvent.click(copy);
+    await waitFor(() => expect(writeText).toHaveBeenCalled());
   });
 
   // ★ fix-289: the whole point of the ticket. Chrome and Edge silently refuse

@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { stalenessNote } from '../../lib/planOfRecordStaleness';
 import {
   usePlanOfRecord,
@@ -1227,6 +1228,10 @@ function PageImage({
  *   `<div role="menu">` over a real `<button>` rather than a `<select>`,
  *   because the items DO things rather than choose a value.
  */
+/** Gap between the share glyph and its menu, and the minimum inset from the
+ *  viewport edge. One number, so the two cannot drift. */
+const MENU_GAP_PX = 4;
+
 function ShareMenu({
   label,
   picked,
@@ -1246,6 +1251,12 @@ function ShareMenu({
 }) {
   const [open, setOpen] = useState(false);
   const wrapRef = useRef<HTMLDivElement>(null);
+  const menuRef = useRef<HTMLDivElement>(null);
+  const btnRef = useRef<HTMLButtonElement>(null);
+  /** Viewport coordinates for the portaled menu. Measured on the CLICK, never
+   *  during render — reading a ref in render is a React Compiler error and only
+   *  lint catches it (fix-426, third recording). */
+  const [at, setAt] = useState<{ top: number; right: number } | null>(null);
 
   // ★ fix-440's lesson: a keydown listener belongs on the DOCUMENT, not on a
   //   non-focusable div — `onKeyDown` on a div with no `tabIndex` never fires.
@@ -1255,45 +1266,66 @@ function ShareMenu({
       if (e.key === 'Escape') setOpen(false);
     }
     function onDown(e: MouseEvent) {
-      if (!wrapRef.current?.contains(e.target as Node)) setOpen(false);
+      const t = e.target as Node;
+      // ★★★ fix-525 §A: the MENU is checked too, and it has to be. It is
+      //     portaled to <body>, so `wrapRef` does not contain it any more —
+      //     and a mousedown on a menu item would close the menu, unmounting
+      //     the item before its `click` could fire. The control would open,
+      //     look right, and do nothing when pressed.
+      if (wrapRef.current?.contains(t) || menuRef.current?.contains(t)) return;
+      setOpen(false);
+    }
+    // ★ A fixed-position menu does not follow the page. Closing is honest and
+    //   costs nothing; re-measuring on every scroll frame is not.
+    function onScroll() {
+      setOpen(false);
     }
     document.addEventListener('keydown', onKey);
     document.addEventListener('mousedown', onDown);
+    window.addEventListener('scroll', onScroll, true);
+    window.addEventListener('resize', onScroll);
     return () => {
       document.removeEventListener('keydown', onKey);
       document.removeEventListener('mousedown', onDown);
+      window.removeEventListener('scroll', onScroll, true);
+      window.removeEventListener('resize', onScroll);
     };
   }, [open]);
 
-  return (
-    <div ref={wrapRef} className="relative flex">
-      <button
-        type="button"
-        onClick={() => setOpen((v) => !v)}
-        className="px-1.5 flex items-center border-l"
-        style={{
-          borderLeftColor: picked ? 'rgba(255,255,255,.4)' : 'var(--color-border)',
-          background: picked ? 'var(--color-de)' : 'var(--color-surface)',
-          color: picked ? '#fff' : 'var(--color-de)',
-        }}
-        title={`Share ${label}`}
-        aria-label={`Share ${label}`}
-        aria-haspopup="menu"
-        aria-expanded={open}
-        data-testid={`${testId}-share`}
-      >
-        <ShareGlyph />
-      </button>
-      {open && (
-        <div
-          role="menu"
-          className="absolute right-0 top-full mt-1 z-20 rounded border shadow-lg overflow-hidden min-w-[168px]"
-          style={{
-            borderColor: 'var(--color-border)',
-            background: 'var(--color-surface)',
-          }}
-          data-testid={`${testId}-share-menu`}
-        >
+  function toggle() {
+    if (open) {
+      setOpen(false);
+      return;
+    }
+    const r = btnRef.current?.getBoundingClientRect();
+    if (r) {
+      setAt({
+        top: r.bottom + MENU_GAP_PX,
+        right: Math.max(MENU_GAP_PX, window.innerWidth - r.right),
+      });
+    }
+    setOpen(true);
+  }
+
+  const menu = open ? (
+    <div
+      ref={menuRef}
+      role="menu"
+      className="rounded border shadow-lg overflow-hidden min-w-[168px]"
+      style={{
+        // ★★★ fix-525 §A — FIXED AND PORTALED. See the note above the
+        //     component: this menu has been clipped out of existence since the
+        //     day it was written, by TWO ancestors. Taking it out of the flow
+        //     entirely is the fix that no future ancestor can undo.
+        position: 'fixed',
+        top: at?.top ?? 0,
+        right: at?.right ?? 0,
+        zIndex: 60,
+        borderColor: 'var(--color-border)',
+        background: 'var(--color-surface)',
+      }}
+      data-testid={`${testId}-share-menu`}
+    >
           <ShareMenuItem
             testId={`${testId}-share-copy`}
             onPick={() => {
@@ -1341,8 +1373,30 @@ function ShareMenu({
                   affordance appears when there is a file behind it and not one
                   moment earlier, which is the P-032 placeholder rule this card
                   already had applied to it once. A test asserts the absence. */}
-        </div>
-      )}
+    </div>
+  ) : null;
+
+  return (
+    <div ref={wrapRef} className="relative flex">
+      <button
+        ref={btnRef}
+        type="button"
+        onClick={toggle}
+        className="px-1.5 flex items-center border-l"
+        style={{
+          borderLeftColor: picked ? 'rgba(255,255,255,.4)' : 'var(--color-border)',
+          background: picked ? 'var(--color-de)' : 'var(--color-surface)',
+          color: picked ? '#fff' : 'var(--color-de)',
+        }}
+        title={`Share ${label}`}
+        aria-label={`Share ${label}`}
+        aria-haspopup="menu"
+        aria-expanded={open}
+        data-testid={`${testId}-share`}
+      >
+        <ShareGlyph />
+      </button>
+      {menu && createPortal(menu, document.body)}
     </div>
   );
 }

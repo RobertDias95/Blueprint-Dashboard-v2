@@ -237,35 +237,38 @@ describe('fix-524 §B — the four surfaces, both causes', () => {
     expect(dash).not.toContain('isCancelledProject(project.id');
   });
 
-  // ── 3 & 4 · LIBRARY — cancelled hidden; the redesign half is REPORTED ──
+  // ── 3 & 4 · LIBRARY — cancelled hidden; redesigned KEPT, hatched ──────
   it('★★★ 3 · Library hides a CANCELLED project', () => {
-    expect(lib).toContain('excludeRetired(projects, { cancelledIds })');
+    expect(lib).toContain("retiredHiddenFrom('library', p.id, retiredSets)");
     expect(lib).toContain('cancelledProjectIds(holdsQ.data)');
   });
 
-  it('★★★ 4 · Library STILL SHOWS a redesigned-away original — reported, not shipped', () => {
-    // ⚠️⚠️ THE ONE DEVIATION IN THIS TICKET, AND IT IS WRITTEN OUT RATHER THAN
-    //      OMITTED. §0.3 gates the Library hide on §C mirroring the plan of
-    //      record first. §C ships — and it does not unblock this, because
-    //      **the Library does not render plan-of-record sets at all.** It
-    //      renders `projects.unit_types`.
-    //
-    // ★★★ MEASURED 2026-09-11 over the 17 redesign pairs:
-    //       original has unit data, redesign has none   11
-    //       both have unit data                          4
-    //       neither                                      2
-    //       redesign has it and the original does not    0
-    //     So hiding the originals empties **11 projects** out of the unit
-    //     matrix, and mirroring drawings onto a card puts back exactly none of
-    //     them. The two halves are different columns on different surfaces.
-    //
-    // ★★ AND THE OBVIOUS PATCH IS WORSE: the Library's unit table is an EDITOR
-    //    (fix-206), so a read-through unit row on a redesign would be an
-    //    editable control writing to the ORIGINAL — which §D has just declared
-    //    frozen. This assertion is the record of that, and it flips the day
-    //    Bobby rules on it.
-    expect(lib).not.toContain('redesignedAwayProjectIds');
-    expect(lib).toContain('excludeRetired(projects, { cancelledIds })');
+  // ★★★ SUPERSEDED BY fix-525 §B — BOBBY REVERSED HIS OWN 09-10 RULE, ON THIS
+  //     TICKET'S OWN EVIDENCE, AND THE TEST IS THE RECORD OF BOTH HALVES.
+  //
+  //     fix-524 shipped the Library hide for cancelled and REPORTED the
+  //     redesigned half rather than building it, because hiding the originals
+  //     empties **11 of the 17 pairs** out of the unit matrix — 11 originals
+  //     hold the only `unit_types` their pair has. Shown that, Bobby ruled:
+  //     keep it, hatched. This assertion said *"expect(lib).not.toContain
+  //     ('redesignedAwayProjectIds')"* and it was right until the ruling moved.
+  //
+  // ★★★ AND ONE OF fix-524's TWO REASONS WAS WRONG. It argued a read-through
+  //     row would be *"an editable control writing to a project §D has just
+  //     frozen"* — read off a stale comment in `LibraryMatrix` claiming the
+  //     unit table was still an editor. **fix-506 §H removed the write path in
+  //     the same ticket that comment survived**; the file makes zero calls to
+  //     `useUpdateProject`. The measurement (11 of 17) was sound; the hazard
+  //     was not. **A comment is not evidence.**
+  it('★★★ 4 · Library KEEPS a redesigned-away original, hatched', () => {
+    expect(lib).toContain('redesignedAwayProjectIds(projectsQ.data)');
+    expect(lib).toContain('hatchedIds');
+    expect(lib).toContain('RetiredBadge');
+    // ★★ The divergence is read from the shared record, not decided here — §B:
+    //    *"the Library asks the cause and treats them differently; it does not
+    //    ask a second question of its own."*
+    expect(lib).toContain('RETIRED_VISIBILITY');
+    expect(lib).not.toContain("=== 'redesigned'");
   });
 
   // ── 5 & 6 · DRAW SCHEDULE — stays, hatched, both causes ───────────────
