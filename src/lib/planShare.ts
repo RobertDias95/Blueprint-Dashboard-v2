@@ -102,13 +102,10 @@ export function planSharePagePaths(
 /** One row of `bp_resolve_plan_share`. Hand-typed like the rest of
  *  database.types — see the standing rule about never regenerating it.
  *
- *  ⚠️ **`pdf_path` IS NOT IN THIS SIGNATURE.** §B1 asked for it to be added to
- *  the RPC's consumers; the RPC does not return it and the `is_current` view it
- *  reads does not carry it either (measured 2026-09-11 — `project_file_index`
- *  has `pdf_path`, `project_plan_of_record_sets` does not). Both are server
- *  changes and neither is in the applied migration, so the field is read
- *  DEFENSIVELY below rather than declared here: the moment the server returns
- *  it, the Download PDF control appears with no Bridge deploy. See §B. */
+ *  ★ fix-528: `pdf_path` and `pdf_bytes` ARE in this signature now. fix-523
+ *  noted their absence loudly and read the field defensively instead; Cowork's
+ *  fix-526 apply added both to the RPC's result type and to the view it reads
+ *  (verified on prod 2026-09-11), so the caveat expired. */
 export interface PlanShareRow {
   project_address: string | null;
   set_type: string;
@@ -118,33 +115,31 @@ export interface PlanShareRow {
   pages_prefix: string | null;
   thumb_path: string | null;
   expires_at: string;
+  /** ★★★ fix-528 §C: the source PDF's object path — **not** a URL. Returned by
+   *  `bp_resolve_plan_share` as of Cowork's fix-526 apply. The page never uses
+   *  it directly; the `plan-share` function signs it. */
+  pdf_path: string | null;
+  pdf_bytes: number | null;
 }
 
-/**
- * ★★★ §B3 — `pdf_path`, READ WITHOUT BEING DECLARED, AND THAT IS DELIBERATE.
- *
- * Bobby, 2026-09-11: *"can the share button create the item into a pdf? … are
- * we able to share a link + pdf?"* The PDF already exists — every one of the
- * 334 current sets IS a PDF on `\\bpc-file` and `unc_path` is populated on all
- * of them. Uploading it is a scraper ticket; `project_file_index` already
- * carries `pdf_path · pdf_bytes · pdf_status · pdf_uploaded_at`, all NULL.
- *
- * ★★★ SO THE CORRECT RESULT OF THIS TICKET IS THAT NO DOWNLOAD BUTTON RENDERS
- *     ANYWHERE, and the moment the column is populated and exposed they appear
- *     on their own. **Never a disabled affordance and never a promise** — that
- *     is the P-032 placeholder this card already had removed from it once.
- *
- * ★ Reading a field the type does not promise is normally a smell. Here it is
- *   the whole mechanism: declaring it would require the server to return it,
- *   and adding it to an explicit select list for a column the view does not
- *   have makes PostgREST fail the WHOLE query with `42703` — which would take
- *   the card away from every project to add a button nobody can see yet.
- */
-export function planSharePdfPath(row: unknown): string | null {
-  if (!row || typeof row !== 'object') return null;
-  const v = (row as Record<string, unknown>).pdf_path;
-  return typeof v === 'string' && v.trim() !== '' ? v : null;
-}
+// ★★★ fix-528 §C — `planSharePdfPath` IS GONE, AND ITS REASON EXPIRED RATHER
+//     THAN BEING WRONG.
+//
+//     fix-523 read `pdf_path` off the row WITHOUT declaring it, because the RPC
+//     did not return it and the `is_current` view did not carry it: declaring
+//     it would have meant asking the server for a column that does not exist,
+//     and an unknown column in an explicit select fails the WHOLE query with
+//     `42703`. Reading it defensively was the right call for that week.
+//
+// ★★★ BOTH SERVER HALVES LANDED. Cowork's fix-526 apply added `pdf_path` and
+//     `pdf_bytes` to the view AND to `bp_resolve_plan_share`'s result type
+//     (verified on prod 2026-09-11), so the field is DECLARED on `PlanShareRow`
+//     above and read normally.
+//
+// ★★ AND THE PAGE NO LONGER WANTS A PATH ANYWAY. A path in an `href` resolves
+//    against the app's own origin and 404s — the bug fix-523 shipped. The page
+//    renders the SIGNED url the `plan-share` function returns, because an
+//    anonymous reader cannot sign a private object. See `usePlanShareResolve`.
 
 /** What the shared page says the set is. The set type and variant in the words
  *  the app already uses on the card, so a builder and a designer are looking at

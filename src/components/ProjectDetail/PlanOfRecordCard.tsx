@@ -39,7 +39,13 @@ import {
   pagePaths,
   type PlanOfRecordSetRow,
 } from '../../hooks/usePlanOfRecordSets';
-import { SHARE_TTL_DAYS } from '../../lib/planOfRecordShare';
+import {
+  SHARE_TTL_DAYS,
+  formatPdfSize,
+  pdfDownloadName,
+  signPlanPdfUrl,
+} from '../../lib/planOfRecordShare';
+import { pushToast } from '../../stores/toastStore';
 import {
   findShareLink,
   usePlanShareActions,
@@ -651,6 +657,42 @@ function ShareGlyph() {
   );
 }
 
+/**
+ * ★★★ fix-528 §C — HAND OVER THE DRAWING.
+ *
+ * Signs the set's source PDF and lets the browser save it. One place, so the
+ * card's menu and anything that follows cannot sign it two different ways.
+ *
+ * ★★ A programmatic click on a detached `<a download>` rather than
+ *    `location.assign`: the signed URL is a same-tab navigation to a PDF, which
+ *    several browsers open in a viewer instead of saving. `download` on the
+ *    SIGNATURE (Supabase's own option) is what makes it land as a file, and the
+ *    anchor is what makes the click count as a user gesture.
+ */
+async function downloadPlanPdf(objectPath: string | null, fileName: string | null) {
+  if (!objectPath) {
+    // ★ Should be unreachable: the control does not render without a path. Kept
+    //   because "unreachable" is a claim about today's data, and 336 of 336
+    //   sets having a PDF is also a claim about today's data.
+    pushToast('That set has no PDF on file yet', 'error');
+    return;
+  }
+  try {
+    const url = await signPlanPdfUrl(objectPath, fileName);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = pdfDownloadName(fileName);
+    a.rel = 'noopener';
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+  } catch {
+    // ★ ONE message. A person who cannot download does not need to know which
+    //   half refused, and naming the storage error would leak a path.
+    pushToast('Could not open that PDF', 'error');
+  }
+}
+
 // ★★★ fix-523 §A — `sharePlanPage` IS GONE FROM THIS FILE.
 //
 // It signed one page object and copied the URL. Copy link, Email it… and the
@@ -746,15 +788,29 @@ function SetButtons({
             //     ⚠️ No image and, fix-523 §B4, no attachment either — a
             //     `mailto:` can carry neither. The LINK carries the PDF; the
             //     email carries the link.
-            onEmail={() =>
-              void share.email(
-                row.set_type,
-                shareVariant(b.variant),
-                b.label,
-                planOfRecordSetFor(row.set_type, sets, b.variant)?.file_name ??
-                  row.file_name,
-                planOfRecordSetFor(row.set_type, sets, b.variant)?.page_count ?? 1,
-              )
+            // ★★★ fix-528 §A/§B — `Email it…` IS GONE, AND DOWNLOAD PDF TAKES
+            //     ITS PLACE.
+            //
+            //     Bobby, for the fourth time: *"when i click email it, it still
+            //     shows as a link vs putting a pdf in the emial"*, then
+            //     *"i dont think we need a link, just a pdf."* The control he
+            //     was complaining about is the one that opened a `mailto:`
+            //     carrying a URL — and a `mailto:` cannot carry an attachment,
+            //     which is why that complaint could never be answered where it
+            //     stood.
+            //
+            // ★★★ §A5's RULE DECIDES WHAT HAPPENS MEANWHILE: *"never leave the
+            //     user with a dead Email it…"* — and the Graph draft path is
+            //     behind an IT gate (an Azure app registration and tenant admin
+            //     consent) that §A4 says to report and STOP at. So the item is
+            //     ABSENT rather than disabled, which is P-239's ruling applied
+            //     to a control that cannot work yet. It comes back, carrying the
+            //     PDF, once consent exists.
+            pdfPath={planOfRecordSetFor(row.set_type, sets, b.variant)?.pdf_path ?? null}
+            pdfBytes={planOfRecordSetFor(row.set_type, sets, b.variant)?.pdf_bytes ?? null}
+            pdfName={
+              planOfRecordSetFor(row.set_type, sets, b.variant)?.file_name ??
+              row.file_name
             }
             // ★★★ fix-523 §A2 — UNSHARE, AND ONLY WHEN THERE IS SOMETHING TO
             //     UNSHARE. The token is a bearer credential and Bobby's
@@ -824,7 +880,9 @@ function SetButton({
   disabled,
   onPick,
   onShare,
-  onEmail,
+  pdfPath,
+  pdfBytes,
+  pdfName,
   shareLink,
   onUnshare,
   testId,
@@ -834,8 +892,13 @@ function SetButton({
   disabled?: boolean;
   onPick: () => void;
   onShare: () => void;
-  /** ★ fix-522 §D4: open a mail client with the subject and link filled in. */
-  onEmail: () => void;
+  /** ★★★ fix-528 §C: the set's source PDF, or null. The Download item renders
+   *  ONLY when it is non-null — 336 of 336 current sets carry one today, and a
+   *  control that appears for a set with no file would be the P-032
+   *  placeholder this card has already had removed from it once. */
+  pdfPath: string | null;
+  pdfBytes: number | null;
+  pdfName: string | null;
   /** ★★★ fix-523 §A2: the live link for THIS set, or null. `Unshare` renders
    *  only when it is non-null — a control that would be offered on every set
    *  and do nothing on most of them teaches its reader to distrust it. */
@@ -886,7 +949,9 @@ function SetButton({
           label={label}
           picked={picked}
           onCopy={onShare}
-          onEmail={onEmail}
+          pdfPath={pdfPath}
+          pdfBytes={pdfBytes}
+          pdfName={pdfName}
           shareLink={shareLink}
           onUnshare={onUnshare}
           testId={testId}
@@ -1236,7 +1301,9 @@ function ShareMenu({
   label,
   picked,
   onCopy,
-  onEmail,
+  pdfPath,
+  pdfBytes,
+  pdfName,
   shareLink,
   onUnshare,
   testId,
@@ -1244,7 +1311,9 @@ function ShareMenu({
   label: string;
   picked: boolean;
   onCopy: () => void;
-  onEmail: () => void;
+  pdfPath: string | null;
+  pdfBytes: number | null;
+  pdfName: string | null;
   shareLink: PlanShareLinkRow | null;
   onUnshare: (token: string) => void;
   testId: string;
@@ -1336,16 +1405,28 @@ function ShareMenu({
           >
             Copy link
           </ShareMenuItem>
-          <ShareMenuItem
-            testId={`${testId}-share-email`}
-            onPick={() => {
-              setOpen(false);
-              onEmail();
-            }}
-            title="Open an email with the subject and the link filled in"
-          >
-            Email it…
-          </ShareMenuItem>
+          {/* ★★★ fix-528 §C — THE DRAWING ITSELF, and it is the item that
+              replaces `Email it…`. The source PDF, signed for five minutes and
+              saved under the set's own name — the ORIGINAL file the indexer
+              opens, not a raster of its page images, which would blur at the
+              first zoom and could not be searched.
+
+              ★ Present only when there IS one. `pdf_path` is non-null on 336 of
+                336 current sets (fix-526's backfill, measured 2026-09-11), so
+                in practice it is always here — but "always" is a fact about
+                today's data, and the guard is a fact about the control. */}
+          {pdfPath && (
+            <ShareMenuItem
+              testId={`${testId}-share-download`}
+              onPick={() => {
+                setOpen(false);
+                void downloadPlanPdf(pdfPath, pdfName);
+              }}
+              title="Download the plan set as a PDF"
+            >
+              {`Download PDF${pdfBytes ? ` · ${formatPdfSize(pdfBytes)}` : ''}`}
+            </ShareMenuItem>
+          )}
           {/* ★★★ fix-523 §A2 — STOP SHARING. Present only when a live link for
               this set exists; there is nothing to revoke otherwise, and an item
               that is usually inert is an item people stop reading. */}

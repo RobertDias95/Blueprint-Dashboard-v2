@@ -10,7 +10,6 @@ import {
   PLAN_SHARE_UNAVAILABLE,
   planShareExpiryNote,
   planSharePagePaths,
-  planSharePdfPath,
   planShareSetLabel,
   planShareUrl,
 } from '../lib/planShare';
@@ -469,7 +468,11 @@ describe('fix-523 §A5 — the Edge Function signs, and it takes a token only', 
   });
 
   it('★★★ a bad token, a dead token and a live set with no pages are ONE answer', async () => {
-    const empty = { pages: [], thumb: null };
+    // ★ fix-528 §C: the shape gained `pdf`/`pdfBytes` when the function learned
+    //   to sign the source PDF. The PROPERTY is unchanged and is the point —
+    //   all four causes still produce ONE answer, so the endpoint cannot be
+    //   used to probe which tokens are real.
+    const empty = { pages: [], thumb: null, pdf: null, pdfBytes: null };
     expect(await signShare(deps().d, { token: 'short' })).toEqual(empty);
     expect(await signShare(deps().d, { token: 'has spaces in it here' })).toEqual(empty);
     expect(await signShare(deps().d, null)).toEqual(empty);
@@ -562,49 +565,88 @@ describe('fix-523 §B3 — no Download PDF renders anywhere, and that is correct
   // ★★★ SO THE CORRECT RESULT OF THIS TICKET IS THAT NEITHER BUTTON IS VISIBLE.
   //     Never a disabled or "coming soon" affordance — that is the P-032
   //     placeholder this card already had removed from it once.
-  it('the card’s share menu offers no download', () => {
+  // ★★★ SUPERSEDED BY fix-528 §C — THE FILE EXISTS NOW, SO THE CONTROL DOES.
+  //
+  //     This asserted the ABSENCE of a download, and it was right: fix-523
+  //     measured `pdf_path` NULL on every row and the sets view without the
+  //     column at all, and said the correct result of that ticket was that no
+  //     button renders anywhere. **The prediction it made was also right** —
+  //     *"the moment the scraper uploads and the server exposes the column, the
+  //     button appears"* — and fix-526's backfill did exactly that: **336 of
+  //     336** current sets carry a PDF, `pdf_status = 'ok'`, and
+  //     `bp_resolve_plan_share` now returns `pdf_path` and `pdf_bytes`
+  //     (verified on prod 2026-09-11).
+  //
+  // ★★ WHAT fix-523 GOT WRONG, and this records it: it predicted the button
+  //    would appear *"with no Bridge deploy"*. It could not have — the card had
+  //    no control at all, and the shared page's put an OBJECT PATH in an
+  //    `href`. Both needed code.
+  it('★★★ fix-528: the card’s share menu offers the PDF', () => {
     const card = code(read('src/components/ProjectDetail/PlanOfRecordCard.tsx'));
-    expect(card).not.toMatch(/download pdf/i);
-    expect(card).not.toContain('-share-download');
+    expect(card).toContain('-share-download');
+    expect(card).toContain('signPlanPdfUrl');
+    // ★ Only when the set HAS one — 336 of 336 today, but the guard is about
+    //   the control rather than about today's data.
+    expect(card).toContain('{pdfPath && (');
   });
 
-  it('★★★ the shared page renders none, because pdf_path is never set', () => {
+  it('★★★ the shared page hands over a SIGNED url, never the object path', () => {
+    // ★★★ THE BUG fix-523 SHIPPED. `pdf_path` is an object path; it went
+    //     straight into an `href`, where it resolves against the app's own
+    //     origin and 404s. The control rendered, looked correct and handed over
+    //     nothing — and no test saw it, because a jsdom anchor with a bad href
+    //     is indistinguishable from a good one. §C's line: **"the button
+    //     exists" is not "the file arrives."**
+    const page = code(read('src/pages/SharedPlan.tsx'));
+    expect(page).toContain('const pdfPath = pdfUrl;');
+    expect(page).not.toContain('planSharePdfPath');
+
     const html = renderShare({
       row: shareRow({ page_count: 1, pages_prefix: null }),
       pageUrls: [],
       thumbUrl: 'https://signed/thumb.jpg',
-    });
-    expect(html).not.toMatch(/download pdf/i);
-    expect(html).not.toContain('shared-plan-download-pdf');
-  });
-
-  it('★★★ …and it appears on its own the moment the server returns one', () => {
-    // ★ Read defensively rather than declared, because declaring it would mean
-    //   asking the server for a column it does not have — and an unknown column
-    //   in an explicit select fails the WHOLE query with `42703`, which would
-    //   take the card away from every project to add a button nobody can see.
-    expect(planSharePdfPath({ pdf_path: 'proj/set.pdf' })).toBe('proj/set.pdf');
-    expect(planSharePdfPath({ pdf_path: '  ' })).toBeNull();
-    expect(planSharePdfPath({})).toBeNull();
-    expect(planSharePdfPath(null)).toBeNull();
-
-    const html = renderShare({
-      row: { ...shareRow({ page_count: 1, pages_prefix: null }), pdf_path: 'proj/set.pdf' },
-      pageUrls: [],
-      thumbUrl: 'https://signed/thumb.jpg',
+      pdfUrl: 'https://signed/set.pdf?token=abc',
+      pdfBytes: 2_774_619,
     });
     expect(html).toContain('shared-plan-download-pdf');
+    expect(html).toContain('https://signed/set.pdf?token=abc');
+    // ★ …and it says how big it is, because a builder on a phone deserves to
+    //   know before pressing it.
+    expect(html).toContain('2.6 MB');
   });
 
-  it('★★★ the EMAIL still carries only the link — no attachment promised', () => {
-    // ⚠️ A `mailto:` cannot carry an attachment any more than it could carry
-    //    the front-page snip fix-522 correctly refused. The LINK carries the
-    //    PDF; the email carries the link.
-    const lib = code(read('src/lib/planOfRecordShare.ts'));
-    expect(lib).not.toMatch(/attach/i);
-    expect(lib).not.toContain('pdf_path');
-    const body = lib.slice(lib.indexOf('export function planShareBody'));
-    expect(body).not.toMatch(/\.pdf['`]/);
+  it('★★★ …and it is ABSENT when nothing could be signed', () => {
+    // ★ Which is also what an undeployed `plan-share` function produces. Absent
+    //   rather than disabled — P-239's rule.
+    const html = renderShare({
+      row: shareRow({ page_count: 1, pages_prefix: null }),
+      pageUrls: [],
+      thumbUrl: 'https://signed/thumb.jpg',
+      pdfUrl: null,
+      pdfBytes: null,
+    });
+    expect(html).not.toContain('shared-plan-download-pdf');
+    expect(html).not.toMatch(/download pdf/i);
+  });
+
+  // ★★★ SUPERSEDED BY fix-528 §0 — AND THIS ONE IS THE LESSON OF THE TICKET.
+  //
+  //     It asserted that the email promises no attachment, on the reasoning
+  //     that *"a `mailto:` cannot carry one."* The reasoning is correct and the
+  //     conclusion was wrong: **`mailto:` was never a requirement.** It is what
+  //     this app happened to use, and three tickets restated it as a law while
+  //     Bobby asked for the same thing four times.
+  //
+  // ★★★ WHAT SURVIVES IS THE HONESTY RULE — do not promise a file the control
+  //     cannot hand over. The menu does not mention email at all now, and the
+  //     item that WILL carry an attachment (§A's Graph draft) is behind an IT
+  //     gate and is not built.
+  it('★★★ nothing promises an email attachment it cannot send', () => {
+    const card = code(read('src/components/ProjectDetail/PlanOfRecordCard.tsx'));
+    expect(card).not.toMatch(/attach/i);
+    expect(card).not.toContain('-share-email');
+    // ★ No Graph, no draft, no send — §A4 says report the shape and STOP.
+    expect(card).not.toMatch(/graph|microsoft|Mail\.Send/i);
   });
 });
 

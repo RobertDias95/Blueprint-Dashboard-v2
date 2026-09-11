@@ -49,6 +49,13 @@ export interface ShareRow {
   pages_prefix: string | null;
   thumb_path: string | null;
   expires_at: string;
+  /** ★★★ fix-528 §C: the source PDF's object path. `bp_resolve_plan_share`
+   *  returns it as of Cowork's fix-526 apply (verified on prod 2026-09-11 —
+   *  the function's result type now carries `pdf_path text, pdf_bytes
+   *  integer`). Optional here because an older deployment of this function must
+   *  keep working against a row that does not have it. */
+  pdf_path?: string | null;
+  pdf_bytes?: number | null;
 }
 
 export interface Deps {
@@ -56,13 +63,24 @@ export interface Deps {
   resolve(token: string): Promise<ShareRow | null>;
   /** Signs one object path in `SHARE_BUCKET`, or returns null. ★ Never throws
    *  for a missing object: a page the indexer has not written yet must not take
-   *  the pages either side of it down with it. */
-  sign(objectPath: string): Promise<string | null>;
+   *  the pages either side of it down with it.
+   *  ★ `downloadAs` asks Storage to set a Content-Disposition filename — used
+   *    for the PDF and never for a page image, which is displayed rather than
+   *    saved. */
+  sign(objectPath: string, downloadAs?: string): Promise<string | null>;
 }
 
 export interface SignedShare {
   pages: string[];
   thumb: string | null;
+  /** ★★★ fix-528 §C — A SIGNED URL, NEVER THE PATH. fix-523 put `pdf_path`
+   *  straight into an `href` on the shared page, where it resolves against the
+   *  app's own origin and 404s: a control that renders and hands over nothing.
+   *  §C's line for that case is **"the button exists" is not "the file
+   *  arrives."** Null when the set has no PDF, or when signing failed. */
+  pdf: string | null;
+  /** Size in bytes, so the page can say what it is about to hand over. */
+  pdfBytes: number | null;
 }
 
 /**
@@ -121,10 +139,10 @@ export async function signShare(
       : null,
   );
   // ★ An unusable token gets the SAME shape as a dead one. See the header.
-  if (!token) return { pages: [], thumb: null };
+  if (!token) return EMPTY;
 
   const row = await deps.resolve(token);
-  if (!row) return { pages: [], thumb: null };
+  if (!row) return EMPTY;
 
   const paths = pagePaths(row.pages_prefix, row.page_count);
   const signed = await Promise.all(paths.map((p) => deps.sign(p)));
@@ -133,5 +151,28 @@ export async function signShare(
   const pages = signed.filter((u): u is string => typeof u === 'string' && u !== '');
 
   const thumb = row.thumb_path ? await deps.sign(row.thumb_path) : null;
-  return { pages, thumb: thumb ?? null };
+  // ★ Signed with a DOWNLOAD name, so a builder's browser saves the drawing
+  //   under the set's own file name rather than opening a viewer on
+  //   `source.pdf`. The set names on prod already carry the project stub.
+  const pdf = row.pdf_path
+    ? await deps.sign(row.pdf_path, pdfDownloadName(row.file_name))
+    : null;
+  return {
+    pages,
+    thumb: thumb ?? null,
+    pdf: pdf ?? null,
+    pdfBytes: typeof row.pdf_bytes === 'number' ? row.pdf_bytes : null,
+  };
+}
+
+/** The one shape a caller gets for a bad token, a dead token, and a live set
+ *  with nothing signable. ★ Declared once so the four cannot drift apart. */
+const EMPTY: SignedShare = { pages: [], thumb: null, pdf: null, pdfBytes: null };
+
+/** ★ A DELIBERATE COPY of `pdfDownloadName` in src/lib/planOfRecordShare.ts —
+ *  this module cannot import from `src/`. The twin test replays both. */
+export function pdfDownloadName(fileName: string | null | undefined): string {
+  const name = (fileName ?? '').trim();
+  if (!name) return 'plan-set.pdf';
+  return /\.pdf$/i.test(name) ? name : `${name}.pdf`;
 }

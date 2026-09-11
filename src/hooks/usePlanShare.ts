@@ -179,6 +179,10 @@ export interface ResolvedPlanShare {
   pageUrls: string[];
   /** The set's front page, signed. Null when nothing could be signed. */
   thumbUrl: string | null;
+  /** ★★★ fix-528 §C: a SIGNED url for the source PDF, or null. Never the object
+   *  path — see `SharedPlan` for the bug that rule exists to stop. */
+  pdfUrl: string | null;
+  pdfBytes: number | null;
 }
 
 /** ★ The Edge Function's name. It is the ONLY thing in this app that can turn
@@ -243,14 +247,20 @@ export function usePlanShareResolve(token: string | undefined) {
       const paths = planSharePagePaths(row.pages_prefix, row.page_count);
       let pageUrls: string[] = [];
       let thumbUrl: string | null = null;
+      let pdfUrl: string | null = null;
+      let pdfBytes: number | null = null;
       try {
         const { data: signed, error: fnErr } = await supabase.functions.invoke<{
           pages?: string[];
           thumb?: string | null;
+          pdf?: string | null;
+          pdfBytes?: number | null;
         }>(PLAN_SHARE_FUNCTION, { body: { token } });
         if (!fnErr && signed) {
           pageUrls = Array.isArray(signed.pages) ? signed.pages : [];
           thumbUrl = signed.thumb ?? null;
+          pdfUrl = signed.pdf ?? null;
+          pdfBytes = typeof signed.pdfBytes === 'number' ? signed.pdfBytes : null;
         }
       } catch {
         // ★ A signing failure is not a dead link. The page still names the set,
@@ -261,7 +271,7 @@ export function usePlanShareResolve(token: string | undefined) {
       }
       // ★ Never more URLs than the set has pages, whatever the function says.
       if (pageUrls.length > paths.length) pageUrls = pageUrls.slice(0, paths.length);
-      return { row, pageUrls, thumbUrl };
+      return { row, pageUrls, thumbUrl, pdfUrl, pdfBytes };
     },
   });
 }

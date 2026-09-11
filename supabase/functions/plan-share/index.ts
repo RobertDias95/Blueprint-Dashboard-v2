@@ -68,10 +68,17 @@ const deps: Deps = {
     return rows[0] ?? null;
   },
 
-  async sign(objectPath) {
+  async sign(objectPath, downloadAs) {
     const { data, error } = await admin.storage
       .from(SHARE_BUCKET)
-      .createSignedUrl(objectPath, PAGE_SIGN_TTL_SECONDS);
+      .createSignedUrl(
+        objectPath,
+        PAGE_SIGN_TTL_SECONDS,
+        // ★ fix-528 §C: only the PDF asks for a download name. A page image is
+        //   displayed in an `<img>`, and a Content-Disposition on it would make
+        //   the browser try to save the page instead of paint it.
+        downloadAs ? { download: downloadAs } : undefined,
+      );
     if (error) return null;
     return data?.signedUrl ?? null;
   },
@@ -80,7 +87,7 @@ const deps: Deps = {
 Deno.serve(async (req: Request) => {
   if (req.method === 'OPTIONS') return new Response('ok', { headers: CORS });
   if (req.method !== 'POST') {
-    return json({ pages: [], thumb: null }, 405);
+    return json({ pages: [], thumb: null, pdf: null, pdfBytes: null }, 405);
   }
 
   let body: unknown;
@@ -95,6 +102,6 @@ Deno.serve(async (req: Request) => {
   } catch {
     // ★ Never the error text. A caller with no session gets one shape whatever
     //   went wrong, and a storage error would name a path.
-    return json({ pages: [], thumb: null }, 200);
+    return json({ pages: [], thumb: null, pdf: null, pdfBytes: null }, 200);
   }
 });
