@@ -163,7 +163,12 @@ describe('fix-521 §B — the block wires both rules, and pays for the line', ()
     //    and the markup cannot drift"*. A stacked meta line is one more detail
     //    line and the anchor decision has to be told, or the block centres
     //    itself around a height it does not have.
-    expect(grid).toContain('blockDetailLines() + (metaStacks ? 1 : 0)');
+    // ★★ SUPERSEDED BY fix-530 §A. fix-521 paid for a stacked meta line by
+    //    adding one to a CONSTANT; §A replaced the constant with a measured
+    //    plan, because the block also has to be able to drop the row entirely.
+    //    The property is unchanged and is stronger: the anchor decision reads
+    //    the same line count the markup will draw.
+    expect(grid).toContain('fieldPlan.detailLines');
   });
 
   it('★★ the date label is derived ONCE and handed to the collapse rule', () => {

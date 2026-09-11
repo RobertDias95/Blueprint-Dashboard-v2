@@ -1946,16 +1946,26 @@ describe('fix-262 draw schedule — cancelled block', () => {
     renderGrid();
   }
 
-  it('shows the CANCELLED date in place of Est. Approval', () => {
+  // ★★★ SUPERSEDED BY fix-530 §D — THE DATE GOES, THE REPLACEMENT STAYS.
+  //     fix-262's finding was that a cancelled block must stop FORECASTING an
+  //     approval that will never come, and that is unchanged and still
+  //     asserted: no `block-est-approval-*`. What §D removes is the second
+  //     line the cancelled slot carried — Bobby, 2026-09-11: *"it just needs to
+  //     say redesigned once… we can remove all the additional text, it just
+  //     makes it look more busy."* The cancelled DATE is on the block's title
+  //     and in the popup, which is where fix-331 §2 sent this kind of detail
+  //     for the same reason.
+  it('fix-530 §D: the projection is replaced by the word, said once', () => {
     renderGrid();
-    // not cancelled yet -> no cancelled slot
-    expect(screen.queryByTestId('block-cancelled-p-now')).toBeNull();
+    // not cancelled yet -> no retired slot
+    expect(screen.queryByTestId('block-retired-p-now')).toBeNull();
     cleanupAndRerenderWithCancel();
-    const slot = screen.getByTestId('block-cancelled-p-now');
-    expect(slot.textContent).toContain('CANCELLED');
-    // formatProjectionDate renders MM-DD-YY
-    expect(slot.textContent).toContain('05-11-26');
-    // and the projection slot is gone for that project
+    const slot = screen.getByTestId('block-retired-p-now');
+    expect(slot.textContent).toContain('Cancelled');
+    // ★★★ ONCE. Not the word plus a date, and not the word twice.
+    expect(slot.textContent?.match(/cancelled/gi) ?? []).toHaveLength(1);
+    expect(slot.textContent).not.toContain('05-11-26');
+    // ★ fix-262's rule, untouched: no forecast on a cancelled block.
     expect(screen.queryByTestId('block-est-approval-p-now')).toBeNull();
   });
 
@@ -2016,11 +2026,17 @@ describe('fix-263 draw schedule — parked block treatment', () => {
     expect(style).toContain('var(--color-cancelled-border)');
   });
 
-  it('cancelled: the address is struck through', () => {
+  // ★★★ INVERTED BY fix-530 §D, RULED. Bobby: *"no strikethrough on canceled or
+  //     redesign. The colour says enough."* The hatch was always the signal and
+  //     the line was a second marker on top of a texture that already said it.
+  it('fix-530 §D: the address is NOT struck through', () => {
     holdRows.current = [parkRow('p-now', 'cancelled', 'Builder pulled out')];
     renderGrid();
     const addr = screen.getByTestId('block-address-p-now').getAttribute('style') ?? '';
-    expect(addr).toContain('line-through');
+    expect(addr).not.toContain('line-through');
+    // ★ …and the hatch is still there, doing the work.
+    const block = screen.getByTestId('block-p-now').getAttribute('style') ?? '';
+    expect(block).toContain('repeating-linear-gradient');
   });
 
   it('cancelled: the block says CANCELLED ONCE — no live phase, and no echo', () => {
@@ -2046,25 +2062,34 @@ describe('fix-263 draw schedule — parked block treatment', () => {
 
     holdRows.current = [parkRow('p-now', 'cancelled', 'Builder pulled out')];
     renderGrid();
-    // The chip is GONE — collapsed into the date line, which says it.
+    // ★★★ AND fix-530 §D TAKES THE WHOLE META ROW, not just the chip. The
+    //     collapse fix-521 §B built was the right answer while the row still
+    //     had a jurisdiction to carry; §D rules that a retired block shows the
+    //     colour, the address and the word, and nothing else — so there is no
+    //     row left to collapse anything into.
     expect(screen.queryByTestId('block-status-p-now')).toBeNull();
-    expect(screen.getByTestId('block-meta-p-now').getAttribute('data-chip')).toBe(
-      'collapsed',
-    );
-    expect(screen.getByTestId('block-cancelled-p-now').textContent).toContain('CANCELLED');
+    expect(screen.queryByTestId('block-meta-p-now')).toBeNull();
+    expect(screen.getByTestId('block-retired-p-now').textContent).toContain('Cancelled');
     // ★ And the word appears exactly ONCE on the block — the defect in one
-    //   assertion.
+    //   assertion, and the one line of this test that has survived three
+    //   tickets unchanged.
     const block = screen.getByTestId('block-p-now');
     const says = (block.textContent ?? '').match(/CANCELLED/gi) ?? [];
     expect(says).toHaveLength(1);
   });
 
-  it('cancelled: the CANCELLED date line still renders (fix-262 behaviour kept)', () => {
+  // ★★★ SUPERSEDED BY fix-530 §D: the date line is exactly what §D removes.
+  //     See the inverted test above for where the date went.
+  it('fix-530 §D: a cancelled block says the word and NOTHING else', () => {
     holdRows.current = [parkRow('p-now', 'cancelled', 'Builder pulled out')];
     renderGrid();
-    const slot = screen.getByTestId('block-cancelled-p-now');
-    expect(slot.textContent).toContain('CANCELLED');
-    expect(slot.textContent).toContain('05-11-26');
+    const slot = screen.getByTestId('block-retired-p-now');
+    expect(slot.textContent?.trim()).toBe('Cancelled');
+    // ★★★ AND THE META ROW IS GONE TOO — the state was being said in the chip,
+    //     in the date label and (for a redesign) again as the successor's
+    //     address. `4000 SW Concord St` said it three times.
+    expect(screen.queryByTestId('block-meta-p-now')).toBeNull();
+    expect(screen.queryByTestId('block-juris-p-now')).toBeNull();
   });
 
   // ---- HELD ------------------------------------------------------------
@@ -2101,7 +2126,8 @@ describe('fix-263 draw schedule — parked block treatment', () => {
     holdRows.current = [parkRow('p-now', 'cancelled', 'Builder pulled out')];
     renderGrid();
     expect(screen.queryByTestId('block-held-p-now')).toBeNull();
-    expect(screen.getByTestId('block-cancelled-p-now')).toBeTruthy();
+    // ★ fix-530 §D renamed the slot: the two retired states share one branch.
+    expect(screen.getByTestId('block-retired-p-now')).toBeTruthy();
   });
 
   // ---- REGRESSION LOCK: the normal path is untouched --------------------

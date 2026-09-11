@@ -281,8 +281,11 @@ describe('fix-524 §B — the four surfaces, both causes', () => {
 
   it('★★★ 6 · a REDESIGNED-AWAY project keeps its block, hatched purple', () => {
     expect(DS_PARK_PRESENTATION.redesigned.background).toBe(retiredHatch('redesigned'));
-    expect(grid).toContain("retired === 'redesigned'");
-    expect(grid).toContain('block-redesigned-');
+    // ★ fix-530 §D renamed the render: the two retired states now share ONE
+    //   branch that prints the park's own label once, so `block-redesigned-`
+    //   became `block-retired-`. The property — a redesigned block keeps its
+    //   block and paints the purple hatch — is unchanged and is asserted above.
+    expect(grid).toContain('block-retired-');
     // ★★★ The Draw Schedule is the ONE surface that keeps a retired project,
     //     and the reason is capacity: a cancelled or superseded block still
     //     consumed a designer's weeks.

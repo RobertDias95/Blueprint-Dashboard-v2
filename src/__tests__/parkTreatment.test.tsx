@@ -51,21 +51,29 @@ describe('fix-263 park presentation', () => {
     expect(grey).toContain('45deg');
   });
 
-  it('★★ a redesigned block has no live phase either, and is struck through', () => {
+  it('★★ a redesigned block has no live phase either', () => {
     // ★ Same reasoning as cancelled: the successor carries the phase. A pill
     //   saying "DD / Permit Set" on a superseded project names work nobody is
     //   doing.
     expect(DS_PARK_PRESENTATION.redesigned.showPhasePill).toBe(false);
-    expect(DS_PARK_PRESENTATION.redesigned.strikeAddress).toBe(true);
     expect(DS_PARK_PRESENTATION.redesigned.label).toBe('Redesigned');
   });
 
-  it('cancelled drops the phase pill and strikes the address; hold does neither', () => {
+  // ★★★ HALF SUPERSEDED BY fix-530 §D. The phase-pill half is untouched and is
+  //     the load-bearing one: a cancelled project has no live phase, and that
+  //     was fix-263's whole finding. **The strike-through half is retired**,
+  //     ruled by Bobby 2026-09-11: *"no strikethrough on canceled or redesign.
+  //     The colour says enough… we can remove all the additional text, it just
+  //     makes it look more busy."* The hatch was always the signal; the line
+  //     was a second marker on top of a texture that already said it.
+  it('cancelled drops the phase pill; NOTHING strikes the address any more', () => {
     expect(DS_PARK_PRESENTATION.cancelled.showPhasePill).toBe(false);
-    expect(DS_PARK_PRESENTATION.cancelled.strikeAddress).toBe(true);
     // A held project is still ACTIVE, so its phase still means something.
     expect(DS_PARK_PRESENTATION.hold.showPhasePill).toBe(true);
-    expect(DS_PARK_PRESENTATION.hold.strikeAddress).toBe(false);
+    // ★★★ fix-530 §D — BOTH retired states, and hold as it always was.
+    for (const p of Object.values(DS_PARK_PRESENTATION)) {
+      expect(p.strikeAddress).toBe(false);
+    }
   });
 
   it('park is NOT a phase — it must never leak into the DsStatus union', () => {
@@ -111,7 +119,6 @@ describe('fix-263 legend', () => {
     const cancelled =
       screen.getByTestId('ds-legend-chip-Cancelled').getAttribute('style') ?? '';
     expect(cancelled).toContain(DS_PARK_PRESENTATION.cancelled.background);
-    expect(cancelled).toContain('line-through');
 
     // ★ fix-524 §A: and the second retired state is in the legend beside it —
     //   the only place in the app where the grey and the purple appear
@@ -119,7 +126,6 @@ describe('fix-263 legend', () => {
     const redesigned =
       screen.getByTestId('ds-legend-chip-Redesigned').getAttribute('style') ?? '';
     expect(redesigned).toContain(DS_PARK_PRESENTATION.redesigned.background);
-    expect(redesigned).toContain('line-through');
   });
 
   it('keeps every pre-existing v1-parity chip', () => {
@@ -159,7 +165,9 @@ describe('fix-263 HoldBadge shares the park palette', () => {
     // ★★ Again stronger: the badge's background IS the block's, not merely a
     //    mention of the same token name.
     expect(style).toContain(DS_PARK_PRESENTATION.cancelled.background);
-    expect(style).toContain('line-through');
+    // ★ fix-530 §D: and NOT struck through — the same ruling, on the badge as
+    //   on the block. One vocabulary, changed in one pass.
+    expect(style).not.toContain('line-through');
     // ★ fix-524 §A: the text is unchanged to the character — the badge still
     //   names the reason. Only the paint moved into `RetiredBadge`.
     expect(screen.getByTestId('hb-cancelled').textContent).toContain('Cancelled');

@@ -1051,11 +1051,8 @@ function Body({ projects, permits, retiredSets }: BodyProps) {
                         state={{ from: PREVIOUS_ORIGINS.library }}
                         className="hover:underline"
                         data-testid={`library-unit-address-${u.key}`}
-                        style={
-                          hatchedIds.has(u.project.projectId)
-                            ? { textDecoration: 'line-through' }
-                            : undefined
-                        }
+                        // ★ fix-530 §D: no strike-through. See the site row.
+                        style={undefined}
                       >
                         {u.project.address}
                       </OriginLink>
@@ -1369,7 +1366,10 @@ function Row({ row, bandClass, retired }: RowProps) {
             //   its Previous button knows which list to go back to.
             state={{ from: PREVIOUS_ORIGINS.library }}
             className="hover:underline"
-            style={retired ? { textDecoration: 'line-through' } : undefined}
+            // ★ fix-530 §D: no strike-through on a retired row either — the
+            //   ruling is about the STATE, not about the surface. The badge
+            //   beside it carries the hatch and the word.
+            style={undefined}
           >
             {row.address}
           </OriginLink>

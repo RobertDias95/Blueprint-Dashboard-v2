@@ -147,7 +147,7 @@ beforeEach(() => {
 });
 
 describe('Draw Schedule block layout (fix-DS-uniform-layout)', () => {
-  it('1 week (non-overflow): top-anchored, and — fix-515 §A — it STILL says juris and phase', () => {
+  it('1 week: top-anchored, and — fix-530 §A — it drops juris and phase, not font', () => {
     // fix-DS-compact-rule: a 1-week block can't fit the full stack, so it's
     // treated like an overflow slice — minimal content, top-anchored so the
     // address never clips. A permit drives the projection so Est. Approval shows.
@@ -169,15 +169,32 @@ describe('Draw Schedule block layout (fix-DS-uniform-layout)', () => {
     //     that the draw schedule reads consistent."* 40 of 219 prod lanes were
     //     silent about two fields whose data was present every time.
     //
-    // ★★ THE CONSTRAINT WAS ANSWERED RATHER THAN IGNORED: juris and the phase
-    //    chip now share ONE row, so the compact block gains a line and the full
-    //    block loses one. Every block renders the same stack.
-    expect(screen.getByTestId('block-juris-p1')).toBeInTheDocument();
-    expect(screen.getByTestId('block-status-p1')).toBeInTheDocument();
-    // Est. Approval still renders.
+    // ★★★ AND SUPERSEDED AGAIN BY fix-530 §A (P-245) — WHICH IS THE SAME
+    //     COMPLAINT FROM THE OTHER SIDE. fix-515 §A made every block say
+    //     everything, and Bobby, 2026-09-11, on the result: *"220 North 58th
+    //     Street… it's really hard to read, like everything. Prioritize
+    //     address, and then we know that it's approved based on the legend."*
+    //
+    // ★★★ THE TWO RULINGS ARE NOT IN CONFLICT, and that is worth stating
+    //     because they look it. fix-515 §A was about **silence that had no
+    //     cause**: 40 lanes dropped fields whose data was present, on a rule
+    //     keyed to WEEK COUNT. §A drops fields on **measured room**, and the
+    //     order is Bobby's own — address, then the date, then the pair. A
+    //     one-week block genuinely cannot hold five rows; what fix-515 fixed is
+    //     that it used to drop them at two weeks as well.
+    //
+    // ★★ SO THE ASSERTION INVERTS FOR THIS BLOCK AND HOLDS FOR THE NEXT ONE.
+    //    See the 2-week test below, which still expects both fields — that
+    //    pairing is the whole rule.
+    expect(screen.queryByTestId('block-juris-p1')).toBeNull();
+    expect(screen.queryByTestId('block-status-p1')).toBeNull();
+    // ★★★ THE DATE SURVIVES — it is second in the priority order, above both.
     const est = screen.getByTestId('block-est-approval-p1');
     expect(est.textContent).toContain('Est. Approval');
     expect(est.textContent).toContain('08-15-26');
+    // ★★★ AND NOTHING IS TRUNCATED. *"An omitted field sends the reader to the
+    //     legend; a truncated one sends them nowhere."*
+    expect(block.textContent ?? '').not.toContain('…');
     // Top-anchored so the address can't clip.
     expect(block.style.justifyContent).toBe('flex-start');
   });
@@ -385,7 +402,7 @@ describe('Draw Schedule block layout (fix-DS-uniform-layout)', () => {
     expect(screen.getByTestId('block-juris-ph')).toBeInTheDocument();
   });
 
-  it('DOM snapshots: EVERY block renders the same field set — fix-515 §A', () => {
+  it('DOM snapshots: every block renders the same PRIORITY ORDER — fix-530 §A', () => {
     // manual_status:true so deriveBlockStatus honors the stored "Approved"
     // (no permits in this test → otherwise it derives "Scheduled" from DD math).
     refs.draw.current = [
@@ -414,16 +431,21 @@ describe('Draw Schedule block layout (fix-DS-uniform-layout)', () => {
       expect(screen.getByTestId(`block-juris-${id}`)).toBeInTheDocument();
       expect(screen.getByTestId(`block-status-${id}`)).toBeInTheDocument();
     }
-    // ★★★ SUPERSEDED BY fix-515 §A: the one-week block renders the SAME field
-    //     set — which is the whole point of the ticket. What made it possible
-    //     is that juris and the phase chip share a row, so the shortest block
-    //     carries both in one line rather than two.
+    // ★★★ SUPERSEDED AGAIN BY fix-530 §A — and the test's NAME is now the
+    //     thing that changed. "Every block renders the same field set" was
+    //     fix-515 §A's ruling; §A replaces it with **every block renders the
+    //     same PRIORITY ORDER**, and how far down that order it gets is decided
+    //     by measured room rather than by week count.
+    //
+    // ★★ The two-and three-week blocks above still carry everything, which is
+    //    what keeps this from being a return to fix-DS-overflow-minimal: the
+    //    field set is not keyed to a tier any more.
     const shortest = screen.getByTestId('block-p1');
     expect(shortest.textContent).toContain('500 Pike St');
-    expect(screen.getByTestId('block-juris-p1')).toBeInTheDocument();
-    expect(screen.getByTestId('block-status-p1')).toBeInTheDocument();
-    expect(shortest.textContent).toContain('Seattle');
-    expect(shortest.textContent).toContain('Approved');
+    expect(screen.queryByTestId('block-juris-p1')).toBeNull();
+    expect(screen.queryByTestId('block-status-p1')).toBeNull();
+    // ★★★ The address is whole. Never `Edmo…`, never `500 Pike…`.
+    expect(shortest.textContent ?? '').not.toContain('…');
   });
 
   it('DA columns auto-fit: shared grid template floors each column track at 90px', () => {

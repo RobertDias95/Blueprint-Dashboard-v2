@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useLocation, useParams, useSearchParams } from 'react-router-dom';
 import OriginLink from '../components/OriginLink';
 import { RETIRED_PALETTE, retiredHatch } from '../lib/retiredState';
+import { displayAddress } from '../lib/displayAddress';
 import { previousTarget } from '../lib/previousOrigin';
 import { useProjects } from '../hooks/useProjects';
 import { usePermitsByProject } from '../hooks/usePermitsByProject';
@@ -654,7 +655,11 @@ function RedesignOfBadge({
       }}
       data-testid="pd-redesign-of-badge"
     >
-      ↗ Redesign of {original ? original.address : '(unknown original)'}
+      {/* ★ fix-530 §C: the ORIGINAL never carries the suffix, but the helper is
+          used anyway — a surface that strips "only where it matters" is a
+          surface that stops stripping the day the data changes. */}
+      ↗ Redesign of{' '}
+      {original ? displayAddress(original.address) : '(unknown original)'}
     </OriginLink>
   );
 }
@@ -685,7 +690,7 @@ function SupersededBadge({ successor }: { successor: { id: string; address: stri
       }}
       data-testid="pd-superseded-badge"
     >
-      ↻ Superseded by {successor.address}
+      ↻ Superseded by {displayAddress(successor.address)}
     </OriginLink>
   );
 }

@@ -140,7 +140,14 @@ export interface DsParkPresentation {
   subtext: string;
   /** Does the derived-phase pill still make sense in this state? */
   showPhasePill: boolean;
-  /** Is the address struck through? */
+  /** Is the address struck through?
+   *
+   *  ⚠️ **fix-530 §D RETIRED IT FOR BOTH RETIRED STATES.** Bobby, 2026-09-11:
+   *  *"no strikethrough on canceled or redesign. The colour says enough… we can
+   *  remove all the additional text, it just makes it look more busy."* The
+   *  field stays because `hold` still answers it (with `false`) and because a
+   *  future state might want it — what changed is the two answers, not the
+   *  question. **The hatch plus one word is the whole signal.** */
   strikeAddress: boolean;
   /** Legend label. */
   label: string;
@@ -182,7 +189,8 @@ export const DS_PARK_PRESENTATION: Record<DsParkKind, DsParkPresentation> = {
     subtext: RETIRED_PALETTE.cancelled.text,
     // No live phase — see the note above.
     showPhasePill: false,
-    strikeAddress: true,
+    // ★ fix-530 §D: was `true` since fix-263. See `strikeAddress`.
+    strikeAddress: false,
     label: RETIRED_PALETTE.cancelled.label,
   },
   redesigned: {
@@ -193,7 +201,8 @@ export const DS_PARK_PRESENTATION: Record<DsParkKind, DsParkPresentation> = {
     // ★ Same reasoning as cancelled: a superseded project has no live phase of
     //   its own. Its successor has one, and that is where the phase belongs.
     showPhasePill: false,
-    strikeAddress: true,
+    // ★ fix-530 §D: was `true`, inherited from fix-263's cancelled treatment.
+    strikeAddress: false,
     label: RETIRED_PALETTE.redesigned.label,
   },
 };

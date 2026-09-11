@@ -45,11 +45,12 @@ export default function RetiredBadge({
         background: retiredHatch(cause),
         color: p.text,
         borderColor: p.border,
-        // ★ The strike-through is part of the retired treatment, not part of
-        //   "cancelled": Bobby described the pattern as *"all those hash lines
-        //   with a line through it"* and then asked for it in purple.
-        textDecoration: 'line-through',
-        textDecorationThickness: '1px',
+        // ⚠️ fix-530 §D: THE STRIKE-THROUGH IS GONE, on this badge as on the
+        //    block. Bobby: *"no strikethrough on canceled or redesign. The
+        //    colour says enough."* fix-524 described the pattern as *"all those
+        //    hash lines with a line through it"* — the hash lines were the half
+        //    that carried the meaning; the line was noise on top of a texture
+        //    that already said it.
       }}
       title={title}
       data-retired-cause={cause}

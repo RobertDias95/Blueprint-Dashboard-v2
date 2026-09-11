@@ -47,7 +47,9 @@ import {
   blockAddressFontPx,
   blockAddressLines,
   blockCentresStack,
-  blockDetailLines,
+  BLOCK_DATE_LINES,
+  blockFieldPlan,
+  blockMajorityInRange,
   // ★ fix-521 §B (P-224): the meta line's two decisions — does the pair fit on
   //   one line, and is the phase chip saying what the date label already says.
   blockMetaFitsOneLine,
@@ -72,6 +74,7 @@ import {
 } from '../lib/drawScheduleHelpers';
 import { computeProjectedApproval } from '../lib/projectedApproval';
 import { structAddressHaystack } from '../lib/structAddressSearch';
+import { displayAddress } from '../lib/displayAddress';
 import {
   useAllProjectHolds,
   holdsByProjectId as holdsIndexByProjectId,
@@ -313,20 +316,12 @@ function DrawScheduleBody({
   //     non-archived project naming this one in `redesign_of_project_id`.
   //     Measured on prod 2026-09-11: 5 cancelled · 17 redesign originals · 0 in
   //     both · 22 distinct. All 5 cancelled are already on this board.
-  /** ★ fix-524 §B: original id → the live redesign that superseded it. One
-   *  pass, so a block can name its successor without a lookup per render.
-   *  ★★ LAST ONE WINS if a project has been redesigned twice — 17 originals
-   *     for 17 redesigns on prod (measured 2026-09-11), so there is no such
-   *     case today, and the block names *a* successor rather than pretending
-   *     to rank them. */
-  const redesignByOriginalId = useMemo(() => {
-    const m = new Map<string, Project>();
-    for (const p of projects) {
-      if (p.archived || !p.redesign_of_project_id) continue;
-      m.set(p.redesign_of_project_id, p);
-    }
-    return m;
-  }, [projects]);
+  // ★ fix-530 §D: `redesignByOriginalId` IS GONE. fix-524 built it so a
+  //   redesigned block could name its successor on a second line; §D removes
+  //   that line — *"it just needs to say redesigned once… and then that's
+  //   it."* The successor is still reachable from the project page's
+  //   `↻ Superseded by <address>` badge, which is where a reader who wants it
+  //   is already going. Deleted rather than left as scenery.
   const retiredSets = useMemo(
     () => ({
       cancelledIds: cancelledProjectIds(holdsQ.data),
@@ -375,6 +370,10 @@ function DrawScheduleBody({
   }, [permitsByProjectId]);
   const projectSearchHay = useCallback(
     (project: Project) => {
+      // ★★ THE HAYSTACK KEEPS THE RAW ADDRESS, deliberately — fix-530 §C is a
+      //    DISPLAY rule. Somebody who types "redesign" into the board's search
+      //    is looking for exactly these 17 projects, and stripping the suffix
+      //    here would make a stored fact unsearchable in order to tidy a label.
       const extra = structHayByProjectId.get(project.id);
       return extra ? `${project.address} ${extra}` : project.address;
     },
@@ -603,7 +602,25 @@ function DrawScheduleBody({
     const lastWeek = weeks[weeks.length - 1];
     for (const row of draw) {
       if (!row.da_assigned || !row.start_week || !row.end_week) continue;
-      if (row.start_week <= lastWeek && row.end_week >= firstWeek) {
+      // ★★★ fix-530 §E — A COLUMN IS NOT CREATED BY A TWO-DAY TAIL.
+      //
+      //     This was `start_week <= lastWeek && end_week >= firstWeek` — ANY
+      //     overlap. `2621 Eastlake Ave E` runs 2026-06-29 → 2026-10-04 and
+      //     touches Q2 for **two days**, and because Jade is in neither
+      //     `dm_da_groups` nor the 2026-Q2 layout, those two days made her an
+      //     ORPHAN LANE (see `buildDrawColumns`) — a whole column whose only
+      //     content belongs to the next quarter. Bobby: *"it's kind of false
+      //     advertising."*
+      //
+      // ★★ THE EDGE WEEKS ARE UNTOUCHED and this is only about `forcedDAs`,
+      //    which exists to CREATE a lane for work that has none. Spillover
+      //    still renders inside every column that exists for another reason —
+      //    that is what the edge weeks are for, and they are wanted.
+      //
+      // ★ And nothing is hidden: a block whose majority is elsewhere has a
+      //   column in the quarter where its majority IS. Jade's lane still
+      //   appears on Q3, carrying this block.
+      if (blockMajorityInRange(row.start_week, row.end_week, firstWeek, lastWeek)) {
         set.add(row.da_assigned);
       }
     }
@@ -2226,7 +2243,16 @@ function DrawScheduleBody({
                     // Est. Approval one step smaller (base − 1).
                     const baseFontPx = blockFontPx(visibleSpan);
                     const detailFont = Math.round((baseFontPx - 1) * textScale);
-                    const shortLabel = project.address.split(',')[0];
+                    // ★★★ fix-530 §C — `[Redesign N]` COMES OFF THE SCREEN.
+                    //     Bobby: *"get rid of the redesign concept completely
+                    //     on that… hide it on screen, leave the data alone."*
+                    //     17 active projects carry the suffix literally in
+                    //     `projects.address`, and that string is the key the
+                    //     indexer matches share folders on (fix-518b) — so it
+                    //     is stripped HERE and never written.
+                    // ★ `displayAddress` is the one helper; a regex per
+                    //   component is how one of them keeps the suffix.
+                    const shortLabel = displayAddress(project.address).split(',')[0];
                     // ★★★ fix-484 §A2 — WRAP, THEN SHRINK. The ramp proposes a
                     //     size; `blockAddressFontPx` steps it down in half
                     //     pixels until the address fits two lines in this
@@ -2288,15 +2314,46 @@ function DrawScheduleBody({
                     //     is nothing to fight, so a redundant chip pays for the
                     //     line a stack would have cost — which is the budget
                     //     rule: to add a line, remove a line.
-                    const metaStacks =
-                      !chipRedundant &&
-                      !blockMetaFitsOneLine(
+                    // ★★★ fix-530 §A/§B — WHAT THIS BLOCK HAS ROOM TO SAY.
+                    //
+                    //     fix-521 §B asked only *"do the jurisdiction and the
+                    //     chip fit side by side?"* — a WIDTH test that never
+                    //     looked at the block's height, which is why
+                    //     `3921 43rd Ave S` stayed inline with room to spare.
+                    //     See `metaWantsStack` for why that read as fixed for
+                    //     Approved: the chip was DELETED there, not stacked.
+                    //
+                    // ★★★ The plan is measured against the same
+                    //     `blockStackHeight` the anchor decision uses, so the
+                    //     two cannot disagree about what fits — and it is
+                    //     px, never weeks, so a 2-week block at 1600 and at
+                    //     1920 get different answers.
+                    const fieldPlan = blockFieldPlan({
+                      heightPx: height,
+                      addressLines: addrLines,
+                      addressFontPx: addrFont,
+                      detailFontPx: detailFont,
+                      chipRedundant,
+                      metaFitsOneLine: blockMetaFitsOneLine(
                         project.juris || 'No jurisdiction',
                         chipLabel,
                         detailFont,
                         Math.round(6 * textScale),
                         addrBoxW,
-                      );
+                      ),
+                    });
+                    // ★★★ fix-530 §D — A RETIRED BLOCK SAYS ITS STATE ONCE.
+                    //     Bobby: *"it just needs to have the colour and then it
+                    //     just needs to say redesigned once, vertically stack
+                    //     it, and then that's it."* `4000 SW Concord St` was
+                    //     rendering the word three times — in the meta row, in
+                    //     the date label, and again as the successor's address,
+                    //     truncated mid-word. The meta row goes entirely: the
+                    //     hatch already carries the state and the legend names
+                    //     it.
+                    const retiredBlock = park != null && !park.showPhasePill;
+                    const metaStacks = !retiredBlock && fieldPlan.metaStacks;
+                    const showMeta = !retiredBlock && fieldPlan.showMeta;
                     // ★★★ fix-484 §A1 — the anchor decision, in one place.
                     const centresStack = blockCentresStack(
                       height,
@@ -2309,7 +2366,10 @@ function DrawScheduleBody({
                         //   before it measures — `blockDetailLines` is a
                         //   constant precisely so this stays arithmetic
                         //   rather than a guess.
-                        blockDetailLines() + (metaStacks ? 1 : 0),
+                        // ★ fix-530 §A: the PLAN's line count, not a constant
+                        //   plus a guess. A block that dropped its meta row is
+                        //   two detail lines tall and should anchor as one.
+                        retiredBlock ? BLOCK_DATE_LINES : fieldPlan.detailLines,
                       ),
                     );
                     // Duration in weeks is end..start inclusive.
@@ -2332,8 +2392,10 @@ function DrawScheduleBody({
                     // ★ fix-335 §7: the block you were sent here to look at.
                     const isFocused = row.project_id === focusProjectId;
                     const originalAddress = isRedesign
-                      ? projectsById.get(project.redesign_of_project_id ?? '')
-                          ?.address ?? null
+                      ? displayAddress(
+                          projectsById.get(project.redesign_of_project_id ?? '')
+                            ?.address,
+                        ) || null
                       : null;
                     const redesignTitleSuffix =
                       isRedesign && originalAddress
@@ -2349,7 +2411,7 @@ function DrawScheduleBody({
                         data-overflow={overflow === 'tail' ? 'tail' : undefined}
                         data-redesign={isRedesign ? 'true' : undefined}
                         data-focus={isFocused ? 'true' : undefined}
-                        title={`${project.address} — ${derivedStatus}${redesignTitleSuffix}${
+                        title={`${displayAddress(project.address)} — ${derivedStatus}${redesignTitleSuffix}${
                           canEdit
                             ? ' (drag to move, click to edit)'
                             : ' (view only)'
@@ -2517,7 +2579,7 @@ function DrawScheduleBody({
                               ? 'line-through'
                               : 'none',
                           }}
-                          title={project.address}
+                          title={displayAddress(project.address)}
                           data-testid={`block-address-${row.project_id}`}
                         >
                           {shortLabel}
@@ -2616,6 +2678,16 @@ function DrawScheduleBody({
                               now also PRINTED on it, which is strictly one
                               derivation where there were two renderings. */}
                         <>
+                          {/* ★★★ fix-530 §A — THE ROW THAT GOES WHEN THERE IS NO
+                              ROOM. Bobby's priority order is address, then the
+                              approval date; jurisdiction and the phase chip are
+                              what a short block drops, TOGETHER, because *"we
+                              know that it's approved based on the legend"*.
+                              46% of the board is two weeks or less.
+                              ★★ Dropped, never shrunk: an omitted field sends
+                                 the reader to the legend, a truncated one sends
+                                 them nowhere. */}
+                          {showMeta && (
                           <div
                             style={{
                               display: 'flex',
@@ -2712,6 +2784,7 @@ function DrawScheduleBody({
                             </span>
                             )}
                           </div>
+                          )}
                           {(() => {
                             // Q9.5.f-fix-17.5 C: Est. Approval uses the same
                             // computeProjectedApproval pipeline as Schedule
@@ -2776,25 +2849,36 @@ function DrawScheduleBody({
                                 </div>
                               );
                             }
-                            // ★★★ fix-524 §B — REDESIGNED AWAY, ON THE BLOCK.
+                            // ★★★ fix-530 §D — A RETIRED BLOCK SAYS ITS STATE
+                            //     ONCE, AND NOTHING ELSE.
                             //
-                            //     The successor's address is the useful fact
-                            //     here: an estimated approval date on a project
-                            //     nobody is working any more is noise, and the
-                            //     one thing a reader of this block wants is
-                            //     *where did the work go*. Same shape as the
-                            //     cancelled branch below it, which is what
-                            //     makes the two read as one state with two
-                            //     causes rather than two features.
+                            //     Bobby: *"it just needs to have the colour and
+                            //     then it just needs to say redesigned once,
+                            //     vertically stack it, and then that's it."*
+                            //     And: *"we can remove all the additional text,
+                            //     it just makes it look more busy."*
                             //
-                            // ★ Checked BEFORE the cancel branch would matter:
-                            //   `retiredCause` already gave cancel precedence,
-                            //   so this can only be true when there is no open
-                            //   cancel row.
-                            if (retired === 'redesigned') {
-                              const successor = redesignByOriginalId.get(
-                                row.project_id,
-                              );
+                            // ★★★ `4000 SW Concord St` said it THREE TIMES —
+                            //     `Seattle | Redesigned` in the meta row,
+                            //     `↻ REDESIGNED` here, and then the successor's
+                            //     address `0 SW Concord St [Redesig…` truncated
+                            //     mid-word. The meta row is gone (see
+                            //     `retiredBlock` above), and the second line
+                            //     goes here.
+                            //
+                            // ★★ WHAT THE SECOND LINE CARRIED, and where it
+                            //    went: the successor's address for a redesign,
+                            //    and the cancelled DATE for a cancel. Both are
+                            //    on the block's `title` and in the popup, which
+                            //    is where fix-331 §2 sent this card's file text
+                            //    for the same reason — the face answers *what
+                            //    is this*, the detail answers *tell me more*.
+                            //
+                            // ★ ONE WORD, and it is the LEGEND's word: the
+                            //   reader learns the hatch once and reads it
+                            //   everywhere. `park.label` is the same string the
+                            //   legend chip and the retired badge print.
+                            if (retiredBlock && park) {
                               return (
                                 <div
                                   style={{
@@ -2802,14 +2886,10 @@ function DrawScheduleBody({
                                     flexDirection: 'column',
                                     alignItems: 'center',
                                     lineHeight: 1.1,
-                                    color: park ? park.subtext : sc.text,
+                                    color: park.subtext,
                                   }}
-                                  data-testid={`block-redesigned-${row.project_id}`}
-                                  title={
-                                    successor
-                                      ? `Redesigned — superseded by ${successor.address}`
-                                      : 'Redesigned — superseded'
-                                  }
+                                  data-testid={`block-retired-${row.project_id}`}
+                                  data-retired-word={park.label}
                                 >
                                   <span
                                     style={{
@@ -2818,58 +2898,7 @@ function DrawScheduleBody({
                                       letterSpacing: '0.04em',
                                     }}
                                   >
-                                    ↻ REDESIGNED
-                                  </span>
-                                  {successor && (
-                                    <span
-                                      style={{
-                                        fontSize: detailFont,
-                                        fontWeight: 800,
-                                        maxWidth: '100%',
-                                        overflow: 'hidden',
-                                        textOverflow: 'ellipsis',
-                                        whiteSpace: 'nowrap',
-                                      }}
-                                    >
-                                      {successor.address}
-                                    </span>
-                                  )}
-                                </div>
-                              );
-                            }
-                            const cancelRow = cancelMap.get(row.project_id);
-                            if (cancelRow) {
-                              return (
-                                <div
-                                  style={{
-                                    display: 'flex',
-                                    flexDirection: 'column',
-                                    alignItems: 'center',
-                                    lineHeight: 1.1,
-                                    // fix-263: park colours, and full opacity —
-                                    // the hatch already mutes the block, so the
-                                    // fix-262 0.85 made the date hard to read.
-                                    color: park ? park.subtext : sc.text,
-                                  }}
-                                  data-testid={`block-cancelled-${row.project_id}`}
-                                  title={`Cancelled ${cancelRow.hold_start} — ${cancelRow.reason}`}
-                                >
-                                  <span
-                                    style={{
-                                      fontSize: Math.max(7, detailFont - 1),
-                                      fontWeight: 700,
-                                      letterSpacing: '0.04em',
-                                    }}
-                                  >
-                                    ✕ CANCELLED
-                                  </span>
-                                  <span
-                                    style={{
-                                      fontSize: detailFont,
-                                      fontWeight: 800,
-                                    }}
-                                  >
-                                    {formatProjectionDate(cancelRow.hold_start)}
+                                    {park.label}
                                   </span>
                                 </div>
                               );
@@ -3007,7 +3036,8 @@ function DrawScheduleBody({
           return (
             <ProjectBlockPopup
               row={row}
-              address={project.address}
+              // ★ fix-530 §C: the popup names the project too.
+              address={displayAddress(project.address)}
               permits={projectPermits}
               displayedStatus={derivedStatus}
               isAutoDerived={isAuto}
@@ -3394,7 +3424,8 @@ function UnscheduledLane({
             }
             data-has-row={row ? 'true' : 'false'}
           >
-            {project.address}
+            {/* ★ fix-530 §C: the unscheduled lane is a list of addresses too. */}
+            {displayAddress(project.address)}
           </span>
         ))}
       </div>
