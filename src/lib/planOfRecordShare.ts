@@ -130,6 +130,80 @@ export async function signPlanShareUrl(objectPath: string): Promise<string> {
 //      separately rather than promised with the rest. §D asked for exactly that.
 // ===========================================================================
 
+// ===========================================================================
+// ★★★ fix-528 §C (P-238) — DOWNLOAD THE PDF, AND IT IS THE SAME SIGNING PATH
+// ===========================================================================
+//
+// Bobby has asked for the drawing itself four times:
+//   *"can the share button create the item into a pdf?"* →
+//   *"are we able to share a link + pdf?"* →
+//   *"when i click email it, it still shows as a link vs putting a pdf in the
+//   emial"* → *"i dont think we need a link, just a pdf."*
+//
+// ★★★ EVERY PREVIOUS ANSWER EXPLAINED WHY A `mailto:` CANNOT CARRY AN
+//     ATTACHMENT. That is true, and it was the wrong response: `mailto:` was
+//     never a requirement — it is what this app happened to use. **When
+//     somebody asks the same thing four times, the constraint is the thing to
+//     remove, not to restate.**
+//
+// ★★ AND THE PDF ALREADY EXISTS. fix-526's backfill uploaded the source file
+//    for **336 of 336** current sets into the same private bucket the
+//    thumbnails live in — `{project_id}/{set}/source.pdf`, `application/pdf`,
+//    max 18.6 MB, average 2.5 MB, **none over 20 MB** (measured 2026-09-11).
+//    So there is nothing to generate and nothing to stitch: the drawing is one
+//    signed URL away, and it is the ORIGINAL, not a raster of its page images.
+
+/** How long a download link lives. ★ NOT the share link's 30 days: this is
+ *  minted for a click that is about to happen, and a signature that outlives
+ *  the click is another copy of the drawing loose in the world. */
+export const PDF_DOWNLOAD_TTL_SECONDS = 5 * 60;
+
+/**
+ * A signed, downloadable URL for a set's source PDF.
+ *
+ * ★★★ THE BUG THIS EXISTS TO STOP: `pdf_path` is an OBJECT PATH, not a URL.
+ *     fix-523 put it straight into an `href` on the shared page, where it
+ *     resolves against the app's own origin and 404s — a control that exists,
+ *     renders, and hands over nothing. §C's line for exactly that case: **"the
+ *     button exists" is not "the file arrives."**
+ *
+ * ★ `download` on the signed URL so the browser saves it under a readable name
+ *   rather than opening a PDF viewer on a query-string filename.
+ */
+export async function signPlanPdfUrl(
+  objectPath: string,
+  downloadAs?: string | null,
+): Promise<string> {
+  const { data, error } = await supabase.storage
+    .from(SHARE_BUCKET)
+    .createSignedUrl(objectPath, PDF_DOWNLOAD_TTL_SECONDS, {
+      download: pdfDownloadName(downloadAs),
+    });
+  if (error) throw error;
+  const url = data?.signedUrl;
+  if (!url) throw new Error('No signed URL returned');
+  return url;
+}
+
+/** The name the file lands under. ★ The SET'S OWN name, which already carries
+ *  the project stub on prod (`3505 - Marketing - External.pdf`) — `source.pdf`
+ *  in a builder's downloads folder is indistinguishable from every other one. */
+export function pdfDownloadName(fileName: string | null | undefined): string {
+  const name = (fileName ?? '').trim();
+  if (!name) return 'plan-set.pdf';
+  return /\.pdf$/i.test(name) ? name : `${name}.pdf`;
+}
+
+/** "2.5 MB" — what the control says it is about to hand over. ★ A builder on a
+ *  phone deserves to know before pressing it. Bytes, not kilobytes: this is the
+ *  file, not `size_kb`. */
+export function formatPdfSize(bytes: number | null | undefined): string {
+  if (bytes == null || !Number.isFinite(bytes) || bytes <= 0) return '';
+  const mb = bytes / (1024 * 1024);
+  if (mb < 1) return `${Math.max(1, Math.round(bytes / 1024))} KB`;
+  return `${mb >= 10 ? Math.round(mb) : mb.toFixed(1)} MB`;
+}
+
 /**
  * What a shared set is CALLED, in an inbox.
  *

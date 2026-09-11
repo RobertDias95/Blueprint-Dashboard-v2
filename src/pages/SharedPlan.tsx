@@ -5,8 +5,8 @@ import {
   PLAN_SHARE_UNAVAILABLE_HINT,
   planShareExpiryNote,
   planShareSetLabel,
-  planSharePdfPath,
 } from '../lib/planShare';
+import { formatPdfSize } from '../lib/planOfRecordShare';
 import { planOfRecordViewerMode } from '../lib/planOfRecord';
 
 // ===========================================================================
@@ -85,7 +85,7 @@ export default function SharedPlan() {
     );
   }
 
-  const { row, pageUrls, thumbUrl } = q.data;
+  const { row, pageUrls, thumbUrl, pdfUrl, pdfBytes } = q.data;
   const pageCount = Math.max(1, row.page_count ?? 1);
   // ★★★ §A6 — THE SAME TWO VIEWERS AS THE CARD, DRIVEN BY THE SAME FIELD.
   //     fix-522 §C measured that keying off the LABEL instead would mis-route
@@ -94,14 +94,25 @@ export default function SharedPlan() {
   //     one a designer sees on the card.
   const mode = planOfRecordViewerMode(pageCount);
   const label = planShareSetLabel(row.set_type, row.variant);
-  // ★★★ §B — DOWNLOAD PDF RENDERS ONLY WHEN THERE IS A PDF, AND THERE IS NONE
-  //     TODAY. `bp_resolve_plan_share` does not return `pdf_path` and the
-  //     `is_current` view does not carry it (both measured 2026-09-11), so this
-  //     is `null` on every set on prod. **Never a disabled control and never a
-  //     promise of one** — the moment the scraper uploads and the server
-  //     exposes the column, the button appears with no Bridge deploy. The test
-  //     asserts the absence.
-  const pdfPath = planSharePdfPath(row);
+  // ★★★ fix-528 §C — AND IT RENDERS NOW, BECAUSE THE FILE EXISTS.
+  //
+  //     fix-523 wrote this control against a `pdf_path` that was NULL on every
+  //     row and said so. fix-526's backfill has since uploaded **336 of 336**
+  //     current sets and Cowork extended `bp_resolve_plan_share` to return
+  //     `pdf_path` and `pdf_bytes` (both verified on prod 2026-09-11). So the
+  //     "appears on its own with no Bridge deploy" claim was half right: the
+  //     data arrived, but the control it fed was broken.
+  //
+  // ★★★ THE BUG fix-523 SHIPPED, FIXED HERE: this was `href={pdfPath}` — an
+  //     OBJECT PATH in an `href`, which resolves against the app's own origin
+  //     and 404s. The button rendered, looked correct, and handed over nothing.
+  //     §C's line: **"the button exists" is not "the file arrives."** It is a
+  //     SIGNED url now, minted server-side by the `plan-share` function, which
+  //     is the only thing that can sign for an anonymous reader.
+  //
+  // ★ Still absent rather than disabled when there is no signed url — the same
+  //   rule, and the state an undeployed function produces.
+  const pdfPath = pdfUrl;
 
   return (
     <Shell>
@@ -137,6 +148,7 @@ export default function SharedPlan() {
             data-testid="shared-plan-download-pdf"
           >
             Download PDF
+            {pdfBytes ? ` · ${formatPdfSize(pdfBytes)}` : ''}
           </a>
         )}
       </header>

@@ -155,6 +155,11 @@ function marketingSet(variant: 'internal' | 'external') {
     thumb_path: `${PROJECT_ID}/marketing_${variant}.jpg`,
     thumb_status: 'ok',
     file_name: `3505 - Marketing - ${variant}.pdf`,
+    // ★ fix-528 §C: 336 of 336 current sets carry one on prod, so the fixture
+    //   carries one too — a fixture that never has a PDF would make the
+    //   Download item untestable and the ABSENCE test meaningless.
+    pdf_path: `${PROJECT_ID}/marketing_${variant}/source.pdf`,
+    pdf_bytes: 2774619,
   };
 }
 
@@ -579,8 +584,16 @@ describe('fix-285 the file card', () => {
       expect(
         screen.getByTestId(`plan-of-record-set-${variant}-share-copy`),
       ).toBeInTheDocument();
+      // ★ fix-528 §A/§B: `Email it…` is gone and **Download PDF** is the second
+      //   item. The mailto carried a LINK, which is the thing Bobby complained
+      //   about four times; the Graph draft that carries an attachment is
+      //   behind an IT gate (§A4) and is not built, so the item is ABSENT
+      //   rather than dead.
       expect(
-        screen.getByTestId(`plan-of-record-set-${variant}-share-email`),
+        screen.queryByTestId(`plan-of-record-set-${variant}-share-email`),
+      ).toBeNull();
+      expect(
+        screen.getByTestId(`plan-of-record-set-${variant}-share-download`),
       ).toBeInTheDocument();
 
       // ★★★ THE ASSERTION THAT WOULD HAVE CAUGHT IT. jsdom cannot see the

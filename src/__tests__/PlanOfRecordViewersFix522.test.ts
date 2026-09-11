@@ -321,11 +321,26 @@ describe('fix-522 §D3 (P-187) — a share MENU, and what is deliberately not in
     'utf8',
   );
 
-  it('★★★ two items: copy the link, and email it', () => {
+  // ★★★ SUPERSEDED BY fix-528 §A/§B — `Email it…` IS GONE AND IT IS THE POINT.
+  //
+  //     fix-522 built the pair because a `mailto:` was the only way to hand
+  //     somebody a set without a send path, and it shipped subject + link with
+  //     an explicit note that an attachment was impossible. That was true of
+  //     `mailto:` and it was never true of email — and Bobby asked four times,
+  //     ending with *"i dont think we need a link, just a pdf."*
+  //
+  // ★★★ THE MENU IS TWO ITEMS AGAIN, and the second one is the drawing.
+  //     `Email it…` returns carrying the PDF once the Graph draft path clears
+  //     its IT gate (§A4); until then it is ABSENT rather than dead, which is
+  //     P-239's rule applied to a control that cannot work yet.
+  it('★★★ two items: copy the link, and download the PDF', () => {
     expect(card).toContain('-share-menu');
     expect(card).toContain('-share-copy');
-    expect(card).toContain('-share-email');
+    expect(card).toContain('-share-download');
     expect(card).toContain('aria-haspopup="menu"');
+    // ★ And the item Bobby complained about is not there in any form.
+    expect(code(card)).not.toContain('-share-email');
+    expect(code(card)).not.toContain('planShareMailto');
   });
 
   // ★★★ SUPERSEDED BY fix-523 §A (P-187), AND THE ORIGINAL WAS NOT MISTAKEN.
@@ -345,7 +360,9 @@ describe('fix-522 §D3 (P-187) — a share MENU, and what is deliberately not in
   it('★★★ the whole-set share IS built now, and everything mints through one path', () => {
     expect(code(card)).toContain('usePlanShareActions(row.project_id)');
     expect(code(card)).toContain('share.copy(');
-    expect(code(card)).toContain('share.email(');
+    // ★ fix-528: `share.email(` is no longer called here — see the two-items
+    //   test above for why the control it fed was removed rather than fixed.
+    expect(code(card)).toContain('downloadPlanPdf(');
     // ★ …and nothing in this file signs a Storage object any more.
     expect(code(card)).not.toContain('signPlanShareUrl');
     expect(code(card)).not.toContain('sharePlanPage(');
@@ -363,7 +380,7 @@ describe('fix-522 §D3 (P-187) — a share MENU, and what is deliberately not in
     expect(code(shareLib)).toContain('SHARE_TOAST');
   });
 
-  it('★★ Copy, Email and the viewer send the SAME thing — one definition', () => {
+  it('★★ Copy link and the viewer send the SAME thing — one definition', () => {
     // ★ Three controls resolving the shared object separately is how they end
     //   up sending three different things. fix-522 collapsed two of them.
     const hook = readFileSync(resolve(process.cwd(), 'src/hooks/usePlanShare.ts'), 'utf8');
@@ -372,6 +389,12 @@ describe('fix-522 §D3 (P-187) — a share MENU, and what is deliberately not in
     expect(code(card)).toContain('data-testid="plan-of-record-lightbox-share"');
     const lightbox = card.slice(card.indexOf('function Lightbox('));
     expect(lightbox).toContain('share.copy(');
+    // ★ fix-528: `share.email` is no longer CALLED from this file — the menu
+    //   item it fed is gone. The helper itself stays in `usePlanShareActions`,
+    //   because §A brings the item back carrying a PDF rather than a link, and
+    //   the subject line it builds is the half Bobby has never complained
+    //   about. Deleting it would be deleting the part that works.
+    expect(code(hook)).toContain('async email(');
   });
 
   it('★★★ no `getPublicUrl` for the plan bucket — the snip is out for a reason', () => {

@@ -73,6 +73,24 @@ export interface PlanOfRecordSetRow {
    *  subject is built from — *"is this schematic, design guidance, marketing
    *  internal or external?"* */
   file_name: string | null;
+  /**
+   * ★★★ fix-528 §C (P-238) — THE SOURCE PDF, WHICH IS THE THING BOBBY ASKED FOR
+   * FOUR TIMES.
+   *
+   * An object path in the PRIVATE `plan-thumbnails` bucket —
+   * `{project_id}/{set}/source.pdf`. ⚠️ **NEVER a URL.** It is signed at read
+   * time exactly as the thumbnails are, and a raw path in an `href` resolves
+   * against the app's own origin and 404s — which is the bug fix-523 shipped on
+   * the shared page and this ticket fixes.
+   *
+   * Null until fix-526's backfill reaches a set; 336 of 336 current sets carry
+   * one today.
+   */
+  pdf_path: string | null;
+  /** Size in bytes, so a control can say what it is about to hand over. Max on
+   *  prod is 19,484,755 (18.6 MB); average 2.5 MB; **none over 20 MB**, which
+   *  is what makes §0's "just attach it" correct. */
+  pdf_bytes: number | null;
 }
 
 export interface PlanOfRecordSets {
@@ -87,8 +105,21 @@ const MISSING_RELATION = '42P01';
 // ★★★ fix-522 §B: `thumb_path`, `thumb_status` and `file_name` join the list.
 //     They have existed on the view since fix-504 — see the note on the
 //     interface for why an unlisted column makes a feature look impossible.
+// ★★★ fix-528 §C: `pdf_path` and `pdf_bytes` JOIN THE LIST, and this is the
+//     third time this file has been the lesson. fix-522 added `thumb_path`
+//     after two tickets of "the picture cannot change" — the column had been on
+//     the view since fix-504 and nothing asked for it. fix-523 then REFUSED to
+//     add `pdf_path` and said so loudly, because the view did not have it yet:
+//     an unlisted column arrives as `undefined`, but an UNKNOWN one makes
+//     PostgREST fail the WHOLE query with `42703` and takes the card away from
+//     every project.
+//
+// ★★★ IT HAS IT NOW. Measured on prod 2026-09-11: `project_plan_of_record_sets`
+//     carries `pdf_path · pdf_bytes · pdf_status · pdf_uploaded_at`, and
+//     fix-526's backfill has filled **336 of 336** current sets, every one
+//     `pdf_status = 'ok'`. So the refusal expires and the column is asked for.
 const SELECT_COLUMNS =
-  'project_id,set_type,variant,page_count,pages_status,pages_prefix,is_archived_fallback,thumb_path,thumb_status,file_name';
+  'project_id,set_type,variant,page_count,pages_status,pages_prefix,is_archived_fallback,thumb_path,thumb_status,file_name,pdf_path,pdf_bytes';
 
 export function usePlanOfRecordSets(projectId: string | undefined) {
   const tenantId = useAuthStore((s) => s.activeTenantId);
