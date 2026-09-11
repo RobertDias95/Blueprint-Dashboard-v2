@@ -2,8 +2,16 @@ import { useMemo, useState } from 'react';
 import OriginLink from './OriginLink';
 import { PREVIOUS_ORIGINS } from '../lib/previousOrigin';
 import { useProjects } from '../hooks/useProjects';
+import RetiredBadge from './shared/RetiredBadge';
 import { useAllProjectHolds, cancelledProjectIds } from '../hooks/useProjectHolds';
-import { excludeRetired } from '../lib/retiredState';
+import {
+  RETIRED_VISIBILITY,
+  redesignedAwayProjectIds,
+  retiredCause,
+  retiredHiddenFrom,
+  type RetiredCause,
+  type RetiredSets,
+} from '../lib/retiredState';
 import { usePermits } from '../hooks/usePermits';
 import {
   DEFAULT_LIBRARY_SORT,
@@ -177,7 +185,10 @@ export default function LibraryMatrix() {
     <Body
       projects={projectsQ.data ?? []}
       permits={permitsQ.data ?? []}
-      cancelledIds={cancelledProjectIds(holdsQ.data)}
+      retiredSets={{
+        cancelledIds: cancelledProjectIds(holdsQ.data),
+        redesignedIds: redesignedAwayProjectIds(projectsQ.data),
+      }}
     />
   );
 }
@@ -185,27 +196,17 @@ export default function LibraryMatrix() {
 interface BodyProps {
   projects: Project[];
   permits: PermitWithCycles[];
-  /** ★★★ fix-524 §B: projects with an OPEN cancel row, hidden from both views.
+  /** ★★★ fix-525 §B — THE TWO RETIRED CAUSES, AND THEY DIVERGE HERE.
    *
-   *  ⚠️⚠️ **THE REDESIGN-ORIGINAL HALF OF §B IS DELIBERATELY NOT HERE**, and it
-   *  is the one thing in this ticket that was reported rather than shipped. §B
-   *  rules that a retired project disappears from the Library, and §0.3 flags
-   *  that hiding a redesign's ORIGINAL could remove real data — it gates the
-   *  hide on §C mirroring the plan of record first.
+   *  fix-524 hid both. Bobby reversed his own 09-10 rule on evidence: hiding a
+   *  redesign's ORIGINAL empties **11 of the 17 pairs** out of the unit matrix,
+   *  because 11 originals hold the only `unit_types` their pair has. So
+   *  **cancelled is hidden and redesigned-away is kept, hatched.**
    *
-   *  ★★★ MEASURED 2026-09-11, AND §C DOES NOT COVER IT: **the Library does not
-   *  render plan-of-record sets at all.** It renders `projects.unit_types`. Of
-   *  the 17 redesign pairs, **11 have unit data on the ORIGINAL and none on the
-   *  redesign** — so hiding the originals would empty 11 projects out of the
-   *  unit matrix, and mirroring the drawings onto the redesign's card (§C) does
-   *  not put a single unit row back. The two halves of the fix are about
-   *  different columns on different surfaces.
-   *
-   *  ★★ AND THE OBVIOUS PATCH IS WORSE: the Library's unit table is an EDITOR
-   *  (fix-206), so a read-through unit row on a redesign would be an editable
-   *  control writing to the ORIGINAL — which §D has just declared frozen. See
-   *  the PR; this is reported for a ruling, not quietly skipped. */
-  cancelledIds: ReadonlySet<string>;
+   *  ★★ The divergence is read from `RETIRED_VISIBILITY`, not decided here —
+   *     §B: *"The Library asks the cause and treats them differently; it does
+   *     not ask a second question of its own."* */
+  retiredSets: RetiredSets;
 }
 const INITIAL_FILTERS: LibraryFilters = {
   // ★★★ fix-447 ruling 4 (Bobby, 2026-08-29): *"the Library OPENS ON SITE"*.
@@ -255,7 +256,7 @@ const INITIAL_FILTERS: LibraryFilters = {
   roofDeck: '',
 };
 
-function Body({ projects, permits, cancelledIds }: BodyProps) {
+function Body({ projects, permits, retiredSets }: BodyProps) {
   // ★★★ fix-403: the filter panel remembers, for this tab and this login.
   //
   // ★★ READ IN A LAZY INITIALISER, not an effect — fix-324's rule. An effect
@@ -318,15 +319,25 @@ function Body({ projects, permits, cancelledIds }: BodyProps) {
   // `expandedById`, `isExpanded` and `toggleExpanded` had no reachable caller
   // and are gone rather than left as scenery.
   //
-  // ★★★ WHAT DID *NOT* GO WITH IT: THE EDITOR. The sub-table was not a
-  // read-only drawer — fix-206 made it the Library's inline unit_types EDITOR,
-  // writing through the same OCC path as Project Overview. Deleting the caret
-  // and stopping there would have silently removed the only place in the
-  // Library you can type a unit's width. So `LibraryUnitRow` is REUSED as the
-  // UNIT view's row (it already renders its own `<tr>`; it now takes leading
-  // and trailing cells), `writeUnitTypes` and its `expectedUpdatedAt` token are
-  // untouched, and the editing that used to hide behind a caret is now the
-  // view itself.
+  // ★★★ WHAT DID *NOT* GO WITH IT: the unit ROW. `LibraryUnitRow` is REUSED as
+  // the UNIT view's row (it already renders its own `<tr>`; it now takes
+  // leading and trailing cells), so the detail that used to hide behind a caret
+  // is now the view itself.
+  //
+  // ⚠️ fix-525 CORRECTS THE SENTENCE THAT STOOD HERE. It said the row was still
+  //    *"the Library's inline unit_types EDITOR … `writeUnitTypes` and its
+  //    `expectedUpdatedAt` token are untouched"* — which contradicted the
+  //    fix-506 §H block six lines above it, written in the SAME ticket, saying
+  //    the write path was removed. §H is the true one: **this file makes zero
+  //    calls to `useUpdateProject` and holds no write path at all**, and
+  //    fix-514 §H later removed even the link out to one.
+  //
+  // ★★★ THAT STALE COMMENT COST A RULING. fix-524's report argued the redesign
+  //     original could not be read through into the Library because *"the unit
+  //     table is an EDITOR, so it would be an editable control writing to a
+  //     project §D has just frozen."* That was read off this comment rather
+  //     than off the code, and it is wrong — which is why fix-525 §B could
+  //     simply keep the row. **A comment is not evidence.**
   // ★★ fix-469/fix-472: `unitFilterActive` lived here to gate the matched
   //    highlight, which fix-472 deleted outright. `hasAnyUnitFilter` itself is
   //    untouched and still very much live — it is what `matchingUnitIndices`
@@ -340,9 +351,20 @@ function Body({ projects, permits, cancelledIds }: BodyProps) {
   //     from the same population and none of them can disagree about which
   //     projects the Library holds.
   const visibleProjects = useMemo(
-    () => excludeRetired(projects, { cancelledIds }),
-    [projects, cancelledIds],
+    () => projects.filter((p) => !retiredHiddenFrom('library', p.id, retiredSets)),
+    [projects, retiredSets],
   );
+  /** ★★★ fix-525 §B: project ids that STAY but read as retired. Today that is
+   *  the 17 redesign originals and nothing else — `RETIRED_VISIBILITY` decides,
+   *  so if the ruling changes again it changes in one record. */
+  const hatchedIds = useMemo(() => {
+    const m = new Map<string, RetiredCause>();
+    for (const p of visibleProjects) {
+      const cause = retiredCause(p.id, retiredSets);
+      if (cause && RETIRED_VISIBILITY[cause].library === 'hatched') m.set(p.id, cause);
+    }
+    return m;
+  }, [visibleProjects, retiredSets]);
   /** ★ How many the hide removed, so the count line can SAY SO. §B: *"a number
    *  that changes because a filter changed, with nothing saying so, is a bug
    *  report waiting to happen."* fix-447 §B5 made exactly this argument about
@@ -936,6 +958,16 @@ function Body({ projects, permits, cancelledIds }: BodyProps) {
               {` · ${hiddenRetiredCount} cancelled hidden`}
             </span>
           )}
+          {/* ★★★ fix-525 §B: and the ones that STAYED are named too. 17 of them
+              are here only because their unit dimensions are the only copy —
+              a reader counting projects should know that some of the rows are
+              superseded, not current inventory. Same argument as the line
+              above it, in the other direction. */}
+          {hatchedIds.size > 0 && (
+            <span data-testid="library-retired-shown">
+              {` · ${hatchedIds.size} superseded`}
+            </span>
+          )}
         </span>
       </div>
 
@@ -1019,9 +1051,28 @@ function Body({ projects, permits, cancelledIds }: BodyProps) {
                         state={{ from: PREVIOUS_ORIGINS.library }}
                         className="hover:underline"
                         data-testid={`library-unit-address-${u.key}`}
+                        style={
+                          hatchedIds.has(u.project.projectId)
+                            ? { textDecoration: 'line-through' }
+                            : undefined
+                        }
                       >
                         {u.project.address}
                       </OriginLink>
+                      {/* ★★★ fix-525 §B: and on the UNIT row too — this is the
+                          view the 11 originals are kept FOR, so it is the one
+                          place the mark must not be forgotten. */}
+                      {hatchedIds.get(u.project.projectId) && (
+                        <>
+                          {' '}
+                          <RetiredBadge
+                            cause={hatchedIds.get(u.project.projectId)!}
+                            compact
+                            title="Superseded by a redesign — kept here because its unit dimensions are the only copy"
+                            testid={`library-retired-unit-${u.key}`}
+                          />
+                        </>
+                      )}
                     </td>
                     <td className="px-2 py-1.5 text-muted">{u.project.juris || '—'}</td>
                   </>
@@ -1187,6 +1238,7 @@ function Body({ projects, permits, cancelledIds }: BodyProps) {
                 key={r.projectId}
                 row={r}
                 bandClass={siteBands[i] === 1 ? PROJECT_BAND_CLASS : ''}
+                retired={hatchedIds.get(r.projectId) ?? null}
               />
             ))}
             {sorted.length === 0 && (
@@ -1297,8 +1349,12 @@ interface RowProps {
    *  — the band depends on the row's POSITION IN THE SORTED LIST, which only
    *  the table knows. */
   bandClass: string;
+  /** ★★★ fix-525 §B: `redesigned` for a project another one has superseded —
+   *  kept in the Library because 11 of 17 originals hold the only unit
+   *  dimensions their pair has. Null for everything else. */
+  retired: RetiredCause | null;
 }
-function Row({ row, bandClass }: RowProps) {
+function Row({ row, bandClass, retired }: RowProps) {
   return (
     <>
       <tr
@@ -1313,9 +1369,28 @@ function Row({ row, bandClass }: RowProps) {
             //   its Previous button knows which list to go back to.
             state={{ from: PREVIOUS_ORIGINS.library }}
             className="hover:underline"
+            style={retired ? { textDecoration: 'line-through' } : undefined}
           >
             {row.address}
           </OriginLink>
+          {/* ★★★ fix-525 §B — HATCHED, IN THE VOCABULARY THAT ALREADY EXISTS.
+              A full-row hatch would make the numbers this table is FOR
+              unreadable, so the retired paint goes on the badge fix-524 built
+              — same recipe, same palette, same strike-through — and the address
+              is struck the way the block's is. A reader who has learned the
+              purple on the Draw Schedule recognises it here without being
+              taught a second thing. */}
+          {retired && (
+            <>
+              {' '}
+              <RetiredBadge
+                cause={retired}
+                compact
+                title="Superseded by a redesign — kept here because its unit dimensions are the only copy"
+                testid={`library-retired-${row.projectId}`}
+              />
+            </>
+          )}
         </td>
         {/* ★★★ fix-514 §H: LOT WIDTH AND LOT DEPTH, two cells, in filter order.
             ★ fix-411 §2's rule survives the split: the SORT reads the

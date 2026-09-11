@@ -215,6 +215,69 @@ export const RETIRED_PALETTE: Record<RetiredCause, RetiredPalette> = {
   },
 };
 
+// ---------------------------------------------------------------------------
+// ★★★ fix-525 §B — WHERE EACH CAUSE GOES, STATED ONCE
+// ---------------------------------------------------------------------------
+//
+// fix-524 treated the two causes identically on every surface. Bobby reversed
+// his own 09-10 Library rule on evidence — fix-524 measured that hiding the
+// redesigned original would empty **11 of the 17 pairs** out of the unit
+// matrix, because 11 originals hold the only `unit_types` their pair has — and
+// ruled: **keep it, hatched.**
+//
+// ★★★ SO THE TWO STATES NOW DIVERGE ON EXACTLY ONE SURFACE, AND IT IS WRITTEN
+//     DOWN HERE RATHER THAN AS AN `if` AT A CALL SITE. §B: *"The Library asks
+//     the cause and treats them differently; it does not ask a second question
+//     of its own."* A surface that grew its own second predicate is how the
+//     divergence becomes two divergences.
+//
+// ★ THE PRINCIPLE, so this does not read as a whim: **a retired project
+//   disappears where current work is CHOSEN and stays where its data is still
+//   THE ONLY COPY.** Cancelled has a successor nowhere; a redesign has one
+//   everywhere except the units.
+
+/** What a surface does with a retired project. */
+export type RetiredTreatment = 'hidden' | 'hatched';
+
+export interface RetiredVisibility {
+  /** "What should I work on." */
+  pipeline: RetiredTreatment;
+  /** "What do we have." ★ The one that diverges. */
+  library: RetiredTreatment;
+  /** "Where did the time go." ★ Never hidden: a retired block still consumed a
+   *  designer's weeks, and a board that hid it would lie about capacity. */
+  drawSchedule: RetiredTreatment;
+}
+
+export const RETIRED_VISIBILITY: Record<RetiredCause, RetiredVisibility> = {
+  cancelled: {
+    pipeline: 'hidden',
+    // ★ A cancelled project's data is not the only copy of anything — there is
+    //   no successor carrying it forward, and it is not inventory either.
+    library: 'hidden',
+    drawSchedule: 'hatched',
+  },
+  redesigned: {
+    pipeline: 'hidden',
+    // ⚠️ RULED 2026-09-11, REVERSING THE 09-10 RULE ON EVIDENCE. 11 of 17
+    //    originals hold unit dimensions their redesign does not, so hiding them
+    //    removes the only copy from the matrix the Library exists to be.
+    library: 'hatched',
+    drawSchedule: 'hatched',
+  },
+};
+
+/** Is this project hidden from `surface`? ★ Asking the CAUSE, which is §B's
+ *  requirement — not a second predicate beside `retiredCause`. */
+export function retiredHiddenFrom(
+  surface: keyof RetiredVisibility,
+  projectId: string | null | undefined,
+  sets: RetiredSets | undefined,
+): boolean {
+  const cause = retiredCause(projectId, sets);
+  return cause !== null && RETIRED_VISIBILITY[cause][surface] === 'hidden';
+}
+
 /** The hatch for one retired cause. ★ One call site for each of the two; the
  *  gradient itself is built in exactly one place. */
 export function retiredHatch(cause: RetiredCause): string {

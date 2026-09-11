@@ -27,6 +27,10 @@ import {
   isRetiredProject,
   redesignedAwayProjectIds,
 } from '../lib/retiredState';
+// ★★★ fix-525 §C: the ONE derivation. The Draw Schedule board has called this
+//     on every render since fix-150; the Pipeline read the stored column
+//     instead, and that disagreement is P-179.
+import { deriveLaneStatus } from '../lib/drawScheduleStatus';
 import { structAddressHaystack } from '../lib/structAddressSearch';
 import HoldFilter from '../components/shared/HoldFilter';
 import {
@@ -519,7 +523,68 @@ export default function Dashboard() {
 
     const hide = hideIssuedAtAddress(filteredInputs, projectIdToAddress);
     const visible = filteredInputs.filter((b) => !hide.has(b.permit.id));
-    const bucketed = bucketPermits(visible, drawByProjectId);
+
+    // =====================================================================
+    // ★★★ fix-525 §C (P-242 + P-179) — THE PIPELINE READS THE **DERIVATION**,
+    //     NOT THE STORED COLUMN
+    // =====================================================================
+    //
+    // Bobby, circling `8236 120th Ave NE` in *Scheduled & Schematic*: *"this
+    // project is not in schematic but on the pipeline is still showing that."*
+    //
+    // ★★★ THE MEASUREMENT, prod 2026-09-11: only **2 of 220** blocks say
+    //     `Schematic` and **both are past it**; not one block anywhere has a DD
+    //     window still in the future, so `Schematic` is **never once correct**.
+    //     `Scheduled` is the same at scale — **110 blocks, 105 with DD already
+    //     over.**
+    //
+    // ★★★ AND THE CAUSE IS NOT A BROKEN DERIVATION. `deriveLaneStatus` reads
+    //     the DD window correctly and always has (branch 4: `dd_end < today` →
+    //     Pending Consultants, `today >= dd_start` → DD / Permit Set). The
+    //     Draw Schedule board has called it on every render since fix-150.
+    //     **The Pipeline read `draw_schedule.status` — the STORED column,
+    //     written at creation and on specific edits by thirteen functions and
+    //     recomputed by none of them.** Two screens, two answers: P-179.
+    //
+    // ★★★ SO THIS ADDS A READER, NOT A FOURTEENTH WRITER. Nothing is written
+    //     back. The same function the board calls answers here, from the same
+    //     permits and cycles this memo already holds, and the two screens agree
+    //     by construction rather than by a cascade that has to keep up.
+    //
+    // ★ `deriveLaneStatus` (not `deriveBlockStatus`) because it carries
+    //   fix-150's one-hop parent chase: a reuse-redesign has no permits of its
+    //   own, and 12 of our 17 redesigns are exactly that.
+    // ★★★ OFF THE **UNFILTERED** PERMITS AND CYCLES, deliberately. A permit
+    //     hidden by the search box or the "mine" scope still decides its
+    //     project's lane — an open corrections cycle on a permit you filtered
+    //     out does not stop the project being in corrections. Deriving off
+    //     `visible` would make the phase depend on what you had typed.
+    const permitsOnly = new Map<string, Permit[]>();
+    const cyclesAll = new Map<number, PermitCycle[]>();
+    for (const [pid, list] of permitsByProjectId) {
+      permitsOnly.set(pid, list.map((b) => b.permit));
+      for (const b of list) cyclesAll.set(b.permit.id, b.cycles);
+    }
+    const derivedDrawByProjectId = new Map<string, DrawScheduleRow>();
+    for (const [pid, row] of drawByProjectId) {
+      const project = projectByIdMap.get(pid);
+      derivedDrawByProjectId.set(pid, {
+        ...row,
+        status: project
+          ? deriveLaneStatus({
+              project,
+              permitsByProjectId: permitsOnly,
+              cyclesByPermit: cyclesAll,
+              currentStatus: row.status,
+              // ★★ The 9 rows a person actually set by hand are still
+              //    respected — that is `deriveLaneStatus`'s own rule, and the
+              //    three permit-data branches still override even those.
+              manualStatus: row.manual_status === true,
+            }).status
+          : row.status,
+      });
+    }
+    const bucketed = bucketPermits(visible, derivedDrawByProjectId);
 
     // ★★ fix-383: computed ONCE here, where every permit is already in hand and
     // already bucketed — not re-derived inside each AddrGroup, which can only
