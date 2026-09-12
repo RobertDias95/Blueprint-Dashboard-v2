@@ -120,6 +120,19 @@ export interface PlanShareRow {
    *  it directly; the `plan-share` function signs it. */
   pdf_path: string | null;
   pdf_bytes: number | null;
+  /** ★★★ fix-532 §C (P-247): is the shared set a superseded drawing?
+   *
+   *  ⚠️ **OPTIONAL, because `bp_resolve_plan_share` does not return it yet.**
+   *  Verified on prod 2026-09-12 — the function's result type ends at
+   *  `pdf_bytes`, and the column is on the VIEW it reads but not in its
+   *  signature. The migration that adds it is staged for Cowork as
+   *  `fix_532c_resolve_returns_archived_flag_PENDING_APPROVAL.sql`.
+   *
+   *  ★ Read defensively until then, exactly as fix-523 read `pdf_path` before
+   *  its own server half landed: an unlisted field arrives as `undefined`, and
+   *  `isArchivedFallback` treats that as **not a fallback** — the direction
+   *  that does not put a warning on a set that may be perfectly current. */
+  is_archived_fallback?: boolean | null;
 }
 
 // ★★★ fix-528 §C — `planSharePdfPath` IS GONE, AND ITS REASON EXPIRED RATHER

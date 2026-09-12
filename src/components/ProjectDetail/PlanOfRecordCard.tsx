@@ -46,6 +46,7 @@ import {
   signPlanPdfUrl,
 } from '../../lib/planOfRecordShare';
 import { pushToast } from '../../stores/toastStore';
+import { ARCHIVED_FALLBACK_LABEL, isArchivedFallback } from '../../lib/archivedFallback';
 import {
   findShareLink,
   usePlanShareActions,
@@ -753,7 +754,9 @@ function SetButtons({
   //     'marketing'` and nothing else, so a schematic's one button resolved to
   //     `null` and would now have grayed itself under the new guard.
   const shown = planOfRecordSetFor(row.set_type, sets, shownVariant);
-  const archived = shown?.is_archived_fallback === true;
+  // ★ fix-532 §C: one predicate, so four surfaces cannot disagree about what
+  //   "archived" means. Read, never recomputed — the indexer owns the rule.
+  const archived = isArchivedFallback(shown);
 
   /** ★★★ fix-523 §A4 — THE `variant` THE DATABASE STORES, WHICH IS NOT THE
    *  BUTTON'S. Only `marketing` has variants: `project_plan_of_record_sets`
@@ -840,13 +843,22 @@ function SetButtons({
                 line of copy back here would be a regression against an explicit
                 instruction. A test asserts the absence. */}
         <>
+          {/* ★★★ fix-532 §C (P-247) — IT SAYS WHAT IS WRONG, NOT JUST THAT
+              SOMETHING IS. This read `ARCHIVED` since fix-508, which names the
+              STATE and leaves the reader to work out the consequence. Measured
+              2026-09-12: **60 projects** now show a superseded drawing as their
+              plan of record, **50** of them through this very row. A person
+              looking at one needs to know that nothing current was found —
+              that is the sentence that gets somebody to go file one.
+              ★ Same string on every surface; see `lib/archivedFallback`. */}
           {archived && (
             <span
               className="font-extrabold mr-1"
               style={{ color: 'var(--color-co)' }}
+              title={ARCHIVED_FALLBACK_LABEL}
               data-testid="plan-of-record-archived"
             >
-              ARCHIVED
+              {ARCHIVED_FALLBACK_LABEL}
             </span>
           )}
           {planOfRecordSetCaption(row.set_type, shownVariant)} ·{' '}

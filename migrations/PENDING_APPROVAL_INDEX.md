@@ -49,6 +49,7 @@ Scope D to fix-456's file.
 | `fix_387_entry_drafts_PENDING_APPROVAL.sql` | adds `go_href` teaching links to What's New entries | **MOVES ROWS** | **3** of 14 drafted | 14 drafted | 2026-08-29 |
 | `fix_451_not_required_PENDING_APPROVAL.sql` | deactivates the directory row named "Not Required" so it stops being offered as a firm | **MOVES ROWS** | **1** | 1 | 2026-08-30 |
 | `fix_456_drop_backup_tables_PENDING_APPROVAL.sql` | drops 24 of the 26 ad-hoc backup tables, the two dead `projects.parking_*` columns, and — Scope D, appended by fix-459 — the dead `permit_tasks.co_assignees` | **DESTRUCTIVE — 27 statements** | n/a (drops, not moves) | 27 | 2026-08-30 |
+| `fix_532c_resolve_returns_archived_flag_PENDING_APPROVAL.sql` | adds `is_archived_fallback` to `bp_resolve_plan_share`'s RETURNS so the `/s/` share page can say a drawing is superseded | **MOVES NOTHING — one function** | n/a (no rows) | n/a | 2026-09-12 |
 
 No file is **CANNOT RUN**: every helper function, table and column each one
 depends on still exists on prod with the signature it was written against
@@ -95,6 +96,18 @@ sentinel is the string prod already carries, so the one affected project row
 needs **no change at all** — only the directory row that should never have been
 a firm gets deactivated.
 
+**`fix_532c` — the first file here that changes a FUNCTION rather than rows.**
+Measured 2026-09-12, after fix-529's first full run: current sets **336 → 415**,
+`is_archived_fallback` true on **69 rows across 60 projects**, projects with a
+plan of record **163 → 196**. So 60 projects show a superseded drawing as their
+plan of record. fix-532 §C marks it on the project card, the plan-of-record card
+and the Library — all three can already read the column — and **cannot** mark it
+on the `/s/` share page, because that page has no session and reads through
+`bp_resolve_plan_share`, whose RETURNS list stops at `pdf_bytes`. The page
+already reads the field defensively, so **no Bridge deploy is needed** after this
+is applied; the marker simply appears. Both text anchors were verified unique
+against the live function body on 2026-09-12.
+
 **`fix_387` 14 → 3.** All 23 entries are still untaught. The file drafts
 fourteen and expands three into statements on purpose — *"pasting 14 multi-line
 UPDATEs that nobody has approved makes this file look like something to run
@@ -110,6 +123,7 @@ rather than something to read."* Approving it buys 3 of 14.
 | `fix_384` | **apply candidate 1; rule on candidate 2** | One time block gains a project link. The label is untouched either way. Candidate 2 needs Bobby to say which Estrella. |
 | `fix_387` | **skip — use the admin editor** | It writes 3 of the 14 drafted entries and the editor does any of them in seconds. Worth doing first, separately: the live entry *"Every new project starts with three posts"* is wrong — it has been four since CR 1 shipped. |
 | `fix_451` | **apply** | Deactivates one directory row. It disappears from the Geotech picker and stays readable in Settings. Reversible with one click (Reactivate). |
+| `fix_532c` | **apply** | Moves no rows. It re-creates one function with one extra output column so the public share page can mark a superseded drawing — **60 projects show one today and nothing on that page says so.** The risk is the DROP/CREATE: `bp_resolve_plan_share` is the ONLY function `anon` may execute, so a lost grant is a dead share link for every recipient. The file re-grants and then asserts with `has_function_privilege` rather than trusting the statement. |
 | `fix_377`, `fix_379` | **nothing to approve** | Superseded. Kept for the reasoning, not the rows. |
 
 ## The guard

@@ -5,6 +5,11 @@ import { useProjects } from '../hooks/useProjects';
 import RetiredBadge from './shared/RetiredBadge';
 import { LibraryChoiceCell, LibraryDimensionCell } from './LibraryEditCell';
 import { parseUnitTypes } from '../lib/unitTypeNaming';
+import { useArchivedFallbackProjects } from '../hooks/useArchivedFallbackProjects';
+import {
+  ARCHIVED_FALLBACK_LABEL,
+  ARCHIVED_FALLBACK_SHORT,
+} from '../lib/archivedFallback';
 import {
   useMayEditLibrary,
   useUpdateLibraryFields,
@@ -455,6 +460,9 @@ function Body({ projects, permits, retiredSets }: BodyProps) {
   //   and for a missing column.
   const canEditLibrary = useMayEditLibrary();
   const saveLibrary = useUpdateLibraryFields();
+  // ★★★ fix-532 §C (P-247): the 60 projects whose plan of record is a
+  //     superseded drawing. One query for the screen — see the hook.
+  const archivedFallbackQ = useArchivedFallbackProjects();
 
   function toggleSort(col: SortableColumn) {
     setSort((prev) =>
@@ -1285,6 +1293,7 @@ function Body({ projects, permits, retiredSets }: BodyProps) {
                 bandClass={siteBands[i] === 1 ? PROJECT_BAND_CLASS : ''}
                 retired={hatchedIds.get(r.projectId) ?? null}
                 editable={canEditLibrary}
+                archivedPlan={archivedFallbackQ.data?.has(r.projectId) ?? false}
                 zoneOptions={zoneFilterOptions}
                 onSave={(patch, fieldLabel) =>
                   saveLibrary.mutate({ projectId: r.projectId, patch, fieldLabel })
@@ -1406,6 +1415,9 @@ interface RowProps {
   /** ★★★ fix-532 §A: does this viewer hold `may_edit_library`? Cosmetic — the
    *  RPC is the gate. */
   editable: boolean;
+  /** ★★★ fix-532 §C: this project's plan of record is a superseded drawing.
+   *  60 of 220 on prod, 2026-09-12. */
+  archivedPlan: boolean;
   /** fix-415's registry, so a capable typist cannot reintroduce an off-list
    *  zone. */
   zoneOptions: readonly string[];
@@ -1415,7 +1427,15 @@ interface RowProps {
  *  the two surfaces cannot offer different answers to one question. */
 const ALLEY_OPTIONS = ['Yes', 'No'] as const;
 
-function Row({ row, bandClass, retired, editable, zoneOptions, onSave }: RowProps) {
+function Row({
+  row,
+  bandClass,
+  retired,
+  editable,
+  archivedPlan,
+  zoneOptions,
+  onSave,
+}: RowProps) {
   return (
     <>
       <tr
@@ -1444,6 +1464,24 @@ function Row({ row, bandClass, retired, editable, zoneOptions, onSave }: RowProp
               is struck the way the block's is. A reader who has learned the
               purple on the Draw Schedule recognises it here without being
               taught a second thing. */}
+          {/* ★★★ fix-532 §C — WORDS, and in the same place a reader already
+              looks for what is odd about this row. The cell has no room for the
+              sentence, so the short form carries the `title` — the long one is
+              never the only thing said, and it is the SAME string every other
+              surface uses. */}
+          {archivedPlan && (
+            <>
+              {' '}
+              <span
+                className="text-[9px] font-extrabold uppercase tracking-wider"
+                style={{ color: 'var(--color-co)' }}
+                title={ARCHIVED_FALLBACK_LABEL}
+                data-testid={`library-archived-${row.projectId}`}
+              >
+                {ARCHIVED_FALLBACK_SHORT}
+              </span>
+            </>
+          )}
           {retired && (
             <>
               {' '}

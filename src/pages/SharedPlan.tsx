@@ -7,6 +7,7 @@ import {
   planShareSetLabel,
 } from '../lib/planShare';
 import { formatPdfSize } from '../lib/planOfRecordShare';
+import { ARCHIVED_FALLBACK_LABEL, isArchivedFallback } from '../lib/archivedFallback';
 import { planOfRecordViewerMode } from '../lib/planOfRecord';
 
 // ===========================================================================
@@ -140,6 +141,25 @@ export default function SharedPlan() {
         >
           {pageCount} {pageCount === 1 ? 'page' : 'pages'}
         </div>
+        {/* ★★★ fix-532 §C (P-247) — AND THIS IS THE SURFACE THE RULE WAS
+            WRITTEN FOR. The reader here is a BUILDER: they have never seen the
+            legend, they will never see it, and they cannot ask what a tint
+            means. 60 projects now show a superseded drawing as their plan of
+            record, and a link to one that does not say so is the app handing
+            somebody an old drawing with a straight face.
+            ★★ Absent until `bp_resolve_plan_share` returns the flag — the
+               migration is staged, not applied — and absent is the right
+               default: a marker that cries wolf is worse than one that is
+               late. */}
+        {isArchivedFallback(row) && (
+          <div
+            className="text-[11px] font-bold mt-1"
+            style={{ color: 'var(--color-co)' }}
+            data-testid="shared-plan-archived"
+          >
+            {ARCHIVED_FALLBACK_LABEL}
+          </div>
+        )}
         {pdfPath && (
           <a
             href={pdfPath}
