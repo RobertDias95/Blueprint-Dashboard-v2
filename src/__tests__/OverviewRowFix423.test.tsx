@@ -414,10 +414,10 @@ describe("fix-423 §B: ACQ / ENT on the left, SD / DM / DA on the right", () => 
     //   so the field keeps meaning something if the two-up ever returns — which
     //   is why the split below is still asserted rather than deleted.
     expect(TEAM_INTERNAL_ROWS.map((r) => r.label)).toEqual([
-      'ACQ', 'ENT', 'SD', 'DM', 'DA', 'CA',
+      'ACQ', 'PERM', 'SD', 'DM', 'DA', 'CA',
     ]);
     expect(TEAM_INTERNAL_ROWS.filter((r) => r.column === 'left').map((r) => r.label)).toEqual([
-      'ACQ', 'ENT',
+      'ACQ', 'PERM',
     ]);
     expect(TEAM_INTERNAL_ROWS.filter((r) => r.column === 'right').map((r) => r.label)).toEqual([
       'SD', 'DM', 'DA', 'CA',

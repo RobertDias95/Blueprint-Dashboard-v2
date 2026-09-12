@@ -277,7 +277,7 @@ describe('fix-308b #45: a milestone row states what, why and when', () => {
     expect(actions[0]!.textContent!.length).toBeGreaterThan(0);
     // ★ WHY is a ROLE — the new part, and the thing a person needs when a row
     // they have never seen appears.
-    expect(whys[0]!.textContent).toMatch(/entitlement lead/i);
+    expect(whys[0]!.textContent).toMatch(/permitting lead/i);
   });
 
   it('★ and it stays SHORT — #22\'s verbiage cut is not undone', () => {

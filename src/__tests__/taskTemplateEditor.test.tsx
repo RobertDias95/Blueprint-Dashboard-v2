@@ -145,9 +145,12 @@ describe('TaskTemplateEditor — fix-153 capabilities', () => {
       'task-template-row-t1-team',
     ) as HTMLSelectElement;
     const labels = Array.from(team.options).map((o) => o.textContent);
+    // ★★★ fix-535 §C: the option's TEXT is the label; its VALUE is still the
+    //     stored token `Entitlements` (57 templates on prod, mirrored in two
+    //     SQL functions). The two assertions below say exactly that.
     expect(labels).toEqual([
       '(none)',
-      'Entitlements',
+      'Permitting',
       'Design Associate',
       'Schematic Team',
     ]);

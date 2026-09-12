@@ -81,8 +81,8 @@ describe('fix-343 §1: every stored role has a job title', () => {
 
   // ★ The table in the brief, verbatim.
   it('★ the titles are the ones Bobby asked for', () => {
-    expect(rosterRoleTitle(['ent_lead'])).toBe('Entitlements Manager');
-    expect(rosterRoleTitle(['ent'])).toBe('Entitlements');
+    expect(rosterRoleTitle(['ent_lead'])).toBe('Permitting Manager');
+    expect(rosterRoleTitle(['ent'])).toBe('Permitting');
     expect(rosterRoleTitle(['dm'])).toBe('Design Manager');
     expect(rosterRoleTitle(['da'])).toBe('Design Associate');
     expect(rosterRoleTitle(['schematic'])).toBe('Schematic Design');
@@ -115,7 +115,7 @@ describe('fix-343 §2: multi-role people render deterministically', () => {
   // same thing twice.
   it('★★ ent_lead beats ent, in every order the roles can arrive in', () => {
     for (const order of permutations<TeamRole>(['ent', 'ent_lead'])) {
-      expect(rosterRoleTitle(order), order.join(',')).toBe('Entitlements Manager');
+      expect(rosterRoleTitle(order), order.join(',')).toBe('Permitting Manager');
     }
   });
 
@@ -139,7 +139,7 @@ describe('fix-343 §2: multi-role people render deterministically', () => {
   it('★ three roles still collapse per family and stay ordered', () => {
     for (const order of permutations<TeamRole>(['schematic', 'ent', 'ent_lead'])) {
       expect(rosterRoleTitle(order), order.join(',')).toBe(
-        'Entitlements Manager · Schematic Design',
+        'Permitting Manager · Schematic Design',
       );
     }
   });
@@ -217,7 +217,7 @@ describe('fix-343: resolveRosterIdentity orders roles and carries notes', () => 
         'ent_lead',
         'ent',
       ]);
-      expect(rosterRoleTitle(id.roles, id.notes)).toBe('Entitlements Manager');
+      expect(rosterRoleTitle(id.roles, id.notes)).toBe('Permitting Manager');
     }
   });
 

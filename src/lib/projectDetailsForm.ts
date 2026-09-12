@@ -346,14 +346,26 @@ export const PROJECT_DETAILS_SEARCH: readonly SearchableEntry<ProjectDataTab>[] 
   { key: 'permits', label: 'Permit portal URL', terms: ['portal', 'portal url', 'url', 'link'] },
   { key: 'permits', label: 'Structure address', terms: ['structure address', 'struct address'] },
   { key: 'permits', label: 'ACQ target date (per permit)', terms: ['acq target', 'acq', 'expected issue'] },
-  { key: 'permits', label: 'Permit ENT lead / DA', terms: ['ent lead', 'da', 'design associate'] },
+  {
+    key: 'permits',
+    label: 'Permit PERM lead / DA',
+    terms: ['permitting lead', 'perm lead', 'ent lead', 'da', 'design associate'],
+  },
   // --- Builder / Owner -----------------------------------------------------
   { key: 'builder', label: 'Builder', terms: ['builder', 'owner', 'builder name', 'company'] },
   { key: 'builder', label: 'Point of contact', terms: ['point of contact', 'poc', 'contact'] },
   { key: 'builder', label: 'Contact email', terms: ['contact email', 'email'] },
   // --- Internal team -------------------------------------------------------
   { key: 'team', label: 'Acquisitions', terms: ['acquisitions', 'acq lead'] },
-  { key: 'team', label: 'Entitlement lead', terms: ['entitlement lead', 'ent', 'entitlement'] },
+  // ★★★ fix-535 §C — THE LABEL RENAMES AND THE TERMS ONLY GROW. These are what
+  //     a person TYPES to find a field, so dropping 'entitlement' would make
+  //     the old word — the one everybody has said for years — stop finding the
+  //     row it just renamed. Additive, never a swap.
+  {
+    key: 'team',
+    label: 'Permitting lead',
+    terms: ['permitting lead', 'permitting', 'perm', 'entitlement lead', 'ent', 'entitlement'],
+  },
   { key: 'team', label: 'Schematic designer', terms: ['schematic designer', 'schematic', 'sd'] },
   { key: 'team', label: 'Design manager', terms: ['design manager', 'dm'] },
   { key: 'team', label: 'Design associate', terms: ['design associate', 'da'] },

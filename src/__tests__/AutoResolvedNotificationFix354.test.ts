@@ -447,7 +447,7 @@ describe('fix-354 §6: Dave is the Director, and still on the schematic team', (
     // and his is not a grade of entitlements — it is a job over both.
     expect(primaryRoles(['director', 'ent_lead'])).toEqual(['director', 'ent_lead']);
     expect(rosterRoleTitle(['director', 'ent_lead'])).toBe(
-      'Director · Entitlements Manager',
+      'Director · Permitting Manager',
     );
   });
 

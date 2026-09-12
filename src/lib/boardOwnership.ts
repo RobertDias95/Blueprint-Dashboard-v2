@@ -217,7 +217,7 @@ export function milestoneWhyYours(
   }
   return leg === 'design'
     ? "You are the design associate on this permit"
-    : "You are the entitlement lead on this permit";
+    : "You are the permitting lead on this permit";
 }
 
 // ---------------------------------------------------------------------------

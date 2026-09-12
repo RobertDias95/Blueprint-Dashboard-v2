@@ -132,7 +132,7 @@ const COLS: ColDef[] = [
   { key: 'address', label: 'Address' },
   { key: null, label: 'Permits' },
   { key: 'stage', label: 'Stage' },
-  { key: 'ent', label: 'ENT' },
+  { key: 'ent', label: 'PERM' },
   { key: 'da', label: 'DA' },
   { key: 'dm', label: 'DM' },
   { key: 'juris', label: 'Juris' },

@@ -275,7 +275,7 @@ describe('fix-308 #45: a milestone says what to do AND why it is on your list', 
 
   it('★ says why it is yours — a role, not a paragraph', () => {
     const p = { da: 'Cam', ent_lead: 'Miles' };
-    expect(milestoneWhyYours('entitlement', 'mine', p)).toMatch(/entitlement lead/i);
+    expect(milestoneWhyYours('entitlement', 'mine', p)).toMatch(/permitting lead/i);
     expect(milestoneWhyYours('design', 'mine', p)).toMatch(/design associate/i);
     // ★ #22's cut is not undone: one short clause, no prose.
     expect(milestoneWhyYours('entitlement', 'mine', p).length).toBeLessThan(60);

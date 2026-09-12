@@ -399,7 +399,7 @@ function SuppressedSections({
     {
       id: 'notyours',
       title: "Changes on permits that aren't yours",
-      why: 'Real changes, on permits you are not the DA or entitlement lead for.',
+      why: 'Real changes, on permits you are not the DA or permitting lead for.',
       rows: rows.notYours,
       total: counts.notYours,
     },

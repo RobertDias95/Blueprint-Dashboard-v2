@@ -421,7 +421,7 @@ describe('fix-487: what this ticket must not have touched', () => {
       'director', 'ent_lead', 'acq_lead', 'dm', 'schematic', 'ent', 'acq', 'da',
       'viewer',
     ]);
-    expect(rosterRoleTitle(['ent', 'ent_lead'])).toBe('Entitlements Manager');
+    expect(rosterRoleTitle(['ent', 'ent_lead'])).toBe('Permitting Manager');
     expect(rosterRoleTitle(['dm', 'schematic'])).toBe(
       'Design Manager · Schematic Design',
     );

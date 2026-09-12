@@ -724,7 +724,11 @@ export interface TeamInternalRow {
 /** ★ fix-321 #78's order, and fix-423's columns, in one list. */
 export const TEAM_INTERNAL_ROWS: readonly TeamInternalRow[] = [
   { key: 'acq', label: 'ACQ', title: 'Acquisitions', column: 'left' },
-  { key: 'ent', label: 'ENT', title: 'Entitlements', column: 'left' },
+  // ★★★ fix-535 §A: the ABBREVIATION counts too — *"Ent and Ents count where
+  //     a person sees them."* `key: 'ent'` is untouched; `PERM` is what the
+  //     narrow strips print. The Team card itself prints `title`, so it reads
+  //     the whole word.
+  { key: 'ent', label: 'PERM', title: 'Permitting', column: 'left' },
   { key: 'sd', label: 'SD', title: 'Schematic design', column: 'right' },
   { key: 'dm', label: 'DM', title: 'Design Manager', column: 'right' },
   { key: 'da', label: 'DA', title: 'Design Associate', column: 'right' },

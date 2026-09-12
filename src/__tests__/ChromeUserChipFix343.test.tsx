@@ -115,14 +115,14 @@ beforeEach(() => {
 // ---------------------------------------------------------------------------
 
 describe('fix-343 §1: the plate shows a job title', () => {
-  it("★★ Bobby's plate reads Entitlements Manager", () => {
+  it("★★ Bobby's plate reads Permitting Manager", () => {
     rosterRef.rows = [
       member({ name: 'Bobby', role: 'ent', email: 'robertd@blueprintcap.com' }),
       member({ name: 'Bobby', role: 'ent_lead', email: 'robertd@blueprintcap.com' }),
     ];
     renderShell();
     expect(screen.getByTestId('chrome-user-chip').textContent).toContain('Bobby');
-    expect(roleLine()).toBe('Entitlements Manager');
+    expect(roleLine()).toBe('Permitting Manager');
   });
 
   // ★★ THE BUG, not a tidy-up: `roles[0]` took the first element of an array
@@ -133,7 +133,7 @@ describe('fix-343 §1: the plate shows a job title', () => {
       member({ name: 'Bobby', role: 'ent', email: 'robertd@blueprintcap.com' }),
     ];
     renderShell();
-    expect(roleLine()).toBe('Entitlements Manager');
+    expect(roleLine()).toBe('Permitting Manager');
   });
 
   it('★ a DA sees Design Associate, not "da"', () => {

@@ -74,7 +74,8 @@ describe('fix-464 §A — the vocabulary grows by APPENDING', () => {
     expect(DEPARTMENT_LABEL.it_investor_relations).toBe('IT & Investor Relations');
     // The original four are untouched.
     expect(DEPARTMENT_LABEL.policy).toBe('Policy');
-    expect(DEPARTMENT_LABEL.design_entitlements).toBe('Design & Entitlements');
+    // ★ fix-535 (P-190): label renamed, key untouched.
+    expect(DEPARTMENT_LABEL.design_entitlements).toBe('Design & Permitting');
     expect(DEPARTMENT_LABEL.acquisitions).toBe('Acquisitions');
     expect(DEPARTMENT_LABEL.underwriting).toBe('Underwriting');
   });

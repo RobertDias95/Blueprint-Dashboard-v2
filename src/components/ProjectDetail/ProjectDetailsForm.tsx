@@ -477,11 +477,12 @@ export function InternalTeamFields({
           testid="psm-acq"
         />
       </Field>
-      <Field label="Entitlement Lead">
+      <Field label="Permitting Lead">
         <SelectInput
           value={project.entitlement_lead ?? ''}
           onChange={(v) =>
-            void commit('entitlement_lead', v || null, project.entitlement_lead, 'Entitlement Lead')
+            // ★ fix-535: the toast's words move; `entitlement_lead` is the column.
+              void commit('entitlement_lead', v || null, project.entitlement_lead, 'Permitting Lead')
           }
           options={['', ...rosters.entNames]}
           placeholderLabel="— none —"

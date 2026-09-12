@@ -22,6 +22,60 @@ export const TEAM_OPTIONS = [
 ] as const;
 export type TeamKey = (typeof TEAM_OPTIONS)[number];
 
+// ===========================================================================
+// ★★★ fix-535 §C (P-190) — `'Entitlements'` IS A STORED TOKEN, NOT A LABEL
+// ===========================================================================
+//
+// This is the seam §C warns about — *"anything that MATCHES on the word rather
+// than displaying it"* — and it is the biggest one in the codebase, because the
+// string above is doing both jobs at once.
+//
+// ★★★ MEASURED ON PROD 2026-09-12, and none of it is in §B's table:
+//
+//       task_templates.default_team = 'Entitlements'    **57 rows**
+//       permit_tasks.assigned_to    = 'Entitlements'   **103 rows**
+//
+//     …and the header of this file says why that is worse than it looks: the
+//     CASE inside `bp_create_project_with_permits` and `bp_discipline_for_team`
+//     mirror these functions and are **KEPT IN LOCKSTEP**. Renaming the literal
+//     would be a data migration AND two SQL edits, which §B forbids in as many
+//     words: *"Do NOT rename columns, enum values, `department` keys."*
+//
+// ★★★ SO THE TOKEN STAYS AND THE LABEL MOVES. Exactly the split `ROLE_TITLE`
+//     and `DEPARTMENT_LABEL` already use: a join-safe key in the database, the
+//     word the team says on the screen. **Every surface that shows a team
+//     renders through `teamLabel`; every surface that compares one keeps
+//     comparing the token.**
+//
+// ⚠️ A component that prints a `TeamKey` directly is now a bug, and it is the
+//    kind that reads as correct — the string is a perfectly good English word.
+//    A test asserts the two renderers call this.
+
+/** What a person reads for each stored team token. ★ ONE map: two components
+ *  translating this separately is how the picker and the chip end up saying
+ *  different things about one task. */
+export const TEAM_LABEL: Record<string, string> = {
+  // ★★★ The rename, and the only entry that is not an identity.
+  Entitlements: 'Permitting',
+  'Design Associate': 'Design Associate',
+  'Schematic Team': 'Schematic Team',
+  'Design Manager': 'Design Manager',
+  // ★ fix-222's retired key. A pre-migration template still carries it, and a
+  //   picker that showed a blank for one would look broken rather than legacy.
+  Architecture: 'Architecture',
+};
+
+/** The display word for a stored team token.
+ *
+ *  ★ An unknown token returns ITSELF rather than a blank or a placeholder: the
+ *    column also holds specific people's names (`resolvePrimaryTeamPerson`'s
+ *    fallback), and a person's name must survive this untouched. */
+export function teamLabel(team: string | null | undefined): string {
+  const t = (team ?? '').trim();
+  if (t === '') return '';
+  return TEAM_LABEL[t] ?? t;
+}
+
 /** fix-222 default_team migration rule: 'Architecture' → 'Design Associate',
  *  except schematic-prep templates (text mentions "schematic") → 'Schematic
  *  Team'. Any other team value passes through unchanged. Mirrors the UPDATE in

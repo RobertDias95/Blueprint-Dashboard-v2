@@ -264,7 +264,7 @@ export default function AdminTeamTab() {
           ★ Same readOnly gating as everything else on this tab: the DATABASE
           refuses a non-admin through RLS, and readOnly only hides the
           affordances. */}
-      <Section title="DA Routing (entitlement lead)">
+      <Section title="DA Routing (permitting lead)">
         <DaRoutingEditor
           activeDas={teamQ.activeDas}
           ents={teamQ.ents}
@@ -345,7 +345,7 @@ export default function AdminTeamTab() {
           ★★ It sits AFTER DA Routing because that is the causal order: a DA with
           no routing row is why a permit ends up with no lead, and a permit with
           no lead is why seventeen tasks reach nobody. */}
-      <Section title="Permits with no entitlement lead">
+      <Section title="Permits with no permitting lead">
         <PermitsMissingLeadPanel ents={teamQ.ents} readOnly={!isAdmin} />
       </Section>
 
@@ -372,7 +372,7 @@ export default function AdminTeamTab() {
           onAdd={(name) => addMember('ent', name)}
           onRemove={(name) => hardDelete('ent', name)}
           onRename={(oldName, newName) => renameSimple('ent', oldName, newName)}
-          placeholder="Add Entitlement Lead…"
+          placeholder="Add Permitting Lead…"
           readOnly={!isAdmin}
           testIdPrefix="team-ent"
         />
