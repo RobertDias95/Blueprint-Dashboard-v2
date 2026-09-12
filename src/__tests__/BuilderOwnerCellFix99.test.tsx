@@ -60,9 +60,13 @@ const supabaseMock = vi.hoisted(() => {
   };
   b.update = () => b;
   b.eq = () => b;
+  // ★ fix-532 §B: same hook as `useUpdateProjectFix99` — see the note there.
+  const afterAttempt: Array<() => void> = [];
   b.select = () => {
     const next =
       updateResponses.shift() ?? { data: [] as unknown[], error: null };
+    const hook = afterAttempt.shift();
+    if (hook) hook();
     return Promise.resolve(next);
   };
   b.upsert = () => Promise.resolve({ data: null, error: null });
@@ -74,6 +78,10 @@ const supabaseMock = vi.hoisted(() => {
     ) => {
       updateResponses.length = 0;
       updateResponses.push(...responses);
+    },
+    afterAttempt: (...fns: Array<() => void>) => {
+      afterAttempt.length = 0;
+      afterAttempt.push(...fns);
     },
   };
 });
@@ -256,11 +264,20 @@ describe('BuilderOwnerCell — fix-99 inherits hook-level OCC auto-recovery', ()
         error: null,
       },
     );
-    // Pre-populate the cache with the fresh token — what a real
-    // refetchQueries would deliver after the OCC.
+    // ★★★ AMENDED BY fix-532 §B. This pre-seeded the FRESH token to model the
+    //     refetch landing — and the hook now reads its token from the cache at
+    //     SEND time, so that fixture never OCCs. The honest model is: stale in
+    //     the cache when the first attempt goes out, fresh by the time the
+    //     refetch reads it. Nothing about what this test PROVES changed; it is
+    //     still `useUpdateProject`'s OCC retry, still fired by the clear button.
     queryClient.setQueryData(queryKeys.projects(T), [
-      projectFixture({ updated_at: NEW_TOKEN }),
+      projectFixture({ updated_at: OLD_TOKEN }),
     ]);
+    supabaseMock.afterAttempt(() => {
+      queryClient.setQueryData(queryKeys.projects(T), [
+        projectFixture({ updated_at: NEW_TOKEN }),
+      ]);
+    });
 
     // ★★ fix-448 re-points the TRIGGER, not the claim. This test is about
     //    `useUpdateProject`'s OCC retry; the cell is only what fires it. Typing

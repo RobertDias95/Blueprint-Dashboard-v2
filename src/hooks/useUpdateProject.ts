@@ -119,6 +119,62 @@ async function refreshTokenAfterOcc(
   return fresh.updated_at;
 }
 
+// ===========================================================================
+// ★★★ fix-532 §B (P-246) — THE STALE TOKEN WAS THE CALLER'S, NOT A WRITER'S
+// ===========================================================================
+//
+// Gena, prod `error_reports` #717, 2026-09-11 11:05:02 PT — *"Unit Dimensions
+// changed since you loaded it"*, `write: projects.update`, one occurrence, one
+// user. §B asked which WRITER of `projects` fails to put the fresh
+// `updated_at` back. **Enumerated from `pg_proc` and the client, the answer is
+// none of them** — all eight server functions and every client caller either
+// write the token back or invalidate `projects` (see the PR for the list).
+//
+// ★★★ THE STALE VALUE WAS THE ONE THE EDITOR HELD. `writeTypes` sends
+//     `project.updated_at` — read off a PROP at render time — and the Unit
+//     Dimensions editor calls it **on every field change**, not on blur. Type a
+//     width and then a depth and two saves are in flight carrying the SAME
+//     token, because the second was composed before the first's `onSuccess`
+//     re-rendered its prop.
+//
+//     Two is survivable: the second OCCs, fix-99 refetches, retries once and
+//     wins. **Three is not** — the third's single retry can carry a token the
+//     second has already superseded, and `mutationFn` does not chain a second
+//     auto-retry. That is one toast, from one user, on a row whose final
+//     `updated_at` is ten seconds later: exactly row #717.
+//
+// ★★★ SO THE FIX IS TO STOP SENDING A RENDER-CAPTURED TOKEN AT ALL. The cache
+//     is the one place that always holds a REAL server token — `onMutate`'s
+//     optimistic patch deliberately keeps the old `updated_at`, and
+//     `onSuccess` replaces the row with the server's — so reading it at SEND
+//     time closes the window that a re-render was being relied on to close.
+//
+// ⚠️ AND IT DOES NOT WEAKEN OCC, which is the thing to get right. A write by
+//    SOMEBODY ELSE reaches this cache through `REALTIME_TABLES.projects`
+//    (`projects` is published — verified on prod 2026-09-11) or through the
+//    invalidation every other writer already fires. The token is still the
+//    server's, still compared server-side, and a genuine concurrent edit still
+//    refuses. What stops happening is a tab refusing ITSELF.
+
+/** The freshest token this client has for `projectId`, or the caller's.
+ *
+ *  ★ NEVER a token the caller has not seen: if the cache has no row, the
+ *    caller's value stands, so a surface that loads a project outside the
+ *    `projects` query is unaffected.
+ *  ★★ `fail closed` does not apply here and it is worth saying why — an
+ *     unreadable cache means "use what you were given", which is exactly
+ *     today's behaviour. The strict direction would be to refuse the write,
+ *     and refusing a save because a cache was cold would be a worse bug than
+ *     the one this fixes. */
+export function freshestProjectToken(
+  cached: Project[] | undefined,
+  projectId: string,
+  callerToken: string,
+): string {
+  const row = cached?.find((p) => p.id === projectId);
+  return row?.updated_at ?? callerToken;
+}
+
 export function useUpdateProject() {
   const queryClient = useQueryClient();
   const tenantId = useAuthStore((s) => s.activeTenantId) ?? '';
@@ -130,8 +186,15 @@ export function useUpdateProject() {
     //     so `projects.update` is the honest name for it.
     meta: { write: 'projects.update' },
     mutationFn: async (input) => {
+      // ★★★ fix-532 §B: the token is read HERE, at send time, not at render
+      //     time. See the note above `freshestProjectToken`.
+      const token = freshestProjectToken(
+        queryClient.getQueryData<Project[]>(queryKeys.projects(tenantId)),
+        input.projectId,
+        input.expectedUpdatedAt,
+      );
       try {
-        return await tryUpdateProject(input, input.expectedUpdatedAt);
+        return await tryUpdateProject(input, token);
       } catch (err) {
         // silentOnOcc=true → caller wants to handle recovery itself.
         // Don't auto-retry; let the error propagate. (Non-OCC errors
@@ -145,7 +208,7 @@ export function useUpdateProject() {
           queryClient,
           tenantId,
           input.projectId,
-          input.expectedUpdatedAt,
+          token,
         );
         // Cache didn't move forward — surrender to the original OCC
         // rather than retrying with the same stale token.

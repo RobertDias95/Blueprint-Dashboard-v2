@@ -243,26 +243,39 @@ describe('fix-525 §B — cancelled hidden, redesigned kept and hatched', () => 
     expect(retiredHiddenFrom('drawSchedule', 'original-1', sets)).toBe(false);
   });
 
-  it('★★★ the Library exposes NO edit control and NO write path', () => {
-    // ⚠️⚠️ §B: *"A freeze with one unguarded entrance is not a freeze."* The
-    //      brief expects this to need work, because fix-524's report said the
-    //      Library's unit table is an editor.
-    //
-    // ★★★ IT IS NOT, AND fix-524's REPORT WAS WRONG. fix-506 §H removed the
-    //     write path — *"this file makes ZERO calls to `useUpdateProject`"* —
-    //     and fix-514 §H later removed even the link out to one. fix-524 read
-    //     a comment that fix-506 §H had left stale in the same file rather than
-    //     reading the code. **A comment is not evidence.** So the freeze does
-    //     not leak; this is the assertion that keeps it that way.
+  // ★★★ SUPERSEDED BY fix-532 §A — THE LIBRARY IS A WRITE SURFACE AGAIN, FOR
+  //     ONE PERSON, AND THE REASON THIS TEST EXISTED IS SATISFIED A BETTER WAY.
+  //
+  //     It asserted ZERO write paths, and the point was §B's: *"a freeze with
+  //     one unguarded entrance is not a freeze"* — a retired original must not
+  //     be editable from a screen §D had just frozen. fix-506 §H had removed
+  //     the path and fix-525 pinned the absence.
+  //
+  // ★★★ WHAT CHANGED IS THE GATE, NOT THE COUNT. fix-532 §A restores editing
+  //     for a holder of `profiles.may_edit_library` — one person on prod — and
+  //     every write goes through `bp_update_library_fields`, which refuses an
+  //     uncapable caller with `42501` (proven against prod, fix-527 §B). The
+  //     old path was `useUpdateProject`, a DIRECT table write that no server
+  //     rule could gate; that is still absent and still asserted.
+  //
+  // ★★ SO THE FREEZE STILL HOLDS, and by a stronger mechanism than absence: a
+  //    `42501` is a server decision, and fix-525's worry was precisely that a
+  //    browser-side one is not enforcement.
+  it('★★★ fix-532: the Library writes ONLY through the gated RPC', () => {
     const lib = code(read('src/components/LibraryMatrix.tsx'));
+    // ★★★ The direct table write stays gone — that is the half that could never
+    //     have been gated.
     expect(lib).not.toContain('useUpdateProject');
     expect(lib).not.toContain('writeUnitTypes');
     expect(lib).not.toContain('.update(');
     expect(lib).not.toContain('.upsert(');
     expect(lib).not.toContain('supabase');
-    // ★ The only `<input>`/`<select>` elements are the FILTER controls, which
-    //   write to component state and never to a project.
-    expect(lib).not.toContain('expectedUpdatedAt');
+    // ★★★ …and the one write path it has is the RPC with the capability check.
+    expect(lib).toContain('useUpdateLibraryFields');
+    expect(lib).toContain('useMayEditLibrary');
+    const hook = code(read('src/hooks/useUpdateLibraryFields.ts'));
+    expect(hook).toContain("supabase.rpc('bp_update_library_fields'");
+    expect(hook).toContain("error.code === '42501'");
   });
 
   it('★★ the hatch is the one fix-524 built — not a second one', () => {
