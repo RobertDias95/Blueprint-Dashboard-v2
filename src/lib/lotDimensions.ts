@@ -435,3 +435,67 @@ export function parseLotSizeSf(raw: string): LotSizeParse {
   }
   return { ok: true, value: rounded };
 }
+
+// ===========================================================================
+// ★★★ fix-532 §A4 — THE SAME BOUNDS, ON THE TWO NUMBERS THAT MULTIPLY
+// ===========================================================================
+//
+// `parseLotSizeSf` above guards the box somebody types a SQUARE FOOTAGE into.
+// The Library edits the two dimensions that produce one, and they need the same
+// refusals for the same reason: `lot_size_sf` is an `integer` downstream
+// (P-198), and `1.05e4 × 1.05e4` reaches it as a number no column can hold.
+//
+// ★★★ AND THE CEILING IS DERIVED, NOT CHOSEN. A single dimension may not exceed
+//     the square root of `LOT_SIZE_SF_MAX`, because that is the largest value
+//     whose SQUARE still fits — 46,340 ft, about nine miles. Picking a
+//     "sensible" number instead (1,000? 5,000?) would be a policy nobody ruled
+//     on, and the first genuinely enormous parcel would hit it.
+//
+// ★ Feet are not whole: a 36.5 ft lot is ordinary, so this keeps the decimal
+//   where `parseLotSizeSf` rounds. What it refuses is the notation and the
+//   magnitude, which are the two things that break the column.
+
+/** The largest dimension whose square still fits `lot_size_sf`. ★ Derived from
+ *  `LOT_SIZE_SF_MAX` so the two cannot drift apart. */
+export const LOT_DIMENSION_FT_MAX = Math.floor(Math.sqrt(LOT_SIZE_SF_MAX));
+
+export const LOT_DIMENSION_MESSAGES = {
+  exponent:
+    'Type the measurement in full — 105, not 1.05e2. Nothing was saved.',
+  range: `A lot dimension can’t be more than ${LOT_DIMENSION_FT_MAX.toLocaleString('en-US')} ft — check for an extra digit. Nothing was saved.`,
+  invalid: 'A lot dimension must be a number of feet. Nothing was saved.',
+} as const;
+
+export type LotDimensionParse =
+  | { ok: true; value: number | null }
+  | { ok: false; reason: keyof typeof LOT_DIMENSION_MESSAGES; message: string };
+
+/**
+ * Parse what somebody typed into a lot width or depth box.
+ *
+ * ★ EMPTY CLEARS, and so do zero and negatives — the same behaviour
+ *   `parseLotSizeSf` already has, because an irregular parcel going back to
+ *   unrecorded is a real thing somebody does and turning it into an error is a
+ *   separate decision from the one this ticket was asked to make.
+ */
+export function parseLotDimensionFt(raw: string): LotDimensionParse {
+  const t = raw.trim();
+  if (t === '') return { ok: true, value: null };
+  // ★★ FIRST, for `parseLotSizeSf`'s reason: `Number('1e400')` is Infinity and
+  //    `Number('1e2')` is an ordinary 100. The NOTATION is what is refused, not
+  //    the magnitude — somebody who meant 100 should be told to type it.
+  if (/e/i.test(t)) {
+    return { ok: false, reason: 'exponent', message: LOT_DIMENSION_MESSAGES.exponent };
+  }
+  const n = Number(t);
+  if (!Number.isFinite(n)) {
+    return { ok: false, reason: 'invalid', message: LOT_DIMENSION_MESSAGES.invalid };
+  }
+  if (n <= 0) return { ok: true, value: null };
+  if (n > LOT_DIMENSION_FT_MAX) {
+    return { ok: false, reason: 'range', message: LOT_DIMENSION_MESSAGES.range };
+  }
+  // ★ Two decimals is what a survey gives and what the existing displays show;
+  //   more is float noise arriving from a paste.
+  return { ok: true, value: Math.round(n * 100) / 100 };
+}

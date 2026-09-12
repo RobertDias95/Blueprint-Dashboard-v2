@@ -3,6 +3,13 @@ import OriginLink from './OriginLink';
 import { PREVIOUS_ORIGINS } from '../lib/previousOrigin';
 import { useProjects } from '../hooks/useProjects';
 import RetiredBadge from './shared/RetiredBadge';
+import { LibraryChoiceCell, LibraryDimensionCell } from './LibraryEditCell';
+import { parseUnitTypes } from '../lib/unitTypeNaming';
+import {
+  useMayEditLibrary,
+  useUpdateLibraryFields,
+  type LibraryFieldPatch,
+} from '../hooks/useUpdateLibraryFields';
 import { useAllProjectHolds, cancelledProjectIds } from '../hooks/useProjectHolds';
 import {
   RETIRED_VISIBILITY,
@@ -430,6 +437,24 @@ function Body({ projects, permits, retiredSets }: BodyProps) {
     () => projectBands(sorted.map((r) => r.projectId)),
     [sorted],
   );
+
+  // ★★★ fix-532 §A — THE LIBRARY BECOMES A WRITE SURFACE AGAIN, FOR ONE PERSON.
+  //
+  //     fix-506 §H removed its only write path because Bobby ruled it was not a
+  //     write surface. It is one again for a holder of
+  //     `profiles.may_edit_library` — measured 2026-09-11, that is
+  //     `cameron@blueprintcap.com` and nobody else.
+  //
+  // ⚠️⚠️ THIS BOOLEAN DECIDES WHAT RENDERS AND NOTHING ELSE. The gate is
+  //      `bp_update_library_fields`, which refuses an uncapable caller with
+  //      `42501` — proven on prod in fix-527 §B. ~20 `useIsTenantAdmin` sites
+  //      in this app hide a control and enforce nothing (P-243); this is not a
+  //      twenty-first, because there is a server behind it.
+  //
+  // ★ Fail closed: `useMayEditLibrary` answers false while loading, on error,
+  //   and for a missing column.
+  const canEditLibrary = useMayEditLibrary();
+  const saveLibrary = useUpdateLibraryFields();
 
   function toggleSort(col: SortableColumn) {
     setSort((prev) =>
@@ -1026,6 +1051,29 @@ function Body({ projects, permits, retiredSets }: BodyProps) {
           <tbody>
             {unitRows.map((u, i) => (
               <LibraryUnitRow
+                editable={canEditLibrary}
+                // ★★★ fix-532 §A — THE WHOLE ARRAY GOES BACK, not one unit.
+                //     `unit_types` is a jsonb column and the RPC replaces it,
+                //     so the row being edited is spliced into the project's
+                //     CURRENT list. ★★ `parseUnitTypes` is a WHITELIST and both
+                //     editors write the result back (fix-412), so reading
+                //     through it here is what stops an unnamed key being
+                //     dropped on the next save.
+                onEditUnit={(idx, key, val) => {
+                  const all: UnitType[] = parseUnitTypes(
+                    visibleProjects.find((p) => p.id === u.project.projectId)
+                      ?.unit_types,
+                  );
+                  if (!all[idx]) return;
+                  const next: UnitType[] = all.map((unit, i) =>
+                    i === idx ? { ...unit, [key]: val } : unit,
+                  );
+                  saveLibrary.mutate({
+                    projectId: u.project.projectId,
+                    patch: { unit_types: next },
+                    fieldLabel: key === 'width_ft' ? 'Unit width' : 'Unit depth',
+                  });
+                }}
                 key={u.key}
                 bandClass={unitBands[i] === 1 ? PROJECT_BAND_CLASS : ''}
                 row={u.unit}
@@ -1236,6 +1284,11 @@ function Body({ projects, permits, retiredSets }: BodyProps) {
                 row={r}
                 bandClass={siteBands[i] === 1 ? PROJECT_BAND_CLASS : ''}
                 retired={hatchedIds.get(r.projectId) ?? null}
+                editable={canEditLibrary}
+                zoneOptions={zoneFilterOptions}
+                onSave={(patch, fieldLabel) =>
+                  saveLibrary.mutate({ projectId: r.projectId, patch, fieldLabel })
+                }
               />
             ))}
             {sorted.length === 0 && (
@@ -1350,8 +1403,19 @@ interface RowProps {
    *  kept in the Library because 11 of 17 originals hold the only unit
    *  dimensions their pair has. Null for everything else. */
   retired: RetiredCause | null;
+  /** ★★★ fix-532 §A: does this viewer hold `may_edit_library`? Cosmetic — the
+   *  RPC is the gate. */
+  editable: boolean;
+  /** fix-415's registry, so a capable typist cannot reintroduce an off-list
+   *  zone. */
+  zoneOptions: readonly string[];
+  onSave: (patch: LibraryFieldPatch, fieldLabel: string) => void;
 }
-function Row({ row, bandClass, retired }: RowProps) {
+/** ★ The Site card's own list (`SiteSelectRow` for Alley), stated once here so
+ *  the two surfaces cannot offer different answers to one question. */
+const ALLEY_OPTIONS = ['Yes', 'No'] as const;
+
+function Row({ row, bandClass, retired, editable, zoneOptions, onSave }: RowProps) {
   return (
     <>
       <tr
@@ -1402,26 +1466,51 @@ function Row({ row, bandClass, retired }: RowProps) {
                sentinels map back to null first: `lotWidth: 0` means "not
                recorded" in a `LibraryRow`. */}
         <td className="px-2 py-1.5 text-center" data-testid={`library-lot-w-${row.projectId}`}>
-          {(() => {
-            const v = lotSizeView(row.lotWidth || null, row.lotDepth || null, row.lotSizeSf);
-            if (v.widthText === null) return <span className="text-dim">—</span>;
-            return v.widthVaries ? (
-              <span className="italic text-dim font-mono">{v.widthText}</span>
-            ) : (
-              <span className="font-mono text-text">{v.widthText}</span>
-            );
-          })()}
+          {/* ★★★ fix-532 §A: editable for a capability holder, and byte-for-byte
+              today's cell for everyone else. ★ `lotSizeView`'s "varies" italic
+              is a READ-ONLY reading of two dimensions that disagree — an
+              editable cell shows the row's own number, because that is the one
+              a person is about to change. */}
+          {editable ? (
+            <LibraryDimensionCell
+              value={row.lotWidth || null}
+              editable
+              label="Lot width"
+              testId={`library-lot-w-input-${row.projectId}`}
+              onCommit={(v) => onSave({ lot_width: v }, 'Lot width')}
+            />
+          ) : (
+            (() => {
+              const v = lotSizeView(row.lotWidth || null, row.lotDepth || null, row.lotSizeSf);
+              if (v.widthText === null) return <span className="text-dim">—</span>;
+              return v.widthVaries ? (
+                <span className="italic text-dim font-mono">{v.widthText}</span>
+              ) : (
+                <span className="font-mono text-text">{v.widthText}</span>
+              );
+            })()
+          )}
         </td>
         <td className="px-2 py-1.5 text-center" data-testid={`library-lot-d-${row.projectId}`}>
-          {(() => {
-            const v = lotSizeView(row.lotWidth || null, row.lotDepth || null, row.lotSizeSf);
-            if (v.depthText === null) return <span className="text-dim">—</span>;
-            return v.depthVaries ? (
-              <span className="italic text-dim font-mono">{v.depthText}</span>
-            ) : (
-              <span className="font-mono text-text">{v.depthText}</span>
-            );
-          })()}
+          {editable ? (
+            <LibraryDimensionCell
+              value={row.lotDepth || null}
+              editable
+              label="Lot depth"
+              testId={`library-lot-d-input-${row.projectId}`}
+              onCommit={(v) => onSave({ lot_depth: v }, 'Lot depth')}
+            />
+          ) : (
+            (() => {
+              const v = lotSizeView(row.lotWidth || null, row.lotDepth || null, row.lotSizeSf);
+              if (v.depthText === null) return <span className="text-dim">—</span>;
+              return v.depthVaries ? (
+                <span className="italic text-dim font-mono">{v.depthText}</span>
+              ) : (
+                <span className="font-mono text-text">{v.depthText}</span>
+              );
+            })()
+          )}
         </td>
         <td className="px-2 py-1.5 text-center">
           {(() => {
@@ -1451,18 +1540,25 @@ function Row({ row, bandClass, retired }: RowProps) {
         </td>
         <td className="px-2 py-1.5 text-muted">{row.juris || '—'}</td>
         <td className="px-2 py-1.5 text-center">
-          {row.zone ? (
-            <span className="font-mono text-text">{row.zone}</span>
-          ) : (
-            <span className="text-dim">—</span>
-          )}
+          <LibraryChoiceCell
+            value={row.zone || null}
+            options={zoneOptions}
+            editable={editable}
+            testId={`library-zone-${row.projectId}`}
+            onCommit={(v) => onSave({ zone: v }, 'Zone')}
+          />
         </td>
         <td className="px-2 py-1.5 text-center">
-          {row.alley ? (
-            <span className="font-mono text-text">{row.alley}</span>
-          ) : (
-            <span className="text-dim">—</span>
-          )}
+          {/* ★ Alley is the same tri-state the Site card offers — Yes / No /
+              not recorded. The list is short and closed, so it is stated here
+              rather than threaded from a registry that does not exist. */}
+          <LibraryChoiceCell
+            value={row.alley || null}
+            options={ALLEY_OPTIONS}
+            editable={editable}
+            testId={`library-alley-${row.projectId}`}
+            onCommit={(v) => onSave({ alley: v }, 'Alley')}
+          />
         </td>
         {/* fix-122: Corner column. Tri-state — NULL renders as the dim em dash
             so unanswered rows are visually distinct from a confirmed No. */}
@@ -1591,6 +1687,8 @@ function LibraryUnitRow({
   leading,
   trailing,
   bandClass = '',
+  editable = false,
+  onEditUnit,
 }: {
   row: UnitType;
   projectId: string;
@@ -1609,6 +1707,15 @@ function LibraryUnitRow({
   trailing?: React.ReactNode;
   /** ★ fix-483 §A1: '' or the alternate-project band class. */
   bandClass?: string;
+  /** ★★★ fix-532 §A: does this viewer hold `may_edit_library`? Cosmetic — the
+   *  RPC is the gate. */
+  editable?: boolean;
+  /** Commit one unit's width or depth. Absent when not editable. */
+  onEditUnit?: (
+    index: number,
+    key: 'width_ft' | 'depth_ft',
+    value: number | null,
+  ) => void;
 }) {
   // fix-209 → fix-212: the shown label is the RESOLVED one — with several
   // product types it is the value only if it IS a product type; with exactly
@@ -1652,6 +1759,28 @@ function LibraryUnitRow({
                 ⚠
               </span>
             )}
+          </td>
+        ) : editable && (c.sourceKey === 'width_ft' || c.sourceKey === 'depth_ft') ? (
+          // ★★★ fix-532 §A — THE FIFTH FIELD, AND ONLY ITS TWO NUMBERS.
+          //
+          //     `unit_types` is one of the five `bp_update_library_fields`
+          //     accepts, and the Library IS the unit-dimension matrix — a width
+          //     and a depth are what somebody comes here to correct. The label,
+          //     the quantity and the rest stay read-only: they are edited in
+          //     Project Data's Units tab, and re-opening a second editor for
+          //     them is exactly what fix-506 §H closed.
+          //
+          // ★★ BOUND BY `sourceKey`, not by column position. fix-519 §A cost a
+          //    ticket to the other arrangement — two hand-written lists that
+          //    drifted — and this is the same list, asked the same way.
+          <td key={c.col} className="px-2 py-0.5">
+            <LibraryDimensionCell
+              value={c.read(row).value ?? null}
+              editable
+              label={c.sourceKey === 'width_ft' ? 'Unit width' : 'Unit depth'}
+              testId={`library-unit-${projectId}-${index}-${c.testId}`}
+              onCommit={(v) => onEditUnit?.(index, c.sourceKey as 'width_ft' | 'depth_ft', v)}
+            />
           </td>
         ) : (
           <UnitCell

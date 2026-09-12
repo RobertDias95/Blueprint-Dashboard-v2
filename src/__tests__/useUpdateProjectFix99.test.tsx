@@ -51,11 +51,21 @@ const supabaseMock = vi.hoisted(() => {
   };
   builder.update = () => builder;
   builder.eq = () => builder;
+  // ★★★ fix-532 §B: a hook the test uses to move the CACHE between attempts.
+  //     The hook now reads its OCC token from the cache at send time, so a
+  //     fixture that pre-seeds the fresh token simply never OCCs — which is the
+  //     bug being fixed, not a scenario. The honest model of "somebody else
+  //     wrote, and this client found out between attempts" is: the cache holds
+  //     the STALE token when the first update is sent, and the fresh one by the
+  //     time the refetch reads it.
+  const afterAttempt: Array<() => void> = [];
   builder.select = () => {
     // Pull the next queued response; default to OCC (0 rows) when
     // the test underflows the queue.
     const next =
       updateResponses.shift() ?? { data: [] as unknown[], error: null };
+    const hook = afterAttempt.shift();
+    if (hook) hook();
     return Promise.resolve(next);
   };
   builder.upsert = () => Promise.resolve({ data: null, error: null });
@@ -67,6 +77,11 @@ const supabaseMock = vi.hoisted(() => {
     ) => {
       updateResponses.length = 0;
       updateResponses.push(...responses);
+    },
+    /** Run `fn` after the Nth update attempt has been answered. */
+    afterAttempt: (...fns: Array<() => void>) => {
+      afterAttempt.length = 0;
+      afterAttempt.push(...fns);
     },
   };
 });
@@ -96,6 +111,7 @@ beforeEach(() => {
   supabaseMock.fromFn.mockClear();
   toastMock.mockClear();
   supabaseMock.queueResponses();
+  supabaseMock.afterAttempt();
   useAuthStore.setState({
     activeTenantId: T,
     memberships: [{ tenant_id: T, role: 'admin' }],
@@ -114,13 +130,25 @@ describe('useUpdateProject — fix-99 default OCC auto-recovery', () => {
       },
     );
     const { wrapper, queryClient } = setup();
-    // Pre-populate the cache with a project carrying the FRESH token
-    // — this is what a real refetchQueries would land in the cache
-    // after the server's invalidation. Pre-population is how we model
-    // the refetch landing in tests that don't stand up a fetchFn.
+    // ★★★ AMENDED BY fix-532 §B. This used to pre-seed the cache with the FRESH
+    //     token to model a refetch landing — and the hook now reads its token
+    //     from the cache at SEND time, so that fixture never OCCs at all. It
+    //     was modelling P-246 (a caller holding a token the cache had already
+    //     moved past) rather than the concurrent edit fix-99 is about.
+    //
+    // ★★ THE HONEST MODEL: the cache holds the STALE token when the first
+    //    update goes out, and learns the fresh one between attempts — which is
+    //    what `REALTIME_TABLES.projects` or another writer's invalidation does.
+    //    fix-99's recovery is still exercised, and still matters, for a token
+    //    that is stale EVERYWHERE.
     queryClient.setQueryData(queryKeys.projects(T), [
-      { id: 'p-1', updated_at: NEW_TOKEN },
+      { id: 'p-1', updated_at: OLD_TOKEN },
     ]);
+    supabaseMock.afterAttempt(() => {
+      queryClient.setQueryData(queryKeys.projects(T), [
+        { id: 'p-1', updated_at: NEW_TOKEN },
+      ]);
+    });
     const { result } = renderHook(() => useUpdateProject(), { wrapper });
     let resolved: unknown = null;
     await act(async () => {
@@ -188,9 +216,16 @@ describe('useUpdateProject — fix-99 default OCC auto-recovery', () => {
       { data: [], error: null },
     );
     const { wrapper, queryClient } = setup();
+    // ★ fix-532 §B: stale in the cache too when the first attempt goes out, and
+    //   moved forward between attempts — see the first test in this file.
     queryClient.setQueryData(queryKeys.projects(T), [
-      { id: 'p-1', updated_at: NEW_TOKEN },
+      { id: 'p-1', updated_at: OLD_TOKEN },
     ]);
+    supabaseMock.afterAttempt(() => {
+      queryClient.setQueryData(queryKeys.projects(T), [
+        { id: 'p-1', updated_at: NEW_TOKEN },
+      ]);
+    });
     const { result } = renderHook(() => useUpdateProject(), { wrapper });
     let caught: unknown = null;
     await act(async () => {
