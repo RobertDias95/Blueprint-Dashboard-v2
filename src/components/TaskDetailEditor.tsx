@@ -234,7 +234,7 @@ export default function TaskDetailEditor({
         }}
       >
         <Pill
-          label={task.discipline === 'arch' ? 'Architecture' : 'Entitlements'}
+          label={task.discipline === 'arch' ? 'Architecture' : 'Permitting'}
           color={task.discipline === 'arch' ? 'var(--color-jv)' : 'var(--color-de)'}
           testid="mytasks-detail-discipline"
         />

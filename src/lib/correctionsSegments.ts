@@ -104,7 +104,7 @@ export const SEGMENTS: SegmentDef[] = [
   { key: 'alley', label: 'Alley', valueOf: (p) => text(p.alley) },
   { key: 'builder_company', label: 'Builder', valueOf: (p) => text(p.builder_company) },
   { key: 'design_manager', label: 'Design manager', valueOf: (p) => text(p.design_manager) },
-  { key: 'entitlement_lead', label: 'Entitlement lead', valueOf: (p) => text(p.entitlement_lead) },
+  { key: 'entitlement_lead', label: 'Permitting lead', valueOf: (p) => text(p.entitlement_lead) },
   { key: 'acq_lead', label: 'ACQ lead', valueOf: (p) => text(p.acq_lead) },
 ];
 

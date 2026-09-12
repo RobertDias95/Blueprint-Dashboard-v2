@@ -36,7 +36,7 @@ import {
 const ROLE_TABS: { id: TeamRoleSelection; label: string; pluralLabel: string }[] = [
   { id: 'da', label: 'Design Associates', pluralLabel: 'Design Associates' },
   { id: 'dm', label: 'Design Managers', pluralLabel: 'Design Managers' },
-  { id: 'ent', label: 'Entitlement Leads', pluralLabel: 'Entitlement Leads' },
+  { id: 'ent', label: 'Permitting Leads', pluralLabel: 'Permitting Leads' },
 ];
 
 export default function TeamTab() {
@@ -342,7 +342,7 @@ const TEAM_CSV_COLUMNS = [
 const ROLE_CSV_LABEL: Record<TeamRoleSelection, string> = {
   da: 'Design Associate',
   dm: 'Design Manager',
-  ent: 'Entitlement Lead',
+  ent: 'Permitting Lead',
 };
 
 function buildTeamCsv(rows: TeamMemberMetrics[]): string {

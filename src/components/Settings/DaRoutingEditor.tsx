@@ -253,7 +253,7 @@ export default function DaRoutingEditor({ activeDas, ents, readOnly }: Props) {
                   ))}
                 </select>
               </Field>
-              <Field label="Entitlement lead">
+              <Field label="Permitting lead">
                 <select
                   value={draft.ent_lead}
                   onChange={(e) => setDraft({ ...draft, ent_lead: e.target.value })}

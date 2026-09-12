@@ -37,7 +37,8 @@ describe('PrimaryAssigneeEditor (fix-228)', () => {
     );
     // team options show who they resolve to
     const labels = Array.from(select.options).map((o) => o.textContent);
-    expect(labels).toContain('Entitlements · Miles');
+    // ★ fix-535 §C: the LABEL renamed; the option's value is still the token.
+    expect(labels).toContain('Permitting · Miles');
     expect(labels).toContain('Design Manager · Derry');
   });
 
@@ -105,7 +106,7 @@ describe('PrimaryAssigneeEditor (fix-228)', () => {
     const options = Array.from(select.options);
     // Miles appears in exactly one option, and it is the role-labeled one.
     const milesOptions = options.filter((o) => (o.textContent ?? '').includes('Miles'));
-    expect(milesOptions.map((o) => o.textContent)).toEqual(['Entitlements · Miles']);
+    expect(milesOptions.map((o) => o.textContent)).toEqual(['Permitting · Miles']);
     // No bare "Miles" person option survives (value would be 'Miles').
     expect(options.map((o) => o.value)).not.toContain('Miles');
     // A roster person NOT covered by any role is still offered bare.

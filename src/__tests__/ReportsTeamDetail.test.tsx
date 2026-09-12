@@ -229,7 +229,7 @@ describe('<ReportsTeamDetail /> fix-131', () => {
   it('ENT role chip + Bobby active status', () => {
     renderAt('/reports/team/Bobby?role=ent');
     expect(screen.getByTestId('team-detail-role').textContent).toMatch(
-      /Entitlement Lead/i,
+      /Permitting Lead/i,
     );
     expect(
       screen.getByTestId('team-detail-active-status').textContent,

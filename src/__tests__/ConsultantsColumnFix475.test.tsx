@@ -443,7 +443,8 @@ describe('fix-475 §2 — the internal roster', () => {
     ]);
     expect(TEAM_INTERNAL_ROWS.map((r) => r.title)).toEqual([
       'Acquisitions',
-      'Entitlements',
+      // ★ fix-535 (P-190): the word, not the key — `r.key` above is untouched.
+      'Permitting',
       'Schematic design',
       'Design Manager',
       'Design Associate',

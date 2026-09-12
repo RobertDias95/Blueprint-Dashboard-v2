@@ -44,8 +44,14 @@ export const ROLE_TITLE: Record<TeamRole, string> = {
   // ★★ fix-354 §6: Dave, over Design AND Entitlements — which is why it is its
   // own family below rather than a grade of either one.
   director: 'Director',
-  ent_lead: 'Entitlements Manager', // ★ his words, and the one that started this
-  ent: 'Entitlements',
+  // ★★★ fix-535 (P-190) — "Entitlements" BECOMES "Permitting", 2026-09-09.
+  //     Bobby: *"we want to update the nomenclature from Entitlements to
+  //     Permitting… everything that has Entitlements changed to Permitting, and
+  //     that be the naming moving forward, so our internal team will know."*
+  //     `ent_lead` and `ent` are untouched — they are the KEY, and this map is
+  //     the whole reason a key can be renamed on screen without a migration.
+  ent_lead: 'Permitting Manager', // ★ was "Entitlements Manager" — his words then, and his words now
+  ent: 'Permitting',
   dm: 'Design Manager',
   da: 'Design Associate',
   schematic: 'Schematic Design',
@@ -66,8 +72,9 @@ export const ROLE_TITLE: Record<TeamRole, string> = {
  *  only screen that needs them. */
 export const ROLE_TITLE_PLURAL: Record<TeamRole, string> = {
   director: 'Directors',
-  ent_lead: 'Entitlement Leads',
-  ent: 'Entitlement Leads',
+  // ★ fix-535: were "Entitlement Leads".
+  ent_lead: 'Permitting Leads',
+  ent: 'Permitting Leads',
   dm: 'Design Managers',
   da: 'Design Associates',
   schematic: 'Schematic Team',
@@ -245,7 +252,11 @@ export function rosterRoleTitle(
 
 export const DEPARTMENT_LABEL: Record<Department, string> = {
   policy: 'Policy',
-  design_entitlements: 'Design & Entitlements',
+  // ★★★ fix-535: was "Design & Entitlements". **The KEY is untouched** —
+  //     `design_entitlements` is on 29 of 51 roster rows (measured 2026-09-12)
+  //     and renaming a stored value is a migration with a blast radius that
+  //     nothing about the word the team reads requires.
+  design_entitlements: 'Design & Permitting',
   acquisitions: 'Acquisitions',
   underwriting: 'Underwriting',
   // ★ fix-464. "IT & Investor Relations" is his phrasing turned into a name

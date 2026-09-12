@@ -233,7 +233,7 @@ function ForecastRow({
               item.action === 'resolve-task'
                 ? 'Resolve this task'
                 : item.action === 'handoff'
-                  ? 'Design finished — hand this to the entitlement lead'
+                  ? 'Design finished — hand this to the permitting lead'
                   : 'Mark this done'
             }
             className="w-[13px] h-[13px] border-[1.5px] border-border rounded-[3px] flex-none mt-0.5 bg-bg hover:border-de disabled:opacity-40"

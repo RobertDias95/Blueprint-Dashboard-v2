@@ -660,7 +660,7 @@ export default function NewProjectWizard({ open, onClose, initialState }: Props)
       // plans nobody could see were owed.
       if (!derivedEntLead) {
         pushToast(
-          'Project created without an entitlement lead — its entitlement tasks ' +
+          'Project created without a permitting lead — its permitting tasks ' +
             'will reach nobody until one is set. Settings → Team lists permits ' +
             'with no lead.',
           'warn',

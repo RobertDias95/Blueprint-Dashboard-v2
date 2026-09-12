@@ -28,7 +28,7 @@ interface Props {
 const ROLE_LABEL: Record<TeamWorkloadFilters['role'], string> = {
   da: 'Design Associates',
   dm: 'Design Managers',
-  ent: 'Entitlement Leads',
+  ent: 'Permitting Leads',
 };
 
 export default function WorkloadBalance({

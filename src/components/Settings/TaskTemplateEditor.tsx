@@ -37,6 +37,7 @@ import { WAITING_ON_OPTIONS } from '../../lib/database.types';
 import type { TaskTemplate, TemplateBucket } from '../../lib/database.types';
 import {
   TEAM_OPTIONS,
+  teamLabel,
   DYNAMIC_ROLES,
   DYNAMIC_ROLE_LABELS,
   roleToken,
@@ -422,9 +423,13 @@ function TemplateRow({
             data-testid={`task-template-row-${template.id}-team`}
           >
             <option value="">(none)</option>
+            {/* ★★★ fix-535 §C: the VALUE is the stored token and the TEXT is
+                the label. `'Entitlements'` is on 57 templates and 103 tasks and
+                is mirrored in two SQL functions, so it stays in the option's
+                value and changes only in what a person reads. */}
             {TEAM_OPTIONS.map((t) => (
               <option key={t} value={t}>
-                {t}
+                {teamLabel(t)}
               </option>
             ))}
           </select>

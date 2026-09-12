@@ -1,5 +1,6 @@
 import {
   PRIMARY_TEAM_OPTIONS,
+  teamLabel,
   primarySelectValue,
   resolvePrimaryAssignee,
   resolvePrimaryTeamPerson,
@@ -53,8 +54,11 @@ export default function PrimaryAssigneeEditor({
   const selected = primarySelectValue(value, discipline);
 
   const teamOptionLabel = (key: (typeof PRIMARY_TEAM_OPTIONS)[number]): string => {
+    // ★★★ fix-535 §C: the key is stored, the label is read. This produced
+    //     "Entitlements · Miles"; it now says "Permitting · Miles" while the
+    //     option's VALUE stays `Entitlements`.
     const person = resolvePrimaryTeamPerson(key, ctx);
-    return person ? `${key} · ${person}` : key;
+    return person ? `${teamLabel(key)} · ${person}` : teamLabel(key);
   };
 
   // Offer every roster name as a "specific person"; include the current person

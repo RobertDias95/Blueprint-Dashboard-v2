@@ -379,7 +379,7 @@ describe('<Reports /> Team tab — fix-127', () => {
     );
   });
 
-  it('switching role to Entitlement Leads shows Bobby and drops the DAs', () => {
+  it('switching role to Permitting Leads shows Bobby and drops the DAs', () => {
     renderTeam();
     fireEvent.click(screen.getByTestId('team-role-tab-ent'));
     expect(
@@ -519,7 +519,7 @@ describe('<Reports /> Team tab — fix-127', () => {
     expect(screen.queryByTestId('team-performance-table')).toBeNull();
   });
 
-  it('empty state for ENT mentions "Entitlement Leads"', () => {
+  it('empty state for ENT mentions "Permitting Leads"', () => {
     renderTeam();
     fireEvent.click(screen.getByTestId('team-role-tab-ent'));
     fireEvent.change(screen.getByTestId('team-filter-from'), {
@@ -530,7 +530,7 @@ describe('<Reports /> Team tab — fix-127', () => {
     });
     expect(
       screen.getByTestId('team-empty-state').textContent,
-    ).toMatch(/No active Entitlement Leads in the current filter\./);
+    ).toMatch(/No active Permitting Leads in the current filter\./);
   });
 
   it('juris filter narrows the cohort (Bellevue → Ainsley only)', () => {
@@ -619,7 +619,7 @@ describe('<Reports /> Team tab — fix-127', () => {
       expect(screen.getByTestId('team-workload-empty')).toBeInTheDocument();
       expect(
         screen.getByTestId('team-workload-empty').textContent,
-      ).toMatch(/No active Entitlement Leads in the current filter\./);
+      ).toMatch(/No active Permitting Leads in the current filter\./);
     });
 
     it('non-regression: TeamPerformanceTable + filter bar still render alongside', () => {

@@ -310,7 +310,7 @@ function Body({
             />
             <RoleLeaderboard
               testId="redesigns-ent-leaderboard"
-              title="Entitlement Leads"
+              title="Permitting Leads"
               rows={result.entLeaderboard}
               role="ent"
             />

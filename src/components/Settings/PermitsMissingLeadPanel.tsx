@@ -75,7 +75,7 @@ export default function PermitsMissingLeadPanel({ ents, readOnly }: Props) {
       projectId: row.projectId,
       expectedUpdatedAt: row.updatedAt,
       patch: { ent_lead: name },
-      fieldLabel: 'Entitlement lead',
+      fieldLabel: 'Permitting lead',
     });
   }
 

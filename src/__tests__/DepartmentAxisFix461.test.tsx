@@ -104,7 +104,8 @@ describe('fix-461 §A2 — the four, as Bobby said them', () => {
 
   it('★★ the words render as he said them', () => {
     expect(DEPARTMENT_LABEL.policy).toBe('Policy');
-    expect(DEPARTMENT_LABEL.design_entitlements).toBe('Design & Entitlements');
+    // ★ fix-535 (P-190): the LABEL moved to "Permitting"; the KEY did not.
+    expect(DEPARTMENT_LABEL.design_entitlements).toBe('Design & Permitting');
     expect(DEPARTMENT_LABEL.acquisitions).toBe('Acquisitions');
     expect(DEPARTMENT_LABEL.underwriting).toBe('Underwriting');
   });

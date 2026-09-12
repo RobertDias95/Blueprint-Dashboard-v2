@@ -67,7 +67,7 @@ import type {
 const ROLE_LABEL: Record<TeamRoleSelection, string> = {
   da: 'Design Associate',
   dm: 'Design Manager',
-  ent: 'Entitlement Lead',
+  ent: 'Permitting Lead',
 };
 
 function parseRole(raw: string | null): TeamRoleSelection {

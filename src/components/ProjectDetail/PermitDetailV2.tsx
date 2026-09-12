@@ -1728,7 +1728,8 @@ function deriveCurrentPhase(
 // auto-stamps the Done date server-side).
 
 const DISCIPLINES = [
-  { key: 'ent' as const, label: 'Entitlements', accent: 'var(--color-de)' },
+  // ★ fix-535: the label only — `key: 'ent'` is the stored discipline.
+      { key: 'ent' as const, label: 'Permitting', accent: 'var(--color-de)' },
   { key: 'arch' as const, label: 'Architecture', accent: 'var(--color-jv)' },
 ];
 function TasksPanel({
@@ -2461,7 +2462,7 @@ function TaskItem({
             }}
             data-testid={`task-bucket-${task.id}`}
           >
-            <option value="ent">ENT</option>
+            <option value="ent">PERM</option>
             <option value="arch">Arch</option>
           </select>
         )}

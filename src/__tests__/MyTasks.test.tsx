@@ -591,7 +591,7 @@ describe('MyTasks (fix-80 v1 three-pane kanban)', () => {
     ).toBe('Address ECA corrections');
     expect(
       screen.getByTestId('mytasks-detail-discipline').textContent,
-    ).toMatch(/entitlements/i);
+    ).toMatch(/permitting/i);
     expect(
       screen.getByTestId('mytasks-detail-bucket').textContent,
     ).toMatch(/D&E/);
