@@ -1,0 +1,131 @@
+-- ===========================================================================
+-- fix-532 §C (P-247) — `bp_resolve_plan_share` RETURNS THE ARCHIVED FLAG
+-- ===========================================================================
+--
+-- ★ MEASURED ON PROD 2026-09-12.
+--
+-- ⚠️  **PENDING APPROVAL — NOT APPLIED.** The brief expected no migration and
+--     said to stage one as `_PENDING_APPROVAL.sql` and stop at that step if it
+--     turned out to be needed. It is. Cowork applies migrations.
+--
+-- ★★★ WHY IT IS NEEDED, measured on prod 2026-09-12. §C asks for the archived
+--     marker on four surfaces, and three of them can already read the flag:
+--
+--       project card / plan-of-record card   `usePlanOfRecordSets` selects
+--                                            `is_archived_fallback` (fix-506)
+--       Library                              a narrow read of the same view
+--       **/s/ share page**                   ✗ **cannot**
+--
+--     The `/s/` page has no session, so it reads through
+--     `bp_resolve_plan_share` — and that function's result type ends at
+--     `pdf_bytes`. The column IS on `project_plan_of_record_sets`, which the
+--     function already joins; it simply is not projected.
+--
+-- ★★★ AND IT IS THE SURFACE THE RULE WAS WRITTEN FOR. §C: *"Words, not only a
+--     colour; the reader is sometimes a builder who never sees the legend."*
+--     The builder is on THIS page. Until this is applied the Bridge's own
+--     screens warn and the shared link does not — which is the wrong way round.
+--
+-- ★★ UNTIL THEN THE PAGE RENDERS NOTHING, DELIBERATELY. `isArchivedFallback`
+--    treats an absent field as **not a fallback**: a marker that cries wolf on
+--    a current set is worse than one that arrives late. No Bridge deploy is
+--    needed after this lands — the field is already read defensively.
+--
+-- ⚠️⚠️ EVERY STATEMENT BELOW IS COMMENTED OUT, which is fix-450's shelf rule
+--      and not a formatting choice: *"these files are read, approved and then
+--      applied by hand from Cowork — never by CI, never by a migration runner
+--      that walks the folder. A single uncommented INSERT is the difference
+--      between a document and a loaded gun."* fix-456 widened it to DROP and
+--      ALTER, and this file carries a DROP.
+--
+-- ★★★ PATCHED BY ANCHOR OFF THE LIVE BODY, never retyped. `migrations/` is
+--     partial and prod is ahead of it; the function has been replaced twice
+--     since fix-523 (Cowork added `pdf_path`/`pdf_bytes` for fix-526), so a
+--     retyped body would silently revert whatever else has landed on it.
+-- ===========================================================================
+
+-- do $mig$
+-- declare
+--   v_src text;
+--   v_new text;
+--   v_hits int;
+--   -- ★ The RETURNS list and the final SELECT both name the columns, so both are
+--   --   anchored. Two edits, each asserted unique.
+--   c_ret_anchor  constant text := 'pdf_path text, pdf_bytes integer)';
+--   c_ret_fixed   constant text := 'pdf_path text, pdf_bytes integer, is_archived_fallback boolean)';
+--   c_sel_anchor  constant text := 's.pdf_path, s.pdf_bytes';
+--   c_sel_fixed   constant text := 's.pdf_path, s.pdf_bytes, s.is_archived_fallback';
+-- begin
+--   select pg_get_functiondef(p.oid) into v_src
+--     from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+--    where n.nspname = 'public' and p.proname = 'bp_resolve_plan_share';
+--   if v_src is null then
+--     raise exception 'fix-532 §C: bp_resolve_plan_share not found';
+--   end if;
+--
+--   -- ★★ COUNT BEFORE REPLACING. Zero means somebody already changed it (or this
+--   --    has run); two means the anchor is not unique and a blind replace would
+--   --    edit something it was not aimed at. Neither is visible if you just call
+--   --    `replace` — fix-523 §C's discipline.
+--   v_hits := (length(v_src) - length(replace(v_src, c_ret_anchor, ''))) / length(c_ret_anchor);
+--   if v_hits <> 1 then
+--     raise exception 'fix-532 §C: expected 1 RETURNS anchor, found %', v_hits;
+--   end if;
+--   v_hits := (length(v_src) - length(replace(v_src, c_sel_anchor, ''))) / length(c_sel_anchor);
+--   if v_hits <> 1 then
+--     raise exception 'fix-532 §C: expected 1 SELECT anchor, found %', v_hits;
+--   end if;
+--
+--   v_new := replace(v_src, c_ret_anchor, c_ret_fixed);
+--   v_new := replace(v_new, c_sel_anchor, c_sel_fixed);
+--
+--   -- ⚠️ A changed RETURNS list means DROP then CREATE: `CREATE OR REPLACE`
+--   --    refuses to change a function's result type, and creating alongside would
+--   --    make an OVERLOAD that breaks PostgREST (fix-438's finding).
+--   drop function public.bp_resolve_plan_share(text);
+--   execute v_new;
+--
+--   -- ★★★ AND THE GRANTS COME BACK, because DROP took them with it.
+--   --     `revoke … from anon` alone reports success and does nothing — `anon`
+--   --     inherits EXECUTE on every new function from PUBLIC. fix-523 §0 cost an
+--   --     apply to exactly that.
+--   revoke all on function public.bp_resolve_plan_share(text) from public;
+--   grant execute on function public.bp_resolve_plan_share(text) to anon, authenticated;
+--
+--   -- ★★ ASSERT THE RESULT rather than trusting the statements. The `/s/` page is
+--   --    the ONLY anonymous door in this app; a dropped grant here is a dead
+--   --    share link for every recipient.
+--   if not has_function_privilege('anon', 'public.bp_resolve_plan_share(text)', 'EXECUTE') then
+--     raise exception 'fix-532 §C: anon lost EXECUTE — every share link is dead';
+--   end if;
+--   if not has_function_privilege('authenticated', 'public.bp_resolve_plan_share(text)', 'EXECUTE') then
+--     raise exception 'fix-532 §C: authenticated lost EXECUTE';
+--   end if;
+--
+--   select pg_get_function_result(p.oid) into v_src
+--     from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+--    where n.nspname = 'public' and p.proname = 'bp_resolve_plan_share';
+--   if position('is_archived_fallback' in v_src) = 0 then
+--     raise exception 'fix-532 §C: the flag is not in the installed result type';
+--   end if;
+--
+--   raise notice 'fix-532 §C: the share page can now say a set is archived.';
+-- end
+-- $mig$;
+--
+-- -- ---------------------------------------------------------------------------
+-- -- Verify (run after applying)
+-- -- ---------------------------------------------------------------------------
+-- --
+-- --   select pg_get_function_result(p.oid)
+-- --     from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+-- --    where n.nspname = 'public' and p.proname = 'bp_resolve_plan_share';
+-- --   -- …should end `pdf_bytes integer, is_archived_fallback boolean`
+-- --
+-- --   select has_function_privilege('anon',
+-- --     'public.bp_resolve_plan_share(text)', 'EXECUTE');   -- must be true
+-- --
+-- -- ★ NO BRIDGE DEPLOY IS NEEDED AFTER THIS. `SharedPlan` already reads the field
+-- --   defensively and renders nothing while it is absent, so the marker appears
+-- --   on the share page the moment this lands.
+--
