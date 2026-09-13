@@ -312,6 +312,26 @@
 --   WITH CHECK (tenant_id = ANY (public.auth_tenant_ids()) AND public.bp_may_write_project(id));
 
 -- ---------------------------------------------------------------------------
+-- 7. ⚠️⚠️ SUPERSEDED BY fix-540 — DO NOT RUN THIS STEP
+-- ---------------------------------------------------------------------------
+--
+-- ★★★ STEPS 1–6 ABOVE ARE APPLIED (Cowork, 2026-09-13). **STEP 7 IS NOT, and
+--     must not be.** Its anchor is `E'BEGIN\n'` and both function bodies
+--     open with LOWERCASE `begin`: measured on prod, **0 hits**. `replace()`
+--     would have returned the definition unchanged, `EXECUTE` would have
+--     succeeded on that unchanged text, and the RAISE NOTICE would have
+--     printed success. A green run, a printed confirmation, and no gate.
+--
+-- ★★ The guard it carries checks the SHAPE (does this still write projects?)
+--    rather than whether the replacement LANDED — which is the failure that
+--    actually happened. **An anchor needs a hit assertion.**
+--
+-- → Use `migrations/fix_540_consultant_sync_gate_PENDING_APPROVAL.sql`, which
+--   anchors on the lowercase text, asserts the count moves, and re-reads the
+--   LIVE definition after EXECUTE. The block below is kept only so the
+--   mistake stays legible.
+--
+-- ---------------------------------------------------------------------------
 -- 7. The two INVOKER functions that write `projects` as a SIDE EFFECT
 -- ---------------------------------------------------------------------------
 --
