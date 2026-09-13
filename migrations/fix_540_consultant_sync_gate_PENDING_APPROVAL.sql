@@ -1,0 +1,234 @@
+-- ===========================================================================
+-- fix-540 — the consultant gate fix-539's anchor would not have matched
+-- ===========================================================================
+--
+-- ⚠️⚠️ **NOT APPLIED.** Written for Cowork. Every statement below is commented
+--       out and a test (fix-450) keeps it that way.
+--
+-- MEASURED ON PROD 2026-09-13 (eibnmwthkcuumyclyxoe). fix-539 steps 1–6 are
+-- applied and were verified live before this was written: the policy reads
+-- `((tenant_id = ANY (auth_tenant_ids())) AND bp_may_write_project(id))`, all
+-- five functions exist, `anon` cannot execute them.
+--
+-- ---------------------------------------------------------------------------
+-- ★★★ §0 — WHAT WENT WRONG, AND IT WAS MINE
+-- ---------------------------------------------------------------------------
+--
+-- fix-539 step 7 anchored on `E'BEGIN\n'`. Measured on prod, **both function
+-- bodies open with lowercase `begin`**:
+--
+--   bp_add_project_consultant   uppercase `BEGIN`+NL: **0 hits**  ·  lowercase: 1
+--   bp_set_consultant_firm      uppercase `BEGIN`+NL: **0 hits**  ·  lowercase: 1
+--
+-- ★★★ So `replace()` would have returned the definition unchanged, the
+--     `EXECUTE v_def` would have succeeded on that unchanged text, and
+--     `RAISE NOTICE '… now checks bp_may_write_project'` would have printed.
+--     **A green run, a printed confirmation, and no gate.**
+--
+-- ★★★ THE GUARD I WROTE PROTECTED THE WRONG THING. It asserted the function
+--     still matched a SHAPE — `IF position('update public.projects p') = 0
+--     THEN RAISE` — which is a check that the target has not moved on. It is
+--     not a check that **my replacement landed**. Reproduced here on prod:
+--
+--       fix-539 shape guard on the real function → passes
+--       fix-539 anchor hits                       → 0
+--       net effect                                → ungated, silently
+--
+-- ★★★ **AN ANCHOR NEEDS A HIT ASSERTION, NOT A SHAPE ASSERTION**, and the
+--     strongest hit assertion is not on the string at all: after `EXECUTE`,
+--     **re-read `pg_get_functiondef` and require the guard to be in the LIVE
+--     definition**. A post-condition on the database cannot be fooled by a
+--     replace that did nothing. Every anchor on this shelf gets both from now
+--     on: a count that must move, and a live re-read that must agree.
+--
+-- ---------------------------------------------------------------------------
+-- WHY IT MATTERS
+-- ---------------------------------------------------------------------------
+--
+-- Both functions are `SECURITY INVOKER` and both
+-- `update public.projects set external_team = …` as a side effect, to keep the
+-- project's denormalised consultant list in step with `project_consultants`.
+-- Under fix-539's now-live policy that update **silently no-ops for a
+-- non-member**: the consultant row lands, the project's copy does not, and
+-- `projects.external_team` drifts from `project_consultants` with no error
+-- anywhere. **Silence is the worst of the three outcomes.**
+--
+-- ---------------------------------------------------------------------------
+-- ★★★ THE TWO PATCHES ARE NOT THE SAME PATCH
+-- ---------------------------------------------------------------------------
+--
+--   bp_add_project_consultant(p_project_id uuid, …)
+--       ★ has the project id in hand → guard goes FIRST, right after `begin`.
+--
+--   bp_set_consultant_firm(p_consultant_id uuid, …)
+--       ★★ has NO project id. The project must be DERIVED —
+--          `project_consultants.project_id`, which the function already loads
+--          into `v_cur` — so the guard cannot be first: it goes at the earliest
+--          point the project is known, immediately after the not-found check.
+--       ★ A missing consultant row never reaches the guard (that check raises
+--         `P0002` above it), and a row whose `project_id` is NULL is refused,
+--         because `bp_may_write_project(NULL)` is false. Neither is a pass.
+--
+-- ⚠️ This is why step 7's "apply the same replacement twice" could not have
+--    been right even with the case fixed.
+--
+-- ---------------------------------------------------------------------------
+-- ★★★ THE PROBE, PASTED (prod, rolled back, 2026-09-13)
+-- ---------------------------------------------------------------------------
+--
+--   person       function                  scenario      outcome         projects.external_team
+--   -----------  ------------------------  ------------  --------------  -----------------------
+--   Ainsley (da) add_project_consultant    MEMBER        ALLOWED         Seattle Tree Consulting
+--   Ainsley (da) add_project_consultant    NOT a member  REFUSED 42501   (absent — unchanged)
+--   Ainsley (da) set_consultant_firm       MEMBER        ALLOWED         Arcxis
+--   Ainsley (da) set_consultant_firm       NOT a member  REFUSED 42501   Blueprint Civil (unchanged)
+--   Derry   (dm) set_consultant_firm       NOT a member  ALLOWED         Atwell
+--
+-- ★ On every refusal `projects.external_team` is untouched — the drift this
+--   closes. On every success it agrees with `project_consultants`.
+--
+-- ---------------------------------------------------------------------------
+-- ★★ §B — EVERY `SECURITY INVOKER` FUNCTION THAT WRITES `public.projects`
+-- ---------------------------------------------------------------------------
+--
+-- Enumerated from `pg_proc` over INSERT, UPDATE **and** DELETE. There are
+-- **seven**, not two. All are callable by `authenticated`; **none by `anon`**.
+--
+--   function                    writes   affected by fix-539?   gated after this file
+--   --------------------------  -------  ---------------------  ---------------------
+--   bp_add_project_consultant   UPDATE   **YES**                ✅ this file
+--   bp_set_consultant_firm      UPDATE   **YES**                ✅ this file
+--   bp_delete_project_row       DELETE   no                     ⏸ see below
+--   bp_ensure_project           INSERT   no                     ⏸
+--   bp_replace_draw_schedule    INSERT   no                     ⏸
+--   migrate_auxiliary           INSERT   no                     ⏸ legacy one-off
+--   migrate_to_relational       INSERT   no                     ⏸ legacy one-off
+--
+-- ★★★ **Only the two UPDATE writers were in the position fix-539 created**,
+--     because fix-539 tightened `projects_tenant_update` and nothing else. The
+--     INSERT and DELETE policies are still `tenant_id = ANY (auth_tenant_ids())`,
+--     exactly as before, so **nothing regressed** for the other five.
+--
+-- ⚠️⚠️ **BUT IT MEANS THE PROJECT SCOPE GOVERNS `UPDATE` ONLY.** A design
+--       associate can still DELETE any project in the tenant —
+--       `bp_delete_project_row` is INVOKER, has no tenant check of its own, no
+--       admin check, and falls through to a tenant-wide DELETE policy; the
+--       browser is the only thing steering who sees the button. **This is not
+--       a fix-539 regression — it was true before it — and it is not fixed
+--       here.** It is the obvious next question for the role model: "edits only
+--       their own projects" does not currently constrain deleting somebody
+--       else's. Reported, with the numbers, so it is a decision.
+--
+-- ===========================================================================
+
+
+-- BEGIN;
+
+-- ---------------------------------------------------------------------------
+-- 1. Gate both consultant writers — anchored on what is ACTUALLY there
+-- ---------------------------------------------------------------------------
+--
+-- ★★★ Three assertions, and the last is the one fix-539 lacked:
+--       (a) the anchor must be FOUND         → else RAISE
+--       (b) the guard count must MOVE 0 → 1  → else RAISE
+--       (c) after EXECUTE, the LIVE definition must contain the guard → else RAISE
+--
+-- DO $mig$
+-- DECLARE
+--   v_specs text[][] := ARRAY[
+--     ARRAY['bp_add_project_consultant',
+--           chr(10) || 'begin' || chr(10),
+--           'p_project_id'],
+--     ARRAY['bp_set_consultant_firm',
+--           'using errcode = ''P0002'';' || chr(10) || '  end if;' || chr(10),
+--           'v_cur.project_id']
+--   ];
+--   i int; v_name text; v_anchor text; v_expr text;
+--   v_def text; v_live text; v_guard text; v_pos int; v_before int; v_after int;
+-- BEGIN
+--   FOR i IN 1 .. array_length(v_specs, 1) LOOP
+--     v_name := v_specs[i][1]; v_anchor := v_specs[i][2]; v_expr := v_specs[i][3];
+--
+--     SELECT pg_get_functiondef(p.oid) INTO v_def
+--       FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
+--      WHERE n.nspname = 'public' AND p.proname = v_name;
+--     IF v_def IS NULL THEN
+--       RAISE EXCEPTION 'fix-540: % not found', v_name;
+--     END IF;
+--
+--     v_before := (length(v_def) - length(replace(v_def, 'bp_may_write_project', '')))
+--                 / length('bp_may_write_project');
+--     IF v_before > 0 THEN
+--       RAISE NOTICE 'fix-540: % already gated, skipping', v_name;
+--       CONTINUE;
+--     END IF;
+--
+--     -- (a) the anchor must be there. THE CHECK fix-539 DID NOT HAVE.
+--     v_pos := position(v_anchor IN v_def);
+--     IF v_pos = 0 THEN
+--       RAISE EXCEPTION
+--         'fix-540: anchor not found in % — re-derive it from pg_get_functiondef '
+--         'and do NOT let this run: a replace that matches nothing reports success.',
+--         v_name;
+--     END IF;
+--
+--     v_guard := '  if not public.bp_may_write_project(' || v_expr || ') then' || chr(10)
+--             || '    raise exception ''you can only edit projects you are on''' || chr(10)
+--             || '      using errcode = ''42501'';' || chr(10)
+--             || '  end if;' || chr(10);
+--
+--     v_def := left(v_def, v_pos + length(v_anchor) - 1)
+--           || v_guard
+--           || substr(v_def, v_pos + length(v_anchor));
+--
+--     -- (b) the count must have moved.
+--     v_after := (length(v_def) - length(replace(v_def, 'bp_may_write_project', '')))
+--                / length('bp_may_write_project');
+--     IF v_after <> v_before + 1 THEN
+--       RAISE EXCEPTION 'fix-540: the splice did not land in % (% -> %)',
+--         v_name, v_before, v_after;
+--     END IF;
+--
+--     EXECUTE v_def;
+--
+--     -- (c) ★★★ THE POST-CONDITION ON THE DATABASE, which a no-op replace
+--     --     cannot satisfy. Read the function back and require the guard.
+--     SELECT pg_get_functiondef(p.oid) INTO v_live
+--       FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
+--      WHERE n.nspname = 'public' AND p.proname = v_name;
+--     IF position('bp_may_write_project' IN v_live) = 0 THEN
+--       RAISE EXCEPTION 'fix-540: % executed but the LIVE definition is UNGATED', v_name;
+--     END IF;
+--
+--     RAISE NOTICE 'fix-540: % gated on %', v_name, v_expr;
+--   END LOOP;
+-- END
+-- $mig$;
+
+-- COMMIT;
+
+
+-- ---------------------------------------------------------------------------
+-- 2. Verify after applying
+-- ---------------------------------------------------------------------------
+--
+-- Expect BOTH to be true — and note this is the same question the migration
+-- asks itself, which is the point:
+--
+--   SELECT p.proname,
+--          (pg_get_functiondef(p.oid) ~ 'bp_may_write_project') AS gated
+--   FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
+--   WHERE n.nspname = 'public'
+--     AND p.proname IN ('bp_add_project_consultant','bp_set_consultant_firm');
+--
+-- And the behaviour, as the probe measured it: a DA on a project they are not
+-- on gets `42501` from both, and `projects.external_team` does not move.
+--
+-- ---------------------------------------------------------------------------
+-- Undo
+-- ---------------------------------------------------------------------------
+--
+-- Re-run the same block with the `v_guard` assignment emptied, or restore each
+-- function from `pg_get_functiondef` captured before applying. Neither function
+-- changed in any other respect: the guard is four lines at the top and nothing
+-- else in either body was touched.
