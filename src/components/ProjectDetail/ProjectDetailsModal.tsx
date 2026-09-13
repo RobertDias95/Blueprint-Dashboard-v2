@@ -102,6 +102,10 @@ interface Props {
   onSpawnRedesign?: () => void;
   onReassignDa?: () => void;
   canReassignDa?: boolean;
+  /** ★ fix-538 §A.5: its OWN gate. `bp_reassign_project_sd` and
+   *  `bp_reassign_project_da` are two server checks, so one browser flag
+   *  cannot stand in front of both. */
+  canReassignSd?: boolean;
   onDelete?: () => void;
 }
 
@@ -116,6 +120,7 @@ export default function ProjectDetailsModal({
   onSpawnRedesign,
   onReassignDa,
   canReassignDa = false,
+  canReassignSd = false,
   onDelete,
 }: Props) {
   const [tab, setTab] = useState<ProjectDataTab>(initialTab);
@@ -325,7 +330,7 @@ export default function ProjectDetailsModal({
               <BuilderOwnerFields project={project} />
             </TabPanel>
           )}
-          {tab === 'team' && <TeamTab project={project} bp={bp} ctl={ctl} canReassignDa={canReassignDa} onReassignSd={(n) => reassignSd.mutate({ projectId: project.id, toSd: n })} sdPending={reassignSd.isPending} />}
+          {tab === 'team' && <TeamTab project={project} bp={bp} ctl={ctl} canReassignSd={canReassignSd} onReassignSd={(n) => reassignSd.mutate({ projectId: project.id, toSd: n })} sdPending={reassignSd.isPending} />}
           {tab === 'consultants' && (
             <TabPanel caption="Every field here saves as you leave it, through the same RPCs the overview band uses.">
               {/* ★★★ fix-508 §F2/§I — `manage` IS WHAT MAKES THIS TAB'S OWN
@@ -523,14 +528,14 @@ function TeamTab({
   project,
   bp,
   ctl,
-  canReassignDa,
+  canReassignSd,
   onReassignSd,
   sdPending,
 }: {
   project: Project;
   bp: PermitWithCycles | null;
   ctl: ProjectDetailsFormController;
-  canReassignDa: boolean;
+  canReassignSd: boolean;
   onReassignSd: (name: string | null) => void;
   sdPending: boolean;
 }) {
@@ -563,7 +568,7 @@ function TeamTab({
           caNames: ctl.caNames,
           sdNames: ctl.sdNames,
         }}
-        canReassignDa={canReassignDa}
+        canReassignSd={canReassignSd}
         onReassignSd={onReassignSd}
         sdPending={sdPending}
       />

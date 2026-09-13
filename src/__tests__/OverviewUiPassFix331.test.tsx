@@ -577,7 +577,21 @@ describe('fix-331 §4: one button, and Delete stays dangerous', () => {
     const src = (await import('../pages/ProjectDetail.tsx?raw')).default as string;
     expect(src).toMatch(/onReassignDa=\{/);
     expect(src).toMatch(/onDelete=\{/);
-    expect(src).toMatch(/canReassignDa=\{isAdmin\}/);
+    // ★★★ SUPERSEDED BY fix-538 (P-026, P-234), AND THE RULING IS UNCHANGED.
+    //     fix-331 pinned that the DA reassignment is gated rather than open to
+    //     everyone, and expressed it as the only gate that existed then:
+    //     `isAdmin`. **That is still the rule** — what changed is WHO the
+    //     server says is allowed. The roster now answers it, the page asks
+    //     `useProjectTeamCaps()`, and `admin` is still in the answer because
+    //     the RPC reads `is_tenant_admin(tenant) OR bp_may_reassign_da()`.
+    //
+    // ★★ And the two controls are now asked SEPARATELY, which is the defect
+    //    fix-331 could not have seen: one browser flag was standing in front of
+    //    two different server gates, so the Schematic Designer control was shut
+    //    for four of the five people whose job it is.
+    expect(src).toMatch(/canReassignDa=\{canReassignDa\}/);
+    expect(src).toMatch(/canReassignSd=\{canReassignSd\}/);
+    expect(src).toContain('useProjectTeamCaps');
   });
 
   it('★★ Delete is red, still asks, and still confirms by typed address', async () => {

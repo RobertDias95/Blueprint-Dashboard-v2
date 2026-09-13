@@ -53,6 +53,7 @@ Scope D to fix-456's file.
 | `fix_537a_plan_of_record_sets_security_invoker_PENDING_APPROVAL.sql` | sets `security_invoker = true` on `project_plan_of_record_sets`, so the plan-of-record view stops reading around the RLS policy on `project_file_index` | **MOVES NOTHING — one view flag, and REVERSIBLE** | n/a (no rows) | n/a | 2026-09-13 |
 | `fix_537b_drop_draw_schedule_color_override_PENDING_APPROVAL.sql` | patches `bp_upsert_draw_schedule_row`, then drops the dead `draw_schedule.color_override` | **DESTRUCTIVE — 1 column, 2 statements** | n/a (drops, not moves) | 14 rows carried `''`, 0 carried a colour | 2026-09-13 |
 | `fix_521_drop_draw_schedule_color_override_SUPERSEDED.sql` | the same drop, written so that it could not run | **CANNOT RUN — superseded by fix-537b** | n/a | n/a | 2026-09-13 |
+| `fix_538_role_write_levels_PENDING_APPROVAL.sql` | makes the ROSTER decide who may write: `bp_write_caps` plus two gates moved off admin-only — the Schematic Designer (P-234) and the project DA | **MOVES NOTHING — 5 functions, 2 gates WIDENED** | n/a (no rows) | n/a | 2026-09-13 |
 
 ★★★ **One file IS now CANNOT RUN, and it is the first.**
 `fix_521_drop_draw_schedule_color_override_SUPERSEDED.sql` is not valid SQL —

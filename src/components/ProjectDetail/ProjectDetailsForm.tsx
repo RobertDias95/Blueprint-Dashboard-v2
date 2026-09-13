@@ -439,7 +439,7 @@ export function InternalTeamFields({
   project,
   bp,
   rosters,
-  canReassignDa,
+  canReassignSd,
   onReassignSd,
   sdPending,
 }: {
@@ -455,7 +455,19 @@ export function InternalTeamFields({
     caNames: string[];
     sdNames: string[];
   };
-  canReassignDa: boolean;
+  /** ★★★ fix-538 (P-234) — and note what is NOT here any more: this
+   *  component used to take `canReassignDa`, and the ONLY thing it gated was
+   *  the Schematic Designer below. **The name and the job had drifted apart**,
+   *  which is how P-234 stayed invisible: the control looked gated by the
+   *  right flag, and the flag was the wrong one. The DA control lives in the
+   *  Actions tab and keeps its own.
+   *
+   *  ★★★ fix-538 (P-234): the Schematic Designer's OWN gate. Ana, Derry,
+   *  Jade and Lindsay hold a `schematic` roster row and are `editor`, so
+   *  under the admin-only flag FOUR OF THE FIVE schematic designers could not
+   *  set this field. `bp_reassign_project_sd` now accepts them, and this is
+   *  the control catching up with the server. */
+  canReassignSd: boolean;
   onReassignSd: (name: string | null) => void;
   sdPending: boolean;
 }) {
@@ -571,19 +583,19 @@ export function InternalTeamFields({
         <SelectInput
           value={currentSd}
           onChange={(v) => {
-            if (!canReassignDa) return;
+            if (!canReassignSd) return;
             if ((v || null) === (currentSd || null)) return;
             onReassignSd(v || null);
           }}
           options={['', ...rosters.sdNames]}
           placeholderLabel="— none —"
-          disabled={!canReassignDa || sdPending}
+          disabled={!canReassignSd || sdPending}
           testid="psm-sd"
         />
         <p className="text-[9.5px] text-dim mt-0.5" data-testid="psm-sd-hint">
-          {canReassignDa
+          {canReassignSd
             ? 'Changing this also moves their open tasks on this project.'
-            : 'Only a tenant admin can reassign the schematic designer.'}
+            : 'Your roster role does not include setting the schematic designer.'}
         </p>
       </Field>
     </FormGrid>
