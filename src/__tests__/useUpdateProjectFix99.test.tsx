@@ -42,6 +42,7 @@ const supabaseMock = vi.hoisted(() => {
       data: unknown[] | null;
       error: Error | null;
     }>;
+    rpc: (fn: string, args?: unknown) => Promise<{ data: unknown; error: { code: string } | null }>;
     upsert: () => Promise<{ data: unknown; error: Error | null }>;
   };
   const builder = {} as Builder;
@@ -68,6 +69,14 @@ const supabaseMock = vi.hoisted(() => {
     if (hook) hook();
     return Promise.resolve(next);
   };
+  /** ★★★ fix-539: `useUpdateProject` now asks `bp_update_project_fields`
+   *  FIRST, and falls back to this direct write when that function is not
+   *  deployed. The migration is STAGED, so "not deployed" is the live state
+   *  and the state these tests model — which is why their OCC reasoning is
+   *  unchanged and still exercised. `PGRST202` is PostgREST's "no such
+   *  function". The RPC path has its own suite in `DaRowScopeFix539`. */
+  builder.rpc = () =>
+    Promise.resolve({ data: null, error: { code: 'PGRST202' } });
   builder.upsert = () => Promise.resolve({ data: null, error: null });
   return {
     builder,

@@ -2,6 +2,12 @@ import { useMutation, useQueryClient, type QueryClient } from '@tanstack/react-q
 import { supabase } from '../lib/supabase';
 import { queryKeys } from '../lib/queryKeys';
 import { OCCConflictError, isOCCConflict } from '../lib/occ';
+import {
+  ProjectWriteDeniedError,
+  isDeniedResponse,
+  isMissingFunction,
+  isWriteDenied,
+} from '../lib/projectWriteScope';
 import { pushToast } from '../stores/toastStore';
 import { useAuthStore } from '../stores/authStore';
 import type { Project } from '../lib/database.types';
@@ -84,6 +90,39 @@ async function tryUpdateProject(
   expectedUpdatedAt: string,
 ): Promise<Project> {
   const { projectId, patch, fieldLabel } = input;
+
+  // ══════════════════════════════════════════════════════════════════
+  // ★★★ fix-539 (P-026) — THROUGH THE SCOPED RPC, SO A REFUSAL SAYS SO
+  // ══════════════════════════════════════════════════════════════════
+  //
+  // ★★★ The RLS policy is the boundary; this call is how the app learns WHICH
+  //     boundary it hit. A policy refusal returns 0 rows, and 0 rows is already
+  //     this function's OCC signal — so without the RPC a "you are not on this
+  //     project" would be reported as "changed since you loaded it", after a
+  //     pointless refetch and retry. Same rule, two callers: the policy and
+  //     `bp_update_project_fields` both ask `bp_may_write_project`.
+  const rpc = await supabase.rpc('bp_update_project_fields', {
+    p_project_id: projectId,
+    p_patch: patch,
+    p_expected_updated_at: expectedUpdatedAt,
+  });
+
+  if (rpc.error && isDeniedResponse(rpc.error)) {
+    throw new ProjectWriteDeniedError(projectId);
+  }
+
+  // ★★★ The staged-migration fallback. Until Cowork applies fix-539 the
+  //     function does not exist, and this hook is every project edit in the
+  //     app — so a missing function falls through to the direct write, which
+  //     is exactly today's behaviour. The app crosses over on its own the
+  //     moment the migration lands; there is no flag day and no second deploy.
+  if (!rpc.error) {
+    const rows = (rpc.data ?? []) as Project[];
+    if (rows.length === 0) throw new OCCConflictError(0, fieldLabel ?? 'Project');
+    return rows[0]!;
+  }
+  if (!isMissingFunction(rpc.error)) throw rpc.error;
+
   const { data, error } = await supabase
     .from('projects')
     .update(patch)
@@ -200,6 +239,10 @@ export function useUpdateProject() {
         // Don't auto-retry; let the error propagate. (Non-OCC errors
         // also propagate so the caller can surface whatever it wants.)
         if (input.silentOnOcc === true) throw err;
+        // ★★★ fix-539: a REFUSAL IS NOT A RACE. Retrying it re-asks a question
+        //     already answered, and the answer cannot change by refetching.
+        //     It propagates untouched so the toast names the real reason.
+        if (isWriteDenied(err)) throw err;
         // Non-OCC errors always propagate to onError so the generic
         // "Could not save project" toast fires.
         if (!isOCCConflict(err)) throw err;
@@ -235,7 +278,12 @@ export function useUpdateProject() {
       if (context?.snapshot !== undefined) {
         queryClient.setQueryData(queryKeys.projects(tenantId), context.snapshot);
       }
-      if (isOCCConflict(error)) {
+      if (isWriteDenied(error)) {
+        // ★ Its own message, and NOT the OCC one: the user is not late, they
+        //   are not allowed. No invalidate either — nothing changed on the
+        //   server, and the optimistic patch was already rolled back above.
+        pushToast(error.message, 'warn');
+      } else if (isOCCConflict(error)) {
         // silentOnOcc still gates the toast for the opt-out path —
         // callers handling their own recovery don't want a noisy
         // intermediate flash. For the default (auto-retry) path, the
