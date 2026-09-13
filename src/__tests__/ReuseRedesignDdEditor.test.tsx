@@ -155,7 +155,6 @@ function drawRow(over: Partial<DrawScheduleRow> = {}): DrawScheduleRow {
     dd_start: '2026-06-15',
     dd_end: '2026-07-17',
     notes: null,
-    color_override: null,
     status_override: null,
     updated_at: 'tok-1',
     ...over,

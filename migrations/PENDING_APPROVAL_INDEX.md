@@ -50,8 +50,21 @@ Scope D to fix-456's file.
 | `fix_451_not_required_PENDING_APPROVAL.sql` | deactivates the directory row named "Not Required" so it stops being offered as a firm | **MOVES ROWS** | **1** | 1 | 2026-08-30 |
 | `fix_456_drop_backup_tables_PENDING_APPROVAL.sql` | drops 24 of the 26 ad-hoc backup tables, the two dead `projects.parking_*` columns, and — Scope D, appended by fix-459 — the dead `permit_tasks.co_assignees` | **DESTRUCTIVE — 27 statements** | n/a (drops, not moves) | 27 | 2026-08-30 |
 | `fix_532c_resolve_returns_archived_flag_PENDING_APPROVAL.sql` | adds `is_archived_fallback` to `bp_resolve_plan_share`'s RETURNS so the `/s/` share page can say a drawing is superseded | **MOVES NOTHING — one function** | n/a (no rows) | n/a | 2026-09-12 |
+| `fix_537a_plan_of_record_sets_security_invoker_PENDING_APPROVAL.sql` | sets `security_invoker = true` on `project_plan_of_record_sets`, so the plan-of-record view stops reading around the RLS policy on `project_file_index` | **MOVES NOTHING — one view flag, and REVERSIBLE** | n/a (no rows) | n/a | 2026-09-13 |
+| `fix_537b_drop_draw_schedule_color_override_PENDING_APPROVAL.sql` | patches `bp_upsert_draw_schedule_row`, then drops the dead `draw_schedule.color_override` | **DESTRUCTIVE — 1 column, 2 statements** | n/a (drops, not moves) | 14 rows carried `''`, 0 carried a colour | 2026-09-13 |
+| `fix_521_drop_draw_schedule_color_override_SUPERSEDED.sql` | the same drop, written so that it could not run | **CANNOT RUN — superseded by fix-537b** | n/a | n/a | 2026-09-13 |
 
-No file is **CANNOT RUN**: every helper function, table and column each one
+★★★ **One file IS now CANNOT RUN, and it is the first.**
+`fix_521_drop_draw_schedule_color_override_SUPERSEDED.sql` is not valid SQL —
+three of its anchors are written `E"…"` with double quotes, which Postgres
+parses as an identifier, so the DO block fails at parse time with `42601`. It
+had sat in `migrations/` since 2026-09-10 looking approvable. **It was never on
+this shelf** — no `_PENDING_APPROVAL` suffix, so fix-450's guard never read it
+and this page never listed it — which is exactly how a file that cannot run
+stays that way for three days. fix-537b replaces it, with anchors that tolerate
+whitespace and were proved against prod in a rolled-back transaction.
+
+Every OTHER file still runs: every helper function, table and column each one
 depends on still exists on prod with the signature it was written against
 (`bp_is_unmapped_active_da`, `bp_dm_for_da`, `bp_ensure_cr_thread`,
 `bp_seed_project_posts`, and the three report functions).

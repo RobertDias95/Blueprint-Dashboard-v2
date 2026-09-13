@@ -96,7 +96,6 @@ function block(over: Record<string, unknown> & { project_id: string }) {
     dd_start: null,
     dd_end: '2026-09-18',
     notes: null,
-    color_override: null,
     status_override: null,
     updated_at: '2026-08-01T00:00:00Z',
     ...over,

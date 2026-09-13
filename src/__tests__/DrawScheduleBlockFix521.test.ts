@@ -183,6 +183,24 @@ describe('fix-521 §B — the block wires both rules, and pays for the line', ()
 // §C — the field written as '' where it means nothing
 // ---------------------------------------------------------------------------
 
+// ★ Source assertions strip comments first — the fourteenth recording. The
+//   header in `useUpdateDsRow` still discusses the dropped column by name, and
+//   a bare `not.toContain` would match that explanation and call it a failure.
+function code(src: string): string {
+  return src
+    .replace(/\/\*[\s\S]*?\*\//g, '')
+    .split(/\r?\n/)
+    .filter((l) => !l.trim().startsWith('//'))
+    .join(' ');
+}
+
+// ★★ fix-537 §B replaced fix-521's drop file; these two assertions follow it
+// there rather than being deleted.
+const MIGRATION =
+  'migrations/fix_537b_drop_draw_schedule_color_override_PENDING_APPROVAL.sql';
+const SUPERSEDED =
+  'migrations/fix_521_drop_draw_schedule_color_override_SUPERSEDED.sql';
+
 describe('fix-521 §C (P-222) — no save path writes `` to a nullable column', () => {
   const writer = readFileSync(resolve(process.cwd(), 'src/hooks/useUpdateDsRow.ts'), 'utf8');
 
@@ -198,14 +216,26 @@ describe('fix-521 §C (P-222) — no save path writes `` to a nullable column', 
 
   it('★★★ P-222 UNDERSTATED IT — three columns, not two', () => {
     // Prod, 2026-09-10, on the SAME 14 rows (13 `manually_placed`):
-    //   color_override 14 × ''  ·  status_override 14 × ''  ·  notes 14 × ''
+    //   the colour column 14 × ''  ·  status_override 14 × ''  ·  notes 14 × ''
     // `da_assigned`, `start_week`, `end_week` and `status` are never empty —
     // not because they were treated differently, but because the editor always
     // sets them. The bug was in all eleven columns and visible in the three
     // that are allowed to be absent.
+    //
+    // ★★★ AMENDED BY fix-537 §B, AND THE FINDING IS UNCHANGED. This asserted
+    //     all THREE names were in the payload list, which was the right shape
+    //     for the bug — three columns, not two. fix-537 dropped the first of
+    //     them, so the list now holds two, and asserting the dead name would
+    //     pin the app to a column it has asked to have removed.
+    //
+    // ★★ What survives is the part that was actually load-bearing: the two
+    //    that remain are still written, and are still written as `null`.
     expect(writer).toContain('notes');
-    expect(writer).toContain('color_override');
     expect(writer).toContain('status_override');
+    // ★ …and the dropped one is gone from the list. Asserted on COMMENT-STRIPPED
+    //   source: the header above still discusses the column by name, and a
+    //   plain `not.toContain` would match its own explanation.
+    expect(code(writer)).not.toContain('color_override');
   });
 
   it('★★ nothing in the app READS either override column', () => {
@@ -221,8 +251,19 @@ describe('fix-521 §C (P-222) — no save path writes `` to a nullable column', 
   });
 
   it('★★★ the drop migration exists, patches the writer FIRST, and is NOT applied', () => {
+    // ★★★ SUPERSEDED BY fix-537 §B, AND THE REASONING IS REWRITTEN RATHER THAN
+    //     DELETED. This assertion passed for three days against a file that
+    //     **could not run**: fix-521's anchors were written `E"…"` with double
+    //     quotes, which Postgres parses as an identifier, so the DO block died
+    //     at parse time with `42601` — and the anchors' fixed-width indents did
+    //     not match the live function text either.
+    //
+    // ★★ THE TEST WAS NOT WRONG SO MUCH AS SHALLOW: it asked whether the file
+    //    SAID the right things, in the right order. Nothing here executed a
+    //    line of it. A migration's text is not evidence that it runs — only
+    //    running it is, which is what fix-537 did, against prod, rolled back.
     const sql = readFileSync(
-      resolve(process.cwd(), 'migrations/fix_521_drop_draw_schedule_color_override.sql'),
+      resolve(process.cwd(), MIGRATION),
       'utf8',
     );
     expect(sql).toContain('NOT APPLIED');
@@ -237,11 +278,28 @@ describe('fix-521 §C (P-222) — no save path writes `` to a nullable column', 
   });
 
   it('★★ `status_override` is reported, NOT dropped', () => {
+    // ★ fix-537 §B.3 went and checked what fix-521 only declined to assume:
+    //   nothing in the database or in `src/` READS this column. It is still not
+    //   dropped — a verification is not a permission.
     const sql = readFileSync(
-      resolve(process.cwd(), 'migrations/fix_521_drop_draw_schedule_color_override.sql'),
+      resolve(process.cwd(), MIGRATION),
       'utf8',
     );
     expect(sql).toContain('DOES NOT RIDE ALONG');
     expect(sql).not.toContain('DROP COLUMN IF EXISTS status_override');
+  });
+
+  it('★★★ the superseded file is kept, and is inert', () => {
+    // ★ The anchors that did not match are the evidence for the lesson, so the
+    //   file stays — renamed, so nobody approves it, and fully commented, so it
+    //   is under fix-450's guard for the first time. It never was before, which
+    //   is the whole reason a file that could not parse sat here looking ready.
+    const dead = readFileSync(
+      resolve(process.cwd(), SUPERSEDED),
+      'utf8',
+    );
+    expect(dead).toContain('SUPERSEDED 2026-09-13');
+    expect(dead).toContain('COULD NEVER HAVE RUN');
+    expect(dead).not.toMatch(/^\s*(ALTER|DROP)\b/m);
   });
 });
