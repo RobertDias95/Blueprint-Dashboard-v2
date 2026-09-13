@@ -51,6 +51,7 @@ import { pushToast } from '../../stores/toastStore';
 import OverlapPrompt from '../OverlapPrompt';
 import NpWarningPrompt from '../NpWarningPrompt';
 import type { PermitWithCycles, Project, UnitType } from '../../lib/database.types';
+import { shouldShowLotsField, ADD_LOTS_LABEL } from '../../lib/lotsVisibility';
 
 // ===========================================================================
 // ★★★ fix-506 §G (P-140) — THE EDITORS THE OVERVIEW NO LONGER OWNS
@@ -866,6 +867,10 @@ export function TargetSubmitRow({
 export function SiteEditor({ project }: { project: Project }) {
   const updateMutation = useUpdateProject();
   const occMissing = !project.updated_at;
+  // ★★ fix-541 (P-236): the route back. Local to the visit — once a real
+  //    count is committed the predicate keeps the field visible on its own,
+  //    so there is nothing to persist.
+  const [lotsRevealed, setLotsRevealed] = useState(false);
 
   async function commit<K extends keyof Project>(
     field: K,
@@ -921,7 +926,19 @@ export function SiteEditor({ project }: { project: Project }) {
       {/* fix-122: Number of Lots (1-20 dropdown, blank = unset). Lives in
           Site because a subdivision count is a parcel-level fact, not a
           proposal/scope fact. Users who need >20 can backfill via the
-          wizard or admin tools — the CHECK only enforces >= 1. */}
+          wizard or admin tools — the CHECK only enforces >= 1.
+
+          ═══════════════════════════════════════════════════════════
+          ★★★ fix-541 (P-236) — SHOWN ONLY WHEN IT IS NOT 1
+          ═══════════════════════════════════════════════════════════
+
+          202 of 220 projects answer 1 and stop carrying a box whose answer is
+          never in doubt. The 15 that hold more stay visible AND editable, and
+          the 3 NULLs stay visible too — **a NULL is not a 1**, and hiding it
+          would render "nobody recorded an answer" as agreement.
+
+          ★★ The route back is below: hidden is not gone. */}
+      {(shouldShowLotsField(project.num_lots) || lotsRevealed) && (
       <SiteSelectRow
         label="Lots"
         value={project.num_lots != null ? String(project.num_lots) : ''}
@@ -940,6 +957,22 @@ export function SiteEditor({ project }: { project: Project }) {
           );
         }}
       />
+      )}
+      {/* ★★ fix-541 (P-236) — THE ROUTE BACK, so hiding is not a one-way door.
+          A project entered as 1 that turns out to be 2 needs somewhere to go.
+          It appears only while the field is hidden, and disappears for good
+          once a real count is committed. */}
+      {!shouldShowLotsField(project.num_lots) && !lotsRevealed && (
+        <button
+          type="button"
+          onClick={() => setLotsRevealed(true)}
+          disabled={occMissing}
+          className="text-[10px] text-dim hover:text-text underline underline-offset-2 self-start disabled:opacity-40"
+          data-testid="site-add-lots"
+        >
+          {ADD_LOTS_LABEL}
+        </button>
+      )}
       {/* fix-122: Corner Lot tri-state. Mirrors Alley's Yes/No/blank
           pattern — blank stays a true "user hasn't picked" so historical
           projects don't get silently flipped to a false answer. */}

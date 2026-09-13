@@ -814,9 +814,9 @@ describe('<NewProjectWizard />', () => {
     fireEvent.change(screen.getByTestId('wizard-units'), {
       target: { value: '20' },
     });
-    fireEvent.change(screen.getByTestId('wizard-num-lots'), {
-      target: { value: '5' },
-    });
+    // ★★★ fix-541: there is no Lots input on add-a-project any more — the
+    //     value below is the DEFAULT, not a user pick. See the amended
+    //     assertion at the foot of this test.
     fireEvent.change(screen.getByTestId('wizard-is-corner-lot'), {
       target: { value: 'yes' },
     });
@@ -832,7 +832,13 @@ describe('<NewProjectWizard />', () => {
       expect(mocks.rpcFn).toHaveBeenCalledTimes(1);
     });
     const [, args] = mocks.rpcFn.mock.calls[0];
-    expect(args.p_project_data.num_lots).toBe(5);
+    // ★★★ SUPERSEDED BY fix-541, AND THE WIRE TYPE IS THE POINT THAT SURVIVES.
+    //     fix-122 drove the dropdown to 5 and asserted a NUMBER 5 arrived (not
+    //     the string '5'). The dropdown is gone; the conversion is not, so the
+    //     assertion still earns its place — it now proves the DEFAULT crosses
+    //     the wire as a number.
+    expect(args.p_project_data.num_lots).toBe(1);
+    expect(typeof args.p_project_data.num_lots).toBe('number');
     expect(args.p_project_data.is_corner_lot).toBe(true);
     expect(args.p_project_data.closing_date).toBe('2026-09-30');
   });
@@ -862,7 +868,7 @@ describe('<NewProjectWizard />', () => {
     fireEvent.change(screen.getByTestId('wizard-units'), {
       target: { value: '4' },
     });
-    // Leave Lots / Corner / Closing untouched.
+    // Leave Corner / Closing untouched. (Lots has no input to leave alone.)
     fireEvent.click(screen.getByTestId('wizard-next'));
     fireEvent.click(screen.getByTestId('wizard-next'));
     fireEvent.click(screen.getByTestId('wizard-next'));
@@ -872,7 +878,17 @@ describe('<NewProjectWizard />', () => {
       expect(mocks.rpcFn).toHaveBeenCalledTimes(1);
     });
     const [, args] = mocks.rpcFn.mock.calls[0];
-    expect(args.p_project_data.num_lots).toBeNull();
+    // ★★★ SUPERSEDED BY fix-541 — AND THIS IS THE ASSERTION THAT WOULD HAVE
+    //     CAUGHT THE BUG. `num_lots` USED to land as NULL when untouched,
+    //     because the RPC writes `NULLIF(…,'')::int`. Removing the input
+    //     without moving the default would therefore have made **every new
+    //     project a NULL** — which is exactly the state §C found on three
+    //     redesigns, and the opposite of "every project we enter is one lot".
+    //
+    // ★★ Corner and Closing keep the old behaviour deliberately: blank stays
+    //    a true "user hasn't picked" for them. Only Lots got a default,
+    //    because only Lots got a ruling.
+    expect(args.p_project_data.num_lots).toBe(1);
     expect(args.p_project_data.is_corner_lot).toBeNull();
     expect(args.p_project_data.closing_date).toBeNull();
   });

@@ -544,18 +544,42 @@ describe('<Step1ProjectInfo />', () => {
   // All three nullable; defaults show the "—" sentinel; user picks fire
   // a single onChange patch keyed by the WizardState field name.
   describe('fix-122: num_lots / is_corner_lot / closing_date inputs', () => {
-    it('Number of Lots dropdown renders blank + 1-20 (21 options)', () => {
+    it('★★★ SUPERSEDED BY fix-541: add-a-project no longer ASKS for Lots', () => {
+      // ★★★ fix-122 asserted a blank + 1-20 dropdown here, and that was right
+      //     for three months. Bobby, 2026-09-10: *"moving forward, every
+      //     project we enter will be one lot"* — so the question is gone from
+      //     the screen that sentence is about, and the value is defaulted.
+      //
+      // ★★ THE FIELD IS NOT GONE, and that distinction is the whole ticket:
+      //    15 of 220 projects genuinely hold more than one lot. It still
+      //    exists, still saves, and still shows in Project Details when the
+      //    answer is not 1.
       setup();
+      expect(screen.queryByTestId('wizard-num-lots')).toBeNull();
+    });
+
+    it('★★★ …but a REDESIGN still asks, because fix-191 ruled that it must', () => {
+      // ★★★ THERE WERE TWO INPUTS, AND ONLY ONE WAS BOBBY'S SUBJECT. fix-191:
+      //     *"a redesign's scope can differ from the original"*, seeded from
+      //     the parent. A redesign is spawned from an existing project rather
+      //     than entered on the add-a-project screen, so removing both would
+      //     have reversed that ruling without saying so.
+      setup({
+        ...makeEmptyWizardState(),
+        redesign_of_project_id: 'parent-uuid',
+      });
       const sel = screen.getByTestId('wizard-num-lots') as HTMLSelectElement;
       const values = [...sel.options].map((o) => o.value);
       expect(values[0]).toBe('');
-      // Tail option is 20, length matches.
       expect(values).toHaveLength(21);
       expect(values[20]).toBe('20');
     });
 
-    it('picking a Lots value fires onChange with the string number', () => {
-      const { onChange } = setup();
+    it('picking a Lots value on the redesign path fires onChange', () => {
+      const { onChange } = setup({
+        ...makeEmptyWizardState(),
+        redesign_of_project_id: 'parent-uuid',
+      });
       fireEvent.change(screen.getByTestId('wizard-num-lots'), {
         target: { value: '5' },
       });
