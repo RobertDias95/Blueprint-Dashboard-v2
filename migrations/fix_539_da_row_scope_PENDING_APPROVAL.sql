@@ -1,0 +1,393 @@
+-- ===========================================================================
+-- fix-539 (P-026) — a DA edits their own projects. STAGE TWO, and the bypass
+-- ===========================================================================
+--
+-- ⚠️⚠️ **NOT APPLIED.** Written for Cowork. Every statement below is commented
+--       out and a test (fix-450) keeps it that way.
+--
+-- MEASURED ON PROD 2026-09-13 (eibnmwthkcuumyclyxoe). Builds on fix-538
+-- (`1c88e4f`), verified live before writing this: all five capability
+-- functions exist, both gates read the roster, `anon` cannot execute them.
+--
+-- ⚠️⚠️ **BOTH HALVES OR NEITHER.** The RPC without the policy leaves a console
+--       route around the rule; the policy without the RPC turns every refusal
+--       into a lie (see "the message" below). They are one change.
+--
+-- ---------------------------------------------------------------------------
+-- §0 — THE RULE
+-- ---------------------------------------------------------------------------
+--
+-- Bobby, 2026-09-13 → [[D-2026-09-13-da-membership-and-the-unowned-twenty-two]]
+--
+--   1. Membership is My Work's definition, unnarrowed:
+--      `projectMatchesSelf ∪ permitMatchesSelf`.
+--   2. A project no DA is on is editable by EVERY DA.
+--
+--      **`member_of(project) OR project_has_no_da(project)`**
+--
+-- ★ Computed per read, never frozen. A project that loses its last DA re-opens;
+--   one that gains its first closes. **22 is today's number, not a constant.**
+--
+-- ---------------------------------------------------------------------------
+-- ★★★ §A.1 — ONE DERIVATION, AND BOTH HALVES CALL IT
+-- ---------------------------------------------------------------------------
+--
+--   bp_is_project_member(project, names)   ← THE membership test. Written once.
+--        ↑                      ↑
+--        │                      └── bp_project_has_no_da(project) asks the SAME
+--        │                          function with the set of all active DA
+--        │                          names. "No DA is on it" is not a second
+--        │                          rule — it is this rule, quantified.
+--        │
+--   bp_may_write_project(project)  ← the one answer
+--        ↑                      ↑
+--   RLS policy              bp_update_project_fields()
+--   projects_tenant_update      (the RPC the app calls)
+--
+-- ★ Two derivations of one rule is P-244, P-179 and fix-531 — three times this
+--   month. The membership expression appears exactly once in this file.
+--
+-- ⚠️ `draw_schedule.da_assigned` is NOT used and must not be: 220 rows / 220
+--    projects with **0** projects holding more than one DA slot, against **318**
+--    membership pairs. It is a capacity slot; it would silently cut 98.
+--
+-- ---------------------------------------------------------------------------
+-- ★★★ WHY THE RPC EXISTS — RLS REFUSES BY MATCHING ZERO ROWS
+-- ---------------------------------------------------------------------------
+--
+-- A policy does not raise; it filters. A blocked UPDATE returns **0 rows**, and
+-- `useUpdateProject` already interprets 0 rows as an OCC conflict — it throws
+-- `OCCConflictError`, **refetches, and retries once** (fix-99), then reports
+-- *"changed since you loaded it — your edit was reverted"*.
+--
+-- ★★★ So the policy ALONE would turn every permission refusal into fix-341's
+--     false alarm — a message that names a concurrent editor who does not
+--     exist — plus a wasted refetch and retry. The RPC raises **42501** so the
+--     app can say the true thing, and the policy closes the console route the
+--     RPC cannot. **That is why neither half ships alone.**
+--
+-- ---------------------------------------------------------------------------
+-- ★★★ §B — THE PROBE, PASTED (prod, rolled back, 2026-09-13)
+-- ---------------------------------------------------------------------------
+--
+-- Every cell run twice: once through the RPC, once as a **direct table UPDATE**
+-- — the half a UI test cannot see. **They agree in all 24 cases.**
+--
+--   person                    A: a project      B: has a DA,      C: no DA at all
+--                             they are on       not theirs        (the fallback)
+--   ------------------------  ----------------  ----------------  ----------------
+--   Ainsley  (da, pure)       ALLOWED / WROTE   REFUSED 42501 /   ALLOWED / WROTE
+--                                               BLOCKED (0 rows)
+--   Derry    (dm+schematic)   ALLOWED / WROTE   ALLOWED / WROTE   ALLOWED / WROTE
+--   EJ       (viewer)         REFUSED / BLOCKED REFUSED / BLOCKED REFUSED / BLOCKED
+--   Blake    (no roster row)  REFUSED / BLOCKED REFUSED / BLOCKED REFUSED / BLOCKED
+--
+-- ★ The fallback is for DAs, not for everyone: EJ is refused on C too.
+-- ★ And the RPC's patch handling was proved separately — two columns at once
+--   applied with correct types, and `tenant_id` refused with 42703.
+--
+-- ★★★ **fix-538 SURVIVES, and this was the real regression risk.** Ana holds
+--     `schematic` only, so after this she may write NO project directly —
+--     BLOCKED (0 rows), confirmed. **Her Schematic Designer capability still
+--     works** (ALLOWED), because `bp_reassign_project_sd` is SECURITY DEFINER
+--     and runs as its owner. A capability delivered through a definer function
+--     is not affected by a table policy; one delivered through a direct write
+--     would have been.
+--
+-- ---------------------------------------------------------------------------
+-- ⚠️⚠️ §A.4 IS WRONG, AND THIS IS THE HEADLINE
+-- ---------------------------------------------------------------------------
+--
+-- §A.4 says this is *"a widening for DAs and a narrowing for nobody"* except a
+-- DA's access to projects they are not on. **Measured, it is a narrowing for 25
+-- of 37 accounts**, because closing the bypass is exactly what it sounds like:
+-- today `projects` RLS UPDATE is `tenant_id = ANY (auth_tenant_ids())` with a
+-- direct grant to `authenticated`, so **every account can write every project**.
+--
+--   11 pure DAs          220 each  →  27–128 each   (membership + the 22)
+--   **14 accounts        220 each  →  0**
+--        · acq_lead 4 · viewer 4 · acq 2 · ca 2 · no roster row 1
+--        · **schematic 1 — Ana**, who keeps her SD capability and loses
+--          project-detail writes
+--
+--   pairs that close:  DAs **1,877**  +  the fourteen **3,080**  =  **4,957**
+--
+-- ★★★ **Nobody in that group of 14 has ever used it.** All fourteen have
+--     **zero** audited actions of any kind — not zero project edits, zero
+--     everything. The access being removed has never been exercised, which is
+--     what makes this safe to do in one step rather than a migration of habits.
+--
+-- ★ It is still a real change to real accounts, and it is Bobby's to reverse:
+--   adding `'project_details'` to a roster role in fix-538's map restores a
+--   group in one line.
+--
+-- ---------------------------------------------------------------------------
+-- §C — THE NUMBERS, RE-MEASURED ON THE DAY
+-- ---------------------------------------------------------------------------
+--
+--   | metric                              | today | after |
+--   |-------------------------------------|-------|-------|
+--   | membership pairs (DA × project)     | 318   | 318   |
+--   | projects reachable by ≥1 active DA  | 198   | 198   |
+--   | projects with no DA (the fallback)  | **22**| **22**|
+--   | pairs a DA loses                    | —     | **1,877** |
+--
+-- ★ The first three are definitions of the data, not of the rule, so the rule
+--   does not move them. What moves is who may write: 11 × 220 = 2,420 pairs
+--   become 543 (301 memberships + 11 × 22 fallback).
+-- ★ Cam is 106 + 22 = **128**, the largest scope; Erick the smallest at 27.
+--
+-- ---------------------------------------------------------------------------
+-- SAFE — checked, not assumed (2026-09-13)
+-- ---------------------------------------------------------------------------
+--
+--   · **`service_role` has `rolbypassrls = true`** — the scraper and the
+--     indexer are untouched by this policy. Verified on `pg_roles`.
+--   · `authenticated` does NOT bypass, so the policy is a real gate.
+--   · Every function that UPDATEs `projects` was enumerated: six are SECURITY
+--     DEFINER and unaffected; **two are INVOKER** and are handled below.
+--   · 0 accounts whose roster rows disagree on `name`, so name resolution is
+--     unambiguous; all 12 active DA names have accounts.
+--
+-- ===========================================================================
+
+
+-- BEGIN;
+
+-- ---------------------------------------------------------------------------
+-- 1. The names behind one account
+-- ---------------------------------------------------------------------------
+--
+-- CREATE OR REPLACE FUNCTION public.bp_roster_names(p_uid uuid DEFAULT auth.uid())
+-- RETURNS text[] LANGUAGE sql STABLE SECURITY DEFINER
+-- SET search_path TO 'public','pg_temp' AS $$
+--   SELECT COALESCE(array_agg(DISTINCT btrim(tm.name)), ARRAY[]::text[])
+--   FROM auth.users u
+--   JOIN public.team_members tm
+--     ON lower(btrim(tm.email)) = lower(btrim(u.email)) AND tm.active
+--   WHERE u.id = p_uid;
+-- $$;
+
+-- ---------------------------------------------------------------------------
+-- 2. ★★★ THE MEMBERSHIP TEST — written ONCE, mirrors My Work exactly
+-- ---------------------------------------------------------------------------
+--
+-- `projectMatchesSelf`: entitlement_lead · design_manager
+-- `permitMatchesSelf` : ent_lead · dm · da · dual_da · ca
+--
+-- CREATE OR REPLACE FUNCTION public.bp_is_project_member(p_project_id uuid, p_names text[])
+-- RETURNS boolean LANGUAGE sql STABLE SECURITY DEFINER
+-- SET search_path TO 'public','pg_temp' AS $$
+--   WITH n AS (
+--     SELECT array(SELECT lower(btrim(x))
+--                    FROM unnest(COALESCE(p_names, ARRAY[]::text[])) x
+--                   WHERE btrim(COALESCE(x,'')) <> '') AS names
+--   )
+--   SELECT EXISTS (
+--       SELECT 1 FROM public.projects pr, n
+--        WHERE pr.id = p_project_id
+--          AND (lower(btrim(pr.entitlement_lead)) = ANY (n.names)
+--            OR lower(btrim(pr.design_manager))   = ANY (n.names))
+--     ) OR EXISTS (
+--       SELECT 1 FROM public.permits p, n
+--        WHERE p.project_id = p_project_id
+--          AND (lower(btrim(p.ent_lead)) = ANY (n.names)
+--            OR lower(btrim(p.dm))       = ANY (n.names)
+--            OR lower(btrim(p.da))       = ANY (n.names)
+--            OR lower(btrim(p.dual_da))  = ANY (n.names)
+--            OR lower(btrim(p.ca))       = ANY (n.names))
+--     );
+-- $$;
+
+-- ---------------------------------------------------------------------------
+-- 3. The fallback, expressed THROUGH the same test
+-- ---------------------------------------------------------------------------
+--
+-- ★★★ Not a second membership rule: the same one, asked about the set of every
+--     active DA. If that rule ever changes, this changes with it for free.
+--
+-- CREATE OR REPLACE FUNCTION public.bp_project_has_no_da(p_project_id uuid)
+-- RETURNS boolean LANGUAGE sql STABLE SECURITY DEFINER
+-- SET search_path TO 'public','pg_temp' AS $$
+--   SELECT NOT public.bp_is_project_member(
+--     p_project_id,
+--     (SELECT COALESCE(array_agg(DISTINCT tm.name), ARRAY[]::text[])
+--        FROM public.team_members tm WHERE tm.active AND tm.role = 'da')
+--   );
+-- $$;
+
+-- ---------------------------------------------------------------------------
+-- 4. ★★★ THE ONE ANSWER — called by the policy AND the RPC
+-- ---------------------------------------------------------------------------
+--
+-- ★ Takes no uid: it always answers for the current session, so there is no
+--   way to ask it about somebody else and act on the reply.
+--
+-- CREATE OR REPLACE FUNCTION public.bp_may_write_project(p_project_id uuid)
+-- RETURNS boolean LANGUAGE plpgsql STABLE SECURITY DEFINER
+-- SET search_path TO 'public','pg_temp' AS $$
+-- DECLARE v_tenant uuid;
+-- BEGIN
+--   IF p_project_id IS NULL OR auth.uid() IS NULL THEN RETURN false; END IF;
+--   SELECT pr.tenant_id INTO v_tenant FROM public.projects pr WHERE pr.id = p_project_id;
+--   IF v_tenant IS NULL OR NOT (v_tenant = ANY (public.auth_tenant_ids())) THEN
+--     RETURN false;
+--   END IF;
+--   IF public.is_tenant_admin(v_tenant) THEN RETURN true; END IF;
+--   IF 'project_details' = ANY (public.bp_write_caps()) THEN RETURN true; END IF;
+--   IF 'da' = ANY (public.bp_roster_roles()) THEN
+--     RETURN public.bp_is_project_member(p_project_id, public.bp_roster_names())
+--         OR public.bp_project_has_no_da(p_project_id);
+--   END IF;
+--   RETURN false;
+-- END;
+-- $$;
+
+-- GRANT EXECUTE ON FUNCTION public.bp_roster_names(uuid)               TO authenticated;
+-- GRANT EXECUTE ON FUNCTION public.bp_is_project_member(uuid, text[])  TO authenticated;
+-- GRANT EXECUTE ON FUNCTION public.bp_project_has_no_da(uuid)          TO authenticated;
+-- GRANT EXECUTE ON FUNCTION public.bp_may_write_project(uuid)          TO authenticated;
+-- REVOKE EXECUTE ON FUNCTION public.bp_roster_names(uuid)              FROM public, anon;
+-- REVOKE EXECUTE ON FUNCTION public.bp_is_project_member(uuid, text[]) FROM public, anon;
+-- REVOKE EXECUTE ON FUNCTION public.bp_project_has_no_da(uuid)         FROM public, anon;
+-- REVOKE EXECUTE ON FUNCTION public.bp_may_write_project(uuid)         FROM public, anon;
+--
+-- ⚠️ `FROM public, anon`, never `FROM anon` alone — `anon` inherits from PUBLIC
+--    and the narrower form reports success while doing nothing (fix-157).
+
+-- ---------------------------------------------------------------------------
+-- 5. HALF ONE — the RPC, so a refusal says what it is
+-- ---------------------------------------------------------------------------
+--
+-- ★★ A generic patch with NO column whitelist to rot. fix-410's four-place
+--    trap — a new column needing an edit in several places or it silently
+--    stops saving — is avoided by validating each key against
+--    `information_schema.columns` and letting `jsonb_populate_record` do the
+--    typing. Adding a column to `projects` needs no edit here.
+-- ★ `id`, `tenant_id` and `updated_at` are refused outright (42703).
+--
+-- CREATE OR REPLACE FUNCTION public.bp_update_project_fields(
+--   p_project_id uuid, p_patch jsonb, p_expected_updated_at timestamptz)
+-- RETURNS SETOF public.projects LANGUAGE plpgsql SECURITY DEFINER
+-- SET search_path TO 'public','pg_temp' AS $$
+-- DECLARE v_cols text; v_bad text; v_sql text;
+-- BEGIN
+--   IF NOT public.bp_may_write_project(p_project_id) THEN
+--     RAISE EXCEPTION 'you can only edit projects you are on'
+--       USING ERRCODE = '42501';
+--   END IF;
+--   IF p_patch IS NULL OR jsonb_typeof(p_patch) <> 'object' OR p_patch = '{}'::jsonb THEN
+--     RAISE EXCEPTION 'bp_update_project_fields: empty patch' USING ERRCODE = '22023';
+--   END IF;
+--   SELECT string_agg(k, ', ') INTO v_bad
+--   FROM jsonb_object_keys(p_patch) k
+--   WHERE k IN ('id','tenant_id','updated_at')
+--      OR NOT EXISTS (SELECT 1 FROM information_schema.columns c
+--                      WHERE c.table_schema = 'public' AND c.table_name = 'projects'
+--                        AND c.column_name = k);
+--   IF v_bad IS NOT NULL THEN
+--     RAISE EXCEPTION 'bp_update_project_fields: not a writable projects column: %', v_bad
+--       USING ERRCODE = '42703';
+--   END IF;
+--   SELECT string_agg(quote_ident(k), ', ') INTO v_cols FROM jsonb_object_keys(p_patch) k;
+--   v_sql := format(
+--     'update public.projects pr set (%1$s) = '
+--     '(select %1$s from jsonb_populate_record(null::public.projects, $1)) '
+--     'where pr.id = $2 and pr.updated_at = $3 returning pr.*', v_cols);
+--   RETURN QUERY EXECUTE v_sql USING p_patch, p_project_id, p_expected_updated_at;
+-- END;
+-- $$;
+-- GRANT EXECUTE ON FUNCTION public.bp_update_project_fields(uuid, jsonb, timestamptz) TO authenticated;
+-- REVOKE EXECUTE ON FUNCTION public.bp_update_project_fields(uuid, jsonb, timestamptz) FROM public, anon;
+
+-- ---------------------------------------------------------------------------
+-- 6. HALF TWO — the policy, so the console route closes
+-- ---------------------------------------------------------------------------
+--
+-- ⚠️ Run with step 5, never alone. The tenant clause is kept: this ADDS the
+--    scope, it does not replace the tenancy check.
+--
+-- ALTER POLICY projects_tenant_update ON public.projects
+--   USING (tenant_id = ANY (public.auth_tenant_ids()) AND public.bp_may_write_project(id))
+--   WITH CHECK (tenant_id = ANY (public.auth_tenant_ids()) AND public.bp_may_write_project(id));
+
+-- ---------------------------------------------------------------------------
+-- 7. The two INVOKER functions that write `projects` as a SIDE EFFECT
+-- ---------------------------------------------------------------------------
+--
+-- ⚠️⚠️ `bp_add_project_consultant` and `bp_set_consultant_firm` are SECURITY
+--       INVOKER and both do `update public.projects set external_team = …` to
+--       keep the project's denormalised consultant list in step. Under the new
+--       policy a non-member's consultant row would be written and **that sync
+--       would silently no-op**, leaving `projects.external_team` drifted from
+--       `project_consultants`. Silence is the worst of the three options.
+--
+-- ★ So they get the same gate, and fail loudly. Editing a project's consultant
+--   list IS editing the project, so the rule is the same rule.
+--
+-- DO $mig$
+-- DECLARE v_def text; v_name text;
+-- BEGIN
+--   FOREACH v_name IN ARRAY ARRAY['bp_add_project_consultant','bp_set_consultant_firm'] LOOP
+--     SELECT pg_get_functiondef(p.oid) INTO v_def
+--     FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
+--     WHERE n.nspname = 'public' AND p.proname = v_name;
+--     IF v_def IS NULL THEN
+--       RAISE EXCEPTION 'fix-539: % not found', v_name;
+--     END IF;
+--     IF position('bp_may_write_project' IN v_def) > 0 THEN
+--       RAISE NOTICE 'fix-539: % already gated', v_name;
+--       CONTINUE;
+--     END IF;
+--     IF position('update public.projects p' IN v_def) = 0 THEN
+--       RAISE EXCEPTION
+--         'fix-539: % no longer writes public.projects — re-read it before gating', v_name;
+--     END IF;
+--     v_def := replace(v_def, E'BEGIN\n',
+--       E'BEGIN\n  IF NOT public.bp_may_write_project(p_project_id) THEN\n'
+--       '    RAISE EXCEPTION ''you can only edit projects you are on''\n'
+--       '      USING ERRCODE = ''42501'';\n  END IF;\n');
+--     EXECUTE v_def;
+--     RAISE NOTICE 'fix-539: % now checks bp_may_write_project', v_name;
+--   END LOOP;
+-- END
+-- $mig$;
+--
+-- ⚠️ `bp_set_consultant_firm` takes `p_consultant_id`, not `p_project_id` — the
+--    anchor above will raise on it rather than compile a reference to a
+--    variable that does not exist. **Resolve the project id from the consultant
+--    row first**, or gate that one by hand. Left deliberately visible rather
+--    than guessed at: this is the one statement in the file that needs a human
+--    to finish it, and it is separable from steps 1–6.
+
+-- COMMIT;
+
+
+-- ---------------------------------------------------------------------------
+-- 8. Verify after applying
+-- ---------------------------------------------------------------------------
+--
+--   -- the policy carries the rule
+--   SELECT qual FROM pg_policies
+--    WHERE schemaname='public' AND tablename='projects' AND policyname='projects_tenant_update';
+--   -- expect: … AND bp_may_write_project(id)
+--
+--   -- the fallback is live, not frozen
+--   SELECT count(*) FROM public.projects pr WHERE public.bp_project_has_no_da(pr.id);
+--   -- expect 22 on 2026-09-13, and a DIFFERENT number later — that is correct
+--
+--   -- anon cannot ask
+--   SELECT has_function_privilege('anon','public.bp_may_write_project(uuid)','EXECUTE');
+--   -- expect false
+--
+-- ---------------------------------------------------------------------------
+-- Undo
+-- ---------------------------------------------------------------------------
+--
+-- ALTER POLICY projects_tenant_update ON public.projects
+--   USING (tenant_id = ANY (public.auth_tenant_ids()))
+--   WITH CHECK (tenant_id = ANY (public.auth_tenant_ids()));
+--
+-- ★ That one statement restores today's behaviour completely. The functions can
+--   stay; with the policy loosened they gate nothing, and the app's RPC path
+--   keeps working for everyone the model allows.

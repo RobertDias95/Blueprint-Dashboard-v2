@@ -52,6 +52,10 @@ const supabaseMock = vi.hoisted(() => {
       error: Error | null;
     }>;
     upsert: () => Promise<{ data: unknown; error: Error | null }>;
+    rpc: (
+      fn: string,
+      args?: unknown,
+    ) => Promise<{ data: unknown; error: { code: string } | null }>;
   };
   const b = {} as Builder;
   b.from = (t: string) => {
@@ -70,6 +74,11 @@ const supabaseMock = vi.hoisted(() => {
     return Promise.resolve(next);
   };
   b.upsert = () => Promise.resolve({ data: null, error: null });
+  /** ★★★ fix-539: `useUpdateProject` asks `bp_update_project_fields` FIRST and
+   *  falls back to the direct write when it is not deployed. The migration is
+   *  STAGED, so "not deployed" is the live state and the one this models —
+   *  fix-99's retry reasoning below is unchanged and still exercised. */
+  b.rpc = () => Promise.resolve({ data: null, error: { code: 'PGRST202' } });
   return {
     builder: b,
     fromFn,

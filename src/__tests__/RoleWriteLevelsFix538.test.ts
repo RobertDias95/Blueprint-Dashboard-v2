@@ -356,6 +356,10 @@ describe('fix-538 §C — stage two starts from a number', () => {
     //     that policy stands — and tightening the policy first would take every
     //     DA's editing away. One change, both halves.
     expect(sql).toContain('auth_tenant_ids()');
-    expect(sql).toContain('One\n--    change, both halves.');
+    // ★★ fix-539 FIXED THIS ASSERTION, AND IT WAS MINE. It embedded a line
+    //    break, so it passed on the working copy that wrote the file and
+    //    failed the moment git re-materialised it with CRLF. **Never assert
+    //    across a newline in a file the repo normalises** — match within one line.
+    expect(sql).toContain('change, both halves.');
   });
 });
