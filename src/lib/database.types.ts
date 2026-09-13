@@ -1247,7 +1247,9 @@ export interface DrawScheduleRow {
   dd_start: string | null;
   dd_end: string | null;
   notes: string | null;
-  color_override: string | null;
+  /** ★ fix-537 §B (P-222): the colour column is dropped — dead on all 220
+   *  rows and read by nothing. `status_override` below is equally unread and
+   *  deliberately kept; see the staged migration. */
   status_override: string | null;
   /** Q5.5.C: required for row-level OCC on the draw_schedule write path. */
   updated_at: string;

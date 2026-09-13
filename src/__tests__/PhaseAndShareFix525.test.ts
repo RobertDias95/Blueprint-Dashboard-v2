@@ -166,8 +166,11 @@ describe('fix-525 §C (P-242) — a block does not stay in the phase it was born
 describe('fix-525 §C — status_override', () => {
   it('★★★ NOTHING reads it, so there is nothing to treat as absent', () => {
     // ★★★ MEASURED ON PROD 2026-09-11: **206 null · 14 empty string · ZERO real
-    //     values.** The same 14 rows fix-521 found holding `color_override = ''`
-    //     — an artefact nobody ever set, in a second column.
+    //     values.** The same 14 rows fix-521 found holding an empty string in
+    //     the sibling colour column — an artefact nobody ever set, in a second
+    //     column. (fix-537 §B staged that sibling's drop and deliberately left
+    //     this one: verifying that nothing reads a column is not permission to
+    //     destroy it.)
     //
     // ★★★ SO THE BRIEF'S CAUTION — *"whatever reads the override must treat ''
     //     as absent"* — has no subject. `status_override` appears in exactly two

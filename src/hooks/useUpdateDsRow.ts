@@ -56,17 +56,17 @@ export function useUpdateDsRow() {
       // This loop used to write `payload[key] = ''` for every null. For the
       // DATE columns that was harmless — the RPC wraps them in
       // `NULLIF(…,'')::date`. For the three nullable TEXT columns it was not:
-      // the RPC writes `p_data->>'color_override'` RAW, so a row that had
-      // never had a colour got an empty string saying it had.
+      // the RPC writes `p_data->>'status_override'` RAW, so a row that never
+      // had one got an empty string saying it had.
       //
       // ★★★ MEASURED ON PROD, 2026-09-10 — and it is THREE columns, not the
       //     two P-222 named. On the SAME 14 rows (13 of them
       //     `manually_placed`, i.e. everything that has ever been through the
       //     drag editor):
       //
-      //       color_override    14 × ''   205 × null
-      //       status_override   14 × ''   205 × null
-      //       notes             14 × ''
+      //       (the colour column)  14 × ''   205 × null   ← dropped, fix-537 §B
+      //       status_override      14 × ''   205 × null
+      //       notes                14 × ''
       //
       //     `da_assigned`, `start_week`, `end_week` and `status` are never
       //     empty — not because they were treated differently, but because
@@ -80,6 +80,28 @@ export function useUpdateDsRow() {
       //
       // ★ `null` survives the round trip: `p_data->>'k'` on a JSON null is SQL
       //   NULL, which is what every one of these columns means by "absent".
+      //
+      // ════════════════════════════════════════════════════════════════════
+      // ★★★ fix-537 §B (P-222) — AND THE FIRST OF THE THREE IS NOW GONE
+      // ════════════════════════════════════════════════════════════════════
+      //
+      // Re-measured 2026-09-13: 14 rows hold `''` and **not one holds a
+      // colour**. The drop is staged for Cowork in
+      // `migrations/fix_537b_drop_draw_schedule_color_override_PENDING_APPROVAL.sql`,
+      // and the key is out of this list — **sending a key for a column this app
+      // has asked to have removed is how the next reader concludes it is still
+      // wanted.**
+      //
+      // ★ Either order is safe, which is why this did not wait for the
+      //   migration: until it is applied the RPC writes SQL NULL for the absent
+      //   key, and once it is applied the key would have been ignored anyway.
+      //   Both were proved on prod inside a rolled-back transaction.
+      //
+      // ⚠️ `status_override` STAYS, and is the reason this list still has a
+      //    dead column in it. fix-537 §B.3 checked every function, view and
+      //    index in the database and all of `src/`, and nothing reads it either
+      //    — but **a verification is not a permission**, and it is not P-222's
+      //    column.
       const payload: Record<string, string | null> = {};
       for (const key of [
         'da_assigned',
@@ -91,7 +113,6 @@ export function useUpdateDsRow() {
         'dd_start',
         'dd_end',
         'notes',
-        'color_override',
         'status_override',
       ] as const) {
         const v = merged[key];

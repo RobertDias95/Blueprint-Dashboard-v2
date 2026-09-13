@@ -1,4 +1,45 @@
 -- ===========================================================================
+-- fix-521 SUPERSEDED 2026-09-13 by fix-537 §B
+-- ===========================================================================
+--
+-- ⚠️⚠️ **THIS FILE COULD NEVER HAVE RUN. Do not approve it.** It is kept for
+--       the reason it went unnoticed, not because it is still wanted. The
+--       live version is:
+--
+--         migrations/fix_537b_drop_draw_schedule_color_override_PENDING_APPROVAL.sql
+--
+-- ★★★ TWO DEFECTS, FOUND BY READING IT AGAINST PROD ON 2026-09-13:
+--
+--   1. **It is not valid SQL.** Three of its four anchors are written `E"…"`
+--      with DOUBLE quotes, which Postgres parses as an identifier. Running the
+--      DO block verbatim on prod fails at parse time:
+--
+--        ERROR: 42601: syntax error at or near ""      p_data->>'color_override',
+""
+--
+--   2. **The anchors would not have matched anyway.** They encode six- and
+--      eight-space indents with a single space either side of the `=`; the live
+--      `bp_upsert_draw_schedule_row` reads `    color_override  = …` — four
+--      spaces, and two before the `=` because the assignments are
+--      column-aligned. fix-537's replacement uses whitespace-tolerant regexes
+--      and was proved against prod in a rolled-back transaction.
+--
+-- ★★★ AND THE REASON NOBODY KNEW: **this file never sat on the approval
+--     shelf.** It was written straight into `migrations/` without the
+--     `_PENDING_APPROVAL` suffix, so fix-450's guard — which reads every shelf
+--     file, refuses uncommented DDL and requires a measurement date — never
+--     read it, and `PENDING_APPROVAL_INDEX.md` never listed it. A staged
+--     migration that is not on the shelf gets no guard at all. That is the
+--     lesson fix-537 carries forward, and it is why this file is renamed
+--     rather than deleted.
+--
+-- ★ Its reasoning was sound and is preserved below, in full and commented out:
+--   the count, the writer, the ordering constraint, and the decision that
+--   `status_override` does not ride along. fix-537 §B re-measured every number
+--   in it — and every one still holds.
+-- ===========================================================================
+
+-- ===========================================================================
 -- fix-521 §C (P-222) — drop `draw_schedule.color_override`
 -- ===========================================================================
 --
@@ -63,7 +104,7 @@
 -- every surface that shows it.
 -- ===========================================================================
 
-BEGIN;
+-- BEGIN;
 
 -- ---------------------------------------------------------------------------
 -- 1. Patch the only writer, BEFORE the column goes
@@ -72,49 +113,49 @@ BEGIN;
 -- ★ By ANCHOR on the live definition, never retyped — `migrations/` is partial
 --   and prod is ahead of it. The fix-425 / fix-517 pattern.
 
-DO $mig$
-DECLARE
-  v_def text;
-BEGIN
-  SELECT pg_get_functiondef(p.oid) INTO v_def
-  FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
-  WHERE n.nspname = 'public' AND p.proname = 'bp_upsert_draw_schedule_row';
+-- DO $mig$
+-- DECLARE
+--   v_def text;
+-- BEGIN
+--   SELECT pg_get_functiondef(p.oid) INTO v_def
+--   FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
+--   WHERE n.nspname = 'public' AND p.proname = 'bp_upsert_draw_schedule_row';
 
-  IF v_def IS NULL THEN
-    RAISE EXCEPTION 'bp_upsert_draw_schedule_row not found';
-  END IF;
+--   IF v_def IS NULL THEN
+--     RAISE EXCEPTION 'bp_upsert_draw_schedule_row not found';
+--   END IF;
 
-  IF position('color_override' in v_def) = 0 THEN
-    RAISE NOTICE 'fix-521: already patched, nothing to do';
-    RETURN;
-  END IF;
+--   IF position('color_override' in v_def) = 0 THEN
+--     RAISE NOTICE 'fix-521: already patched, nothing to do';
+--     RETURN;
+--   END IF;
 
   -- The INSERT's column list and its VALUES entry.
-  v_def := replace(v_def, E'      color_override, status_override\n', E'      status_override\n');
-  v_def := replace(v_def, E"      p_data->>'color_override',\n", '');
+--   v_def := replace(v_def, E'      color_override, status_override\n', E'      status_override\n');
+--   v_def := replace(v_def, E"      p_data->>'color_override',\n", '');
   -- The UPDATE's assignment, whichever spelling it carries.
-  v_def := replace(v_def, E"      color_override = p_data->>'color_override',\n", '');
-  v_def := replace(v_def, E"        color_override = p_data->>'color_override',\n", '');
+--   v_def := replace(v_def, E"      color_override = p_data->>'color_override',\n", '');
+--   v_def := replace(v_def, E"        color_override = p_data->>'color_override',\n", '');
 
-  IF position('color_override' in v_def) > 0 THEN
-    RAISE EXCEPTION
-      'fix-521: bp_upsert_draw_schedule_row still names color_override after patching — '
-      'the anchors below did not match its current text. Re-derive them from '
-      'pg_get_functiondef and re-run; do NOT drop the column with the writer still on it.';
-  END IF;
+--   IF position('color_override' in v_def) > 0 THEN
+--     RAISE EXCEPTION
+--       'fix-521: bp_upsert_draw_schedule_row still names color_override after patching — '
+--       'the anchors below did not match its current text. Re-derive them from '
+--       'pg_get_functiondef and re-run; do NOT drop the column with the writer still on it.';
+--   END IF;
 
-  EXECUTE v_def;
-  RAISE NOTICE 'fix-521: bp_upsert_draw_schedule_row no longer writes color_override';
-END
-$mig$;
+--   EXECUTE v_def;
+--   RAISE NOTICE 'fix-521: bp_upsert_draw_schedule_row no longer writes color_override';
+-- END
+-- $mig$;
 
 -- ---------------------------------------------------------------------------
 -- 2. Drop the column
 -- ---------------------------------------------------------------------------
 
-ALTER TABLE public.draw_schedule DROP COLUMN IF EXISTS color_override;
+-- ALTER TABLE public.draw_schedule DROP COLUMN IF EXISTS color_override;
 
-COMMIT;
+-- COMMIT;
 
 -- ---------------------------------------------------------------------------
 -- 3. OPTIONAL, and deliberately not run: normalise the `notes` empty strings

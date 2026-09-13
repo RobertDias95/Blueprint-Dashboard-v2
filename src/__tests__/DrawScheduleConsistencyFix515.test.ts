@@ -146,11 +146,18 @@ describe('fix-515 §B — one colour system, derived', () => {
     expect(deep).toMatch(/^#[0-9a-f]{6}$/);
   });
 
-  it('★★★ it runs on WHATEVER the fill is — the color_override property', () => {
-    // ⚠️ FINDING: the brief says `draw_schedule.color_override` "exists and is
-    //    honoured". It is NOT read anywhere in src; 14 of 219 prod rows carry
-    //    one and every one is ignored at render. Taking the FILL rather than a
-    //    status key means the day it is wired up the border follows it free.
+  it('★★★ it runs on WHATEVER the fill is — any fill, from anywhere', () => {
+    // ⚠️ FINDING (fix-515): the brief said a per-block colour override
+    //    "exists and is honoured". It was NOT read anywhere in src; 14 of 219
+    //    prod rows carried one and every one was ignored at render.
+    //
+    // ★★★ SUPERSEDED BY fix-537 §B, AND THE TEST OUTLIVES ITS SUBJECT. The
+    //     column is being dropped — 0 of 220 rows ever held a colour, and the
+    //     14 that looked set were empty strings the writer invented. **The
+    //     assertion is unchanged and still passes**, because it was written
+    //     against the FILL rather than against the column: that is the whole
+    //     property, and this is what it is worth. The day a per-block colour
+    //     does arrive, the border follows it for free.
     const override = '#7a3f9d';
     expect(blockBorderFromFill(override)).toBe(darkenHex(override));
     expect(code(gridSrc)).not.toMatch(/blockBorderFromFill\(\s*derivedStatus/);

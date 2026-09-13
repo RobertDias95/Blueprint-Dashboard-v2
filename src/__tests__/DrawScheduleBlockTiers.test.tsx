@@ -34,7 +34,6 @@ type DrawRow = {
   dd_start: string | null;
   dd_end: string | null;
   notes: string | null;
-  color_override: string | null;
   status_override: string | null;
   updated_at: string;
 };
@@ -51,7 +50,6 @@ function row(over: Partial<DrawRow>): DrawRow {
     dd_start: null,
     dd_end: null,
     notes: null,
-    color_override: null,
     status_override: null,
     updated_at: '2026-01-01T00:00:00Z',
     ...over,

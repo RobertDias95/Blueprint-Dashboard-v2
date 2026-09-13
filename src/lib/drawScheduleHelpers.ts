@@ -71,13 +71,17 @@ export const NP_BLOCK_COLOR: StatusColor = {
 //     replaces the block's use of both; the legend keeps its literal for now
 //     and the two agree to within a few points, which is checked in the tests.
 //
-// ★★ IT RUNS ON WHATEVER THE FILL IS, which is what §B's `color_override`
-//    warning is really asking for. ⚠️ FINDING: the brief says
-//    `draw_schedule.color_override` "exists and is honoured" — **it is not
-//    read anywhere in `src`.** 14 of 219 prod rows carry one and every one is
-//    ignored at render. Taking the FILL as the argument rather than the status
-//    key means the day it is wired up the border follows it for free, which is
-//    the property the warning wanted.
+// ★★ IT RUNS ON WHATEVER THE FILL IS, and that property outlived the column
+//    that prompted it. fix-515's brief said a per-block colour override
+//    "exists and is honoured"; fix-515 found nothing in `src` read it, fix-521
+//    found the writer had invented all 14 of its values, and **fix-537 §B
+//    staged the column's removal — 0 of 220 rows ever held a colour.**
+//
+// ★ Taking the RENDERED FILL as the argument rather than a status key is what
+//   makes that irrelevant here: this function never named the column, so the
+//   drop costs it nothing, and any future per-block colour gets a correct
+//   border for free. **A helper that reads what is painted cannot go stale when
+//   the thing that paints it changes.**
 
 /** Clamp to a byte. */
 function byte(n: number): number {
@@ -111,7 +115,9 @@ export function darkenHex(hex: string, amount = 0.28): string {
  * The border a block wears: its own fill, darkened.
  *
  * ★ Takes the RENDERED fill rather than a status, so it cannot go out of step
- *   with what is actually painted — including a future `color_override`.
+ *   with what is actually painted — including any per-block colour a later
+ *   ticket introduces. (The column fix-515 expected to find doing this was
+ *   dead; fix-537 §B staged its drop.)
  */
 export function blockBorderFromFill(fill: string): string {
   return darkenHex(fill);

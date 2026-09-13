@@ -52,7 +52,6 @@ function makeRow(over: Partial<DrawScheduleRow> = {}): DrawScheduleRow {
     dd_start: '2026-05-04',
     dd_end: '2026-05-22',
     notes: null,
-    color_override: null,
     status_override: null,
     updated_at: '2026-05-10T14:32:10Z',
     ...over,

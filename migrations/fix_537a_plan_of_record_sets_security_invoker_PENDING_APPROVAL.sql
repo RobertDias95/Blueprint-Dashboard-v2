@@ -1,0 +1,127 @@
+-- ===========================================================================
+-- fix-537 §A (P-240) — `project_plan_of_record_sets` joins the other 11 views
+-- ===========================================================================
+--
+-- ⚠️⚠️ **NOT APPLIED.** Written for Cowork. Every statement below is commented
+--       out and a test (fix-450) keeps it that way.
+--
+-- MEASURED ON PROD 2026-09-13 (eibnmwthkcuumyclyxoe).
+--
+-- ---------------------------------------------------------------------------
+-- WHAT IS WRONG
+-- ---------------------------------------------------------------------------
+--
+-- Supabase's linter raises `security_definer_view` at **ERROR** on this view.
+-- A Postgres view without `security_invoker` runs with the permissions of its
+-- OWNER — here `postgres` — so the RLS policy on the table underneath is never
+-- consulted for the person doing the reading.
+--
+--   public.project_plan_of_record_sets  →  SELECT … FROM project_file_index
+--                                          WHERE is_current
+--
+-- `project_file_index` has RLS enabled with a tenant policy:
+--
+--   project_file_index_tenant_select   authenticated   SELECT
+--       USING (tenant_id = ANY (auth_tenant_ids()))
+--
+-- **That policy works. The view goes around it.**
+--
+-- ---------------------------------------------------------------------------
+-- ★★★ THE MEASUREMENT THAT SHOWS IT IS NOT COSMETIC (rolled back, 2026-09-13)
+-- ---------------------------------------------------------------------------
+--
+-- A signed-in account belonging to NO tenant, three reads, one transaction:
+--
+--   the view, security_invoker OFF (today)      →  **415 rows**
+--   the view, security_invoker ON  (this file)  →  **0 rows**
+--   project_file_index, read directly           →  **0 rows**
+--
+-- ★★★ The third line is the one that matters: the boundary this file restores
+--     ALREADY WORKS one level down. The view is the single place it does not,
+--     which is why the advisor calls it an error and why the fix is one word
+--     rather than a policy.
+--
+-- ★ **Practical risk today is low and should be said plainly.** Blueprint is
+--   single-tenant in practice: `tenant_memberships` puts every real login in
+--   the same tenant, so nobody is presently reading a row this would have
+--   hidden. **This is the boundary not existing, not the boundary being
+--   crossed** — which is exactly why it is cheap to close now and expensive to
+--   discover later.
+--
+-- ---------------------------------------------------------------------------
+-- ★★★ WHAT DOES **NOT** CHANGE — MEASURED EITHER SIDE, NOT INHERITED
+-- ---------------------------------------------------------------------------
+--
+-- The whole reason fix-523 reported this and did not flip it: the view feeds
+-- the plan-of-record card on nearly every project and the logged-out `/s/`
+-- share page. Both were read in a rolled-back transaction either side of the
+-- flip, on 2026-09-13:
+--
+--   | read                                   | invoker OFF      | invoker ON       |
+--   |----------------------------------------|------------------|------------------|
+--   | signed-in (a real tenant member)       | 415 rows ·       | 415 rows ·       |
+--   |                                        | **196 projects** | **196 projects** |
+--   | logged-out `/s/` share page            | 1 row            | 1 row            |
+--
+-- ★★ **The share page was verified, not assumed.** `bp_resolve_plan_share` is
+--    SECURITY DEFINER owned by `postgres` and its body does read this view —
+--    both checked against `pg_proc` rather than taken from the brief — so the
+--    logged-out path resolves as the function's owner whichever way this flag
+--    is set. The probe above is that claim tested rather than reasoned: an
+--    `anon` call with a live share token returns its 1 row on both sides.
+--
+-- ★ 196 of 220 projects reproduces fix-529's number exactly.
+--
+-- ---------------------------------------------------------------------------
+-- ⏸ THE OTHER TWO VIEWS DO NOT RIDE ALONG
+-- ---------------------------------------------------------------------------
+--
+-- P-240 names this view, and the advisor's `security_definer_view` finding has
+-- **count 2**, not 1:
+--
+--   · `public.project_plan_of_record_sets`   ← this file
+--   · `public.project_consultant_current`    ← **reported, NOT touched**
+--
+-- A third view, `public.juris_permit_stats`, also lacks the flag but the
+-- advisor does not raise it.
+--
+-- ⚠️ So the brief's "11 sibling views set it; this one does not" is right about
+--    the 11 and wrong about the "one": **three** views lack the flag. Neither
+--    of the other two is in this file. Each needs its own before/after read of
+--    whatever it feeds, and a second flip on the strength of this one's
+--    measurement is how one clean ticket becomes an incident. Reported.
+--
+-- ---------------------------------------------------------------------------
+-- REVERSIBLE, WHICH IS WHY IT IS A ONE-LINER
+-- ---------------------------------------------------------------------------
+--
+-- Unlike fix-537's other half, nothing here is destroyed. If a surface does go
+-- blank, the undo is immediate and is written at the bottom of this file.
+-- ===========================================================================
+
+-- BEGIN;
+
+-- ALTER VIEW public.project_plan_of_record_sets SET (security_invoker = true);
+
+-- COMMIT;
+
+-- ---------------------------------------------------------------------------
+-- Verify after applying
+-- ---------------------------------------------------------------------------
+--
+-- Expect `true`, and the plan-of-record card to still draw on 196 projects:
+--
+--   SELECT c.relname,
+--          (SELECT option_value FROM pg_options_to_table(c.reloptions)
+--            WHERE option_name = 'security_invoker') AS security_invoker
+--   FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
+--   WHERE n.nspname = 'public' AND c.relname = 'project_plan_of_record_sets';
+--
+-- ---------------------------------------------------------------------------
+-- Undo
+-- ---------------------------------------------------------------------------
+--
+-- ALTER VIEW public.project_plan_of_record_sets SET (security_invoker = false);
+--
+-- ★ `SET (security_invoker = false)` rather than `RESET`, so the view's state
+--   afterwards says what it is rather than what it is missing.

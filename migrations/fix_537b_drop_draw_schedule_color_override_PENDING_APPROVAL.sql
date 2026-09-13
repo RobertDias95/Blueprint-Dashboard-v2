@@ -1,0 +1,262 @@
+-- ===========================================================================
+-- fix-537 §B (P-222) — drop `draw_schedule.color_override`
+-- ===========================================================================
+--
+-- ⚠️⚠️ **NOT APPLIED.** Written for Cowork. `DROP COLUMN` is irreversible, so
+--       it does not get run by the ticket that writes it. Every statement below
+--       is commented out and a test (fix-450) keeps it that way.
+--
+-- MEASURED ON PROD 2026-09-13 (eibnmwthkcuumyclyxoe).
+--
+-- ★ **This file supersedes `fix_521_drop_draw_schedule_color_override_SUPERSEDED.sql`,
+--   which could not run.** That file's two patch anchors were written as
+--   `E"…"` — double quotes, which Postgres parses as an identifier — so it
+--   failed at parse time with `42601: syntax error`, and the anchors would not
+--   have matched the live function text even after the quoting was fixed. Both
+--   are corrected here and the result was executed against prod inside a
+--   rolled-back transaction. The old file is kept, superseded, for the reason
+--   it went unnoticed: it never sat on the approval shelf, so the guard that
+--   reads these files never read it.
+--
+-- ---------------------------------------------------------------------------
+-- WHY
+-- ---------------------------------------------------------------------------
+--
+-- P-222 was raised as "`color_override` is set on 14 rows and read by nothing",
+-- which reads as a feature somebody used and nothing honours. Measured, it is
+-- simpler and worse: **all fourteen are the EMPTY STRING. Not one row holds a
+-- colour. Nobody has ever set one.**
+--
+--   2026-09-13, 220 rows:
+--     color_override    14 × ''    206 × NULL    **0 with a real value**
+--     status_override   14 × ''    206 × NULL    **0 with a real value**
+--     notes             14 × ''    ← the third column P-222 did not name
+--
+-- 13 of the 14 are `manually_placed`. The writer — `useUpdateDsRow` —
+-- serialised every null as `''` before sending it to
+-- `bp_upsert_draw_schedule_row`, which writes these text columns RAW while it
+-- wraps the date columns in `NULLIF(…,'')`. **A field written as `''` where it
+-- means *nothing* is how a dead field looks alive.** fix-521 fixed the client;
+-- this file removes the column.
+--
+-- ---------------------------------------------------------------------------
+-- ★★★ THE HOLD HAS EXPIRED, AND IT WAS CONFIRMED FROM THE DEPLOY
+-- ---------------------------------------------------------------------------
+--
+-- fix-521 (PR #459) merged 2026-09-10 21:36:48Z. The hold was that **the
+-- DEPLOYED frontend, not the merged branch**, had to be the one that stopped
+-- writing the column. Confirmed two ways on 2026-09-13:
+--
+-- ★★ **1. From the deploy.** `plan_share_links` holds 3 rows, created
+--    2026-09-11 01:38Z, 18:01Z and 19:10Z by **Bobby** and **Dave**. That table
+--    is written only by `bp_create_plan_share`, which is only reachable from
+--    the share control that shipped in **fix-523 / PR #461 — a PR that merged
+--    AFTER #459**. Real people exercised post-fix-521 code in the deployed app,
+--    so the deployed bundle is past fix-521. (`permit_tasks` has writes as
+--    recent as 2026-09-13 14:16Z: the app is live and in use.)
+--
+-- ⚠️ **The draw-schedule table itself proves nothing, and that is worth
+--    saying.** Its newest write is 2026-09-10 21:51:56Z — 15 minutes after the
+--    merge, and NULL rather than `''`, which looks like the proof it is not:
+--    the audit row shows `op=INSERT, actor_uid=null, source=null`, an
+--    actor-less insert, not an editor save. **No `bp_upsert_draw_schedule_row`
+--    save has happened since the deploy at all**, so this table has no opinion
+--    on which client is live. The evidence had to come from somewhere else.
+--
+-- ★★★ **2. It does not actually matter, and that is the stronger answer.**
+--    Rolled-back probe on prod, 2026-09-13 — patch applied, column dropped,
+--    then a save sent the way each client sends it:
+--
+--      save from TODAY's client (key present, value null)  →  OK, saved
+--      save from a PRE-fix-521 client (key present, '')    →  OK, saved
+--
+--    `p_data` is a jsonb blob: once the function stops naming the key, an extra
+--    key is ignored. And the only read path in `src/` is
+--    `from('draw_schedule').select('*')`, which adapts to a missing column
+--    rather than failing on it — **an explicit select naming the column is what
+--    would have made this dangerous (PostgREST fails the whole query with
+--    42703), and there is not one.** So the drop is safe against any deployed
+--    build, including one older than the hold required.
+--
+-- ---------------------------------------------------------------------------
+-- SAFE TO DROP — checked against prod 2026-09-13, not assumed
+-- ---------------------------------------------------------------------------
+--
+--   · nothing in `src/` READS it (only the write path names it);
+--   · **exactly one object in the whole database names it** — a scan of every
+--     function, view, materialized view and index in `public` returns
+--     `bp_upsert_draw_schedule_row` and nothing else;
+--   · no view depends on it, no index covers it;
+--   · `draw_schedule_audit_trg` does not name it — the audit table has no
+--     `color_override_from` / `_to` pair to orphan;
+--   · the drop itself was executed on prod inside a rolled-back transaction and
+--     no dependent object refused it.
+--
+-- ⚠️ SO STEP 2 IS NOT OPTIONAL AND THE ORDER IS THE WHOLE RISK.
+--    `bp_upsert_draw_schedule_row` WRITES the column, so dropping it without
+--    patching the function first leaves every draw-schedule save raising
+--    `column "color_override" does not exist`. **Run both statements together
+--    or neither.**
+--
+-- ---------------------------------------------------------------------------
+-- ⏸ `status_override` DOES NOT RIDE ALONG — VERIFIED, AND STILL NOT DROPPED
+-- ---------------------------------------------------------------------------
+--
+-- fix-537 §B.3 asked whether anything reads it, because nobody had checked.
+-- **Checked on 2026-09-13, and nothing does:**
+--
+--   · the database: the same full scan of every function, view and index in
+--     `public` returns exactly one object naming `status_override` —
+--     `bp_upsert_draw_schedule_row`, the writer;
+--   · `src/`: it appears in `useUpdateDsRow.ts` (the write payload), in the
+--     generated `database.types.ts`, and in test fixtures. **No component, hook
+--     or lib reads it.** The block's real manual state lives in `manual_status`
+--     / `status`.
+--
+-- ⚠️⚠️ **It is still not dropped here: a verification is not a permission.**
+--       P-222 asks for `color_override`; a second irreversible drop riding
+--       along on a report written the same afternoon is how one clean ticket
+--       becomes an incident. It needs its own ticket, which now has its
+--       evidence ready. Reported, not acted on.
+--
+-- ---------------------------------------------------------------------------
+-- ⏸ THE 14 EMPTY STRINGS IN `notes` ARE LEFT ALONE
+-- ---------------------------------------------------------------------------
+--
+-- Normalising them is one statement (below) and it is a DATA change, not a
+-- schema one. fix-521 stopped new ones; whether to tidy the existing 14 is
+-- Bobby's call, and an empty note reads the same as no note on every surface.
+-- ===========================================================================
+
+
+-- ---------------------------------------------------------------------------
+-- 0. PRESERVE THE CONTENT FIRST  (fix-537 §B.4)
+-- ---------------------------------------------------------------------------
+--
+-- ★ The column's content is 14 empty strings — there is no colour to lose. What
+--   IS worth keeping is WHICH 14 rows carried the marker, because they are the
+--   rows that have been through the drag editor and they are the population any
+--   future question about this bug will want. Run this BEFORE the drop.
+--
+-- CREATE TABLE IF NOT EXISTS public._fix537_color_override_snapshot AS
+--   SELECT project_id, color_override, status_override, notes, manually_placed,
+--          status, updated_at, now() AS snapshot_at
+--   FROM public.draw_schedule
+--   WHERE color_override IS NOT NULL;
+--
+-- -- expect 14
+-- -- SELECT count(*) FROM public._fix537_color_override_snapshot;
+--
+-- ★ …and recorded here as well, so the fact survives even if the table is
+--   tidied away later. All 14 are `color_override = ''` AND `status_override = ''`
+--   AND `notes = ''`; 13 are `manually_placed`, the 14th (554 N 75th St) is not.
+--
+--   13eded98-7f6f-4bf6-b302-fd397918af9d  13021 23rd Ave NE          2026-07-31
+--   0c2bb4b9-35c2-48c9-b689-6d96ebf1ee90  8236 120th Ave NE          2026-08-07
+--   752c2756-40b1-4405-aba4-88f1bbadd06e  6217 45th Ave NE           2026-08-13
+--   f5108f3e-3444-4510-b51f-c005420eac16  9208 Dayton Ave N          2026-08-13
+--   75de05d6-6ffe-4022-b16e-8038d9119abf  2725 Belvidere Ave SW      2026-08-13
+--   134f8c84-0051-4bf1-8523-d9b1a1eff6fd  3225 27th Ave W            2026-08-13
+--   a12bd75e-e439-4ae7-b670-b22017f4b7dc  4425 41st Ave SW           2026-08-13
+--   199b84f1-8847-4769-b252-005fa84f08e6  5435 California Ave SW     2026-08-14
+--   3689654f-b5ba-4a4e-8ab9-17b65274f2f8  7060 Cleopatra Pl NW       2026-08-14
+--   73aed2f8-2aa9-4f31-9e5a-e654ff8bd1c1  3821 36th Ave SW           2026-08-14
+--   9aa8d2d2-ad2c-46a5-a7e8-29bbc4a4e2eb  2450 3rd Ave W             2026-08-21
+--   45e90760-6e8a-4b7b-8a22-ffa5e659081c  12238 4th Ave NW [Redesign 1]  2026-08-22
+--   2de27c15-4360-4746-9c9b-630c85fbeea8  7708 131st Ave NE          2026-09-09
+--   ff6be8fd-f6de-4ebd-9fc9-270c0cbe65e9  554 N 75th St              2026-09-10
+
+
+-- BEGIN;
+
+-- ---------------------------------------------------------------------------
+-- 1. Patch the only writer, BEFORE the column goes
+-- ---------------------------------------------------------------------------
+--
+-- ★ By ANCHOR on the live definition, never retyped — `migrations/` is partial
+--   and prod is ahead of it (the fix-425 / fix-517 pattern).
+--
+-- ★★★ THE ANCHORS ARE REGEXES, AND THAT IS THE FIX. The superseded file matched
+--     fixed-width literals: `'      color_override = p_data->>''color_override'',\n'`
+--     — six spaces, one space either side of the `=`. The live function reads
+--     `    color_override  = p_data->>'color_override',` — four spaces, and two
+--     before the `=` because the assignments are column-aligned. A literal
+--     anchor encodes somebody's indentation as if it were syntax. These three
+--     tolerate any whitespace, and were executed against prod on 2026-09-13
+--     inside a rolled-back transaction: all three matched, and the guard below
+--     did not fire.
+--
+-- DO $mig$
+-- DECLARE
+--   v_def text;
+-- BEGIN
+--   SELECT pg_get_functiondef(p.oid) INTO v_def
+--   FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
+--   WHERE n.nspname = 'public' AND p.proname = 'bp_upsert_draw_schedule_row';
+--
+--   IF v_def IS NULL THEN
+--     RAISE EXCEPTION 'fix-537: bp_upsert_draw_schedule_row not found';
+--   END IF;
+--
+--   IF position('color_override' in v_def) = 0 THEN
+--     RAISE NOTICE 'fix-537: already patched, nothing to do';
+--     RETURN;
+--   END IF;
+--
+--   -- (a) the UPDATE's assignment line
+--   v_def := regexp_replace(v_def,
+--     '[ \t]*color_override[ \t]*=[ \t]*p_data->>''color_override'',[ \t]*\r?\n', '', 'g');
+--   -- (b) the INSERT's VALUES entry
+--   v_def := regexp_replace(v_def,
+--     '[ \t]*p_data->>''color_override'',[ \t]*\r?\n', '', 'g');
+--   -- (c) the INSERT's column list, where it shares a line with status_override
+--   v_def := regexp_replace(v_def, 'color_override,[ \t]*', '', 'g');
+--
+--   IF position('color_override' in v_def) > 0 THEN
+--     RAISE EXCEPTION
+--       'fix-537: bp_upsert_draw_schedule_row still names color_override after patching — '
+--       'the anchors above did not match its current text. Re-derive them from '
+--       'pg_get_functiondef and re-run; do NOT drop the column with the writer still on it.';
+--   END IF;
+--
+--   EXECUTE v_def;
+--   RAISE NOTICE 'fix-537: bp_upsert_draw_schedule_row no longer writes color_override';
+-- END
+-- $mig$;
+
+-- ---------------------------------------------------------------------------
+-- 2. Drop the column
+-- ---------------------------------------------------------------------------
+
+-- ALTER TABLE public.draw_schedule DROP COLUMN IF EXISTS color_override;
+
+-- COMMIT;
+
+
+-- ---------------------------------------------------------------------------
+-- 3. Verify after applying
+-- ---------------------------------------------------------------------------
+--
+-- Expect 0 rows from both — no object names the column, and the column is gone:
+--
+--   SELECT p.proname FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
+--   WHERE n.nspname = 'public' AND pg_get_functiondef(p.oid) ~ 'color_override';
+--
+--   SELECT column_name FROM information_schema.columns
+--   WHERE table_schema = 'public' AND table_name = 'draw_schedule'
+--     AND column_name = 'color_override';
+--
+-- ★ Then save any draw-schedule block from the board. It should save normally:
+--   today's client still SENDS the key and the patched function ignores it.
+
+
+-- ---------------------------------------------------------------------------
+-- 4. OPTIONAL, and deliberately not run: normalise the `notes` empty strings
+-- ---------------------------------------------------------------------------
+--
+-- UPDATE public.draw_schedule SET notes = NULL WHERE notes = '';
+--
+-- ⚠️ If this is ever run, suppress the OCC/updated_at trigger first the way
+--    fix-410 and fix-425's backfills do — otherwise 14 rows get a new
+--    `updated_at` and the next person with the board open gets a spurious
+--    "modified by someone else" (fix-341).
