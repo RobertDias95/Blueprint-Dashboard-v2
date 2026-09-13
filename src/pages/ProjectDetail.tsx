@@ -35,7 +35,7 @@ import DeleteRedesignDialog from '../components/ProjectDetail/DeleteRedesignDial
 import EditRedesignModal from '../components/ProjectDetail/EditRedesignModal';
 import NewProjectWizard from '../components/NewProjectWizard';
 import ReassignDaModal from '../components/ProjectDetail/ReassignDaModal';
-import { useIsTenantAdmin } from '../hooks/useIsTenantAdmin';
+import { useProjectTeamCaps } from '../hooks/useWriteCaps';
 import { useProjectDaHandoffs } from '../hooks/useProjectDaHandoffs';
 import {
   makeRedesignWizardState,
@@ -330,7 +330,11 @@ function ProjectDetailBody({
   const [redesignSeed, setRedesignSeed] = useState<WizardState | null>(null);
   // fix-225: DA reassign (ownership handoff) — admin-only modal + shared marker.
   const [reassignOpen, setReassignOpen] = useState(false);
-  const isAdmin = useIsTenantAdmin();
+  // ★★★ fix-538 (P-026, P-234) — the ROSTER decides, and the two controls ask
+  //     separately because the SERVER answers them separately. Until Cowork
+  //     applies the staged migration this reports no capabilities, so both read
+  //     exactly as they do today: admin-only.
+  const { canReassignDa, canReassignSd } = useProjectTeamCaps();
   const handoffsQ = useProjectDaHandoffs(project.id);
   const redesignsQ = useProjectRedesigns(project.id);
   // fix-151: redesigns + their permits. Drives the Redesigns sidebar section
@@ -399,7 +403,8 @@ function ProjectDetailBody({
           initialTab={dataOpen}
           initialFocusPermitId={dataFocusPermitId}
           onClose={closeProjectData}
-          canReassignDa={isAdmin}
+          canReassignDa={canReassignDa}
+          canReassignSd={canReassignSd}
           onReassignDa={() => {
             closeProjectData();
             setReassignOpen(true);

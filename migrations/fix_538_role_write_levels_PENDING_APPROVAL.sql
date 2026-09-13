@@ -1,0 +1,301 @@
+-- ===========================================================================
+-- fix-538 (P-026, P-234) — the roster decides who may write. STAGE ONE.
+-- ===========================================================================
+--
+-- ⚠️⚠️ **NOT APPLIED.** Written for Cowork. Every statement below is commented
+--       out and a test (fix-450) keeps it that way.
+--
+-- MEASURED ON PROD 2026-09-13 (eibnmwthkcuumyclyxoe).
+--
+-- ---------------------------------------------------------------------------
+-- WHAT THIS IS
+-- ---------------------------------------------------------------------------
+--
+-- Bobby, 2026-09-10: *"design managers can go into the project details and edit
+-- anything. The design associate can only edit projects they are part of, and
+-- then entitlement people can edit the project details."*
+--
+-- Today the system knows two roles — `profiles.role` is **admin 7 · editor 30**
+-- — and **seven admins is not a role model**. The real taxonomy is already in
+-- the roster (`team_members.role`, 46 active rows across 10 roles), joined to
+-- an account by email since fix-176. This file makes the roster the source of
+-- truth for WRITE, and puts the decision in ONE place.
+--
+-- ★★★ STAGE ONE ONLY. *"A design associate may edit only projects they are part
+--     of"* is ROW-LEVEL and is NOT here. See the bottom of this file for what
+--     stage two needs, measured.
+--
+-- ---------------------------------------------------------------------------
+-- ★★★ THE ONE PLACE: `bp_write_caps`
+-- ---------------------------------------------------------------------------
+--
+--   roster role(s)              →  capability
+--   ---------------------------    ------------------------------------------
+--   dm · director               →  project_details, schematic_designer,
+--                                  reassign_da
+--   ent · ent_lead              →  project_details
+--   schematic                   →  schematic_designer
+--   da · viewer · acq · acq_lead · ca  →  (none — unchanged in stage one)
+--
+-- ★★ **The collapse rule is UNION over ACTIVE rows, and it had to be.** §A.2
+--    named Jade's three rows; measured, **EIGHT of 37 accounts hold more than
+--    one** — Jade (da+dm+schematic), Dave (director+schematic), Derry and
+--    Lindsay (dm+schematic), Briana, Miles and Bobby (ent+ent_lead), and Lucas
+--    (ent+viewer).
+--
+-- ⚠️ §A.6 says *"two rows that disagree"* fail closed. Taken as "two different
+--    strings", that denies all eight — including every `ent_lead`, both of
+--    P-234's design managers, and Bobby himself. **The rows do not disagree;
+--    they are an additive list of what a person does.** So the rule is the
+--    UNION of what each row grants, and the genuine fail-closed cases are the
+--    ones where there is nothing to union. Lucas is the case that proves it:
+--    `ent + viewer` must be `ent`, because a `viewer` row alongside a real one
+--    is a second listing, not a demotion.
+--
+-- ★★★ FAIL CLOSED, PROVED ON PROD (rolled back, 2026-09-13) — all four `(none)`:
+--       no such account · account with no roster row · every roster row
+--       `active = false` · null uid (no session).
+--
+-- ---------------------------------------------------------------------------
+-- ★★★ THE PROBE — §B, every level, pasted (rolled back, 2026-09-13)
+-- ---------------------------------------------------------------------------
+--
+--   person   roster roles              derived caps                        set SD          reassign DA
+--   -------  ------------------------  ----------------------------------  --------------  --------------
+--   Ana      schematic                 schematic_designer                  ALLOWED         REFUSED 42501
+--   Jade     da+dm+schematic           project_details, schematic_designer,
+--                                      reassign_da                         ALLOWED         ALLOWED
+--   Lucas    ent+viewer                project_details                     REFUSED 42501   REFUSED 42501
+--   EJ       viewer                    (none)                              REFUSED 42501   REFUSED 42501
+--   Ainsley  da                        (none)                              REFUSED 42501   REFUSED 42501
+--   Dave     director+schematic ADMIN  all three                           ALLOWED         ALLOWED
+--
+-- ★ Ana is P-234 closing: a `schematic` roster row now sets the Schematic
+--   Designer and is still refused a field only a `dm` may write.
+-- ★ Jade's three rows collapse to one answer.
+-- ★ Dave is the admin escape hatch, unaffected.
+--
+-- ---------------------------------------------------------------------------
+-- ⚠️⚠️ WHAT THIS FILE DOES **NOT** GATE, AND WHY
+-- ---------------------------------------------------------------------------
+--
+-- `project_details` is DERIVED here and is **not yet a write gate**. Both gates
+-- below are WIDENINGS of an admin-only check, so **nobody loses anything**.
+--
+-- ★★★ Gating the project-details write path in stage one would take project
+--     editing away from the 12 active DAs, which §A.3 forbids ("`da` →
+--     unchanged") and §A.3 also forbids fixing with a flat grant. Measured, the
+--     write path is ONE hook (`useUpdateProject` → `projects.update`) shared by
+--     every role, and the `projects` RLS UPDATE policy is
+--     `tenant_id = ANY (auth_tenant_ids())` — **every editor may already write
+--     every project directly**. Of 72 audited project edits, **70 come from
+--     people who keep access under this model and 2 from one DA, both to
+--     `unit_types`.**
+--
+-- ⚠️ So the direct-write bypass stays open in stage one, and it cannot close
+--    until the row rule exists: **closing it and scoping DAs are the same
+--    change and must land together.** Stage two.
+--
+-- ===========================================================================
+
+
+-- BEGIN;
+
+-- ---------------------------------------------------------------------------
+-- 1. The roster roles behind one account
+-- ---------------------------------------------------------------------------
+--
+-- ★ SECURITY DEFINER because the caller cannot read `auth.users`, and the join
+--   is fix-527's: `team_members.email` → account. `active` is in the WHERE, so
+--   a deactivated person derives nothing.
+--
+-- CREATE OR REPLACE FUNCTION public.bp_roster_roles(p_uid uuid DEFAULT auth.uid())
+-- RETURNS text[] LANGUAGE sql STABLE SECURITY DEFINER
+-- SET search_path TO 'public','pg_temp' AS $$
+--   SELECT COALESCE(array_agg(DISTINCT tm.role ORDER BY tm.role), ARRAY[]::text[])
+--   FROM auth.users u
+--   JOIN public.team_members tm
+--     ON lower(btrim(tm.email)) = lower(btrim(u.email)) AND tm.active
+--   WHERE u.id = p_uid;
+-- $$;
+
+-- ---------------------------------------------------------------------------
+-- 2. ★★★ THE ONE PLACE — roster role becomes write capability
+-- ---------------------------------------------------------------------------
+--
+-- ★ `&&` is array overlap, so this IS the union rule: any one qualifying row
+--   grants the capability, and no row can take one away.
+--
+-- CREATE OR REPLACE FUNCTION public.bp_write_caps(p_uid uuid DEFAULT auth.uid())
+-- RETURNS text[] LANGUAGE sql STABLE SECURITY DEFINER
+-- SET search_path TO 'public','pg_temp' AS $$
+--   SELECT array_remove(ARRAY[
+--     CASE WHEN r && ARRAY['dm','director','ent','ent_lead'] THEN 'project_details'    END,
+--     CASE WHEN r && ARRAY['dm','director','schematic']      THEN 'schematic_designer' END,
+--     CASE WHEN r && ARRAY['dm','director']                  THEN 'reassign_da'        END
+--   ], NULL)
+--   FROM (SELECT public.bp_roster_roles(p_uid) AS r) s;
+-- $$;
+
+-- CREATE OR REPLACE FUNCTION public.bp_may_set_schematic_designer()
+-- RETURNS boolean LANGUAGE sql STABLE SECURITY DEFINER
+-- SET search_path TO 'public','pg_temp' AS $$
+--   SELECT 'schematic_designer' = ANY (public.bp_write_caps());
+-- $$;
+
+-- CREATE OR REPLACE FUNCTION public.bp_may_reassign_da()
+-- RETURNS boolean LANGUAGE sql STABLE SECURITY DEFINER
+-- SET search_path TO 'public','pg_temp' AS $$
+--   SELECT 'reassign_da' = ANY (public.bp_write_caps());
+-- $$;
+
+-- CREATE OR REPLACE FUNCTION public.bp_may_edit_project_details()
+-- RETURNS boolean LANGUAGE sql STABLE SECURITY DEFINER
+-- SET search_path TO 'public','pg_temp' AS $$
+--   SELECT 'project_details' = ANY (public.bp_write_caps());
+-- $$;
+
+-- ★ The browser reads `bp_write_caps()` to decide what to RENDER. It is not
+--   the gate; the two patches below are.
+-- GRANT EXECUTE ON FUNCTION public.bp_roster_roles(uuid)              TO authenticated;
+-- GRANT EXECUTE ON FUNCTION public.bp_write_caps(uuid)                TO authenticated;
+-- GRANT EXECUTE ON FUNCTION public.bp_may_set_schematic_designer()    TO authenticated;
+-- GRANT EXECUTE ON FUNCTION public.bp_may_reassign_da()               TO authenticated;
+-- GRANT EXECUTE ON FUNCTION public.bp_may_edit_project_details()      TO authenticated;
+-- REVOKE EXECUTE ON FUNCTION public.bp_roster_roles(uuid)           FROM public, anon;
+-- REVOKE EXECUTE ON FUNCTION public.bp_write_caps(uuid)             FROM public, anon;
+-- REVOKE EXECUTE ON FUNCTION public.bp_may_set_schematic_designer() FROM public, anon;
+-- REVOKE EXECUTE ON FUNCTION public.bp_may_reassign_da()            FROM public, anon;
+-- REVOKE EXECUTE ON FUNCTION public.bp_may_edit_project_details()   FROM public, anon;
+--
+-- ⚠️ `REVOKE … FROM public, anon` and not `FROM anon` alone: `anon` inherits
+--    from PUBLIC, so revoking from `anon` reports success and does nothing
+--    (fix-157). Assert with `has_function_privilege('anon', …)`.
+
+-- ---------------------------------------------------------------------------
+-- 3. Move the two gates from "admin" to "the roster says so"
+-- ---------------------------------------------------------------------------
+--
+-- ★ BY ANCHOR on the live definition, never retyped — `migrations/` is partial
+--   and prod is ahead of it. Both functions carry the identical fix-220 gate
+--   shape, so one anchor serves both. Executed against prod on 2026-09-13 in a
+--   rolled-back transaction; both matched.
+--
+-- ⚠️ These are the ONLY two behaviour changes in this file, and both WIDEN an
+--    admin-only check. No caller loses a capability it has today.
+--
+-- DO $mig$
+-- DECLARE v_def text; v_hits int;
+-- BEGIN
+--   -- 3a. the Schematic Designer — P-234
+--   SELECT pg_get_functiondef(p.oid) INTO v_def
+--   FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
+--   WHERE n.nspname = 'public' AND p.proname = 'bp_reassign_project_sd';
+--   IF v_def IS NULL THEN
+--     RAISE EXCEPTION 'fix-538: bp_reassign_project_sd not found';
+--   END IF;
+--   v_hits := (length(v_def) - length(replace(v_def,
+--     'AND NOT public.is_tenant_admin(v_tenant) THEN', ''))) /
+--     length('AND NOT public.is_tenant_admin(v_tenant) THEN');
+--   IF v_hits <> 1 THEN
+--     RAISE EXCEPTION
+--       'fix-538: expected exactly one admin gate in bp_reassign_project_sd, found % — '
+--       're-derive the anchor from pg_get_functiondef before running this.', v_hits;
+--   END IF;
+--   v_def := replace(v_def,
+--     'AND NOT public.is_tenant_admin(v_tenant) THEN',
+--     E'AND NOT public.is_tenant_admin(v_tenant)\n     AND NOT public.bp_may_set_schematic_designer() THEN');
+--   v_def := replace(v_def,
+--     'reassigning the schematic designer is restricted to admins',
+--     'setting the schematic designer needs a schematic, dm or director roster role');
+--   EXECUTE v_def;
+--
+--   -- 3b. the project DA — the field only a design manager may write
+--   SELECT pg_get_functiondef(p.oid) INTO v_def
+--   FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
+--   WHERE n.nspname = 'public' AND p.proname = 'bp_reassign_project_da';
+--   IF v_def IS NULL THEN
+--     RAISE EXCEPTION 'fix-538: bp_reassign_project_da not found';
+--   END IF;
+--   v_hits := (length(v_def) - length(replace(v_def,
+--     'AND NOT public.is_tenant_admin(v_tenant) THEN', ''))) /
+--     length('AND NOT public.is_tenant_admin(v_tenant) THEN');
+--   IF v_hits <> 1 THEN
+--     RAISE EXCEPTION
+--       'fix-538: expected exactly one admin gate in bp_reassign_project_da, found %', v_hits;
+--   END IF;
+--   v_def := replace(v_def,
+--     'AND NOT public.is_tenant_admin(v_tenant) THEN',
+--     E'AND NOT public.is_tenant_admin(v_tenant)\n     AND NOT public.bp_may_reassign_da() THEN');
+--   v_def := replace(v_def,
+--     'reassigning a project DA is restricted to admins',
+--     'reassigning a project DA needs a dm or director roster role');
+--   EXECUTE v_def;
+--
+--   RAISE NOTICE 'fix-538: both gates now read the roster';
+-- END
+-- $mig$;
+
+-- COMMIT;
+
+
+-- ---------------------------------------------------------------------------
+-- 4. Verify after applying
+-- ---------------------------------------------------------------------------
+--
+-- Expect exactly the probe table above:
+--
+--   SELECT tm.name,
+--          array_to_string(public.bp_write_caps(u.id), ', ') AS caps
+--   FROM auth.users u
+--   JOIN public.team_members tm ON lower(tm.email) = lower(u.email) AND tm.active
+--   GROUP BY tm.name, u.id
+--   ORDER BY 1;
+--
+-- And that `anon` cannot call them:
+--
+--   SELECT has_function_privilege('anon', 'public.bp_write_caps(uuid)', 'EXECUTE');
+--   -- expect false
+--
+-- ---------------------------------------------------------------------------
+-- Undo
+-- ---------------------------------------------------------------------------
+--
+-- Re-run the same DO block with the two inserted `AND NOT public.bp_may_*()`
+-- lines removed, which restores the admin-only gate. The capability functions
+-- can stay — nothing else reads them.
+
+
+-- ===========================================================================
+-- ★★★ STAGE TWO, MEASURED — so it starts from a number (§C)
+-- ===========================================================================
+--
+-- The definition to reuse is the one My Work already ships, verbatim:
+-- `projectMatchesSelf ∪ permitMatchesSelf` — project.entitlement_lead /
+-- design_manager, ∪ permit.ent_lead / dm / da / dual_da / ca.
+--
+--   projects total                                    220
+--   projects at least one ACTIVE DA would reach       **198**
+--   projects NO DA would reach                        **22**
+--   membership pairs (DA × project)                   **318**
+--
+--   per DA:  Cam 106 (48.2%) · Marc 32 · Ahmadi 28 · Fisk 26 · Trevor 22 ·
+--            Francesca 22 · Ainsley 21 · Nicky 20 · Jade 17 · Qisheng 13 ·
+--            Shire 6 · Erick 5
+--
+-- ★★★ **Cam alone would hold 106 of 220.** A row rule is not automatically a
+--     small rule, and stage two should decide whether that is the intent before
+--     it ships.
+-- ★★ **22 projects would become editable by no DA at all.** Those need an
+--    answer — an owner, or a fallback — before the rule turns on.
+-- ★★★ **`draw_schedule.da_assigned` is NOT the membership list**, and the
+--     numbers say so out loud: 220 rows / 220 projects with **0 projects
+--     holding more than one DA slot**, against **318** membership pairs. It is
+--     a capacity slot. Using it would silently cut 98 pairs.
+--
+-- ⚠️ AND STAGE TWO MUST CLOSE THE BYPASS IN THE SAME CHANGE. The `projects`
+--    RLS UPDATE policy is `tenant_id = ANY (auth_tenant_ids())` and
+--    `authenticated` holds a direct UPDATE grant, so a row-scoped RPC is not a
+--    boundary until that policy carries the rule too. Tightening it first would
+--    take every DA's editing away; adding the RPC first leaves the bypass. **One
+--    change, both halves.**
