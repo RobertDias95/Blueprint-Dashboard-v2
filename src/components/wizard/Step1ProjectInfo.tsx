@@ -862,26 +862,27 @@ export default function Step1ProjectInfo({
             display-only; no math, no cascade.
             fix-152: this whole row (lots / corner / closing) is inherited from
             the parent in redesign mode — hidden. */}
+        {/* ═══════════════════════════════════════════════════════════
+            ★★★ fix-541 (P-236) — THE LOTS QUESTION IS GONE FROM HERE
+            ═══════════════════════════════════════════════════════════
+
+            Bobby, 2026-09-10: "moving forward, every project we enter will be
+            one lot". This is the screen that sentence is about — what gets
+            ENTERED — so the question stops being asked and new rows carry
+            DEFAULT_NUM_LOTS.
+
+            ★★★ THE DEFAULT IS NOT WRITTEN HERE. It lives once, in
+            `wizardState.ts`, exactly the way fix-410 put `is_regular_shape`
+            there: the form's default, and the only place it is written down.
+            The column has no DDL default, so there is no second answer for
+            the next person to find.
+
+            ⚠️ THE REDESIGN PATH KEEPS ITS INPUT (below). fix-191 ruled that a
+               redesign's scope can differ from the original, and a redesign is
+               spawned from an existing project rather than entered on this
+               screen. Removing both would have reversed that ruling silently. */}
         {!isRedesign && (
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-          <label className="flex flex-col gap-1">
-            <span className="text-[10px] uppercase tracking-wide text-dim">
-              Number of Lots
-            </span>
-            <select
-              value={value.num_lots}
-              onChange={(e) => set('num_lots', e.target.value)}
-              className="bg-bg border border-border rounded-md px-3 py-1.5 text-xs font-display text-text focus:outline-none focus:border-de"
-              data-testid="wizard-num-lots"
-            >
-              <option value="">—</option>
-              {Array.from({ length: 20 }, (_, i) => i + 1).map((n) => (
-                <option key={n} value={String(n)}>
-                  {n}
-                </option>
-              ))}
-            </select>
-          </label>
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
           <label className="flex flex-col gap-1">
             <span className="text-[10px] uppercase tracking-wide text-dim">
               Corner Lot

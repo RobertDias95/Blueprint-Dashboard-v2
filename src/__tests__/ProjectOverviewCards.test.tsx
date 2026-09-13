@@ -8,7 +8,13 @@ import {
   SITE_DATES_RESPONSIVE_CSS,
   SITE_DATES_SIDE_BY_SIDE_CARD_MIN,
 } from '../lib/projectCardLayout';
-import { render, screen, within, cleanup } from '@testing-library/react';
+import {
+  render,
+  screen,
+  within,
+  cleanup,
+  fireEvent,
+} from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import type { ReactNode } from 'react';
@@ -277,11 +283,46 @@ describe('fix-290 → fix-506: the Site block, and where its editors went', () =
     //    read-only. `SiteEditor` is byte-for-byte what shipped.
     cleanup();
     renderProjectData(makeProject(), [], 'site');
-    for (const id of ['pd-site-zone', 'pd-site-lots', 'pd-site-corner', 'pd-site-alley']) {
+    for (const id of ['pd-site-zone', 'pd-site-corner', 'pd-site-alley']) {
       expect(screen.getByTestId(id)).toBeInTheDocument();
     }
     expect(screen.getByTestId('pd-site-lot-w')).toBeInTheDocument();
     expect(screen.getByTestId('pd-site-lot-d')).toBeInTheDocument();
+
+    // ★★★ AMENDED BY fix-541 (P-236), AND THE CLAIM IS UNCHANGED: the fields
+    //     are still editable. `pd-site-lots` left this list because this
+    //     fixture says `num_lots: 1` — 202 of 220 projects do — and a box
+    //     whose answer is never in doubt is not a field worth carrying.
+    //
+    // ★★ "Editable" is asserted where it now lives, both ways round, so this
+    //    cannot quietly become "gone".
+    expect(screen.queryByTestId('pd-site-lots')).toBeNull();
+    expect(screen.getByTestId('site-add-lots')).toBeInTheDocument();
+  });
+
+  it('★★★ fix-541: Lots is present and editable the moment it is not 1', () => {
+    // ★ The 15 projects that genuinely hold more than one lot keep the field
+    //   — and so do the 3 that hold NULL, because a NULL is not a 1.
+    cleanup();
+    renderProjectData({ ...makeProject(), num_lots: 2 }, [], 'site');
+    expect(screen.getByTestId('pd-site-lots')).toBeInTheDocument();
+    expect(screen.queryByTestId('site-add-lots')).toBeNull();
+
+    cleanup();
+    renderProjectData({ ...makeProject(), num_lots: null }, [], 'site');
+    expect(screen.getByTestId('pd-site-lots')).toBeInTheDocument();
+  });
+
+  it('★★★ fix-541: the route back works — hiding it is not a one-way door', () => {
+    // ★★★ A project entered as 1 that turns out to be 2 must be able to reach
+    //     the field. Without this, defaulting would be a trap.
+    cleanup();
+    renderProjectData(makeProject(), [], 'site');
+    expect(screen.queryByTestId('pd-site-lots')).toBeNull();
+    fireEvent.click(screen.getByTestId('site-add-lots'));
+    expect(screen.getByTestId('pd-site-lots')).toBeInTheDocument();
+    // ★ and the affordance goes away once it has done its job
+    expect(screen.queryByTestId('site-add-lots')).toBeNull();
   });
 });
 

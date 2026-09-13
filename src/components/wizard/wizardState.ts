@@ -6,6 +6,25 @@ import {
 
 const BUILDING_PERMIT = 'Building Permit';
 
+/**
+ * ★★★ fix-541 (P-236) — THE ONE PLACE THE LOTS DEFAULT IS WRITTEN DOWN.
+ *
+ * Bobby, 2026-09-10: *"moving forward, every project we enter will be one
+ * lot, so idk if we still need it in the project details/add a project
+ * screen?"* Add-a-project stops asking and every new row carries this.
+ *
+ * ★★★ ONE PLACE, DELIBERATELY. `projects.num_lots` has **no DDL default**
+ *     (checked on prod), and nothing else writes a fallback: the creation RPC
+ *     passes the wizard's value through `NULLIF(…,'')::int` and would write
+ *     NULL if this were blank. A second answer in the database is how the next
+ *     person changing this rule finds two — this Brain has removed
+ *     two-writers-of-one-rule four times (P-207, P-179, P-244, fix-531).
+ *
+ * ★ It is a STRING because the whole wizard form is strings; `intOrNull`
+ *   converts it on the way out.
+ */
+export const DEFAULT_NUM_LOTS = '1';
+
 /** fix-88: Units count is required at submit. Returns true when the
  *  string value parses to a finite number > 0. Empty string, '0', and
  *  negatives all fail. 2 prod projects (2724 Walnut Ave SW + 1 other)
@@ -111,7 +130,14 @@ export interface WizardState {
   units: string;
   /** fix-122: count of distinct lots (subdivisions). Stored as a string in
    *  the wizard form to match the existing numeric-input pattern; empty
-   *  string = unset; the create RPC NULLIFs '' → NULL. */
+   *  string = unset; the create RPC NULLIFs '' → NULL.
+   *
+   *  ★★★ fix-541 (P-236): add-a-project no longer ASKS. Bobby, 2026-09-10:
+   *  *"moving forward, every project we enter will be one lot"*. The field
+   *  stays — 15 of 220 projects genuinely hold more than one — but the new
+   *  -project screen defaults it instead of asking, and Project Details
+   *  shows it only when it is not 1. The REDESIGN path still asks (fix-191).
+   */
   num_lots: string;
   /** fix-122: corner-lot flag. '' = unset, 'yes' / 'no' = user pick. */
   is_corner_lot: string;
@@ -224,7 +250,13 @@ export function makeEmptyWizardState(): WizardState {
     go_date: '',
     acq_target: '',
     units: '',
-    num_lots: '',
+    // ★★★ fix-541 (P-236): the form's default, and the ONLY place it is
+    //   written down — the same shape fix-410 used for `is_regular_shape`
+    //   two lines below. `projects.num_lots` has no DDL default and the
+    //   creation RPC writes `NULLIF(…,'')::int`, so if this said `''` a
+    //   project entered after fix-541 would land as **NULL**, not 1 — which
+    //   is precisely the state §C found on three redesigns.
+    num_lots: DEFAULT_NUM_LOTS,
     is_corner_lot: '',
     // ★ fix-410: the form's default, and the ONLY place it is written down.
     //   The column has no DDL default — see the migration for why.
@@ -321,8 +353,16 @@ export function makeRedesignWizardState(
     address: `${parentProject.address} [Redesign ${n}]`,
     juris: parentProject.juris ?? '',
     units: parentProject.units != null ? String(parentProject.units) : '',
+    // ★★ fix-541: a redesign still inherits the parent's count and still gets
+    //    an input (fix-191 — its scope can differ). What changed is the
+    //    FALLBACK: a parent with no recorded count used to seed '', which the
+    //    RPC turns into NULL. **That is exactly how §C's three NULLs were
+    //    made** — all three are redesigns of parents that say 1. It now falls
+    //    back to the same one place everything else uses.
     num_lots:
-      parentProject.num_lots != null ? String(parentProject.num_lots) : '',
+      parentProject.num_lots != null
+        ? String(parentProject.num_lots)
+        : DEFAULT_NUM_LOTS,
     is_corner_lot:
       parentProject.is_corner_lot === true
         ? 'yes'
