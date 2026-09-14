@@ -115,11 +115,57 @@ describe('fix-484 §C: the MODAL reads in lifecycle order', () => {
     //    SECOND. The seed's `ord` is a creation order that breaks a
     //    millisecond tie; this list is the statement about the lifecycle, and
     //    it is the one the modal reads.
+    // ★★★ AMENDED BY fix-542 (P-218), AND fix-484's RULING IS UNTOUCHED.
+    //     The three phases are still in Bobby's 2026-09-02 order, still ahead
+    //     of the CR rounds, and still the statement rather than the seed's
+    //     `ord`. What arrived above them is **General**, which is not a phase
+    //     at all — it is where anything that is not a stage goes, so it sits
+    //     above the stages rather than inside them. Notes lands there.
     expect(CHAT_PHASE_ORDER).toEqual([
+      'General',
       'ACQ Questions',
       'Preliminary Assessment',
       'Design Phase',
     ]);
+    // ★★ The part fix-484 actually ruled, asserted on its own so a later
+    //    insertion at the head cannot be mistaken for a re-ordering of these.
+    expect(CHAT_PHASE_ORDER.slice(1)).toEqual([
+      'ACQ Questions',
+      'Preliminary Assessment',
+      'Design Phase',
+    ]);
+  });
+
+  it('★★★ fix-542: General sorts FIRST, above every phase and every CR', () => {
+    const ps = groupIntoPosts([
+      post('CR 2', '2026-01-06T00:00:00Z'),
+      post('Design Phase', '2026-01-03T00:00:00Z'),
+      post('General', '2026-01-09T00:00:00Z'),
+      post('ACQ Questions', '2026-01-01T00:00:00Z'),
+      post('CR 1', '2026-01-05T00:00:00Z'),
+      post('Preliminary Assessment', '2026-01-02T00:00:00Z'),
+    ]);
+    // ★ Newest of the lot, and still first — rank beats creation.
+    expect(titles(sortPostsByLifecycle(ps))).toEqual([
+      'General',
+      'ACQ Questions',
+      'Preliminary Assessment',
+      'Design Phase',
+      'CR 1',
+      'CR 2',
+    ]);
+  });
+
+  it('★★ …and the CR offset still follows the list length automatically', () => {
+    // ★ `lifecycleRank` offsets CR rounds by `CHAT_PHASE_ORDER.length`, so
+    //   adding General did not need that touched — which is what the comment
+    //   above the list promised. A free-form thread still lands last.
+    const ps = groupIntoPosts([
+      post('on hold', '2026-01-01T00:00:00Z'),
+      post('CR 1', '2026-01-05T00:00:00Z'),
+      post('General', '2026-01-09T00:00:00Z'),
+    ]);
+    expect(titles(sortPostsByLifecycle(ps))).toEqual(['General', 'CR 1', 'on hold']);
   });
 
   it('★★ a phase matches case-insensitively — a hand-typed one lands with the seed', () => {

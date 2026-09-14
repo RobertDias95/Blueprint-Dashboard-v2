@@ -577,9 +577,35 @@ export function groupIntoPosts(
 // place, and flipping two entries here is the whole edit if Bobby reads it the
 // other way.
 
+/**
+ * ★★ fix-542 (P-218) — what an authorless message is CALLED.
+ *
+ * ★★★ 55 of the 107 notes coming across from Notes have no author, and
+ *     `project_messages.author_id` is nullable, so they arrive authorless and
+ *     stay that way. **Do not attribute them to the migrator, to Bobby, or to
+ *     the project DA** — an invented author is worse than a blank one.
+ *
+ * ★ The word matters: *Unknown* claims we had it and lost it. **Not
+ *   recorded** says it was never captured, which is what actually happened.
+ *   fix-363 established that third state and this is the same distinction.
+ */
+export const NO_AUTHOR_LABEL = 'Not recorded';
+
 /** ★★★ THE LIFECYCLE, DECLARED ONCE. Compared case-insensitively so a hand-typed
- *  "acq questions" lands with the seeded one. */
+ *  "acq questions" lands with the seeded one.
+ *
+ *  ★★★ fix-542 (P-218) — GENERAL IS FIRST, AND IT IS FIRST BECAUSE IT IS NOT A
+ *      PHASE. The other three are stages a project moves through; General is
+ *      where anything that is not a stage goes, which is why it sits above them
+ *      rather than at whatever point in the lifecycle it would otherwise fall.
+ *      Notes lands here, so on 57 projects this is where the history is.
+ *
+ *  ★★ ONE PLACE, AND THIS IS THE WHOLE EDIT. `lifecycleRank` reads this list
+ *     and the CR offset is `CHAT_PHASE_ORDER.length`, so adding an entry needs
+ *     nothing else touched — which is exactly what the fix-484 comment above
+ *     promised, now collected on. */
 export const CHAT_PHASE_ORDER: readonly string[] = [
+  'General',
   'ACQ Questions',
   'Preliminary Assessment',
   'Design Phase',
