@@ -998,3 +998,61 @@ export function blockMajorityInRange(
   //     renders in both wherever a column exists for another reason.
   return inside * 2 > total;
 }
+
+// ===========================================================================
+// ★★★ fix-568 §E (P-272) — A SEARCH SNAPS TO THE **CURRENT** PROJECT
+// ===========================================================================
+//
+// Bobby: *"if I type in 2443 … it should show me the current version on the
+// draw schedule, not the original."*
+//
+// ★★★ THE CAUSE IS THE WORD **EARLIEST**. The board's search haystack keeps
+//     the RAW address deliberately (fix-530 §C: somebody typing "redesign" is
+//     looking for exactly those 18 projects), so `2443` matches the original
+//     AND its redesign — and the snap took whichever block started first.
+//     Measured prod 2026-09-14: `2443 5th Ave W` starts **2026-01-05**,
+//     `[Redesign 1]` starts **2026-04-13**. The board jumped to Q1 and showed
+//     the retired one. **Every reuse-redesign has this shape**, because a
+//     redesign is by definition the later block.
+//
+// ★★★ THIS CHANGES THE SNAP TARGET AND NOTHING ELSE. The caller still renders
+//     every matching block, so **the original's block stays on the board,
+//     hatched.** Removing it would reverse the 2026-09-10 ruling on P-023
+//     (*Pipeline hidden · Library hidden · Draw Schedule stays, purple-hatched
+//     — the board is a record of time*), and Bobby's sentence is about what a
+//     search SHOWS him, not about deleting blocks.
+//
+// ★★ THE FALLBACK IS LOAD-BEARING. An original with no redesign, a cancelled
+//    project somebody is looking for on purpose, any ordinary project — all
+//    still snap. Retired blocks are only ignored when a LIVE one also matched.
+
+/** One matched block, as far as the snap is concerned. */
+export interface SnapCandidate {
+  startWeek: string;
+  /** From `isRetiredProject` — cancelled OR redesigned-away (fix-524 §A). */
+  retired: boolean;
+}
+
+/**
+ * The week the board should jump to: the earliest LIVE match, or the earliest
+ * retired one when nothing live matched.
+ *
+ * ★ Returns null when nothing matched at all, which the caller reads as
+ *   "stay put" — typing a string that finds no scheduled project must not
+ *   throw the reader into some arbitrary quarter.
+ */
+export function preferLiveSnapWeek(
+  candidates: readonly SnapCandidate[],
+): string | null {
+  let live: string | null = null;
+  let retired: string | null = null;
+  for (const c of candidates) {
+    if (!c.startWeek) continue;
+    if (c.retired) {
+      if (retired === null || c.startWeek < retired) retired = c.startWeek;
+    } else if (live === null || c.startWeek < live) {
+      live = c.startWeek;
+    }
+  }
+  return live ?? retired;
+}

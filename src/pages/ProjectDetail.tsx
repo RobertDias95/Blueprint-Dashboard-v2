@@ -1,8 +1,10 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useLocation, useParams, useSearchParams } from 'react-router-dom';
 import OriginLink from '../components/OriginLink';
-import { RETIRED_PALETTE, retiredHatch } from '../lib/retiredState';
 import { displayAddress } from '../lib/displayAddress';
+// ★★★ fix-568: the greyed, clickable snapshot frame — §A's treatment, §B's
+//     marker and §C's opt-in click handler, in one wrapper.
+import SnapshotFrame from '../components/ProjectDetail/SnapshotFrame';
 // ★★★ fix-556 §B: the ONE union — the same module the Pipeline asks.
 import {
   effectivePermits,
@@ -583,9 +585,15 @@ function ProjectDetailBody({
             unresolvable asymmetry — milestones compare, units supersede, team
             undecided. **You do not show both.** There is no comparison view
             here and none is coming. */}
-        {supersededBy && (
-          <SupersededBadge successor={supersededBy} />
-        )}
+        {/* ★★★ fix-568 §B (P-272) — THE `↻ SUPERSEDED BY …` PILL IS GONE.
+            It was a LABEL COMPENSATING FOR A SCREEN THAT NEVER LOOKED ANY
+            DIFFERENT. §A greys the four cards, so the fact is now carried by
+            the appearance and confirmed by the corner-to-corner marker inside
+            `SnapshotFrame` — the same move fix-530 §A made when the legend
+            already carried colour→status and the block stopped repeating it.
+            ★ The way BACK to the current project did not go with it: the whole
+              greyed area is now the link (§C), which is a bigger target than
+              the pill ever was. */}
         {/* fix-167: "On Hold — <reason>" badge — the answer to "why hasn't
             this issued?". Renders only when an active hold exists. */}
         <ProjectHoldBadge projectId={project.id} />
@@ -643,6 +651,15 @@ function ProjectDetailBody({
               className="flex flex-col"
               data-testid="project-overview-pane"
             >
+              {/* ★★★ fix-568 §A/§B/§C (P-272) — THE FOUR CARDS ARE THE SNAPSHOT.
+                  Design Plan of Record · Project · Team (ProjectDetailHeader)
+                  and Permits (ScheduleHealthTable) render greyed on a
+                  superseded original, carry the corner-to-corner marker that
+                  replaced both chips, and navigate to the current project when
+                  a click lands on nothing interactive.
+                  ★ `successor={null}` on every other project, so a normal
+                    project and a redesign are pixel-unchanged. */}
+              <SnapshotFrame successor={supersededBy}>
               <ProjectDetailHeader
                 project={project}
                 permits={effective}
@@ -684,6 +701,7 @@ function ProjectDetailBody({
                   It is the only surface that can rename or delete a redesign,
                   so deleting the rail without moving it would have removed a
                   control this ticket never mentions. */}
+              </SnapshotFrame>
               <RedesignsSection
                 parentId={project.id}
                 onOpenPermits={() => setDataOpen('permits')}
@@ -779,36 +797,21 @@ function RedesignOfBadge({
   );
 }
 
-/**
- * ★★★ fix-524 §D — THE ORIGINAL SAYS PLAINLY THAT IT HAS BEEN SUPERSEDED.
+/*
+ * ★★★ fix-568 §B (P-272) — `SupersededBadge` WAS DELETED HERE.
  *
- * ★ It is the retired PURPLE, and it is the same paint the Draw Schedule block
- *   and the legend use — §A's whole point is that a reader learns one texture
- *   and one hue and then recognises them everywhere. `RETIRED_PALETTE` is the
- *   single definition; nothing here picks a colour.
+ * fix-524 §D added it so the original would "say plainly that it has been
+ * superseded". It did its job and is retired by a better one: the four cards
+ * are greyed now, so the fact is in the APPEARANCE rather than in a pill
+ * beneath the address, and the whole greyed area is the way back to the
+ * current project (`SnapshotFrame`, §C) instead of one small chip.
  *
- * ★★ "Superseded by" rather than "Redesigned": on the board the reader is
- *    scanning many projects and wants the EVENT; standing on this page they
- *    want the CONSEQUENCE — that this is not where the work is any more, and
- *    where it went instead.
+ * ★ Recorded rather than silently removed: fix-524 §D's RULING — that an
+ *   original must state its own retirement and offer the way forward — is
+ *   UNCHANGED and still honoured. Only the shape that carried it moved.
+ *   Its read-level freeze (`dataOpen = supersededBy ? null : …`) is untouched.
  */
-function SupersededBadge({ successor }: { successor: { id: string; address: string } }) {
-  const p = RETIRED_PALETTE.redesigned;
-  return (
-    <OriginLink
-      to={`/project/${successor.id}`}
-      className="inline-block mt-1 text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full border hover:opacity-80 transition"
-      style={{
-        background: retiredHatch('redesigned'),
-        color: p.text,
-        borderColor: p.border,
-      }}
-      data-testid="pd-superseded-badge"
-    >
-      ↻ Superseded by {displayAddress(successor.address)}
-    </OriginLink>
-  );
-}
+
 
 // Q9.5.e-fix-1: page chrome bar per v1 :751-756. Three-section layout
 // using absolute centering on the title so the side buttons can grow
@@ -860,7 +863,17 @@ function ProjectPageChrome({
     //    badge and the Reuse editor all link project → project, and a project's
     //    name is its ADDRESS. The link records only where it was; the address
     //    is looked up here, where the cached list already is.
-    labelForProject: (id) => projects.find((p) => p.id === id)?.address ?? null,
+    // ★★★ fix-568 §D (P-272) — AND IT IS STRIPPED. This was a MISSED
+    //     `displayAddress` CALL SITE, not the stored value: fix-556 §C applied
+    //     the helper at 17 places by walking the JSX, and this address never
+    //     appears in JSX — it is returned from a callback into
+    //     `previousTarget`, which renders it. So the back button read
+    //     `← 2443 5th Ave W [Redesign 1]` while every other surface showed the
+    //     plain address.
+    // ★ One helper, the same one — never a second stripper (fix-530 §C).
+    //   `projects.address` itself is untouched; this is the render edge.
+    labelForProject: (id) =>
+      displayAddress(projects.find((p) => p.id === id)?.address) || null,
   });
   return (
     <div
@@ -905,21 +918,19 @@ function ProjectPageChrome({
       <div className="flex items-center gap-2">
         {frozen ? (
           // ★★ NOT a disabled button. A disabled ⚙ says *"you may not do this"*,
-          //    which invites somebody to go looking for permission; this says
-          //    what is true — the project is a snapshot, and the place to edit
-          //    is the one that superseded it. fix-523 §B2's ruling, generalised:
-          //    do not offer an affordance that cannot work.
-          <span
-            className="px-3 py-1 rounded-md text-xs font-bold border"
-            style={{
-              background: retiredHatch('redesigned'),
-              color: RETIRED_PALETTE.redesigned.text,
-              borderColor: RETIRED_PALETTE.redesigned.border,
-            }}
-            data-testid="project-frozen-note"
-          >
-            ↻ Snapshot — read only
-          </span>
+          //    which invites somebody to go looking for permission; fix-523
+          //    §B2's ruling, generalised: do not offer an affordance that
+          //    cannot work.
+          //
+          // ★★★ fix-568 §B — AND THE `↻ Snapshot — read only` CHIP THAT USED
+          //     TO STAND HERE IS GONE. The button is still ABSENT, which is the
+          //     part that was load-bearing; what went is the label, because §A
+          //     now makes the screen itself say it. Two chips explaining an
+          //     appearance that never changed were the defect.
+          //
+          // ★ Nothing replaces it in the chrome: the marker belongs over the
+          //   greyed content it describes, not in a corner away from it.
+          null
         ) : (
           <button
             onClick={onSettings}
