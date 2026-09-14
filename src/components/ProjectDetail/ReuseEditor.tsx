@@ -1,4 +1,6 @@
 import { useMemo, useState } from 'react';
+// ★ fix-556 §C: the ONE strip (fix-530).
+import { displayAddress } from '../../lib/displayAddress';
 import OriginLink from '../OriginLink';
 import { useUpdateProject } from '../../hooks/useUpdateProject';
 import { parseUnitTypes } from '../../lib/unitTypeNaming';
@@ -89,9 +91,9 @@ export default function ReuseEditor({
               to={`/project/${source.id}`}
               className="text-[9px] font-bold px-1.5 py-0.5 rounded border bg-jv-bg text-jv border-jv-border hover:underline"
               data-testid="pd-reuse-source-link"
-              title={`Templated off ${source.address}`}
+              title={`Templated off ${displayAddress(source.address)}`}
             >
-              ♻ Reuse of {source.address}
+              ♻ Reuse of {displayAddress(source.address)}
             </OriginLink>
             <button
               type="button"

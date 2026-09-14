@@ -56,6 +56,11 @@ import {
   type HoldFilterMode,
 } from '../lib/holdFilter';
 import type { ProjectHold, Stage, TeamMember } from '../lib/database.types';
+// ★ fix-556 §C: the ONE strip (fix-530). `[Redesign N]` never reaches a screen.
+import { displayAddress } from '../lib/displayAddress';
+// ★ fix-556 §D: the shared hatch + palette (fix-524 §A) — one treatment for
+//   a retired project, never a second purple.
+import { RETIRED_PALETTE, retiredHatch } from '../lib/retiredState';
 
 // fix-90: Project View overhaul. Bobby's Monday triage workspace.
 //
@@ -111,9 +116,36 @@ export default function ProjectList() {
       ),
     [projectsQ.data, permitsQ.data, reviewersQ.data],
   );
+  // ═══════════════════════════════════════════════════════════════════════
+  // ★★★ fix-556 §D (P-263) — ONE ROW PER LINEAGE, AND IT IS THE CURRENT ONE
+  // ═══════════════════════════════════════════════════════════════════════
+  //
+  // Today this table lists `2443 5th Ave W` and `2443 5th Ave W [Redesign 1]`
+  // as two peer rows — and §C has just made them read as the SAME address, so
+  // leaving both would print one address twice with different numbers beside
+  // it. The current project is the row; the original folds under it.
+  //
+  // ★★★ THE ORIGINAL IS REMOVED BEFORE FILTERING, NOT AFTER. Counts, the
+  //     Stage / Ent / DA / Juris options, the Active toggle and every sort all
+  //     read `currentRows`, so `N total · M match` counts current projects and
+  //     a folded original is never a match on its own — searching `2443` finds
+  //     one. Hiding it at render time instead would have left it in all four.
+  //
+  // ★★ IT IS NOT DROPPED. It is indexed by its successor so that successor's
+  //    second caret can reveal it — the way back to the frozen snapshot, which
+  //    fix-524 §D made a real destination.
+  const foldedOriginalBySuccessor = useMemo(() => {
+    const m = new Map<string, ProjectRow>();
+    for (const r of allRows) if (r.supersededBy) m.set(r.supersededBy, r);
+    return m;
+  }, [allRows]);
+  const currentRows = useMemo(
+    () => allRows.filter((r) => !r.supersededBy),
+    [allRows],
+  );
   const filtered = useMemo(
-    () => filterProjectRows(allRows, filters, noteSearchQ.data),
-    [allRows, filters, noteSearchQ.data],
+    () => filterProjectRows(currentRows, filters, noteSearchQ.data),
+    [currentRows, filters, noteSearchQ.data],
   );
   // fix-176: role-aware "My work" scope, layered on top of the manual filters.
   // ent_lead/dm -> projects they're on (project-level role); da -> projects
@@ -181,9 +213,9 @@ export default function ProjectList() {
 
   const jurisOptions = useMemo(() => {
     const set = new Set<string>();
-    for (const r of allRows) if (r.project.juris) set.add(r.project.juris);
+    for (const r of currentRows) if (r.project.juris) set.add(r.project.juris);
     return Array.from(set).sort();
-  }, [allRows]);
+  }, [currentRows]);
 
   const entLeadOptions = useMemo(
     () => uniqueNamesByRole(teamQ.all ?? [], (r) => r === 'ent' || r === 'ent_lead'),
@@ -251,7 +283,7 @@ export default function ProjectList() {
         daOptions={daOptions}
         onPatch={patch}
         onReset={resetFilters}
-        totalCount={allRows.length}
+        totalCount={currentRows.length}
         matchCount={sorted.length}
         onAddProject={() => setWizardOpen(true)}
         scopeMode={scopeMode}
@@ -311,6 +343,15 @@ export default function ProjectList() {
                   }
                   expanded={expandedById.get(row.project.id) ?? false}
                   onToggle={() => toggleExpanded(row.project.id)}
+                  /* ★ fix-556 §D: the original this row supersedes, if any.
+                     Its own caret, collapsed by default. */
+                  original={foldedOriginalBySuccessor.get(row.project.id) ?? null}
+                  originalExpanded={
+                    expandedById.get(`orig:${row.project.id}`) ?? false
+                  }
+                  onToggleOriginal={() =>
+                    toggleExpanded(`orig:${row.project.id}`)
+                  }
                 />
               ))}
             </tbody>
@@ -584,11 +625,19 @@ function ProjectRowView({
   hold,
   expanded,
   onToggle,
+  original = null,
+  originalExpanded = false,
+  onToggleOriginal,
 }: {
   row: ProjectRow;
   hold: Pick<ProjectHold, 'reason' | 'hold_start' | 'note'> | null;
   expanded: boolean;
   onToggle: () => void;
+  /** ★ fix-556 §D: the project this one superseded, folded under it. Optional
+   *  and defaulted, so every existing caller renders exactly as before. */
+  original?: ProjectRow | null;
+  originalExpanded?: boolean;
+  onToggleOriginal?: () => void;
 }) {
   const hasPermits = row.permits.length > 0;
   return (
@@ -622,10 +671,32 @@ function ProjectRowView({
               className="hover:underline"
               data-testid={`project-view-link-${row.project.id}`}
             >
-              {row.project.address}
+              {displayAddress(row.project.address)}
             </OriginLink>
             {/* fix-178: on-hold badge inline with the address. */}
             <HoldBadge hold={hold} testid={`project-view-hold-${row.project.id}`} />
+            {/* ★★★ fix-556 §D — THE WAY DOWN TO THE ORIGINAL.
+                A second disclosure, not a second row: the lineage is one line
+                until somebody asks for its history. Collapsed by default, and
+                absent entirely for the 203 projects that superseded nothing. */}
+            {original && (
+              <button
+                type="button"
+                onClick={onToggleOriginal}
+                aria-expanded={originalExpanded}
+                aria-label={
+                  originalExpanded ? 'Hide original project' : 'Show original project'
+                }
+                className="text-[9px] font-extrabold uppercase tracking-wide px-1 rounded border"
+                style={{
+                  color: RETIRED_PALETTE.redesigned.text,
+                  borderColor: RETIRED_PALETTE.redesigned.border,
+                }}
+                data-testid={`project-view-original-toggle-${row.project.id}`}
+              >
+                {originalExpanded ? '▾' : '▸'} Original
+              </button>
+            )}
           </div>
         </td>
         <td className="px-2 py-1.5 text-muted">{row.project.juris ?? '—'}</td>
@@ -656,6 +727,62 @@ function ProjectRowView({
           <td />
           <td colSpan={7} className="px-2 pb-2 pt-1">
             <PermitMiniTable row={row} />
+          </td>
+        </tr>
+      )}
+      {/* ★★★ fix-556 §D — THE ORIGINAL, INDENTED AND MARKED.
+          ★★ THE MARKER IS THE `ORIGINAL` CHIP, and it is the ONE marker this
+             ticket introduces. Where the purple hatch already renders — the
+             Draw Schedule block, the Library row — that treatment already says
+             this, and §D forbids touching either, so the chip is used at the one
+             site that lists an original WITHOUT the hatch: here.
+          ★ The link opens the frozen snapshot fix-524 §D built. It is a plain
+            `OriginLink` to the project, exactly like the current row's — the
+            snapshot is what that page renders for a superseded project, so
+            there is no second destination to keep in step. */}
+      {original && originalExpanded && (
+        <tr
+          className="border-b border-border"
+          style={{ background: retiredHatch('redesigned') }}
+          data-testid={`project-view-original-row-${row.project.id}`}
+        >
+          <td />
+          <td className="px-2 py-1.5 pl-6 font-display font-bold">
+            <div className="flex items-center gap-2 flex-wrap">
+              <span className="text-dim" aria-hidden>
+                ↳
+              </span>
+              <OriginLink
+                to={`/project/${original.project.id}`}
+                className="hover:underline line-through"
+                style={{ color: RETIRED_PALETTE.redesigned.text }}
+                data-testid={`project-view-original-link-${original.project.id}`}
+              >
+                {displayAddress(original.project.address)}
+              </OriginLink>
+              <span
+                className="text-[9px] font-extrabold uppercase tracking-wide px-1 rounded border"
+                style={{
+                  color: RETIRED_PALETTE.redesigned.text,
+                  borderColor: RETIRED_PALETTE.redesigned.border,
+                }}
+                data-testid={`project-view-original-chip-${original.project.id}`}
+              >
+                Original
+              </span>
+            </div>
+          </td>
+          <td className="px-2 py-1.5 text-muted">
+            {original.project.juris ?? '—'}
+          </td>
+          <td className="px-2 py-1.5 font-mono text-muted">
+            {original.project.go_date ?? '—'}
+          </td>
+          <td colSpan={3} className="px-2 py-1.5 text-[10px] text-muted">
+            Superseded by this project.
+          </td>
+          <td className="px-2 py-1.5 text-center font-mono text-muted">
+            {original.permits.length || '—'}
           </td>
         </tr>
       )}

@@ -3,6 +3,12 @@ import { Link, useLocation, useParams, useSearchParams } from 'react-router-dom'
 import OriginLink from '../components/OriginLink';
 import { RETIRED_PALETTE, retiredHatch } from '../lib/retiredState';
 import { displayAddress } from '../lib/displayAddress';
+// ★★★ fix-556 §B: the ONE union — the same module the Pipeline asks.
+import {
+  effectivePermits,
+  reusesOriginalPermits,
+  permitProvenanceLine,
+} from '../lib/effectivePermits';
 import { previousTarget } from '../lib/previousOrigin';
 import { useProjects } from '../hooks/useProjects';
 import { usePermitsByProject } from '../hooks/usePermitsByProject';
@@ -187,11 +193,63 @@ function ProjectDetailBody({
       ) ?? null,
     [projectsQ.data, project.id],
   );
+  // ═══════════════════════════════════════════════════════════════════════
+  // ★★★ fix-556 §B (P-263) — A REUSE-REDESIGN RENDERS THE ORIGINAL'S PERMITS,
+  //     AND THEY ARE THE SAME ROWS
+  // ═══════════════════════════════════════════════════════════════════════
+  //
+  // Bobby ruled the model on P-220, 09-10: *copy → freeze the original → if it
+  // reuses the permits, **mirror** them onto the redesign so there is no
+  // duplicate input.* fix-524 shipped every part of that except the mirror, so
+  // the redesign's Overview said **PERMITS (0)** while its original held four.
+  //
+  // ★★★ ONE EDITOR, ONE ROW, REACHED FROM A SECOND SCREEN. These are the
+  //     original's `permits` rows themselves — not copies, not a read-only
+  //     projection — handed to the SAME `ScheduleHealthTable` / `SidebarRow` /
+  //     Quick Edit every permit uses. So a save lands on the row that exists.
+  //     Building a second editor here is what P-220 named the fourth
+  //     two-writers trap; rendering the same one is the opposite of it.
+  //
+  // ★★ The query is gated on the flag, so the 203 projects that are not
+  //    reuse-redesigns never issue it.
+  const originalPermitsQ = usePermitsByProject(
+    reusesOriginalPermits(project)
+      ? project.redesign_of_project_id ?? undefined
+      : undefined,
+  );
+  /** This project's permits as a reader should see them: its own ∪ the
+   *  original's, iff it reuses them. ★ `null` is not `true` — 2 of 17 redesigns
+   *  are null on prod and they mirror nothing. */
+  const effective = useMemo<PermitWithCycles[]>(
+    () => effectivePermits(project, permits, originalPermitsQ.data),
+    [project, permits, originalPermitsQ.data],
+  );
+  /** The provenance sentence, or `null` when nothing is mirrored.
+   *  ★ The address is stripped by `displayAddress` HERE, at the render edge —
+   *    `effectivePermits` must not become a second address-strip (fix-530 §C). */
+  const permitsFromOriginal = useMemo(() => {
+    if (!reusesOriginalPermits(project)) return null;
+    // ★ Keyed off `projectsQ.data`, not the `?? []` alias above: the fallback
+    //   is a fresh array literal every render, which would make this memo
+    //   useless and add an `exhaustive-deps` warning to the baseline — the
+    //   same reason fix-524's `supersededBy` memo reads it that way.
+    const original = projectsQ.data?.find(
+      (p) => p.id === project.redesign_of_project_id,
+    );
+    return permitProvenanceLine(displayAddress(original?.address));
+  }, [projectsQ.data, project]);
+
   // Building Permit is the canonical anchor for project-level fields
   // (matches v1's `bp = ps.filter(p => p.type === 'Building Permit')[0] || ps[0]`).
+  // ★ fix-556 §B: off the EFFECTIVE set. A reuse-redesign has no BP of its own,
+  //   so every project-level field that anchors on the BP read `null` here —
+  //   the same hole `useOriginalPermitForRedesign` (fix-146) was opened to patch
+  //   for one field, now closed for all of them from one place.
   const bp = useMemo(() => {
-    return permits.find((p) => p.type === 'Building Permit') ?? permits[0] ?? null;
-  }, [permits]);
+    return (
+      effective.find((p) => p.type === 'Building Permit') ?? effective[0] ?? null
+    );
+  }, [effective]);
 
   // fix-217: deep-link target permit from ?permit=<id> (My Tasks → "Open in
   // Project View"). Resolves to a real permit id on this project, else null (an
@@ -206,9 +264,14 @@ function ProjectDetailBody({
   // runtime type) so downstream selection comparisons stay self-consistent.
   const permitParamId = useMemo(() => {
     if (!permitParam) return null;
-    const match = permits.find((p) => String(p.id) === String(permitParam));
+    // ★★★ fix-556 §B — RESOLVED AGAINST THE **EFFECTIVE** PERMITS.
+    //     This is fix-421's quick-edit bug exactly: a resolver that looks only
+    //     at *this* project's own rows returns `null` for every mirrored permit,
+    //     so `?permit=<the original's ULS>` landed on the overview and the deep
+    //     link from My Tasks silently did nothing.
+    const match = effective.find((p) => String(p.id) === String(permitParam));
     return match ? match.id : null;
-  }, [permitParam, permits]);
+  }, [permitParam, effective]);
 
   // Q9.5.e-fix-1: default to project-overview view (null selection)
   // per v1 spatial pattern (index.html:3611). Sidebar click sets a
@@ -236,7 +299,7 @@ function ProjectDetailBody({
   }
   const selectedPermit =
     selectedPermitId !== null
-      ? permits.find((p) => p.id === selectedPermitId) ?? null
+      ? effective.find((p) => p.id === selectedPermitId) ?? null
       : null;
 
   // fix-217: the permit-detail pane, scrolled into view once the deep-linked
@@ -347,8 +410,14 @@ function ProjectDetailBody({
   const redesignsWithPermitsQ = useProjectRedesignsWithPermits(project.id);
   const lineagePermits = useMemo<PermitWithCycles[]>(() => {
     const redesignPermits = redesignsWithPermitsQ.data.flatMap((r) => r.permits);
-    return redesignPermits.length > 0 ? [...permits, ...redesignPermits] : permits;
-  }, [permits, redesignsWithPermitsQ.data]);
+    // ★ fix-556 §B: the lineage starts from the EFFECTIVE set, so a
+    //   reuse-redesign's PERMITS table lists the rows it actually works on.
+    //   fix-421's band on the ORIGINAL (the reverse direction, for the
+    //   false/null cases) is untouched — that is `redesignPermits`.
+    return redesignPermits.length > 0
+      ? [...effective, ...redesignPermits]
+      : effective;
+  }, [effective, redesignsWithPermitsQ.data]);
   /** ★ fix-517 §E: the focused permit, resolved from the URL the same way
    *  `?permit=` is — by String coercion against the lineage, so an id for a
    *  permit this project does not have focuses nothing rather than throwing. */
@@ -459,7 +528,7 @@ function ProjectDetailBody({
       {reassignOpen && (
         <ReassignDaModal
           projectId={project.id}
-          projectAddress={project.address}
+          projectAddress={displayAddress(project.address)}
           currentDa={bp?.da ?? null}
           onClose={() => setReassignOpen(false)}
           onUseRedesign={() => {
@@ -483,7 +552,7 @@ function ProjectDetailBody({
       {/* Project address sub-header — centered, larger per v1 :758 */}
       <div className="text-center pt-1 pb-2 flex-shrink-0">
         <div className="text-[15px] font-extrabold text-text">
-          {project.address}
+          {displayAddress(project.address)}
         </div>
         <div className="text-[11px] text-muted font-mono mt-0.5">
           {project.juris ?? '—'}
@@ -576,7 +645,7 @@ function ProjectDetailBody({
             >
               <ProjectDetailHeader
                 project={project}
-                permits={permits}
+                permits={effective}
                 bp={bp}
                 allProjects={allProjects}
               />
@@ -589,6 +658,22 @@ function ProjectDetailBody({
                     row's behaviour, moved rather than reinvented.
                   · §E: the row's hover ✎ opens Project Details → Permits focused
                     on that permit, which is what replaced `QuickEditPermitModal`. */}
+              {/* ★★★ fix-556 §B — WHOSE PERMITS THESE ARE, SAID PLAINLY.
+                  The fix-524 §C shape, for the same reason it exists on the
+                  Plan of Record card: a table showing the original's rows
+                  without naming them asserts they are this project's own
+                  filings. They are not — they are the SAME rows, rendered from
+                  a second screen, and a permit number that does not match this
+                  address should explain itself before somebody reports it. */}
+              {permitsFromOriginal && (
+                <div
+                  className="text-[10px] px-3 pt-2 leading-snug"
+                  style={{ color: 'var(--color-muted)' }}
+                  data-testid="permits-from-original"
+                >
+                  {permitsFromOriginal}
+                </div>
+              )}
               <ScheduleHealthTable
                 permits={lineagePermits}
                 redesignLabelByPermitId={redesignLabelByPermitId}

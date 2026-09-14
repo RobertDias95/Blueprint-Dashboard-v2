@@ -81,6 +81,8 @@ import {
   type UnitSortState,
   type UnitSortableColumn,
 } from '../lib/libraryUnitRows';
+// ★ fix-556 §C: the ONE strip (fix-530). `[Redesign N]` never reaches a screen.
+import { displayAddress } from '../lib/displayAddress';
 // ★★★ fix-519 §A (P-230): the unit table's columns, declared ONCE. The
 // `<thead>` and `LibraryUnitRow`'s cells both render from this list, which is
 // what stops a heading and its value drifting apart again.
@@ -1110,7 +1112,7 @@ function Body({ projects, permits, retiredSets }: BodyProps) {
                         // ★ fix-530 §D: no strike-through. See the site row.
                         style={undefined}
                       >
-                        {u.project.address}
+                        {displayAddress(u.project.address)}
                       </OriginLink>
                       {/* ★★★ fix-525 §B: and on the UNIT row too — this is the
                           view the 11 originals are kept FOR, so it is the one
@@ -1455,7 +1457,7 @@ function Row({
             //   beside it carries the hatch and the word.
             style={undefined}
           >
-            {row.address}
+            {displayAddress(row.address)}
           </OriginLink>
           {/* ★★★ fix-525 §B — HATCHED, IN THE VOCABULARY THAT ALREADY EXISTS.
               A full-row hatch would make the numbers this table is FOR

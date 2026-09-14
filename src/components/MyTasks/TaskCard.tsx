@@ -1,4 +1,6 @@
 import OriginLink from '../OriginLink';
+// ★ fix-556 §C: the ONE strip (fix-530).
+import { displayAddress } from '../../lib/displayAddress';
 import {
   deriveTaskState,
   effectiveDueDate,
@@ -144,7 +146,7 @@ export default function TaskCard({
             <OriginLink
               to={`/project/${project.id}`}
               className="text-[10px] text-jv font-bold bg-jv-bg px-1.5 py-0.5 rounded max-w-[160px] truncate hover:underline"
-              title={project.address}
+              title={displayAddress(project.address)}
               data-testid={`mytasks-addr-${task.id}`}
               onClick={(e) => e.stopPropagation()}
             >

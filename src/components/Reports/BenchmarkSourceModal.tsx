@@ -1,4 +1,6 @@
 import OriginLink from '../OriginLink';
+// ★ fix-556 §C: the ONE strip (fix-530).
+import { displayAddress } from '../../lib/displayAddress';
 import type { BenchmarkSourcePermit } from '../../lib/scheduleBenchmarks';
 
 // Q9.5.f-fix-3 4.B: modal listing the permits that fed a benchmark card's
@@ -120,7 +122,7 @@ function SourceRow({ source }: { source: BenchmarkSourcePermit }) {
           className="text-[12px] font-bold text-de underline truncate"
           data-testid={`benchmark-source-row-${source.permitId}`}
         >
-          {source.address}
+          {displayAddress(source.address)}
         </OriginLink>
         {source.inRecentWindow && (
           <span
