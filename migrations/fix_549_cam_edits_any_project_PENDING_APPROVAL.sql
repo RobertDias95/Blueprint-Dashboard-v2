@@ -1,0 +1,293 @@
+-- ===========================================================================
+-- fix-549 (P-255 · the gate half of P-250) — Cam can fix any project
+-- ===========================================================================
+--
+-- ⚠️⚠️ **NOT APPLIED.** Written for Cowork. Every statement below is commented
+--       out and a test (fix-450) keeps it that way.
+--
+-- MEASURED ON PROD 2026-09-14 (eibnmwthkcuumyclyxoe). Every statement here was
+-- executed there inside transactions that ended in ROLLBACK, and every
+-- assertion below is the output of that run.
+--
+-- ⚠️ Cam's roster role is NOT changed and no role is added to `team_members`.
+--    The `da` scope is not widened for anyone else.
+--
+-- ---------------------------------------------------------------------------
+-- §0 — WHAT HAPPENED, AND THE RULE WAS RIGHT
+-- ---------------------------------------------------------------------------
+--
+-- `error_reports` **718–726 — NINE rows, not eight** (the range is inclusive),
+-- all `cameron@blueprintcap.com`, all `projects.update`, all on
+-- `bc510fd7-…` = **1917 3rd Ave W**, 18:20:19 → 18:24:05 UTC.
+-- **Six were `Lot Size` / `lot_size_sf`, then three `Unit Size` / `unit_types`.**
+--
+--   Cam        team_members: role `da`, active · profiles: `editor`,
+--              **may_edit_library = true** (sole holder)
+--   1917       ent lead Miles · design manager Derry · permit DA **Nicky**
+--   Cam        on none of the member columns → `bp_is_project_member` false
+--   1917       has a DA → the no-DA fallback does not apply
+--
+-- ★★★ So `bp_may_write_project` returned **false**, correctly. **The rule did
+--     its job and is not being "fixed".** What was missing is a way to say that
+--     one person backfills every project — and a screen that says so before he
+--     types.
+--
+-- ---------------------------------------------------------------------------
+-- ★★ §A — THE HOUSE SHAPE, FOUND AND MATCHED
+-- ---------------------------------------------------------------------------
+--
+-- §A asked for a helper function *"the same shape as whatever `may_edit_library`
+-- is read by today — find that and match it"*.
+--
+-- ★★★ **It is read INLINE, not through a helper and not in a policy.**
+--     `bp_update_library_fields` reads
+--     `where p.id = auth.uid() and p.may_edit_library is true`, and the only
+--     other mention is `bp_set_library_capability`, the admin-checked granter.
+--     So this file reads the new flag **inline in `bp_may_write_project`**,
+--     which is the house shape, rather than inventing a second pattern.
+--
+-- ⚠️ **THE TENANT CHECK STAYS ABOVE IT.** The grant crosses projects, never
+--    tenants — asserted with a real call, not by reading the code (§B.3 below).
+--
+-- ---------------------------------------------------------------------------
+-- ★★★ THE PROBE — every case, prod, rolled back, 2026-09-14
+-- ---------------------------------------------------------------------------
+--
+--   1. Cam → `lot_size_sf` on 1917 3rd Ave W ............... ALLOWED
+--   2. Cam → `unit_types`  on 1917 3rd Ave W ............... ALLOWED
+--   3. Cam → a project in ANOTHER TENANT ................... **REFUSED**
+--   4. Ainsley (`da`, no flag) → 1917, not hers ............ REFUSED
+--   5. Ainsley (`da`, no flag) → a project with NO da ...... ALLOWED
+--
+--   §A(d) — the callers, each re-asserted against a non-member `da`:
+--   6. `bp_add_project_consultant` ......................... REFUSED 42501
+--   7. `bp_update_project_fields` .......................... REFUSED 42501
+--   (`bp_set_consultant_firm` shares the same gate line; the RLS policy
+--    `projects_tenant_update` is the fourth caller and is exercised by the
+--    direct-table case in §D below.)
+--
+--   §D — delete, run as the `authenticated` ROLE so RLS actually applies:
+--   a. a DA via the RPC ................................... REFUSED 42501
+--   b. the same DA, DIRECT table delete ................... BLOCKED (0 rows)
+--   c. **CAM, who may edit every project** ................ REFUSED 42501
+--   d. an ADMIN ........................................... DELETED
+--
+-- ⚠️ ★★ A PROBE THAT SETS THE JWT BUT NOT THE SESSION ROLE TESTS NOTHING ABOUT
+--       RLS. The first run of §D reported "DELETED (WRONG)" for a DA — because
+--       it ran as `postgres`. `is_tenant_admin` answers off the JWT, so the
+--       function-level checks looked right while the policy was never consulted.
+--       **Both halves need `set local role authenticated`.**
+--
+-- ---------------------------------------------------------------------------
+-- §D — WHAT DELETES A PROJECT, ENUMERATED
+-- ---------------------------------------------------------------------------
+--
+-- P-250 counted seven WRITERS of `projects`. **Exactly one DELETES:**
+-- `bp_delete_project_row(uuid, timestamptz)` — SECURITY INVOKER, no admin
+-- check, `authenticated` may call it.
+--
+-- ★★★ AND A POLICY ALONE WOULD HAVE LIED. Blocked by RLS, its `DELETE` matches
+--     0 rows, it then re-reads the row (SELECT is still permitted) and returns
+--     **`conflict = true`** — *"changed since you loaded it"*. That is fix-539's
+--     lesson arriving a second time, so the function gets an explicit `42501`
+--     as well as the policy.
+--
+-- ★ `projects.archived` is false on all 220 and nothing has ever set it; zero
+--   project deletes have ever been logged.
+--
+-- ---------------------------------------------------------------------------
+-- ⏸ SIZING fix-557 (the soft-delete CONVERSION, NOT this ticket)
+-- ---------------------------------------------------------------------------
+--
+-- Readers of `projects` that would have to learn to filter `archived`:
+--
+--   views selecting from `projects` ................. 4   (1 filters archived)
+--   functions selecting from `projects` ............ 27   (1 mentions archived)
+--   ────────────────────────────────────────────────────
+--   **31 server-side readers, 2 of which filter → 29 to review**
+--
+-- ★★ Plus the client hooks with an explicit select. **That number is why the
+--    conversion is its own ticket**: flipping `archived` instead of removing a
+--    row is only safe once every reader is known to filter it, and today none
+--    has ever had to.
+--
+-- ===========================================================================
+
+
+-- BEGIN;
+-- SET LOCAL lock_timeout = '5s';
+--
+-- ⚠️ ★ `ALTER TABLE public.profiles` takes an ACCESS EXCLUSIVE lock and prod is
+--    live: the first probe run DEADLOCKED against a reader. `lock_timeout`
+--    turns that into a clean, retryable failure instead of a stall. Run it when
+--    the app is quiet, and simply retry if it times out.
+
+-- ---------------------------------------------------------------------------
+-- 1. The column
+-- ---------------------------------------------------------------------------
+--
+-- ALTER TABLE public.profiles
+--   ADD COLUMN IF NOT EXISTS may_edit_all_projects boolean NOT NULL DEFAULT false;
+--
+-- COMMENT ON COLUMN public.profiles.may_edit_all_projects IS
+--   'fix-549: this person may edit any project in their tenant, regardless of '
+--   'membership. Bobby 2026-09-14, for the one person who backfills every '
+--   'project. Mirrors may_edit_library. NEVER crosses a tenant.';
+
+-- ---------------------------------------------------------------------------
+-- 2. The grant — BY EMAIL, never a pasted uuid
+-- ---------------------------------------------------------------------------
+--
+-- UPDATE public.profiles p
+--    SET may_edit_all_projects = true
+--   FROM auth.users u
+--  WHERE u.id = p.id
+--    AND lower(u.email) = 'cameron@blueprintcap.com';
+
+-- ---------------------------------------------------------------------------
+-- 3. The branch — ONE line, above the `da` branch, below the tenant check
+-- ---------------------------------------------------------------------------
+--
+-- DO $mig$
+-- DECLARE v_def text; v_live text; v_after int;
+-- BEGIN
+--   SELECT pg_get_functiondef(p.oid) INTO v_def
+--     FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
+--    WHERE n.nspname = 'public' AND p.proname = 'bp_may_write_project';
+--   IF v_def IS NULL THEN
+--     RAISE EXCEPTION 'fix-549: bp_may_write_project not found';
+--   END IF;
+--   IF position('may_edit_all_projects' IN v_def) > 0 THEN
+--     RAISE NOTICE 'fix-549: already patched'; RETURN;
+--   END IF;
+--   IF position('  if ''da'' = any (public.bp_roster_roles()) then' IN v_def) = 0 THEN
+--     RAISE EXCEPTION
+--       'fix-549: anchor not found in bp_may_write_project — re-derive it from '
+--       'pg_get_functiondef; a replace that matches nothing reports success';
+--   END IF;
+--   v_def := replace(v_def,
+--     '  if ''da'' = any (public.bp_roster_roles()) then',
+--     '  if exists (select 1 from public.profiles p' || chr(10) ||
+--     '              where p.id = auth.uid() and p.may_edit_all_projects is true) then' || chr(10) ||
+--     '    return true;' || chr(10) ||
+--     '  end if;' || chr(10) ||
+--     '  if ''da'' = any (public.bp_roster_roles()) then');
+--   v_after := (length(v_def) - length(replace(v_def, 'may_edit_all_projects', ''))) / 21;
+--   IF v_after <> 1 THEN
+--     RAISE EXCEPTION 'fix-549: the branch did not land (% occurrences)', v_after;
+--   END IF;
+--   EXECUTE v_def;
+--
+--   -- (c) fix-540's rule: read the LIVE definition back
+--   SELECT pg_get_functiondef(p.oid) INTO v_live
+--     FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
+--    WHERE n.nspname = 'public' AND p.proname = 'bp_may_write_project';
+--   IF position('may_edit_all_projects' IN v_live) = 0 THEN
+--     RAISE EXCEPTION 'fix-549: executed but the LIVE definition lacks the branch';
+--   END IF;
+-- END
+-- $mig$;
+
+-- ---------------------------------------------------------------------------
+-- 4. §D — DELETE is admins only: the policy AND a loud refusal
+-- ---------------------------------------------------------------------------
+--
+-- ALTER POLICY projects_tenant_delete ON public.projects
+--   USING (tenant_id = ANY (public.auth_tenant_ids())
+--          AND public.is_tenant_admin(tenant_id));
+--
+-- DO $del$
+-- DECLARE v_def text; v_live text;
+-- BEGIN
+--   SELECT pg_get_functiondef(p.oid) INTO v_def
+--     FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
+--    WHERE n.nspname = 'public' AND p.proname = 'bp_delete_project_row';
+--   IF v_def IS NULL THEN
+--     RAISE EXCEPTION 'fix-549: bp_delete_project_row not found';
+--   END IF;
+--   IF position('is_tenant_admin' IN v_def) > 0 THEN
+--     RAISE NOTICE 'fix-549: delete already gated'; RETURN;
+--   END IF;
+--   v_def := replace(v_def,
+--     'DECLARE' || chr(10) || '  v_actual timestamptz;' || chr(10) || 'BEGIN' || chr(10),
+--     'DECLARE' || chr(10) || '  v_actual timestamptz;' || chr(10) ||
+--     '  v_tenant uuid;' || chr(10) || 'BEGIN' || chr(10) ||
+--     '  SELECT pr.tenant_id INTO v_tenant FROM public.projects pr WHERE pr.id = p_id;' || chr(10) ||
+--     '  IF v_tenant IS NOT NULL AND NOT public.is_tenant_admin(v_tenant) THEN' || chr(10) ||
+--     '    RAISE EXCEPTION ''only an admin can delete a project'' USING ERRCODE = ''42501'';' || chr(10) ||
+--     '  END IF;' || chr(10));
+--   IF position('is_tenant_admin' IN v_def) = 0 THEN
+--     RAISE EXCEPTION 'fix-549: the delete gate did not land';
+--   END IF;
+--   EXECUTE v_def;
+--   SELECT pg_get_functiondef(p.oid) INTO v_live
+--     FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
+--    WHERE n.nspname = 'public' AND p.proname = 'bp_delete_project_row';
+--   IF position('is_tenant_admin' IN v_live) = 0 THEN
+--     RAISE EXCEPTION 'fix-549: executed but the LIVE delete function is ungated';
+--   END IF;
+-- END
+-- $del$;
+
+-- ---------------------------------------------------------------------------
+-- 5. The assertions — (a) and (b), and this is the fix-540 rule
+-- ---------------------------------------------------------------------------
+--
+-- DO $verify$
+-- DECLARE v_col int; v_holders int; v_who text;
+-- BEGIN
+--   -- (a) the column exists
+--   SELECT count(*) INTO v_col FROM information_schema.columns
+--    WHERE table_schema = 'public' AND table_name = 'profiles'
+--      AND column_name = 'may_edit_all_projects';
+--   IF v_col <> 1 THEN RAISE EXCEPTION 'fix-549: the column was not added'; END IF;
+--
+--   -- (b) EXACTLY ONE holder, and it is Cam.
+--   --     ★★★ A grant that hits 0 rows and a grant that hits 37 both look like
+--   --     success today — `UPDATE 0` and `UPDATE 37` are equally quiet.
+--   SELECT count(*), coalesce(string_agg(lower(u.email), ','), '(none)')
+--     INTO v_holders, v_who
+--     FROM public.profiles p JOIN auth.users u ON u.id = p.id
+--    WHERE p.may_edit_all_projects;
+--   IF v_holders <> 1 OR v_who <> 'cameron@blueprintcap.com' THEN
+--     RAISE EXCEPTION 'fix-549: expected exactly Cam to hold the flag, found % (%)',
+--       v_holders, v_who;
+--   END IF;
+--
+--   RAISE NOTICE 'fix-549: column added, one holder (%), branch and delete gate live', v_who;
+-- END
+-- $verify$;
+
+-- COMMIT;
+
+
+-- ---------------------------------------------------------------------------
+-- 6. Verify after applying — the behaviour, not the text
+-- ---------------------------------------------------------------------------
+--
+-- Impersonate and call, the way the probe did. **Set BOTH the JWT claims and
+-- `set local role authenticated`**, or the policy half is never exercised:
+--
+--   select set_config('request.jwt.claims',
+--     '{"sub":"<uid>","role":"authenticated"}', true);
+--   set local role authenticated;
+--   select public.bp_may_write_project('<project uuid>');
+--   reset role;
+--
+-- Expect: Cam true on any project in his tenant, false in another tenant; a
+-- plain `da` false on someone else's project and true on a project with no DA.
+--
+-- ---------------------------------------------------------------------------
+-- Undo
+-- ---------------------------------------------------------------------------
+--
+-- UPDATE public.profiles SET may_edit_all_projects = false;   -- the grant only
+--
+-- ★ The branch may stay: with no holder it can never return true, so removing
+--   the grant is the whole rollback. The column and the branch are inert.
+--
+-- ALTER POLICY projects_tenant_delete ON public.projects
+--   USING (tenant_id = ANY (public.auth_tenant_ids()));        -- §D's policy
+--
+-- ★ And the delete gate is reversed by re-running step 4's block with the
+--   inserted `IF … is_tenant_admin …` lines removed.

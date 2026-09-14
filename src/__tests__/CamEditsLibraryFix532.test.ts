@@ -236,7 +236,10 @@ describe('fix-532 §B (P-246) — the stale token was the caller’s', () => {
     // ★ Retrying with the value that just failed is how a second attempt
     //   becomes a second identical failure.
     const src = code(read('src/hooks/useUpdateProject.ts'));
-    expect(src).toContain('tryUpdateProject(input, token)');
+    // ★★ AMENDED BY fix-549, RULING UNCHANGED. The call gained a third argument
+    //    (§C's members, for naming who to ask in a refusal), so the assertion
+    //    matches the first two — which are the ones fix-532 is about.
+    expect(src).toContain('tryUpdateProject(input, token,');
     expect(src).not.toContain('input.expectedUpdatedAt,\n        );');
   });
 
