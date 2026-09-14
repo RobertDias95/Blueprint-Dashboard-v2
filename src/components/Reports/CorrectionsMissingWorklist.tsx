@@ -1,4 +1,6 @@
 import { useMemo, useState } from 'react';
+// ★ fix-556 §C: the ONE strip (fix-530).
+import { displayAddress } from '../../lib/displayAddress';
 import OriginLink from '../OriginLink';
 import { useCorrectionMissingWorklist } from '../../hooks/useCorrectionMissingWorklist';
 import { SkeletonRows } from '../Skeleton';
@@ -287,7 +289,7 @@ export default function CorrectionsMissingWorklist() {
                         to={`/project/${r.project_id}`}
                         className="text-de hover:underline"
                       >
-                        {r.address}
+                        {displayAddress(r.address)}
                       </OriginLink>
                       <span className="text-dim"> · {r.juris ?? '—'}</span>
                       {r.project_parked && (

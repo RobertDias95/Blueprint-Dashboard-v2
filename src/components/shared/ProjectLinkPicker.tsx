@@ -1,4 +1,6 @@
 import { useMemo, useState } from 'react';
+// ★ fix-556 §C: the ONE strip (fix-530). `[Redesign N]` never reaches a screen.
+import { displayAddress } from '../../lib/displayAddress';
 
 // ★★ fix-384 — "which project is this block about?"
 //
@@ -77,10 +79,10 @@ export default function ProjectLinkPicker({
             borderColor: 'var(--color-border)',
             color: 'var(--color-text)',
           }}
-          title={selected?.address ?? value ?? ''}
+          title={displayAddress(selected?.address ?? value ?? '')}
           data-testid="project-link-current"
         >
-          🔗 {selected?.address ?? 'Linked project'}
+          🔗 {selected?.address ? displayAddress(selected.address) : 'Linked project'}
         </span>
         <button
           type="button"
@@ -151,7 +153,7 @@ export default function ProjectLinkPicker({
                 className="w-full text-left px-1.5 py-1 text-[11px] hover:bg-bg/40"
                 data-testid={`project-link-option-${o.id}`}
               >
-                <div className="truncate text-text">{o.address}</div>
+                <div className="truncate text-text">{displayAddress(o.address)}</div>
                 {o.juris && (
                   <div className="truncate text-[9px] text-dim">{o.juris}</div>
                 )}

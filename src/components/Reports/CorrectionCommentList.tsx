@@ -1,4 +1,6 @@
 import { useMemo, useState } from 'react';
+// ★ fix-556 §C: the ONE strip (fix-530).
+import { displayAddress } from '../../lib/displayAddress';
 import OriginLink from '../OriginLink';
 import {
   commentsForLabel,
@@ -123,7 +125,7 @@ export default function CorrectionCommentList({ rows, level, label, today }: Pro
                 to={`/project/${g.projectId}`}
                 className="text-[11px] font-bold text-de hover:underline"
               >
-                {g.address}
+                {displayAddress(g.address)}
               </OriginLink>
               <span className="text-[10px] text-dim">{g.juris}</span>
               <span className="text-[10px] text-dim ml-auto">

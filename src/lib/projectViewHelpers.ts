@@ -8,6 +8,9 @@ import type {
 import { effectiveStage } from './permitStage';
 import { multiMatchAddress } from './drawScheduleHelpers';
 import { structAddressHaystack } from './structAddressSearch';
+// ★★★ fix-556 §D: the ONE union — the same module the Pipeline and the
+//     Overview ask. Three surfaces, one definition of "this project's permits".
+import { effectivePermits } from './effectivePermits';
 import {
   currentCycleIndex,
   rollupCounts,
@@ -97,6 +100,16 @@ export interface ProjectRow {
    *  Searchable only, never displayed. Optional so older fixtures without it
    *  behave exactly as before. */
   structAddressHay?: string;
+  /** ★★★ fix-556 §D (P-263) — the live redesign that supersedes this project,
+   *  or `null`. A row with this set is an ORIGINAL: it does not sort, filter or
+   *  count as a peer — it folds under its successor's caret.
+   *
+   *  ★ Derived from the CHILDREN's `redesign_of_project_id`, the direction
+   *    `redesignedAwayProjectIds` has read since fix-524 — easy to get
+   *    backwards, so both places read it the same way.
+   *  ★ Optional, so a fixture built before this ticket behaves exactly as it
+   *    did. */
+  supersededBy?: string | null;
 }
 
 export interface ProjectViewFilters {
@@ -197,6 +210,19 @@ function summarizeReviewers(
   };
 }
 
+/** ★★★ fix-556 §D: which projects have been superseded, keyed by the
+ *  ORIGINAL's id → the successor's. Read off the children, the fix-524
+ *  direction. An ARCHIVED redesign does not retire its original. */
+function successorByOriginalId(projects: readonly Project[]): Map<string, string> {
+  const m = new Map<string, string>();
+  for (const p of projects) {
+    if (p.archived) continue;
+    const original = p.redesign_of_project_id;
+    if (original && original !== p.id) m.set(original, p.id);
+  }
+  return m;
+}
+
 export function buildProjectRows(
   projects: Project[],
   permits: PermitWithCycles[],
@@ -230,9 +256,25 @@ export function buildProjectRows(
   }
 
   const rows: ProjectRow[] = [];
+  const successorOf = successorByOriginalId(projects);
   for (const project of projects) {
     if (project.archived) continue;
-    const projPermits = permitsByProject.get(project.id) ?? [];
+    // ★★★ fix-556 §D — A ROW CARRIES ITS **EFFECTIVE** PERMITS.
+    //
+    //     Today Project View lists `2443 5th Ave W` and its redesign as two
+    //     peer rows and **the ORIGINAL is the one with the permits** — so the
+    //     current project reads `0`, sorts as though it had no work, and
+    //     matches none of the Stage / Ent / DA filters. One union fixes the
+    //     count, the expand list, the stage set, both name sets and the BP
+    //     anchor at once, because every one of them is computed from this
+    //     array.
+    const projPermits = effectivePermits(
+      project,
+      permitsByProject.get(project.id),
+      project.redesign_of_project_id
+        ? permitsByProject.get(project.redesign_of_project_id)
+        : undefined,
+    );
     // Sort permits inside a project by id ASC so the BP anchor (the first
     // one by id) is stable, mirroring fix-85's "first BP wins" rule.
     const sortedPermits = [...projPermits].sort((a, b) => a.id - b.id);
@@ -283,6 +325,7 @@ export function buildProjectRows(
       structAddressHay: structAddressHaystack(
         allPermitsByProject.get(project.id),
       ),
+      supersededBy: successorOf.get(project.id) ?? null,
     });
   }
   return rows;

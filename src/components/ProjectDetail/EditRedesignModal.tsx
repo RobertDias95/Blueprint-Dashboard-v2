@@ -1,4 +1,6 @@
 import { useState } from 'react';
+// ★ fix-556 §C: the ONE strip (fix-530).
+import { displayAddress } from '../../lib/displayAddress';
 import type { Project } from '../../lib/database.types';
 import {
   REDESIGN_TRIGGER_LABELS,
@@ -114,7 +116,7 @@ export default function EditRedesignModal({ redesign, label, onClose }: Props) {
 
         <div className="px-4 py-3 flex flex-col gap-3">
           <p className="text-[10px] text-dim -mb-1">
-            {redesign.address}
+            {displayAddress(redesign.address)}
           </p>
 
           <div className="grid grid-cols-2 gap-3">

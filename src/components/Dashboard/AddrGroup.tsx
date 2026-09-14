@@ -17,6 +17,8 @@ import type {
   ProjectHold,
   Stage,
 } from '../../lib/database.types';
+// ★ fix-556 §C: the ONE strip (fix-530). `[Redesign N]` never reaches a screen.
+import { displayAddress } from '../../lib/displayAddress';
 
 // Q9.5.e2: Address-clumped permit group per v1 .addr-group at index.html
 // :177-211. One group per (sub-bucket, address) pair. Collapsed header
@@ -353,10 +355,10 @@ export default function AddrGroup({
             <span
               className="text-[13px] font-bold text-text truncate"
               style={{ lineHeight: 1.3 }}
-              title={address}
+              title={displayAddress(address)}
               data-testid={`addr-name-${stage}`}
             >
-              {address}
+              {displayAddress(address)}
             </span>
             {/* ★★ THE JURISDICTION, ON ITS OWN LINE. `self-start` so the chip
                 is its own width rather than the column's. */}

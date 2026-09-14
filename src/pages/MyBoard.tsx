@@ -76,6 +76,8 @@ import {
   type QueueBandGroup,
   type QueueRow,
 } from '../lib/projectQueue';
+// ★ fix-556 §C: the ONE strip (fix-530). `[Redesign N]` never reaches a screen.
+import { displayAddress } from '../lib/displayAddress';
 
 // fix-298 Phase 1 — My Board.
 //
@@ -308,7 +310,7 @@ function ForecastRow({
                   className="text-de hover:underline"
                   data-testid={`board-row-project-${item.key}`}
                 >
-                  {item.address ?? 'Project'}
+                  {item.address ? displayAddress(item.address) : 'Project'}
                 </OriginLink>
                 {item.permitId != null && (
                   <>
@@ -450,7 +452,7 @@ function QueueRowView({ row }: { row: QueueRow }) {
             className="text-[11.5px] font-extrabold text-text hover:underline truncate"
             data-testid={`board-queue-address-${row.key}`}
           >
-            {row.address}
+            {displayAddress(row.address)}
           </OriginLink>
         </div>
         {/* ★ The permit itself is still one click away — the old queue's row
@@ -573,7 +575,7 @@ function AgedPermitRow({
           className="text-[11.5px] font-extrabold text-text hover:underline truncate"
           data-testid={`board-aged-${row.permitId}-link`}
         >
-          {row.address}
+          {displayAddress(row.address)}
         </OriginLink>
         <span className={`text-[9px] font-extrabold uppercase ml-auto flex-none ${tone}`}>
           {AGING_LEVEL_LABEL[row.level]}
@@ -624,7 +626,7 @@ function DataGapRowView({ row }: { row: DataGapRow }) {
         to={`/project/${row.projectId}?permit=${row.permitId}`}
         className="text-[11px] font-bold text-text hover:underline truncate flex-1"
       >
-        {row.address}
+        {displayAddress(row.address)}
       </OriginLink>
       <span className="text-[10px] text-muted truncate">{row.permitLabel}</span>
       <span className="text-[9.5px] text-dim italic whitespace-nowrap">
@@ -1471,7 +1473,7 @@ export default function MyBoard() {
                       data-affordance={h.affordance}
                     >
                       <div className="text-[11.5px] font-extrabold text-text truncate">
-                        {h.address}
+                        {displayAddress(h.address)}
                         <span className="text-muted font-normal">
                           {' '}
                           · {h.permit.type}

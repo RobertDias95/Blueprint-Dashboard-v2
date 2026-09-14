@@ -78,6 +78,8 @@ import { useTaskOwnership } from '../hooks/useTaskOwnership';
 // SHARED BoardInput — BoardBell already runs this on every page, so the rows
 // cost no request (see hooks/useBoardInput).
 import { useBoardInput } from '../hooks/useBoardInput';
+// ★ fix-556 §C: the ONE strip (fix-530). `[Redesign N]` never reaches a screen.
+import { displayAddress } from '../lib/displayAddress';
 import { buildForecast, type ForecastItem } from '../lib/myBoard';
 import {
   makeLegsFor,
@@ -2175,7 +2177,7 @@ function ProjectGroupedView({
             style={{ borderBottomColor: 'var(--color-border)', background: 'var(--color-s2)' }}
           >
             <span className="text-sm font-bold" style={{ color: 'var(--color-text)' }}>
-              {g.address}
+              {displayAddress(g.address)}
             </span>
             <span className="text-[11px] font-mono" style={{ color: 'var(--color-muted)' }}>
               {g.rows.length} item{g.rows.length === 1 ? '' : 's'}

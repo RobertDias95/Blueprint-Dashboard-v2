@@ -31,6 +31,13 @@ import {
 //     on every render since fix-150; the Pipeline read the stored column
 //     instead, and that disagreement is P-179.
 import { deriveLaneStatus } from '../lib/drawScheduleStatus';
+// ★★★ fix-556 §A: and the ONE union. `deriveLaneStatus` chases the parent for
+//     the LANE; this chases it for the CARDS. Both read the same flag, from the
+//     same module, so a redesign cannot have a phase with nothing on it.
+import {
+  effectivePermitsFromMap,
+  asPermitOfProject,
+} from '../lib/effectivePermits';
 import { structAddressHaystack } from '../lib/structAddressSearch';
 import HoldFilter from '../components/shared/HoldFilter';
 import {
@@ -504,7 +511,35 @@ export default function Dashboard() {
       //   it back, and adding a second door would make "why can I not see it"
       //   a two-answer question.
       if (isRetiredProject(project.id, retiredSets)) continue;
-      const projectPermits = permitsByProjectId.get(project.id) ?? [];
+      // ★★★ fix-556 §A (P-263) — AND ITS PERMITS ARE ITS **EFFECTIVE** ONES.
+      //
+      //     This is the line the defect lived on. The board buckets PERMIT
+      //     ROWS; a reuse-redesign has none of its own, and the original that
+      //     holds them was `continue`d past four lines above. So 8 projects
+      //     with 13 in-flight permits (measured prod 2026-09-14) rendered zero
+      //     cards — `2443 5th Ave W` searched to 0 / 0 / 0 / 0.
+      //
+      // ★★★ THE PARENT-CHASE ALREADY EXISTED AND WAS NOT ENOUGH. fix-150 put
+      //     one in `deriveLaneStatus`, and fix-525 §C below calls it — so the
+      //     redesign's LANE has been right all along. A lane with no cards on
+      //     it is still an empty board. The chase for the STATUS and the chase
+      //     for the CARDS are two different reads and only one was written.
+      //
+      // ★★ ONE PROJECT, ONE CARD. The union hangs off the redesign, and the
+      //    original is already off the board (fix-524 §B, asserted), so a
+      //    permit renders exactly once — never on both.
+      // ★★ The mirrored rows are re-keyed to the redesign for the BOARD only —
+      //    see `asPermitOfProject`, which explains why `id` is untouched and
+      //    why no write can reach the clone.
+      const projectPermits = effectivePermitsFromMap(
+        project,
+        permitsByProjectId,
+        (b) => b.permit.id,
+      ).map((b) =>
+        b.permit.project_id === project.id
+          ? b
+          : { ...b, permit: asPermitOfProject(b.permit, project.id) },
+      );
       if (!matchesSearch(project, projectPermits.map((b) => b.permit))) continue;
       // fix-178: hold filter is project-level (a permit is held iff its project
       // is). Drop the whole project's permits when it fails the hold filter.

@@ -5,6 +5,9 @@
 // actions. Push-down doesn't apply — moving project blocks to make
 // room for a longer vacation isn't a sensible cascade.
 
+// ★ fix-556 §C: the ONE strip (fix-530).
+import { displayAddress } from '../lib/displayAddress';
+
 interface ProjectConflict {
   kind: 'project';
   address: string;
@@ -79,7 +82,7 @@ export default function NpResizeConflictPrompt({
               className="px-3 py-1.5 text-[11px] font-mono text-text flex items-baseline gap-2"
             >
               {c.kind === 'project' ? (
-                <span className="font-semibold truncate">{c.address}</span>
+                <span className="font-semibold truncate">{displayAddress(c.address)}</span>
               ) : (
                 <>
                   <span className="font-semibold">{c.type}</span>

@@ -17,6 +17,8 @@ import { suppressedSampleNote } from '../lib/activityWindow';
 import type { SuppressionCounts } from '../lib/myBoard';
 import TaskProvenance from '../components/TaskProvenance';
 import type { ScraperActivityRow } from '../lib/database.types';
+// ★ fix-556 §C: the ONE strip (fix-530). `[Redesign N]` never reaches a screen.
+import { displayAddress } from '../lib/displayAddress';
 
 // ===========================================================================
 // ★★★ fix-336 §2 — THE NOTIFICATION CENTRE
@@ -439,7 +441,7 @@ function SuppressedSections({
                   data-testid={`notification-suppressed-row-${r.id}`}
                 >
                   <span className="text-[10.5px] text-text truncate flex-1">
-                    {r.address ?? 'Unknown address'}
+                    {r.address ? displayAddress(r.address) : 'Unknown address'}
                     {r.permit_type ? ` · ${r.permit_type}` : ''}
                   </span>
                   <span className="text-[9.5px] text-dim font-mono flex-none">

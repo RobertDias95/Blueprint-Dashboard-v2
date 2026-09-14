@@ -1,4 +1,6 @@
 import { useMemo } from 'react';
+// ★ fix-556 §C: the ONE strip (fix-530).
+import { displayAddress } from '../../lib/displayAddress';
 import { unitLabelParts } from '../../lib/unitLabels';
 import type { CSSProperties, ReactNode } from 'react';
 import OriginLink from '../OriginLink';
@@ -229,9 +231,9 @@ export function SiteDataBox({
               to={`/project/${reuseSource.id}`}
               className="text-de hover:underline truncate block"
               data-testid="pd-site-reuse-link"
-              title={`Reuses the plan from ${reuseSource.address}`}
+              title={`Reuses the plan from ${displayAddress(reuseSource.address)}`}
             >
-              {reuseSource.address}
+              {displayAddress(reuseSource.address)}
             </OriginLink>
           </Field>
         )}
