@@ -14,6 +14,7 @@ import {
   parseMentions,
 } from '../../lib/projectChat';
 import { Avatar, MessageBody } from './ChatMessageBody';
+import { NO_AUTHOR_LABEL } from '../../lib/projectChat';
 import ChatReactions from './ChatReactions';
 import { useRosterFullName } from '../../hooks/useRosterFullName';
 import type { MessageReaction } from '../../hooks/useMessageReactions';
@@ -176,7 +177,13 @@ export default function ChatMessageRow({
                 : 'text-[12.5px] font-bold text-text'
             }
           >
-            {message.author_name ?? 'Unknown'}
+            {/* ★★★ fix-542 (P-218) — "NOT RECORDED", NOT "UNKNOWN".
+                51% of the notes coming across from Notes (55 of 107) have no
+                author at all, so there is nobody to preserve and nobody to
+                invent. *Unknown* says we lost it; **not recorded** says it was
+                never captured — fix-363's third state, and the true one.
+                35 messages were already authorless before this. */}
+            {message.author_name ?? NO_AUTHOR_LABEL}
           </span>
           <span className="text-[10px] text-dim">
             {chatStamp(message.created_at)}

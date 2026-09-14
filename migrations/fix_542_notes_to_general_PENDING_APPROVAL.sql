@@ -1,0 +1,322 @@
+-- ===========================================================================
+-- fix-542 (P-218) — Notes becomes the General channel. COPY ONLY.
+-- ===========================================================================
+--
+-- ⚠️⚠️ **NOT APPLIED.** Written for Cowork. Every statement below is commented
+--       out and a test (fix-450) keeps it that way.
+--
+-- ⚠️⚠️ **THIS DELETES NOTHING.** Not a note, not a row, not the surface. Copy
+--       first, verify, delete after — and the deleting is its own ticket, after
+--       Bobby has read the notes inside chat and says to remove it.
+--
+-- MEASURED ON PROD 2026-09-14 (eibnmwthkcuumyclyxoe). Every number below came
+-- from a REAL RUN of the statements in this file, inside a transaction that
+-- ended in ROLLBACK.
+--
+-- ---------------------------------------------------------------------------
+-- §0 — WHAT THE DATA SAYS, AND THE THREE THINGS IT CHANGES
+-- ---------------------------------------------------------------------------
+--
+--   notes                                     107  across 57 projects
+--   completed                                  38
+--   ★ hanging off a PERMIT                     92  (86%)
+--   ★ NO author (created_by null)              55  (51%) — 32 of them completed
+--   authors that resolve                       52 rows · 9 distinct
+--   project_messages                          579  · 129 projects · 492 roots
+--   posts already titled General                 4  ← one is SOFT-DELETED
+--   notes whose permit's project ≠ the note's    0
+--   completed = true but completed_at IS NULL    0  ← §B.2's edge case does not exist
+--
+-- ★★★ 1. THE PERMIT CASE IS THE DATA, NOT AN EDGE CASE — 86%. Every one of the
+--        92 can name its permit in words: **88 carry a real permit number**
+--        (75 distinct permits) and **4 have no number**, falling back to the
+--        permit TYPE ("Building Permit"). **Zero need a uuid.**
+--
+-- ★★★ 2. HALF THE NOTES HAVE NOBODY TO PRESERVE. 55 rows have no author, so
+--        there is nothing to "survive". They are inserted authorless and the
+--        app renders them **"Not recorded"** — fix-363's third state, and the
+--        honest one: *unknown* says we lost it, *not recorded* says it was
+--        never captured. 35 messages are ALREADY authorless, so this is a
+--        representable state and not a new one.
+--
+-- ⚠️⚠️ AND THE TRIGGER WOULD HAVE INVENTED THEM ALL. `bp_trg_project_message_author`
+--       reads *"IF NEW.author_id IS NULL THEN SELECT p.id … WHERE p.id = auth.uid()"*
+--       — it stamps the INSERTING SESSION onto any authorless message. Left
+--       alone, this migration would have attributed all 55 to whoever ran it,
+--       which is exactly what §0.2 forbids. **It is disabled around the copy
+--       and re-enabled after**, and the verification below counts the 55.
+--
+-- ★★★ 3. NOTES IS STILL IN USE — the newest is 2026-09-11 20:14Z, three days
+--        ago. **The cutover is additive and repeatable**: this copies, it does
+--        not move, and the provenance key makes a second run a no-op. So a note
+--        written between this run and the delete ticket is simply not in chat
+--        yet — nothing is lost and nothing is doubled. **Re-run this file
+--        immediately before the delete ticket** and it will pick up exactly the
+--        stragglers. That is the whole cutover plan.
+--
+-- ---------------------------------------------------------------------------
+-- ★★★ §A.2 — ONE OF THE FOUR GENERALS IS SOFT-DELETED, AND THAT MATTERS
+-- ---------------------------------------------------------------------------
+--
+--   12238 4th Ave NW                 General  **deleted_at set**  0 notes
+--   4000 SW Concord St               General  live                0 notes
+--   5053 25th Ave SW [Redesign 1]    General  live                0 notes
+--   1515 Martin Luther King Jr Way   General  live                **5 notes**
+--
+-- ★★ *"4 already exist. Reuse them; do not create a second"* — but reusing a
+--    deleted post would file notes into a thread nobody can open. So the rule
+--    is **reuse the LIVE one, and create where there is no live one** (which
+--    includes 12238 4th Ave NW). The deleted row is left exactly as it is:
+--    somebody deleted it, and undeleting it is not this ticket's business.
+-- ★ "One General per project" is therefore asserted over LIVE posts: 220 of 220.
+--
+-- ---------------------------------------------------------------------------
+-- §B — HOW A NOTE READS AFTER THE COPY
+-- ---------------------------------------------------------------------------
+--
+--   [done 23 Jul] [26 108851 GD] Ready to resubmit 6.29
+--   [done 17 Jul] [26 110228 BS] Waiting on Civil? COB is getting me a response…
+--
+-- ★ `[done <d MMM>]` from `completed_at`, rendered **in America/Los_Angeles** so
+--   the date matches the day the person actually ticked it — a UTC render would
+--   move an evening tick to the next day.
+-- ★ `completed_at IS NULL` while `completed` is true measures **0**, so the
+--   fallback to `updated_at` below is defensive only and never fires today.
+-- ★ The permit label is the NUMBER a reader knows, never the uuid, and never
+--   invented: a project-scoped note gets no bracket at all (verified, 0).
+--
+-- ★★★ PROVENANCE: `project_messages.source_note_id` — the note's own id, on the
+--     message, with a **partial UNIQUE index**. Idempotence is enforced by the
+--     DATABASE rather than by a query being careful: a second run cannot insert
+--     a duplicate even if somebody runs it twice by hand. *This Brain has two
+--     incidents from a backfill run twice.*
+--
+-- ---------------------------------------------------------------------------
+-- ★★★ §C — VERIFICATION FROM THE REAL (ROLLED-BACK) RUN, 2026-09-14
+-- ---------------------------------------------------------------------------
+--
+--   a. messages created from notes .................. 107
+--   b. SECOND RUN inserted ............................. 0
+--   c. created_at matches its note .................. 107
+--   d. author verbatim .............................. 107
+--   e. authorless stayed authorless .................. 55
+--   f. carry the done prefix ......................... 38
+--   g. name their permit ............................. 92
+--   h. plain notes carrying a bracket they should not .. 0
+--   i. projects whose notes landed .................... 57
+--   j. projects with exactly ONE LIVE General ........ 220
+--   k. every copy is a reply of a General ........... 107
+--
+-- ★★ The guards in step 5 re-assert every one of these at APPLY time and
+--    `RAISE EXCEPTION` if any is wrong, so the transaction rolls itself back
+--    rather than half-landing. **fix-540's rule applied to a data migration:
+--    do not trust that a statement did what it said — count the result and
+--    read the live state back.**
+--
+-- ===========================================================================
+
+
+-- BEGIN;
+
+-- ---------------------------------------------------------------------------
+-- 1. Provenance, enforced by the database
+-- ---------------------------------------------------------------------------
+--
+-- ALTER TABLE public.project_messages
+--   ADD COLUMN IF NOT EXISTS source_note_id uuid;
+--
+-- COMMENT ON COLUMN public.project_messages.source_note_id IS
+--   'fix-542: the public.notes row this message was copied from. NULL for '
+--   'everything written in chat. Unique where present, so the copy is '
+--   'idempotent no matter how many times it is run.';
+--
+-- CREATE UNIQUE INDEX IF NOT EXISTS project_messages_source_note_key
+--   ON public.project_messages (source_note_id)
+--   WHERE source_note_id IS NOT NULL;
+
+-- ---------------------------------------------------------------------------
+-- 2. A LIVE General on every project — all 220, not only the 57
+-- ---------------------------------------------------------------------------
+--
+-- ★ Channel ordering is a rule about channels, not about which projects
+--   happened to have notes. Authorless on purpose: the channel is not somebody's
+--   post, and inventing an author for it is the same sin as inventing one for a
+--   note.
+--
+-- INSERT INTO public.project_messages
+--   (tenant_id, project_id, author_id, body, title,
+--    mentions, attachments, revisions, created_at)
+-- SELECT pr.tenant_id, pr.id, NULL,
+--        'General discussion for this project.', 'General',
+--        '{}'::uuid[], '[]'::jsonb, '[]'::jsonb, now()
+-- FROM public.projects pr
+-- WHERE NOT EXISTS (
+--   SELECT 1 FROM public.project_messages g
+--    WHERE g.project_id = pr.id
+--      AND g.parent_message_id IS NULL
+--      AND lower(btrim(COALESCE(g.title,''))) = 'general'
+--      AND g.deleted_at IS NULL);
+
+-- ---------------------------------------------------------------------------
+-- 3. ⚠️⚠️ SUPPRESS THE AUTHOR TRIGGER, OR 55 NOTES GET THE MIGRATOR'S NAME
+-- ---------------------------------------------------------------------------
+--
+-- ALTER TABLE public.project_messages DISABLE TRIGGER project_messages_author;
+
+-- ---------------------------------------------------------------------------
+-- 4. The copy
+-- ---------------------------------------------------------------------------
+--
+-- INSERT INTO public.project_messages
+--   (tenant_id, project_id, author_id, body, title, parent_message_id,
+--    mentions, attachments, revisions, created_at, source_note_id)
+-- SELECT
+--   n.tenant_id,
+--   n.project_id,
+--   n.created_by,                       -- ★ verbatim. Never now(), never a uid.
+--   CASE WHEN n.completed THEN
+--          '[done ' || to_char(COALESCE(n.completed_at, n.updated_at)
+--                              AT TIME ZONE 'America/Los_Angeles', 'FMDD Mon') || '] '
+--        ELSE '' END
+--   || CASE WHEN n.permit_id IS NOT NULL THEN
+--          '[' || COALESCE(nullif(btrim(p.num), ''),
+--                          nullif(btrim(p.type), ''), 'permit') || '] '
+--        ELSE '' END
+--   || n.body,
+--   NULL,                               -- a reply carries no title (CHECK)
+--   g.id,
+--   '{}'::uuid[], '[]'::jsonb, '[]'::jsonb,
+--   n.created_at,                       -- ★ verbatim
+--   n.id                                -- ★ the provenance key
+-- FROM public.notes n
+-- JOIN public.project_messages g
+--   ON g.project_id = n.project_id
+--  AND g.parent_message_id IS NULL
+--  AND lower(btrim(COALESCE(g.title,''))) = 'general'
+--  AND g.deleted_at IS NULL
+-- LEFT JOIN public.permits p ON p.id = n.permit_id
+-- ON CONFLICT (source_note_id) WHERE source_note_id IS NOT NULL DO NOTHING;
+--
+-- ALTER TABLE public.project_messages ENABLE TRIGGER project_messages_author;
+
+-- ---------------------------------------------------------------------------
+-- 5. ★★★ THE GUARDS — the migration checks its own work and refuses to commit
+-- ---------------------------------------------------------------------------
+--
+-- DO $verify$
+-- DECLARE
+--   v_notes int; v_copied int; v_ts int; v_author int; v_authorless int;
+--   v_done int; v_permit int; v_stray int; v_projects int; v_general int;
+-- BEGIN
+--   SELECT count(*) INTO v_notes FROM public.notes;
+--   SELECT count(*) INTO v_copied
+--     FROM public.project_messages WHERE source_note_id IS NOT NULL;
+--   IF v_copied <> v_notes THEN
+--     RAISE EXCEPTION 'fix-542: copied % of % notes — refusing to commit a partial copy',
+--       v_copied, v_notes;
+--   END IF;
+--
+--   SELECT count(*) INTO v_ts
+--     FROM public.project_messages m JOIN public.notes n ON n.id = m.source_note_id
+--    WHERE m.created_at = n.created_at;
+--   IF v_ts <> v_notes THEN
+--     RAISE EXCEPTION 'fix-542: % of % kept their created_at', v_ts, v_notes;
+--   END IF;
+--
+--   SELECT count(*) INTO v_author
+--     FROM public.project_messages m JOIN public.notes n ON n.id = m.source_note_id
+--    WHERE m.author_id IS NOT DISTINCT FROM n.created_by;
+--   IF v_author <> v_notes THEN
+--     RAISE EXCEPTION
+--       'fix-542: % of % kept their author verbatim — the author trigger is the '
+--       'usual cause; it must be disabled around step 4', v_author, v_notes;
+--   END IF;
+--
+--   SELECT count(*) INTO v_authorless
+--     FROM public.project_messages m JOIN public.notes n ON n.id = m.source_note_id
+--    WHERE n.created_by IS NULL AND m.author_id IS NULL;
+--   IF v_authorless <> (SELECT count(*) FROM public.notes WHERE created_by IS NULL) THEN
+--     RAISE EXCEPTION 'fix-542: only % authorless notes stayed authorless', v_authorless;
+--   END IF;
+--
+--   SELECT count(*) INTO v_done
+--     FROM public.project_messages WHERE source_note_id IS NOT NULL AND body LIKE '[done %';
+--   IF v_done <> (SELECT count(*) FROM public.notes WHERE completed) THEN
+--     RAISE EXCEPTION 'fix-542: % carry the done prefix, expected %',
+--       v_done, (SELECT count(*) FROM public.notes WHERE completed);
+--   END IF;
+--
+--   SELECT count(*) INTO v_permit
+--     FROM public.project_messages m JOIN public.notes n ON n.id = m.source_note_id
+--    WHERE n.permit_id IS NOT NULL AND m.body LIKE '%[%]%';
+--   IF v_permit <> (SELECT count(*) FROM public.notes WHERE permit_id IS NOT NULL) THEN
+--     RAISE EXCEPTION 'fix-542: % name their permit, expected %',
+--       v_permit, (SELECT count(*) FROM public.notes WHERE permit_id IS NOT NULL);
+--   END IF;
+--
+--   -- ★ and nothing INVENTED: a plain note must carry no bracket at all
+--   SELECT count(*) INTO v_stray
+--     FROM public.project_messages m JOIN public.notes n ON n.id = m.source_note_id
+--    WHERE n.permit_id IS NULL AND NOT n.completed AND m.body LIKE '[%';
+--   IF v_stray <> 0 THEN
+--     RAISE EXCEPTION 'fix-542: % project-scoped notes gained a bracket they should not have', v_stray;
+--   END IF;
+--
+--   SELECT count(DISTINCT project_id) INTO v_projects
+--     FROM public.project_messages WHERE source_note_id IS NOT NULL;
+--   IF v_projects <> (SELECT count(DISTINCT project_id) FROM public.notes) THEN
+--     RAISE EXCEPTION 'fix-542: notes landed on % projects, expected %',
+--       v_projects, (SELECT count(DISTINCT project_id) FROM public.notes);
+--   END IF;
+--
+--   SELECT count(*) INTO v_general FROM (
+--     SELECT pr.id FROM public.projects pr
+--     JOIN public.project_messages g
+--       ON g.project_id = pr.id AND g.parent_message_id IS NULL
+--      AND lower(btrim(COALESCE(g.title,''))) = 'general' AND g.deleted_at IS NULL
+--     GROUP BY pr.id HAVING count(*) = 1) x;
+--   IF v_general <> (SELECT count(*) FROM public.projects) THEN
+--     RAISE EXCEPTION 'fix-542: % projects have exactly one live General, expected %',
+--       v_general, (SELECT count(*) FROM public.projects);
+--   END IF;
+--
+--   RAISE NOTICE 'fix-542: % notes copied, % authorless, % done-prefixed, % named a permit, % Generals',
+--     v_copied, v_authorless, v_done, v_permit, v_general;
+-- END
+-- $verify$;
+
+-- COMMIT;
+
+
+-- ---------------------------------------------------------------------------
+-- 6. Run it again — it must insert nothing
+-- ---------------------------------------------------------------------------
+--
+-- ★ Safe by construction, and worth doing once so the 0 is seen rather than
+--   assumed. Re-running steps 2 and 4 reports `INSERT 0 0` on both.
+--
+-- ---------------------------------------------------------------------------
+-- ⏸ NOT IN THIS TICKET
+-- ---------------------------------------------------------------------------
+--
+-- No note is deleted. `public.notes` is untouched — not a row, not a column,
+-- not the Notes surface in the app. The delete is its own ticket, after Bobby
+-- has read the notes inside chat and says to remove it. **Re-run this file
+-- first**, so any note written in between comes across too.
+--
+-- ---------------------------------------------------------------------------
+-- Undo
+-- ---------------------------------------------------------------------------
+--
+-- DELETE FROM public.project_messages WHERE source_note_id IS NOT NULL;
+-- DELETE FROM public.project_messages g
+--  WHERE g.parent_message_id IS NULL
+--    AND lower(btrim(COALESCE(g.title,''))) = 'general'
+--    AND g.body = 'General discussion for this project.'
+--    AND NOT EXISTS (SELECT 1 FROM public.project_messages r
+--                     WHERE r.parent_message_id = g.id);
+--
+-- ★ The second statement removes only the Generals THIS file created and only
+--   while they are still empty — a General somebody has since posted in stays.
+--   The three pre-existing live Generals are never touched: they do not carry
+--   that body.
