@@ -36,6 +36,7 @@ import EditRedesignModal from '../components/ProjectDetail/EditRedesignModal';
 import NewProjectWizard from '../components/NewProjectWizard';
 import ReassignDaModal from '../components/ProjectDetail/ReassignDaModal';
 import { useProjectTeamCaps } from '../hooks/useWriteCaps';
+import { useIsTenantAdmin } from '../hooks/useIsTenantAdmin';
 import { useProjectDaHandoffs } from '../hooks/useProjectDaHandoffs';
 import {
   makeRedesignWizardState,
@@ -335,6 +336,8 @@ function ProjectDetailBody({
   //     applies the staged migration this reports no capabilities, so both read
   //     exactly as they do today: admin-only.
   const { canReassignDa, canReassignSd } = useProjectTeamCaps();
+  // ★ fix-549 §D: only an admin may delete a project.
+  const isTenantAdmin = useIsTenantAdmin();
   const handoffsQ = useProjectDaHandoffs(project.id);
   const redesignsQ = useProjectRedesigns(project.id);
   // fix-151: redesigns + their permits. Drives the Redesigns sidebar section
@@ -409,10 +412,32 @@ function ProjectDetailBody({
             closeProjectData();
             setReassignOpen(true);
           }}
-          onDelete={() => {
-            closeProjectData();
-            setDeleteOpen(true);
-          }}
+          /* ════════════════════════════════════════════════════════
+             ★★★ fix-549 §D (P-250) — DELETE IS ADMINS ONLY, AND THE BUTTON IS
+             ABSENT RATHER THAN DISABLED
+             ════════════════════════════════════════════════════════
+
+             Bobby, 2026-09-14: only admins may delete a project. The modal
+             already renders the control only when `onDelete` is given, so
+             withholding the callback removes the button rather than greying
+             it — the same rule §B applies to the fields.
+
+             ★★ The BROWSER is not the gate: the staged migration scopes the RLS
+             delete policy to admins AND raises 42501 inside
+             `bp_delete_project_row`, because a policy refusal there comes back
+             as a 0-row delete, which this RPC reports as a CONFLICT — fix-539's
+             lesson, a second time. Proved on prod: a DA is refused 42501 and
+             blocked at the table; Cam, who may edit every project, is also
+             refused; an admin succeeds.
+           */
+          onDelete={
+            isTenantAdmin
+              ? () => {
+                  closeProjectData();
+                  setDeleteOpen(true);
+                }
+              : undefined
+          }
           onSpawnRedesign={() => {
             const seed = makeRedesignWizardState(
               project,

@@ -7,6 +7,8 @@ import {
   isDeniedResponse,
   isMissingFunction,
   isWriteDenied,
+  projectMembersFromCache,
+  type PermitLike,
 } from '../lib/projectWriteScope';
 import { pushToast } from '../stores/toastStore';
 import { useAuthStore } from '../stores/authStore';
@@ -88,6 +90,9 @@ interface MutationContext {
 async function tryUpdateProject(
   input: UpdateProjectInput,
   expectedUpdatedAt: string,
+  /** ★ fix-549 §C: who to name in a refusal. Resolved by the caller, which
+   *  is the half that can see the caches. */
+  members?: { da?: string | null; designManager?: string | null },
 ): Promise<Project> {
   const { projectId, patch, fieldLabel } = input;
 
@@ -108,7 +113,13 @@ async function tryUpdateProject(
   });
 
   if (rpc.error && isDeniedResponse(rpc.error)) {
-    throw new ProjectWriteDeniedError(projectId);
+    // ★★★ fix-549 §C: name the person. *"Ask a design manager"* is advice you
+    //     cannot act on without first working out which one — and on the
+    //     project that produced the nine refusals the answer (Nicky) was
+    //     sitting on it the whole time. The members come from the caches the
+    //     screen is already showing, and the message degrades cleanly when the
+    //     project names nobody: 22 of 220 have no DA.
+    throw new ProjectWriteDeniedError(projectId, members);
   }
 
   // ★★★ The staged-migration fallback. Until Cowork applies fix-539 the
@@ -227,13 +238,21 @@ export function useUpdateProject() {
     mutationFn: async (input) => {
       // ★★★ fix-532 §B: the token is read HERE, at send time, not at render
       //     time. See the note above `freshestProjectToken`.
+      // ★★★ fix-549 §C — resolved HERE because this is the half that can see
+      //     the caches. The design manager is on the project row; the DA is on
+      //     its permits, which is why both are consulted.
+      const members = projectMembersFromCache(
+        queryClient.getQueryData<Project[]>(queryKeys.projects(tenantId)),
+        queryClient.getQueryData<PermitLike[]>(queryKeys.permits(tenantId)),
+        input.projectId,
+      );
       const token = freshestProjectToken(
         queryClient.getQueryData<Project[]>(queryKeys.projects(tenantId)),
         input.projectId,
         input.expectedUpdatedAt,
       );
       try {
-        return await tryUpdateProject(input, token);
+        return await tryUpdateProject(input, token, members);
       } catch (err) {
         // silentOnOcc=true → caller wants to handle recovery itself.
         // Don't auto-retry; let the error propagate. (Non-OCC errors
@@ -260,7 +279,7 @@ export function useUpdateProject() {
         // to onError so the user finally sees what's going on. We do
         // NOT chain a second auto-retry — exactly one attempt after the
         // refresh.
-        return await tryUpdateProject(input, freshToken);
+        return await tryUpdateProject(input, freshToken, members);
       }
     },
 

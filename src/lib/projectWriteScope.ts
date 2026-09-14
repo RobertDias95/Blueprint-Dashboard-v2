@@ -16,12 +16,85 @@
 /** Postgres `insufficient_privilege`. The server's answer, not a guess. */
 export const WRITE_DENIED_CODE = '42501';
 
+/** The wording when the project names nobody to ask. */
+export const WRITE_DENIED_FALLBACK =
+  'You can only edit projects you are on. Ask a design manager if you need this one.';
+
+/**
+ * ★★★ fix-549 §C — NAME THE PERSON, NOT THE ROLE.
+ *
+ * *"Ask a design manager"* is advice you cannot act on without first working
+ * out which one. On 1917 3rd Ave W the answer was **Nicky**, and it was sitting
+ * on the project the whole time.
+ *
+ * ⚠️ AND IT FALLS BACK, DELIBERATELY. 22 of 220 projects have no DA (measured
+ *    09-13), and `"Ask ."` is worse than a vague sentence. The composer only
+ *    names somebody when the project actually names them.
+ *
+ * ★ Order is who to ask FIRST: the DA owns the day-to-day, the design manager
+ *   owns the DA. The permitting lead is not offered — this is a design-scope
+ *   refusal and sending people to the wrong desk is its own small harm.
+ */
+export function writeDeniedMessage(members?: {
+  da?: string | null;
+  designManager?: string | null;
+}): string {
+  const da = (members?.da ?? '').trim();
+  const dm = (members?.designManager ?? '').trim();
+  if (da && dm) {
+    return `You can only edit projects you are on. ${da} is the DA here — ask ${da}, or ${dm} (design manager).`;
+  }
+  if (da) {
+    return `You can only edit projects you are on. ${da} is the DA here — ask ${da} if you need this one.`;
+  }
+  if (dm) {
+    return `You can only edit projects you are on. Ask ${dm}, the design manager on this project.`;
+  }
+  return WRITE_DENIED_FALLBACK;
+}
+
+/** The minimum a permit row must carry to name a project's DA. */
+export interface PermitLike {
+  project_id?: string | null;
+  da?: string | null;
+}
+/** The minimum a project row must carry to name its design manager. */
+export interface ProjectLike {
+  id: string;
+  design_manager?: string | null;
+}
+
+/**
+ * ★★ fix-549 §C — who to name, from the caches the screen already holds.
+ *
+ * ★ The design manager is on the PROJECT row; the DA is on its PERMITS. That
+ *   split is why both caches are consulted — and why a message composed from
+ *   the project alone would have named Derry and missed Nicky, who is the
+ *   person the refusal was actually about.
+ *
+ * ★ First DA found wins: a project's permits carry the same DA in practice,
+ *   and offering two names to ask is not more helpful than one.
+ */
+export function projectMembersFromCache(
+  projects: readonly ProjectLike[] | undefined,
+  permits: readonly PermitLike[] | undefined,
+  projectId: string,
+): { da: string | null; designManager: string | null } {
+  const project = projects?.find((p) => p.id === projectId) ?? null;
+  const da =
+    permits?.find(
+      (p) => p.project_id === projectId && (p.da ?? '').trim() !== '',
+    )?.da ?? null;
+  return { da, designManager: project?.design_manager ?? null };
+}
+
 export class ProjectWriteDeniedError extends Error {
   readonly projectId: string;
-  constructor(projectId: string) {
-    super(
-      'You can only edit projects you are on. Ask a design manager if you need this one.',
-    );
+  constructor(
+    projectId: string,
+    members?: { da?: string | null; designManager?: string | null },
+  ) {
+    super(writeDeniedMessage(members));
     this.name = 'ProjectWriteDeniedError';
     this.projectId = projectId;
   }

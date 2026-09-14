@@ -85,6 +85,20 @@ vi.mock('../hooks/useProjectConsultants', () => ({
 
 vi.mock('../stores/toastStore', () => ({ pushToast: vi.fn() }));
 
+// ★★★ fix-549 §B (P-255) — THIS SUITE IS ABOUT A PERMITTED USER.
+//
+// Every Project Data editor now asks `bp_may_write_project` before rendering an
+// input, and the hook **fails closed** — so under a mocked supabase it answers
+// "no" and every field would render read-only. That is the correct production
+// behaviour and the wrong fixture for a suite about what the editor DOES.
+//
+// ★ Mocked permissive here, exactly as `useProjectConsultants` is mocked inert
+//   above: the refusal path has its own suite (`CamEditsAnyProjectFix549`).
+vi.mock('../hooks/useMayWriteProject', () => ({
+  useMayWriteProject: () => true,
+}));
+
+
 // ===========================================================================
 // ★★★ fix-506 §G (P-140) — THIS SUITE'S EDITOR MOVED, AND NOTHING ELSE DID
 // ===========================================================================

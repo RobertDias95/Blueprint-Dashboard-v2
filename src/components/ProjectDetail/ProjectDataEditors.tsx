@@ -52,6 +52,7 @@ import OverlapPrompt from '../OverlapPrompt';
 import NpWarningPrompt from '../NpWarningPrompt';
 import type { PermitWithCycles, Project, UnitType } from '../../lib/database.types';
 import { shouldShowLotsField, ADD_LOTS_LABEL } from '../../lib/lotsVisibility';
+import { useMayWriteProject } from '../../hooks/useMayWriteProject';
 
 // ===========================================================================
 // ★★★ fix-506 §G (P-140) — THE EDITORS THE OVERVIEW NO LONGER OWNS
@@ -254,6 +255,10 @@ function MilestoneDivider({ testId }: { testId: string }) {
 function ClosingRow({ project }: { project: Project }) {
   const updateMutation = useUpdateProject();
   const occMissing = !project.updated_at;
+  // ★★★ fix-549 §B: the same server answer the write path asks. A field that
+  //     will be refused must not accept typing first.
+  const mayWrite549 = useMayWriteProject(project.id);
+  const locked = occMissing || !mayWrite549;
   const [draft, setDraft] = useState<string>(project.closing_date ?? '');
   async function commit(next: string | null) {
     if (!project.updated_at) return;
@@ -274,7 +279,7 @@ function ClosingRow({ project }: { project: Project }) {
         const t = draft.trim();
         void commit(t === '' ? null : t);
       }}
-      disabled={occMissing}
+      disabled={locked}
       testId="project-overview-closing"
       ariaLabel="Closing"
     />
@@ -866,7 +871,23 @@ export function TargetSubmitRow({
 
 export function SiteEditor({ project }: { project: Project }) {
   const updateMutation = useUpdateProject();
+  // ══════════════════════════════════════════════════════════════
+  // ★★★ fix-549 §B (P-255) — ASK BEFORE RENDERING AN INPUT
+  // ══════════════════════════════════════════════════════════════
+  //
+  // Nine refusals in four minutes, one person, six of them on Lot Size — the
+  // row immediately below. The product let him type and then threw it away.
+  //
+  // ★★★ It asks `bp_may_write_project`, **the same function the RLS policy and
+  //     the write RPC ask**, rather than re-deriving the rule here. Two writers
+  //     of one rule is the most repeated defect in this Brain (P-207, P-179,
+  //     P-244, fix-531, fix-541 §A) and this is exactly where a fifth would go.
+  //
+  // ★★ READ-ONLY, not disabled: a greyed box still reads as a box you could
+  //    use if you tried harder. The rows below render their value as text.
+  const mayWrite = useMayWriteProject(project.id);
   const occMissing = !project.updated_at;
+  const locked = occMissing || !mayWrite;
   // ★★ fix-541 (P-236): the route back. Local to the visit — once a real
   //    count is committed the predicate keeps the field visible on its own,
   //    so there is nothing to persist.
@@ -901,20 +922,20 @@ export function SiteEditor({ project }: { project: Project }) {
             longest option is "MIO-37-LR3", where theirs is "Yes". */}
         <ZoneSelect
           value={project.zone}
-          disabled={occMissing}
+          disabled={locked}
           onChange={(v) => commit('zone', v || null, project.zone, 'Zone')}
           testid="pd-site-zone"
           className="w-[124px] flex-none text-[10px] font-semibold text-text border-0 border-b outline-none bg-transparent px-0 py-0.5 disabled:opacity-50"
           style={{ borderBottomColor: 'var(--color-border)' }}
         />
       </div>
-      <SiteLotRow project={project} disabled={occMissing} onCommit={commit} />
+      <SiteLotRow project={project} disabled={locked} onCommit={commit} />
       {/* ★★★ fix-488 §A: the typed lot size, directly under the pair it
           relates to — and the row that renders `varies` when one dimension is
           blank beside a typed size. */}
       <SiteLotSizeRow
         project={project}
-        disabled={occMissing}
+        disabled={locked}
         onCommit={(field, next, prev, label) => {
           void commit(field, next, prev, label);
         }}
@@ -946,7 +967,7 @@ export function SiteEditor({ project }: { project: Project }) {
           '',
           ...Array.from({ length: 20 }, (_, i) => String(i + 1)),
         ]}
-        disabled={occMissing}
+        disabled={locked}
         onCommit={(v) => {
           const next = v === '' ? null : Number(v);
           void commit(
@@ -966,7 +987,7 @@ export function SiteEditor({ project }: { project: Project }) {
         <button
           type="button"
           onClick={() => setLotsRevealed(true)}
-          disabled={occMissing}
+          disabled={locked}
           className="text-[10px] text-dim hover:text-text underline underline-offset-2 self-start disabled:opacity-40"
           data-testid="site-add-lots"
         >
@@ -986,7 +1007,7 @@ export function SiteEditor({ project }: { project: Project }) {
               : ''
         }
         options={['', 'Yes', 'No']}
-        disabled={occMissing}
+        disabled={locked}
         onCommit={(v) => {
           const next = v === 'Yes' ? true : v === 'No' ? false : null;
           void commit(
@@ -1021,7 +1042,7 @@ export function SiteEditor({ project }: { project: Project }) {
         label="Alley"
         value={project.alley ?? ''}
         options={['', 'Yes', 'No']}
-        disabled={occMissing}
+        disabled={locked}
         onCommit={(v) => commit('alley', v || null, project.alley, 'Alley')}
       />
       {/* ★★★ fix-402 — PARKING LEFT THE SITE SECTION.
@@ -1321,8 +1342,12 @@ function SiteLotSizeRow({
 
 /** One unit type's typed floor area. */
 export function UnitSizeEditor({ project }: { project: Project }) {
+  // ★★★ fix-549 §B: the same server answer the write path asks. A field that
+  //     will be refused must not accept typing first.
+  const mayWrite549 = useMayWriteProject(project.id);
   const updateMutation = useUpdateProject();
   const occMissing = !project.updated_at;
+  const locked = occMissing || !mayWrite549;
   const types = parseUnitTypes(project.unit_types);
   // ★★★ fix-520 §B: computed from the PARSED rows, in stored order — the same
   //     input the dimensions editor and the Overview matrix label from, so the
@@ -1367,7 +1392,7 @@ export function UnitSizeEditor({ project }: { project: Project }) {
           //     if all three surfaces give it.
           unitLabel={labels[idx]}
           row={t}
-          disabled={occMissing}
+          disabled={locked}
           onCommit={(size) => {
             if (size === (t.size_sf ?? null)) return;
             void writeTypes(types.map((u, i) => (i === idx ? { ...u, size_sf: size } : u)));
@@ -1486,6 +1511,9 @@ function UnitSizeRow({
 //   fix-93's rule for product types, applied to the tag next door.
 
 export function ProjectTagsEditor({ project }: { project: Project }) {
+  // ★★★ fix-549 §B: the same server answer the write path asks. A field that
+  //     will be refused must not accept typing first.
+  const mayWrite549 = useMayWriteProject(project.id);
   const updateMutation = useUpdateProject();
   const appConfigQ = useAppConfig();
   const options = readAppConfigStringArray(appConfigQ.map, 'projectTagOptions');
@@ -1493,6 +1521,7 @@ export function ProjectTagsEditor({ project }: { project: Project }) {
     ? (project.project_tags as string[]).filter((t) => typeof t === 'string')
     : [];
   const occMissing = !project.updated_at;
+  const locked = occMissing || !mayWrite549;
 
   async function write(next: string[]) {
     if (!project.updated_at) return;
@@ -1528,7 +1557,7 @@ export function ProjectTagsEditor({ project }: { project: Project }) {
             {t}
             <button
               type="button"
-              disabled={occMissing}
+              disabled={locked}
               onClick={() => void write(chosen.filter((x) => x !== t))}
               className="leading-none disabled:opacity-40"
               title={`Remove ${t}`}
@@ -1569,8 +1598,12 @@ export function ProjectTagsEditor({ project }: { project: Project }) {
 }
 
 export function UnitDimensions({ project }: { project: Project }) {
+  // ★★★ fix-549 §B: the same server answer the write path asks. A field that
+  //     will be refused must not accept typing first.
+  const mayWrite549 = useMayWriteProject(project.id);
   const updateMutation = useUpdateProject();
   const occMissing = !project.updated_at;
+  const locked = occMissing || !mayWrite549;
   const types = parseUnitTypes(project.unit_types);
   // fix-205: the project's product types drive the per-row Label (auto when
   // there's exactly one type; a dropdown when several).
@@ -1612,7 +1645,7 @@ export function UnitDimensions({ project }: { project: Project }) {
     return (
       <UnitDimensionsCompact
         current={types[0]}
-        disabled={occMissing}
+        disabled={locked}
         onSet={(field, val) => {
           const base = types[0] ?? { label: '', width_ft: null, depth_ft: null, qty: 1 };
           const next: UnitType = { ...base, [field]: val };
@@ -1648,7 +1681,7 @@ export function UnitDimensions({ project }: { project: Project }) {
     <UnitDimensionsExpanded
       types={types}
       productTypes={productTypes}
-      disabled={occMissing}
+      disabled={locked}
       onUpdate={(idx, field, val) => {
         const next = types.map((t, i) =>
           i === idx ? { ...t, [field]: val } : t,
