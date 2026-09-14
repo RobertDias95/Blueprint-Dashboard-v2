@@ -1,0 +1,416 @@
+-- ===========================================================================
+-- fix-567 — Shire backfills the dates and the draw schedule (P-271)
+-- STAGED, NOT APPLIED.  Cowork applies migrations.
+-- MEASURED ON PROD 2026-09-14 (project eibnmwthkcuumyclyxoe)
+-- ===========================================================================
+--
+-- EVERY STATEMENT BELOW IS COMMENTED OUT.  Uncomment as a whole, in order.
+--
+-- ---------------------------------------------------------------------------
+-- WHAT WAS MEASURED, AND IT IS NOT IN A HEADER ONLY (fix-450's rule: the
+-- assertions at the foot re-derive every number, so this block cannot become
+-- the only place a fact lives).
+-- ---------------------------------------------------------------------------
+--
+--   Shire = smahdi@blueprintcap.com
+--     auth.users.id           44c0c6e2-f840-4f6e-b715-789275f8ace3
+--     team_members            name 'Shire', role 'da', active true
+--     profiles                role 'editor'
+--                             may_edit_library       false
+--                             may_edit_all_projects  false
+--
+--   Holders of may_edit_all_projects BEFORE : 1  (cameron@blueprintcap.com)
+--   Holders AFTER                            : 2  (Cam, Shire)
+--   Holders of may_edit_draw_schedule AFTER  : 1  (Shire)
+--
+--   da_time_blocks.type already holds what Bobby named, so NOTHING is built
+--   for it — Shire simply cannot write:
+--     Vacation 37 · Corrections 24 · Other 17 · Training 13 · Redesign 2
+--     across 13 distinct da_name values  (the brief said 12 — measured 13)
+--
+--   Tenants in public.projects: 1.  ** So the cross-tenant case CANNOT be
+--   proved on live data. **  Stated plainly rather than reported green; the
+--   same gap is already recorded on fix-549.
+--
+-- ---------------------------------------------------------------------------
+-- ★★★ FIVE GATE SITES, OR THE SCREEN AND THE DATABASE DISAGREE
+-- ---------------------------------------------------------------------------
+--
+-- The draw schedule is a REAL SERVER BOUNDARY, not a browser gate, and it is
+-- enforced in two different ways at once:
+--
+--   (1) draw_schedule                  ALL policy   ← the INVOKER RPCs' gate
+--   (2) da_time_blocks                 ALL policy   ←   "
+--   (3) draw_schedule_quarter_layout   ALL policy   ←   "
+--   (4) bp_can_edit_draw_schedule()                 ← the UI asks this
+--   (5) bp_assert_draw_schedule_admin()             ← 10 DEFINER RPCs call it
+--
+-- The INVOKER RPCs carry no check of their own BECAUSE THE POLICY IS THEIR
+-- GATE; the DEFINER RPCs bypass RLS entirely and are gated by (5), which is
+-- (4) with a raise.  Teaching four of the five produces a button that appears
+-- and then fails, which is worse than no button at all.
+--
+-- ---------------------------------------------------------------------------
+-- ★★★ THE TENANT CHECK STAYS ABOVE THE GRANT
+-- ---------------------------------------------------------------------------
+--
+-- The grant crosses PROJECTS, never TENANTS.  So in (1)-(3) the new branch is
+--     tenant_id = any(auth_tenant_ids())  AND  <holds the flag>
+-- and never the flag alone.  `is_tenant_admin(tenant_id)` is left as the first
+-- disjunct, untouched, so today's admins are unaffected in every respect.
+--
+-- (4) and (5) are deliberately tenant-AGNOSTIC — they already were, answering
+-- "may this person edit a draw schedule at all" — and the row-level check in
+-- (1)-(3) is what confines a write to the caller's own tenant.  Adding a
+-- tenant argument to them would have changed ten call sites to restate a fact
+-- the rows already enforce.
+--
+-- ---------------------------------------------------------------------------
+-- WHAT THIS DOES NOT DO
+-- ---------------------------------------------------------------------------
+--   · does NOT change Shire's roster role, and adds no role to team_members
+--   · does NOT widen `da` or `editor` for anybody else
+--   · does NOT touch DELETE — fix-549 §D settled it: admins only, and the
+--     probe below re-proves that Shire is still refused 42501 WITH both flags
+--   · does NOT build a narrower capability for the dates half.  Bobby knows
+--     and accepted that may_edit_all_projects also grants unit and site data:
+--     broader than his description, a knowing choice.
+--
+-- ---------------------------------------------------------------------------
+-- LOCKING
+-- ---------------------------------------------------------------------------
+-- ★ ALTER TABLE public.profiles ADD COLUMN takes an AccessExclusiveLock and
+--   DEADLOCKED against live readers when fix-549 probed the same statement.
+--   SET LOCAL lock_timeout keeps a failure fast and loud instead of a queue.
+--
+-- ===========================================================================
+
+
+-- ---------------------------------------------------------------------------
+-- §A — dates: grant the flag that already exists (fix-549 added the column)
+-- ---------------------------------------------------------------------------
+-- ★ BY EMAIL, never a pasted uuid.  A uuid in a migration is a fact nobody
+--   can check by reading it; an email is one every reviewer can.
+
+-- begin;
+-- set local lock_timeout = '5s';
+
+-- update public.profiles p
+--    set may_edit_all_projects = true
+--   from auth.users u
+--  where u.id = p.id
+--    and lower(u.email) = 'smahdi@blueprintcap.com';
+
+
+-- ---------------------------------------------------------------------------
+-- §B.0 — the new column
+-- ---------------------------------------------------------------------------
+-- ★ Mirrors may_edit_library and may_edit_all_projects exactly: a per-person
+--   boolean, NOT NULL DEFAULT false, read inline by the function that needs
+--   it.  The house shape, found rather than assumed.
+
+-- alter table public.profiles
+--   add column may_edit_draw_schedule boolean not null default false;
+
+-- comment on column public.profiles.may_edit_draw_schedule is
+--   'fix-567: may edit the draw schedule, the DA time blocks and the quarter '
+--   'layout without being a tenant admin. Granted per person, by email. The '
+--   'tenant check stays above it in the three RLS policies.';
+
+-- update public.profiles p
+--    set may_edit_draw_schedule = true
+--   from auth.users u
+--  where u.id = p.id
+--    and lower(u.email) = 'smahdi@blueprintcap.com';
+
+
+-- ---------------------------------------------------------------------------
+-- §B.1 — gate site 1 of 5: draw_schedule
+-- ---------------------------------------------------------------------------
+-- ★ The SELECT policy (draw_schedule_tenant_select, tenant-wide) is NOT
+--   touched by any of these — reading was never restricted.
+
+-- drop policy if exists draw_schedule_tenant_admin_write on public.draw_schedule;
+-- create policy draw_schedule_tenant_admin_write
+--   on public.draw_schedule
+--   as permissive for all to public
+--   using (
+--     is_tenant_admin(tenant_id)
+--     or (
+--       tenant_id = any (auth_tenant_ids())
+--       and exists (select 1 from public.profiles
+--                    where id = auth.uid() and may_edit_draw_schedule is true)
+--     )
+--   )
+--   with check (
+--     is_tenant_admin(tenant_id)
+--     or (
+--       tenant_id = any (auth_tenant_ids())
+--       and exists (select 1 from public.profiles
+--                    where id = auth.uid() and may_edit_draw_schedule is true)
+--     )
+--   );
+
+
+-- ---------------------------------------------------------------------------
+-- §B.2 — gate site 2 of 5: da_time_blocks
+-- ---------------------------------------------------------------------------
+
+-- drop policy if exists da_time_blocks_tenant_admin_write on public.da_time_blocks;
+-- create policy da_time_blocks_tenant_admin_write
+--   on public.da_time_blocks
+--   as permissive for all to public
+--   using (
+--     is_tenant_admin(tenant_id)
+--     or (
+--       tenant_id = any (auth_tenant_ids())
+--       and exists (select 1 from public.profiles
+--                    where id = auth.uid() and may_edit_draw_schedule is true)
+--     )
+--   )
+--   with check (
+--     is_tenant_admin(tenant_id)
+--     or (
+--       tenant_id = any (auth_tenant_ids())
+--       and exists (select 1 from public.profiles
+--                    where id = auth.uid() and may_edit_draw_schedule is true)
+--     )
+--   );
+
+
+-- ---------------------------------------------------------------------------
+-- §B.3 — gate site 3 of 5: draw_schedule_quarter_layout
+-- ---------------------------------------------------------------------------
+
+-- drop policy if exists dsql_tenant_admin_write on public.draw_schedule_quarter_layout;
+-- create policy dsql_tenant_admin_write
+--   on public.draw_schedule_quarter_layout
+--   as permissive for all to public
+--   using (
+--     is_tenant_admin(tenant_id)
+--     or (
+--       tenant_id = any (auth_tenant_ids())
+--       and exists (select 1 from public.profiles
+--                    where id = auth.uid() and may_edit_draw_schedule is true)
+--     )
+--   )
+--   with check (
+--     is_tenant_admin(tenant_id)
+--     or (
+--       tenant_id = any (auth_tenant_ids())
+--       and exists (select 1 from public.profiles
+--                    where id = auth.uid() and may_edit_draw_schedule is true)
+--     )
+--   );
+
+
+-- ---------------------------------------------------------------------------
+-- §B.4 — gate site 4 of 5: bp_can_edit_draw_schedule()
+-- ---------------------------------------------------------------------------
+-- ★ BASED ON THE LIVE pg_get_functiondef, NOT RETYPED FROM MEMORY.  The three
+--   existing disjuncts are byte-for-byte what is deployed today; the fourth is
+--   the only addition.  ★ The service_role branch stays FIRST — the scraper
+--   must not start depending on a profiles row it does not have.
+
+-- create or replace function public.bp_can_edit_draw_schedule()
+--  returns boolean
+--  language sql
+--  stable security definer
+--  set search_path to 'public'
+-- as $function$
+--   SELECT auth.role() = 'service_role'
+--       OR public.is_admin()
+--       OR EXISTS (
+--            SELECT 1 FROM public.tenant_memberships
+--            WHERE user_id = auth.uid() AND role = 'admin'
+--          )
+--       -- fix-567: …or a person granted the draw-schedule capability.
+--       OR EXISTS (
+--            SELECT 1 FROM public.profiles
+--            WHERE id = auth.uid() AND may_edit_draw_schedule IS TRUE
+--          );
+-- $function$;
+
+
+-- ---------------------------------------------------------------------------
+-- §B.5 — gate site 5 of 5: bp_assert_draw_schedule_admin()
+-- ---------------------------------------------------------------------------
+-- ★★★ THE BODY DOES NOT CHANGE — it already delegates to (4), which is why
+--     all ten DEFINER RPCs inherit the grant for free.  It is re-emitted here
+--     ANYWAY, for two reasons: the message said "admins" and is now wrong, and
+--     a reviewer counting gate sites must be able to see this one was
+--     considered rather than forgotten.  ★ 10 DEFINER RPCs call it (measured).
+
+-- create or replace function public.bp_assert_draw_schedule_admin()
+--  returns void
+--  language plpgsql
+--  stable security definer
+--  set search_path to 'public'
+-- as $function$
+-- BEGIN
+--   IF NOT public.bp_can_edit_draw_schedule() THEN
+--     RAISE EXCEPTION 'you do not have permission to edit the draw schedule'
+--       USING ERRCODE = '42501';
+--   END IF;
+-- END;
+-- $function$;
+
+
+-- ---------------------------------------------------------------------------
+-- ASSERTIONS — run INSIDE the same transaction, before COMMIT.
+-- ★ fix-450: every number in the header above is re-derived here, so the
+--   header can never be the only place it lives.
+-- ★ fix-540: assert the change LANDED.  ★ fix-545: assert what it did NOT
+--   break — the neighbours.
+-- ---------------------------------------------------------------------------
+
+-- (a) the dates grant landed on EXACTLY two people — Cam and Shire.
+--     ★ A grant that hits 0 rows and one that hits 37 both look like success.
+-- do $$
+-- declare v_n int; v_who text;
+-- begin
+--   select count(*), string_agg(u.email, ', ' order by u.email)
+--     into v_n, v_who
+--     from public.profiles p join auth.users u on u.id = p.id
+--    where p.may_edit_all_projects is true;
+--   if v_n <> 2 then
+--     raise exception 'may_edit_all_projects: expected 2 holders, found % (%)', v_n, v_who;
+--   end if;
+--   if v_who not like '%cameron@blueprintcap.com%'
+--      or v_who not like '%smahdi@blueprintcap.com%' then
+--     raise exception 'may_edit_all_projects held by the wrong people: %', v_who;
+--   end if;
+-- end $$;
+
+-- (b) the draw-schedule grant landed on EXACTLY one person — Shire.
+-- do $$
+-- declare v_n int; v_who text;
+-- begin
+--   select count(*), string_agg(u.email, ', ' order by u.email)
+--     into v_n, v_who
+--     from public.profiles p join auth.users u on u.id = p.id
+--    where p.may_edit_draw_schedule is true;
+--   if v_n <> 1 or coalesce(v_who,'') <> 'smahdi@blueprintcap.com' then
+--     raise exception 'may_edit_draw_schedule: expected only Shire, found % (%)', v_n, v_who;
+--   end if;
+-- end $$;
+
+-- (c) ALL THREE policies mention the new column, and ALL THREE still carry the
+--     tenant check above it.  ★ This is the assertion that catches "four of
+--     five" — a policy silently left on the old definition.
+-- do $$
+-- declare r record; v_n int := 0;
+-- begin
+--   for r in
+--     select tablename, policyname, qual, with_check
+--       from pg_policies
+--      where schemaname = 'public'
+--        and policyname in ('draw_schedule_tenant_admin_write',
+--                           'da_time_blocks_tenant_admin_write',
+--                           'dsql_tenant_admin_write')
+--   loop
+--     v_n := v_n + 1;
+--     if coalesce(r.qual,'') not like '%may_edit_draw_schedule%'
+--        or coalesce(r.with_check,'') not like '%may_edit_draw_schedule%' then
+--       raise exception 'policy %.% does not carry the grant', r.tablename, r.policyname;
+--     end if;
+--     if coalesce(r.qual,'') not like '%auth_tenant_ids%'
+--        or coalesce(r.qual,'') not like '%is_tenant_admin%' then
+--       raise exception 'policy %.% lost its tenant check', r.tablename, r.policyname;
+--     end if;
+--   end loop;
+--   if v_n <> 3 then
+--     raise exception 'expected 3 write policies, found %', v_n;
+--   end if;
+-- end $$;
+
+-- (d) BOTH functions carry it too — gate sites 4 and 5 of 5.
+-- do $$
+-- declare v_can text; v_assert text;
+-- begin
+--   select pg_get_functiondef(p.oid) into v_can
+--     from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+--    where n.nspname = 'public' and p.proname = 'bp_can_edit_draw_schedule';
+--   select pg_get_functiondef(p.oid) into v_assert
+--     from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+--    where n.nspname = 'public' and p.proname = 'bp_assert_draw_schedule_admin';
+--   if v_can not like '%may_edit_draw_schedule%' then
+--     raise exception 'bp_can_edit_draw_schedule does not carry the grant';
+--   end if;
+--   if v_can not like '%service_role%' then
+--     raise exception 'bp_can_edit_draw_schedule lost its service_role branch';
+--   end if;
+--   if v_assert not like '%bp_can_edit_draw_schedule%' then
+--     raise exception 'bp_assert_draw_schedule_admin stopped delegating';
+--   end if;
+-- end $$;
+
+-- (e) THE NEIGHBOURS ARE UNTOUCHED (fix-545's rule).  The tenant-wide SELECT
+--     policies still exist on all three tables — reading was never restricted
+--     and this ticket must not have narrowed it.
+-- do $$
+-- declare v_n int;
+-- begin
+--   select count(*) into v_n from pg_policies
+--    where schemaname = 'public'
+--      and policyname in ('draw_schedule_tenant_select',
+--                         'da_time_blocks_tenant_select',
+--                         'dsql_tenant_select');
+--   if v_n <> 3 then
+--     raise exception 'a tenant SELECT policy went missing: found %', v_n;
+--   end if;
+-- end $$;
+
+-- (f) DELETE IS UNCHANGED — fix-549 §D intact.  Shire holds both flags and is
+--     still refused; this asserts the guard text is still in the function
+--     rather than trusting that nothing touched it.
+-- do $$
+-- declare v_def text;
+-- begin
+--   select pg_get_functiondef(p.oid) into v_def
+--     from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+--    where n.nspname = 'public' and p.proname = 'bp_delete_project_row';
+--   if v_def not like '%42501%' then
+--     raise exception 'bp_delete_project_row lost its explicit 42501';
+--   end if;
+--   if v_def not like '%may_edit_draw_schedule%' is false then
+--     raise exception 'bp_delete_project_row must NOT read the draw-schedule grant';
+--   end if;
+-- end $$;
+
+-- commit;
+
+
+-- ===========================================================================
+-- PROVED BY CALLING, AS EACH PERSON — prod 2026-09-14, EVERY PROBE ROLLED BACK
+-- ===========================================================================
+--
+-- ★★★ Impersonation needs BOTH set_config('request.jwt.claims', …) AND
+--     `set local role authenticated`.  fix-549's probe failed silently the
+--     first time because only the JWT was set, so RLS was never consulted and
+--     the statement ran as `postgres`.  Both, every time.
+--
+--                                        Shire (flagged)   an editor with NO flag
+--   1 upsert a draw_schedule row         ALLOWED           REFUSED 42501
+--   2 create a da_time_blocks Vacation   ALLOWED           REFUSED 42501
+--   3 edit a project date                ALLOWED           REFUSED (0 rows = RLS)
+--   4 write draw_schedule_quarter_layout ALLOWED           REFUSED 42501
+--   5 bp_assert_draw_schedule_admin()    ALLOWED           REFUSED 42501
+--   6 bp_can_edit_draw_schedule()        true              false
+--   7 bp_delete_project_row()            REFUSED 42501     REFUSED 42501
+--                                        'only an admin can delete a project'
+--
+-- ★★★ CASE 4 (the editor WITHOUT the flag) IS THE ONE THAT MATTERS: a grant
+--     that accidentally opened the draw schedule to every editor would look
+--     identical from Shire's seat.  It is refused on all five write paths.
+--
+-- ⚠️ THE CROSS-TENANT CASE COULD NOT BE PROVED.  public.projects holds exactly
+--    ONE tenant, so there is no second tenant to be refused from.  Stated
+--    rather than reported green; the same gap is recorded on fix-549.
+--
+-- ⚠️ Two probe FIXTURES were wrong before they were right, and neither was the
+--    change: da_time_blocks.id is TEXT NOT NULL with no default (23502), and
+--    draw_schedule_quarter_layout takes (quarter, position, col_kind), not the
+--    (quarter_start, layout) I first guessed (42703).  A refusal code that is
+--    not 42501 is a broken probe, not a working gate.
+-- ===========================================================================

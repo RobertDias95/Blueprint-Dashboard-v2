@@ -1,5 +1,6 @@
 import { useCallback } from 'react';
 import { useUpdateProject } from './useUpdateProject';
+import { useMayWriteProject } from './useMayWriteProject';
 import type { Project } from '../lib/database.types';
 
 // ===========================================================================
@@ -62,14 +63,41 @@ export interface ProjectFieldCommit {
     original: Project[K] | null | undefined,
     label: string,
   ) => Promise<void>;
-  /** True when the project carries no OCC token — every control disables. */
+  /** True when the project carries no OCC token, **or when the server says
+   *  this person may not write this project** — every control disables.
+   *
+   *  ★★★ fix-567 §D (P-271) — THE SECOND REASON JOINED THE FIRST HERE, in the
+   *      one hook all six sections of the modal already share, rather than at
+   *      fourteen `disabled=` sites. fix-549 §B gave the Project Data editors
+   *      the server's answer; the DATES and the address never got it, because
+   *      they commit through this hook instead. One line here is the whole of
+   *      that half, and the next field added to the modal is covered before it
+   *      is written.
+   *
+   *  ★★ THE NAME STAYS `occMissing` DELIBERATELY. Every call site already
+   *     reads it as *"this control cannot write"*, which is exactly what it
+   *     still means; renaming it would have touched fourteen lines to say the
+   *     same thing. The two reasons are distinguished by {@link mayWrite}
+   *     for anyone who needs to tell them apart. */
   occMissing: boolean;
+  /** ★ The server's answer alone, for a caller that must word a refusal
+   *  differently from "this row has no version token". */
+  mayWrite: boolean;
   saving: boolean;
 }
 
 export function useProjectFieldCommit(project: Project): ProjectFieldCommit {
   const updateMutation = useUpdateProject();
-  const occMissing = !project.updated_at;
+  // ★★★ fix-567 §D — ASKED, NEVER RE-DERIVED. `useMayWriteProject` calls
+  //     `bp_may_write_project`, the same function the `projects` RLS policy and
+  //     `bp_update_project_fields` call — so the field and the gate cannot
+  //     disagree, and Shire's new `may_edit_all_projects` grant reaches the
+  //     dates without a second copy of the rule in TypeScript.
+  // ★★ It fails closed: an error, no session, or a query still in flight all
+  //    read **no**, which renders read-only rather than accepting typing the
+  //    server will refuse.
+  const mayWrite = useMayWriteProject(project.id);
+  const occMissing = !project.updated_at || !mayWrite;
   const projectId = project.id;
   const updatedAt = project.updated_at;
 
@@ -97,5 +125,5 @@ export function useProjectFieldCommit(project: Project): ProjectFieldCommit {
     [projectId, updatedAt, updateMutation],
   );
 
-  return { commit, occMissing, saving: updateMutation.isPending };
+  return { commit, occMissing, mayWrite, saving: updateMutation.isPending };
 }

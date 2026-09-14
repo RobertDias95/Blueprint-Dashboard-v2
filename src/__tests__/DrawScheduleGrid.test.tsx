@@ -84,6 +84,27 @@ const fixtures = vi.hoisted(() => ({
   ],
 }));
 
+// ★★★ fix-567 §D (P-271) — THE GRID ASKS THE SERVER NOW.
+//
+//     `canEdit` was `useIsTenantAdmin()`, a second statement of the rule in
+//     TypeScript. It is `useCanEditDrawSchedule()` — an RPC to
+//     `bp_can_edit_draw_schedule()`, the same function the ten DEFINER
+//     draw-schedule RPCs are gated by — because the rule is no longer
+//     "is an admin": `may_edit_draw_schedule` is granted to Shire.
+//
+// ★★ MOCKED OFF THE SAME `memberships` THIS SUITE ALREADY SETS, so every
+//    assertion below still means exactly what it meant. The admin cases get
+//    `true` (which is what the server answers for an admin) and the
+//    `role: 'editor'` cases get `false` — so "editor: view-only badge shows"
+//    is still proving the read-only path, not a mocking accident.
+//
+// ★ The real hook FAILS CLOSED; its own behaviour is asserted in
+//   `ShireBackfillsScheduleFix567`, where it is read rather than rendered.
+vi.mock('../hooks/useCanEditDrawSchedule', () => ({
+  useCanEditDrawSchedule: () =>
+    (useAuthStore.getState().memberships ?? []).some((m) => m.role === 'admin'),
+}));
+
 vi.mock('../hooks/useDrawSchedule', () => ({
   useDrawSchedule: () => ({
     data: fixtures.draw,
