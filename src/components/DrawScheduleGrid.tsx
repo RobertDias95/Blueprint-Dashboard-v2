@@ -21,7 +21,8 @@ import { useUpsertDaTimeBlock } from '../hooks/useUpsertDaTimeBlock';
 import { useDeleteDaTimeBlock } from '../hooks/useDeleteDaTimeBlock';
 import { useTeamMembers } from '../hooks/useTeamMembers';
 import { useAllPermitCycleReviewers } from '../hooks/useAllPermitCycleReviewers';
-import { useIsTenantAdmin } from '../hooks/useIsTenantAdmin';
+// ★★★ fix-567 §D: the screen asks the server, it does not re-derive the rule.
+import { useCanEditDrawSchedule } from '../hooks/useCanEditDrawSchedule';
 import { useQuarterLayout } from '../hooks/useQuarterLayout';
 import { buildDrawColumns } from '../lib/quarterLayoutHelpers';
 import {
@@ -545,7 +546,23 @@ function DrawScheduleBody({
   // RPC guards). Non-admins get a fully read-only grid — every drag/resize/
   // status/NP affordance below is gated on canEdit, and the write RPCs would
   // raise 42501 / hit an RLS denial even if a control leaked through.
-  const canEdit = useIsTenantAdmin();
+  //
+  // ★★★ fix-567 §D (P-271) — AND IT IS NO LONGER ADMIN-**ONLY**, SO THE SCREEN
+  //     STOPS DECIDING AND ASKS.
+  //
+  //     `useIsTenantAdmin()` was a SECOND statement of the rule, written in
+  //     TypeScript beside the one the database holds. They agreed only for as
+  //     long as "who may edit the draw schedule" and "who is an admin" were
+  //     the same sentence. `may_edit_draw_schedule` ends that, and the first
+  //     person to hold it — Shire — would have been granted the capability and
+  //     still met a read-only board.
+  //
+  // ★★ `useCanEditDrawSchedule` calls `bp_can_edit_draw_schedule()`: the same
+  //    function `bp_assert_draw_schedule_admin()` calls, which gates the ten
+  //    DEFINER RPCs. One rule, asked, never re-derived — fix-549 §B's pattern.
+  //    It fails closed, so a slow network renders read-only rather than
+  //    offering a drag the server will refuse.
+  const canEdit = useCanEditDrawSchedule();
   // ★★★ fix-484 §A3 (P-146) — THE "SHARED" ASTERISK IS GONE FROM THE BLOCK.
   //
   // fix-225 put a ✳ before the address on any project whose DA had been

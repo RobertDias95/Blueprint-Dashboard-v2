@@ -59,6 +59,7 @@ Scope D to fix-456's file.
 | `fix_542_notes_to_general_PENDING_APPROVAL.sql` | copies all 107 notes into each project's General post as replies, and gives every project a General | **COPIES 107 ROWS — deletes nothing** | 107 | 107 | 2026-09-14 |
 | `fix_547_statements_that_cannot_run_PENDING_APPROVAL.sql` | drops four functions that cannot run (one 42P10, one pre-fix-22 fossil naming 15 dead columns, two import one-shots) and repairs the one with a single dead column | **DESTRUCTIVE — 4 functions dropped, 1 repaired** | n/a (no rows) | n/a | 2026-09-14 |
 | `fix_549_cam_edits_any_project_PENDING_APPROVAL.sql` | adds profiles.may_edit_all_projects, grants it to Cam by email, one branch in bp_may_write_project, and scopes project DELETE to admins | **1 column, 1 grant, 2 functions, 1 policy** | 1 (the grant) | 1 | 2026-09-14 |
+| `fix_567_shire_backfills_the_schedule_PENDING_APPROVAL.sql` | grants may_edit_all_projects to Shire by email, adds profiles.may_edit_draw_schedule and teaches it to ALL FIVE gate sites — three ALL policies plus bp_can_edit_draw_schedule and bp_assert_draw_schedule_admin. The tenant check stays above the grant. DELETE untouched (fix-549 §D). | **1 column, 2 grants, 2 functions, 3 policies** | 2 (the grants) | 2 | 2026-09-14 |
 
 ★★★ **One file IS now CANNOT RUN, and it is the first.**
 `fix_521_drop_draw_schedule_color_override_SUPERSEDED.sql` is not valid SQL —
