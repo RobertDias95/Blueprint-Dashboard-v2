@@ -109,6 +109,48 @@ function str(detail: Record<string, unknown> | null, key: string): string | null
   return typeof v === 'string' && v.trim() !== '' ? v.trim() : null;
 }
 
+// ===========================================================================
+// ★★★ fix-564 §A (P-269) — A DELIBERATE GAP IS NOT NEWS
+// ===========================================================================
+//
+// Miles: **10 unread notifications reading "Module unsupported"** (Briana had
+// 4 more), every one of them an IPR or a TRAO. Bobby and Miles together:
+// *"miles got this notification and we are both unsure of what it means."*
+// ★ **If the two people who run permitting cannot read it, it is not a
+//   notification.**
+//
+// ★★★ IT IS A STATEMENT ABOUT THE TOOL'S SCOPE, NOT AN EVENT ON THE PERMIT.
+//     fix-80 deferred these two collections deliberately and the scraper has
+//     never read them — so the condition is true, permanent, and about US. It
+//     is re-observed every run forever ([[P-254]]), which is why it reached an
+//     inbox 14 times and will do so again tomorrow. Nothing a person can do
+//     about it lives on the permit.
+//
+// ★★★ SUPPRESSED BY **KIND**, PRECISELY — never by permit type, never by
+//     "conditions are noisy". The other live kind, `scraper:mbp_resubmittal`,
+//     is exactly the news this panel exists for: *"18 days in corrections with
+//     nothing uploaded"*. A filter written one level coarser would have taken
+//     that with it. Measured prod 2026-09-14: **14 open rows of this kind, 2
+//     of the other.**
+//
+// ★★ THE ROW IS NOT SUPPRESSED, THE **NOTIFICATION** IS. `permit_conditions`
+//    keeps recording it, the audit log keeps its 133 rows, and §B turns the
+//    same fact into the thing that IS useful — a marker on the permit saying
+//    its status is nobody's but yours. fix-561 owns the run record.
+export const NEVER_NOTIFY_CONDITION_KINDS: ReadonlySet<string> = new Set([
+  'scraper:module_unsupported',
+]);
+
+/** Does this condition reach a person at all?
+ *
+ *  ★ Separate from {@link isConditionShowing}, which asks "is it live and
+ *    unacknowledged". This asks "is it news to anybody, ever" — two questions
+ *    that happen to gate the same list, and folding them would hide a
+ *    permanent-gap kind behind an acknowledgement rule it can never satisfy. */
+export function conditionCanNotify(c: { kind: string }): boolean {
+  return !NEVER_NOTIFY_CONDITION_KINDS.has(c.kind);
+}
+
 // ★★ THE WORDS A PERSON MEETS, keyed by the stored kind — the same separation
 // fix-343 drew for roles: the stored value is a join key, the label is a fact
 // about the screen. A kind with no entry here still surfaces (see

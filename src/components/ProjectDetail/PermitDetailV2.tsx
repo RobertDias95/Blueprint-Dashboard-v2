@@ -1,4 +1,10 @@
 import TaskProvenance from '../TaskProvenance';
+// ★★★ fix-564 §B: derived from the permit TYPE — no column, no backfill.
+import {
+  isNotTrackedPermit,
+  NOT_TRACKED_LABEL,
+  NOT_TRACKED_TITLE,
+} from '../../lib/permitTracking';
 import { permitIsSubmitted } from '../../lib/permitPhase';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
@@ -433,6 +439,29 @@ function HeaderStrip({
         }}
         data-testid="pd-v2-status"
       />
+      {/* ★★★ fix-564 §B (P-269) — AND ON THIS PERMIT, THAT BOX IS THE ONLY
+          SOURCE THERE IS. Everywhere else the status input is a field the
+          scraper will overwrite from the portal on its next run; for these 32
+          it never will, so what somebody typed is what the Bridge will say
+          forever. The marker sits against the input for exactly that reason —
+          it is an instruction about this control, not a note about the row. */}
+      {isNotTrackedPermit(permit) && (
+        <span
+          className="text-[10px] font-bold px-2 py-1 rounded border whitespace-nowrap"
+          style={{
+            // ★★★ fix-406/fix-407: raw `--color-co` on `--color-co-bg` measures
+            //     **2.86:1 and FAILS**. `--color-wa` is the same amber darkened
+            //     to 5.00:1 on that tint — index.css carries the numbers.
+            color: 'var(--color-wa)',
+            borderColor: 'var(--color-wa-border)',
+            background: 'var(--color-wa-bg)',
+          }}
+          title={NOT_TRACKED_TITLE}
+          data-testid="pd-v2-not-tracked"
+        >
+          {NOT_TRACKED_LABEL}
+        </span>
+      )}
       {permit.num && (
         <span
           className="text-[10px] font-mono px-2 py-1 rounded border"
