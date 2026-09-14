@@ -43,6 +43,30 @@ import { resolve } from 'node:path';
 //
 // ★ Enforced below: a shelf file that creates or drops a unique index has to
 //   show it thought about the neighbours.
+//
+// ===========================================================================
+// ★★★ fix-547 — WHEN THE CENSUS RUNS. Not "when someone remembers".
+// ===========================================================================
+//
+// `scripts/sql/on_conflict_census.sql` is an operator tool (CI has no
+// database). It must be run, by Cowork, **immediately after applying**:
+//
+//   1. any migration that CREATES, DROPS or REDEFINES a unique index —
+//      fix-536's case, where the neighbours broke;
+//   2. any migration that DROPS or RENAMES a column — fix-547's case, where a
+//      function kept naming a column that had gone;
+//   3. any migration that replaces a function body by anchor — fix-540's case,
+//      where the replacement can silently match nothing.
+//
+// ★★★ AND ITS OUTPUT IS THE ACCEPTANCE TEST, not a report to skim: `42P10` and
+//     `42703` must both be **0**. `42P01` is expected and is runtime temp
+//     tables the checker cannot see.
+//
+// ★★ WHY IT IS NOT OPTIONAL AFTER A COLUMN DROP: `plpgsql_check` reports ONE
+//    error per statement, so a function with fifteen dead columns reports one.
+//    fix-547 found `bp_insert_permit` naming **15** columns fix-22 had moved —
+//    the census said one. **A 42703 count is a floor. Audit the whole column
+//    list against the table before deciding a function's fate.**
 
 const MIGRATIONS = resolve(process.cwd(), 'migrations');
 const INDEX = resolve(MIGRATIONS, 'PENDING_APPROVAL_INDEX.md');
