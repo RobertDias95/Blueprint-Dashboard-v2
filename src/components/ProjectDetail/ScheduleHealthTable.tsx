@@ -1,6 +1,13 @@
 import { useMemo, useState } from 'react';
 import { approvalDisplay } from '../../lib/approvalDisplay';
 import { effectiveStage } from '../../lib/permitStage';
+// ★★★ fix-564 §B: derived from the permit TYPE — no column, no backfill.
+import {
+  isNotTrackedPermit,
+  NOT_TRACKED_PERMIT_TYPES,
+  NOT_TRACKED_LABEL,
+  NOT_TRACKED_TITLE,
+} from '../../lib/permitTracking';
 import { STAGE_LABEL } from '../../lib/stageLabel';
 import { isNotSubPermit } from '../../lib/subPermit';
 import {
@@ -747,6 +754,25 @@ function Row({
           {statusDetail && (
             <div className="text-[9px] text-dim mt-0.5">{statusDetail}</div>
           )}
+          {/* ★★★ fix-564 §B (P-269) — THE STATUS ABOVE IS NOBODY'S BUT OURS.
+              `SPUE-IPR-26-00393` reads *Reviews In Process*, last refreshed
+              **19 May** — four months of a hand-typed value the tool will
+              never correct, rendered in the same ink as a status the scraper
+              confirmed this morning. The marker goes HERE, against the claim
+              it qualifies, rather than somewhere a reader would have to think
+              to look. */}
+          {isNotTrackedPermit(permit) && (
+            <div
+              className="text-[9px] mt-1 font-bold"
+              /* ★ fix-406's rule: the darkened amber, measured legible on the
+                 surface as well as on its own tint (5.56 on white, 5.03 on bg). */
+              style={{ color: 'var(--color-wa)' }}
+              title={NOT_TRACKED_TITLE}
+              data-testid={`schedule-health-not-tracked-${permit.id}`}
+            >
+              {NOT_TRACKED_LABEL}
+            </div>
+          )}
         </div>
       </td>
       {/* 6. Data Source */}
@@ -953,6 +979,22 @@ function DataSourceBadge({
   permitType: string;
   juris: string;
 }) {
+  // ★★★ fix-564 §B — THE CHIP ANSWERS A DIFFERENT QUESTION, SO THE MARKER
+  //     JOINS IT RATHER THAN REPLACING IT.
+  //
+  //     Checked before touching it (the brief asked): this cell has **two**
+  //     states, not three — `Learned (n)` and `Default` — and both say where
+  //     the *schedule projection* came from. For these 32 permits today it
+  //     reads **`Default` for all 16 IPR** (0 approvals in their whole history,
+  //     so the learner has nothing to train on) and `Learned (n)` for some of
+  //     the 16 TRAO (7 carry an approval date).
+  //
+  // ★★★ THOSE ARE INDEPENDENT FACTS. A TRAO can have a perfectly good learned
+  //     estimate AND a status nobody refreshes; overwriting the chip would
+  //     replace one true statement with another and lose the first. So the
+  //     marker stacks underneath — the same way the cross-juris rider already
+  //     does — and no fourth state is invented.
+  const notTracked = NOT_TRACKED_PERMIT_TYPES.has(permitType.trim());
   // fix-25-feat-g-badge: the badge was hardcoded "Default" from the
   // pre-fix-24i era when the learner hadn't shipped yet. Now that the
   // learner runs on every row, branch on whether it produced an
@@ -961,17 +1003,37 @@ function DataSourceBadge({
   // scope (or in the cross-juris pool) is feeding the projection.
   if (!estimate) {
     return (
-      <span
-        className="text-[8px] font-bold px-2 py-0.5 rounded border"
-        style={{
-          background: 'var(--color-s2)',
-          color: 'var(--color-dim)',
-          borderColor: 'var(--color-border)',
-        }}
-        title="No approved permits available for this type/jurisdiction — using per-type default"
-      >
-        Default
-      </span>
+      <div className="flex flex-col items-center gap-1">
+        <span
+          className="text-[8px] font-bold px-2 py-0.5 rounded border"
+          style={{
+            background: 'var(--color-s2)',
+            color: 'var(--color-dim)',
+            borderColor: 'var(--color-border)',
+          }}
+          title="No approved permits available for this type/jurisdiction — using per-type default"
+        >
+          Default
+        </span>
+      {notTracked && (
+        <span
+          className="text-[8px] font-bold px-2 py-0.5 rounded border"
+          style={{
+            // ★★★ fix-406/fix-407's measured rule, not the raw token: raw
+            //     `--color-co` on `--color-co-bg` is **2.86:1 and FAILS**.
+            //     `--color-wa` is that same amber darkened to clear 4.5 on its
+            //     own tint (5.00:1), and index.css carries the measurement.
+            background: 'var(--color-wa-bg)',
+            color: 'var(--color-wa)',
+            borderColor: 'var(--color-wa-border)',
+          }}
+          title={NOT_TRACKED_TITLE}
+          data-testid="data-source-not-tracked"
+        >
+          {NOT_TRACKED_LABEL}
+        </span>
+      )}
+      </div>
     );
   }
   return (
@@ -989,6 +1051,24 @@ function DataSourceBadge({
       >
         Learned ({estimate.sampleCount})
       </span>
+      {notTracked && (
+        <span
+          className="text-[8px] font-bold px-2 py-0.5 rounded border"
+          style={{
+            // ★★★ fix-406/fix-407's measured rule, not the raw token: raw
+            //     `--color-co` on `--color-co-bg` is **2.86:1 and FAILS**.
+            //     `--color-wa` is that same amber darkened to clear 4.5 on its
+            //     own tint (5.00:1), and index.css carries the measurement.
+            background: 'var(--color-wa-bg)',
+            color: 'var(--color-wa)',
+            borderColor: 'var(--color-wa-border)',
+          }}
+          title={NOT_TRACKED_TITLE}
+          data-testid="data-source-not-tracked"
+        >
+          {NOT_TRACKED_LABEL}
+        </span>
+      )}
       {/* fix-35 Bug 4: explicit cross-juris badge (was a bare " *" mark).
           Matches BenchmarkCard so the (type, *) fallback is unmistakable. */}
       {estimate.isCrossJuris && (

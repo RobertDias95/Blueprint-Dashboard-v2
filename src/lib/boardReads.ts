@@ -15,6 +15,7 @@ import {
 } from './postReactions';
 import { keyForMention } from './projectChat';
 import {
+  conditionCanNotify,
   conditionCopy,
   isConditionShowing,
   keyForCondition,
@@ -795,6 +796,21 @@ export function buildNewItems(input: NewItemsInput): NewItem[] {
   // roster holds `Eric` and `Erick` one letter apart, so a sloppy match hands
   // one person's permits to the other. Same comparison as sources 3 and 4.
   for (const c of input.conditions ?? []) {
+    // ★★★ fix-564 §A (P-269) — A DELIBERATE GAP IS NOT NEWS.
+    //
+    //     Miles had 10 unread items reading "Module unsupported" — which is
+    //     `conditionCopy`'s FALLBACK printing the machine's own key, because
+    //     nobody ever wrote words for that kind. Neither he nor Bobby could
+    //     tell what it meant, and there was nothing to tell: it says the tool
+    //     does not read these permits, which fix-80 decided on purpose.
+    //
+    // ★★ BY KIND, NOT BY PERMIT TYPE AND NOT BY "conditions are noisy".
+    //    `scraper:mbp_resubmittal` — *"18 days in corrections with nothing
+    //    uploaded"* — is the news this panel exists for, and it lives one
+    //    level up from any coarser filter. See `NEVER_NOTIFY_CONDITION_KINDS`.
+    //
+    // ★ The row still exists and §B still reads it; only the interruption stops.
+    if (!conditionCanNotify(c)) continue;
     if ((c.ent_lead ?? '').trim().toLowerCase() !== me) continue;
     // ★ Open, and not acknowledged against this same material detail. See
     //   lib/permitConditions.isConditionShowing for the hash decision.
