@@ -69,6 +69,7 @@ import {
   getQuarterWeeks,
   blockBorderFromFill,
   multiMatchAddress,
+  preferLiveSnapWeek,
   weekKeyToQuarterOffset,
   type DropBlock,
   type NpConflict,
@@ -1212,20 +1213,57 @@ function DrawScheduleBody({
       return;
     }
     if (trimmed === lastSnappedSearchRef.current) return;
-    let earliestStart: string | null = null;
+    // ═══════════════════════════════════════════════════════════════════
+    // ★★★ fix-568 §E (P-272) — THE SEARCH SNAPS TO THE **CURRENT** PROJECT
+    // ═══════════════════════════════════════════════════════════════════
+    //
+    // Bobby: *"if I type in 2443 … it should show me the current version on
+    // the draw schedule, not the original."*
+    //
+    // ★★★ THE CAUSE IS THE WORD **EARLIEST**. The haystack keeps the raw
+    //     address on purpose (fix-530 §C: somebody typing "redesign" is
+    //     looking for exactly those projects), so `2443` matches the original
+    //     AND its redesign — and the snap took whichever started first.
+    //     Measured prod 2026-09-14: `2443 5th Ave W` starts **2026-01-05**
+    //     and `[Redesign 1]` starts **2026-04-13**, so the board jumped to Q1
+    //     and showed the retired one. Every reuse-redesign has this shape,
+    //     because a redesign is by definition the later block.
+    //
+    // ★★★ SO IT IS THE **SNAP TARGET** THAT CHANGES, AND NOTHING ELSE. Two
+    //     passes: retired projects are considered only when no live project
+    //     matched. **The block rendering below is untouched — the original's
+    //     block still renders, hatched.** Removing it would reverse the
+    //     2026-09-10 ruling on P-023 (*Pipeline hidden · Library hidden ·
+    //     Draw Schedule stays, purple-hatched — the board is a record of
+    //     time*), and Bobby's sentence is about what a search SHOWS him, not
+    //     about deleting blocks. The code does one without the other.
+    //
+    // ★★ THE FALLBACK IS LOAD-BEARING: searching an original that has no
+    //    redesign, or any ordinary project, must still snap. `liveEarliest`
+    //    is null in that case and the retired pass answers.
+    const matched: { startWeek: string; retired: boolean }[] = [];
     for (const row of draw) {
       if (!row.start_week) continue;
       const project = projectById.get(row.project_id);
       if (!project) continue;
       if (!multiMatchAddress(trimmed, projectSearchHay(project))) continue;
-      if (earliestStart === null || row.start_week < earliestStart) {
-        earliestStart = row.start_week;
-      }
+      matched.push({
+        startWeek: row.start_week,
+        retired: isRetiredProject(project.id, retiredSets),
+      });
     }
     lastSnappedSearchRef.current = trimmed;
+    const earliestStart = preferLiveSnapWeek(matched);
     if (earliestStart === null) return; // no scheduled project matched; stay put
     setQuarterOffset(weekKeyToQuarterOffset(earliestStart));
-  }, [search, draw, projectById, projectSearchHay, setQuarterOffset]);
+  }, [
+    search,
+    draw,
+    projectById,
+    projectSearchHay,
+    setQuarterOffset,
+    retiredSets,
+  ]);
 
   // All blocks (across DAs), keyed by da. Used by drop handler to detect
   // overlap on the target DA. Different from blocksByDa (which is filtered

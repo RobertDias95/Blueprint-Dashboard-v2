@@ -107,14 +107,21 @@ describe('fix-524 §A — the retired predicate is written once', () => {
     //     call it. Two writers of one rule is the defect this Brain has removed
     //     three times."* A behavioural test would pass against a second copy;
     //     this is what catches one being written.
+    // ★★ AMENDED BY fix-568, RULING UNCHANGED. `ProjectDetail.tsx` no longer
+    //    imports the module DIRECTLY — the retired PAINT moved with the thing
+    //    that used it, into `SnapshotFrame`, when fix-568 §B removed the two
+    //    chips. The rule asserted is *"one predicate, every surface calls it"*,
+    //    and that is still true. The list follows the code; the rule does not move.
     for (const f of [
       'src/components/DrawScheduleGrid.tsx',
       'src/pages/Dashboard.tsx',
       'src/components/LibraryMatrix.tsx',
-      'src/pages/ProjectDetail.tsx',
     ]) {
       expect(code(read(f))).toContain("from '../lib/retiredState'");
     }
+    expect(
+      code(read('src/components/ProjectDetail/SnapshotFrame.tsx')),
+    ).toContain("from '../../lib/retiredState'");
     // ★★ AND NOBODY RE-DERIVES IT. `redesign_of_project_id` is read in plenty
     //    of places for legitimate reasons (the wizard writes it, the badge
     //    names the original), but no SURFACE may build its own "is this
@@ -407,8 +414,15 @@ describe('fix-524 §D — the original is frozen, and points at the current one'
     //   current work to the snapshot and not back — the wrong way round if the
     //   current one is the primary focus.
     expect(detail).toContain('pd-redesign-of-badge');
-    expect(detail).toContain('pd-superseded-badge');
-    expect(detail).toContain('Superseded by');
+    // ★★ AMENDED BY fix-568 §B, RULING UNCHANGED. The way back is no longer a
+    //    PILL — it is the whole greyed area (`SnapshotFrame`, §C), a far bigger
+    //    target than `↻ Superseded by …` ever was. fix-524 ruled *"the switch
+    //    must run both ways"*; it still does. What changed is that the return
+    //    leg stopped being a chip compensating for a screen that never looked
+    //    any different.
+    const frame = read('src/components/ProjectDetail/SnapshotFrame.tsx');
+    expect(frame).toContain('snapshot-frame');
+    expect(code(frame)).toContain('navigate(`/project/${successor.id}`)');
   });
 
   it('★★★ NO edit surface is reachable on a frozen original', () => {
@@ -421,14 +435,26 @@ describe('fix-524 §D — the original is frozen, and points at the current one'
     // ★★★ SO THE GATE IS ON THE READ, NOT ON THE BUTTON. Hiding the ⚙ would
     //     leave the other two open, including one somebody can bookmark.
     expect(detail).toContain('const dataOpen = supersededBy ? null : dataOpenState;');
-    expect(detail).toContain('project-frozen-note');
+    // ★★★ AMENDED BY fix-568 §B, AND THIS IS THE HALF THAT MATTERED. The
+    //     `project-frozen-note` CHIP is gone; the ⚙ button being ABSENT is not,
+    //     and that is what this now asserts. fix-568 removed a label, not a
+    //     refusal — the read-level freeze on the line above is untouched.
+    expect(code(detail)).toContain('frozen ?');
+    expect(code(detail)).not.toContain('project-frozen-note');
   });
 
   it('★★ it says what is true rather than offering a disabled control', () => {
     // ★ A disabled ⚙ says *"you may not do this"*, which invites somebody to go
     //   looking for permission. fix-523 §B2's ruling generalised: do not render
     //   an affordance that cannot work.
-    expect(detail).toContain('Snapshot — read only');
+    // ★★ AMENDED BY fix-568 §B, RULING UNCHANGED — the same ruling, stated one
+    //    level up. fix-524 said it with a chip because the screen looked
+    //    identical either way; fix-568 greys the four cards, so the screen
+    //    itself says what is true and the chip stopped earning its place.
+    //    **Still no disabled control**, which is what fix-523 §B2 ruled.
+    expect(read('src/components/ProjectDetail/SnapshotFrame.tsx')).toContain(
+      'Earlier version',
+    );
     expect(detail).not.toContain('<button\n          onClick={onSettings}\n          disabled');
   });
 
