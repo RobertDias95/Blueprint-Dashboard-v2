@@ -16,6 +16,33 @@ import { resolve } from 'node:path';
 // paraphrase that dropped the discriminator. So the rule is: never measure a
 // paraphrase, and never let a file's header be the only place its number
 // lives. The index is the second place, and this test keeps the two in step.
+//
+// ===========================================================================
+// ★★★ fix-545 — THE THIRD SHELF RULE: ASSERT WHAT YOUR CHANGE **BROKE**
+// ===========================================================================
+//
+// fix-540's rule was *"an anchor needs a hit assertion"* — assert your change
+// LANDED. This one is its opposite number, and it cost three real tasks.
+//
+// ★★★ fix-536 recreated `permit_tasks_auto_event_uniq` with a third excluded
+//     event. `bp_create_lifecycle_task`'s `ON CONFLICT … WHERE …` still named
+//     two. **`ON CONFLICT` does not name an index, it INFERS one**, and
+//     inference needs the statement's predicate to IMPLY the index's — so the
+//     two drifted apart while both objects looked perfectly healthy, and
+//     nothing complained until somebody wrote: `42P10` → PostgREST 400 →
+//     *"Lifecycle tasks created: 0"*.
+//
+// ★★★ EVERY GUARD IN fix-536 PASSED. It asserted its own index existed and was
+//     satisfiable. **The damage was in a different object** — the neighbour,
+//     not the target.
+//
+// ★★★ THE RULE: **a migration that changes an index's columns or predicate
+//     must list every `ON CONFLICT` that infers it and re-assert them after
+//     applying.** The census that does it for you, engine-decided and writing
+//     nothing, is `scripts/sql/on_conflict_census.sql`.
+//
+// ★ Enforced below: a shelf file that creates or drops a unique index has to
+//   show it thought about the neighbours.
 
 const MIGRATIONS = resolve(process.cwd(), 'migrations');
 const INDEX = resolve(MIGRATIONS, 'PENDING_APPROVAL_INDEX.md');
@@ -112,6 +139,30 @@ describe('fix-450: the pending-approval shelf', () => {
     }
     // ★ …while the file does still carry the drops it is for.
     expect(sql).toMatch(/drop table if exists public\._fix415_zone_remap/i);
+  });
+
+  it('★★★ fix-545: a file that reshapes a UNIQUE INDEX names its ON CONFLICT neighbours', () => {
+    // ★★★ THE RULE THAT COST THREE TASKS. `ON CONFLICT` INFERS an index; change
+    //     the index's columns or predicate and every statement that inferred it
+    //     silently stops matching. fix-536's own guards all passed — the damage
+    //     was in a different object.
+    //
+    // ★★ So a shelf file touching a unique index must show it considered the
+    //    neighbours: name `ON CONFLICT`, or point at the census that finds them
+    //    (`scripts/sql/on_conflict_census.sql`). This is deliberately a LOW bar
+    //    — it cannot verify the neighbours are right, only that the author knew
+    //    they existed. The census verifies; this makes the author look.
+    for (const f of files) {
+      const sql = readFileSync(resolve(MIGRATIONS, f), 'utf8');
+      const reshapes = /(CREATE|DROP)\s+(UNIQUE\s+)?INDEX/i.test(sql)
+        && /UNIQUE/i.test(sql);
+      if (!reshapes) continue;
+      expect(
+        /ON CONFLICT/i.test(sql) || /on_conflict_census/i.test(sql),
+        `${f} reshapes a unique index but names no ON CONFLICT that infers it — `
+          + 'see fix-545, or run scripts/sql/on_conflict_census.sql and list what it finds',
+      ).toBe(true);
+    }
   });
 
   it('★★ every file carries a measurement date', () => {
