@@ -57,6 +57,7 @@ Scope D to fix-456's file.
 | `fix_539_da_row_scope_PENDING_APPROVAL.sql` | stage two: a DA writes the projects they are ON (or one no DA is on), enforced in the RLS policy AND the RPC together — **this is where the direct-write bypass closes** | **NARROWS — 4,957 person x project pairs close; 14 accounts go to 0** | n/a (no rows) | n/a | 2026-09-13 |
 | `fix_540_consultant_sync_gate_PENDING_APPROVAL.sql` | gates the two consultant functions that sync `projects.external_team` — the half of fix-539 whose anchor would have matched nothing and reported success | **MOVES NOTHING — 2 functions gated** | n/a (no rows) | n/a | 2026-09-13 |
 | `fix_542_notes_to_general_PENDING_APPROVAL.sql` | copies all 107 notes into each project's General post as replies, and gives every project a General | **COPIES 107 ROWS — deletes nothing** | 107 | 107 | 2026-09-14 |
+| `fix_547_statements_that_cannot_run_PENDING_APPROVAL.sql` | drops four functions that cannot run (one 42P10, one pre-fix-22 fossil naming 15 dead columns, two import one-shots) and repairs the one with a single dead column | **DESTRUCTIVE — 4 functions dropped, 1 repaired** | n/a (no rows) | n/a | 2026-09-14 |
 
 ★★★ **One file IS now CANNOT RUN, and it is the first.**
 `fix_521_drop_draw_schedule_color_override_SUPERSEDED.sql` is not valid SQL —

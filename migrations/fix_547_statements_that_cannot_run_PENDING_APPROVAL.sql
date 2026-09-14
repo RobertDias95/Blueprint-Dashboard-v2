@@ -1,0 +1,230 @@
+-- ===========================================================================
+-- fix-547 (P-253) — the statements that cannot run
+-- ===========================================================================
+--
+-- ⚠️⚠️ **NOT APPLIED.** Written for Cowork. Every statement below is commented
+--       out and a test (fix-450) keeps it that way.
+--
+-- MEASURED ON PROD 2026-09-14 (eibnmwthkcuumyclyxoe). The chosen state was
+-- executed there in full, inside a transaction that ended in ROLLBACK, and
+-- fix-545's census came back **clean**: `42P10` 0, `42703` 0.
+--
+-- ⚠️ **No column is dropped or renamed. `replace_permit_cycle_reviewers` is not
+--    touched** — it is the writer that works.
+--
+-- ---------------------------------------------------------------------------
+-- ★★★ WHAT THE CENSUS UNDER-REPORTED, AND IT MATTERS
+-- ---------------------------------------------------------------------------
+--
+-- fix-545's census found **6 `42703`s across 4 functions**. That is one error
+-- per STATEMENT, because `plpgsql_check` stops at the first bad column in a
+-- statement — so repairing one exposes the next.
+--
+-- ★★★ `bp_insert_permit` reported ONE dead column (`go_date`). Comparing its
+--     whole INSERT list against `permits` finds **FIFTEEN**:
+--
+--       alley · builder_company · builder_email · builder_name · builder_phone
+--       go_date · lot_depth · lot_width · parking_stalls · parking_type
+--       product_type · project_tags · unit_types · units · zone
+--
+--     **Every one is a project-level fact fix-22 moved off `permits`.** It is
+--     not a function with a dead reference; **it is a pre-fix-22 fossil.**
+--
+-- ★★ SO: a `42703` count is a floor, not a total. Audit the whole column list
+--    against the table before deciding a function's fate.
+--
+-- ---------------------------------------------------------------------------
+-- §A — `bp_upsert_permit_cycle_reviewer` (the 42P10): THE INDEX IS RIGHT
+-- ---------------------------------------------------------------------------
+--
+--   the statement says   ON CONFLICT (permit_id, cycle_index, reviewer_name)
+--   the only index is    (permit_id, cycle_index, discipline)
+--                          WHERE discipline IS NOT NULL
+--
+-- ★★★ **The index is correct and the statement is the leftover.** fix-44 moved
+--     the model from per-NAME to per-discipline-SLOT deliberately; the index is
+--     that decision, and `replace_permit_cycle_reviewers` — the writer that
+--     works — wrote rows as recently as **2026-09-14 16:39Z**.
+--
+-- ⚠️ §A.2's trap, noted and NOT walked into: the index is PARTIAL, so a
+--    rewritten statement would need `WHERE discipline IS NOT NULL` to infer it.
+--    That is exactly P-251. **It does not arise, because the statement is not
+--    being rewritten.**
+--
+-- ★★★ CALLER CENSUS → **nothing calls it.** Not the app (`src/` has only this
+--     ticket's own tests), not another function (`pg_proc` scan: none).
+--     **And the proof is stronger than a grep:** it raises `42P10` on EVERY
+--     call, while its table took rows today. A caller would have been failing
+--     continuously. There is no caller.
+--
+-- → **DROPPED.** A repaired function nobody calls is the third tested-but-
+--   uncalled object this Brain has removed (fix-529, fix-536).
+--
+-- ---------------------------------------------------------------------------
+-- §B — the classification, all five
+-- ---------------------------------------------------------------------------
+--
+--   function                          reachable?                     fate
+--   --------------------------------  -----------------------------  --------
+--   bp_upsert_permit_cycle_reviewer   no caller; 42P10 every call    **DROP**
+--   bp_insert_permit                  no caller; 15 dead columns     **DROP**
+--   bp_replace_task_templates         no caller; ONE dead column     **REPAIR**
+--   migrate_to_relational             one-shot, cannot complete      **DROP**
+--   migrate_auxiliary                 one-shot, cannot complete      **DROP**
+--
+-- ★ `authenticated` can execute all five, so "nobody calls it" is a fact about
+--   CALLERS, not about permissions — §B.1's distinction, kept.
+--
+-- ★★★ `bp_insert_permit` — WHY DROP RATHER THAN REPAIR. fix-498 flagged it as
+--     *"granted to service_role, so reachable from the scraper"*, which is why
+--     it deserved a second look. But it has been unrunnable since **fix-22**,
+--     and **187 permits were created in the last 30 days** (686 total, newest
+--     2026-09-10) while it could not run. The scraper does not call it either.
+--     "Repairing" it would mean deciding what fifteen columns of payload should
+--     do now that they live on `projects` — that is not a repair, it is
+--     rewriting a function whose job `bp_create_project_with_permits` and
+--     `bp_update_project_with_permits` already do correctly.
+--
+-- ★★ §B.2's warning, checked: **`permits.go_date` is not a join that lost its
+--    table.** It is a plain positional INSERT of a payload value into a column
+--    fix-22 removed. `projects.go_date` exists and is the date the team uses,
+--    so nothing is lost by the drop.
+--
+-- ★★★ §B.4 — WHAT `permits.stage` WAS SUPPOSED TO BECOME. fix-498 retired it
+--     and the replacements are **`permits.stage_override`** (the stored
+--     override) and the **derived** stage the Dashboard, Library and Project
+--     View compute. fix-498 already patched `bp_insert_permit` for it — its
+--     live list reads `stage_override, status,` — so the only surviving
+--     `permits.stage` reference is in `migrate_to_relational`, a one-shot.
+--     **Nothing here needs to move to `stage_override`;** that move already
+--     happened, and this file removes the last fossil rather than repairing it.
+--
+-- ★★ §B.3 — the one-shots. They are from the original import (May 2026),
+--    nothing calls them, and **they cannot complete**: each raises `42703`
+--    part-way through. ⚠️ *They can still run PART of the way* — a caller
+--    would get a partial import and then an error, which is worse than the
+--    function not existing. That is the argument for dropping rather than
+--    leaving them.
+--
+-- ---------------------------------------------------------------------------
+-- ⚠️ ONE THING THE REPAIR COSTS, SAID OUT LOUD
+-- ---------------------------------------------------------------------------
+--
+-- `bp_replace_task_templates` writes `default_assignee` from the payload's
+-- `assignedTo` / `owner`. fix-222 replaced per-person assignment with the TEAM
+-- taxonomy (`default_team`). Removing the dead column makes the function
+-- runnable again and **silently ignores that payload key**.
+--
+-- ★★★ Mapping `assignedTo` → `default_team` is NOT done here, deliberately: a
+--     person's name is not a team token, and inventing that mapping is exactly
+--     the class fix-535 spent a ticket avoiding. If templates should carry a
+--     default team, that is a decision with its own ticket. **Reported.**
+--
+-- ===========================================================================
+
+
+-- BEGIN;
+
+-- ---------------------------------------------------------------------------
+-- 1. §A — the 42P10 leftover
+-- ---------------------------------------------------------------------------
+--
+-- DROP FUNCTION IF EXISTS public.bp_upsert_permit_cycle_reviewer(
+--   integer, integer, text, text, text, date, uuid);
+
+-- ---------------------------------------------------------------------------
+-- 2. §B — the pre-fix-22 fossil and the two one-shots
+-- ---------------------------------------------------------------------------
+--
+-- DROP FUNCTION IF EXISTS public.bp_insert_permit(integer, jsonb);
+-- DROP FUNCTION IF EXISTS public.migrate_to_relational();
+-- DROP FUNCTION IF EXISTS public.migrate_auxiliary();
+
+-- ---------------------------------------------------------------------------
+-- 3. §B — the one genuine repair, with fix-540's and fix-545's rules
+-- ---------------------------------------------------------------------------
+--
+-- ★ A column list and its VALUES list are ONE edit (fix-498's lesson): patch
+--   the list and not the values and every column after it shifts by one. The
+--   guard below refuses to proceed unless BOTH halves moved.
+--
+-- DO $fix$
+-- DECLARE v_def text; v_before int; v_after int; v_live text;
+-- BEGIN
+--   SELECT pg_get_functiondef(p.oid) INTO v_def
+--     FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
+--    WHERE n.nspname = 'public' AND p.proname = 'bp_replace_task_templates';
+--   IF v_def IS NULL THEN
+--     RAISE EXCEPTION 'fix-547: bp_replace_task_templates not found';
+--   END IF;
+--
+--   v_before := (length(v_def) - length(replace(v_def, 'default_assignee', ''))) / 16;
+--   IF v_before = 0 THEN
+--     RAISE NOTICE 'fix-547: already repaired, nothing to do';
+--     RETURN;
+--   ELSIF v_before <> 2 THEN
+--     RAISE EXCEPTION
+--       'fix-547: expected 2 default_assignee mentions, found % — re-derive the '
+--       'anchors from pg_get_functiondef before running this', v_before;
+--   END IF;
+--
+--   -- the column, in both inserts
+--   v_def := replace(v_def,
+--     'default_assignee, default_target_offset, cat, sort_order)',
+--     'default_target_offset, cat, sort_order)');
+--   -- …and its VALUE, in both, at their two indents
+--   v_def := replace(v_def,
+--     chr(10) || '        coalesce(nullif(task_t->>''assignedTo'',''''), nullif(task_t->>''owner'','''')),', '');
+--   v_def := replace(v_def,
+--     chr(10) || '          coalesce(nullif(task_t->>''assignedTo'',''''), nullif(task_t->>''owner'','''')),', '');
+--
+--   v_after := (length(v_def) - length(replace(v_def, 'default_assignee', ''))) / 16;
+--   IF v_after <> 0 THEN
+--     RAISE EXCEPTION 'fix-547: still names default_assignee % time(s)', v_after;
+--   END IF;
+--   IF position('assignedTo' IN v_def) > 0 THEN
+--     RAISE EXCEPTION
+--       'fix-547: the assignedTo VALUE was not removed with its column — every '
+--       'column after it would shift by one';
+--   END IF;
+--
+--   EXECUTE v_def;
+--
+--   -- fix-540's rule: read the LIVE definition back
+--   SELECT pg_get_functiondef(p.oid) INTO v_live
+--     FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
+--    WHERE n.nspname = 'public' AND p.proname = 'bp_replace_task_templates';
+--   IF position('default_assignee' IN v_live) > 0 THEN
+--     RAISE EXCEPTION 'fix-547: executed but the LIVE definition still names default_assignee';
+--   END IF;
+-- END
+-- $fix$;
+
+-- COMMIT;
+
+
+-- ---------------------------------------------------------------------------
+-- 4. ★★★ VERIFY WITH THE CENSUS — this is the acceptance test
+-- ---------------------------------------------------------------------------
+--
+-- Run `scripts/sql/on_conflict_census.sql`. On the chosen state it comes back:
+--
+--   42P10 ......................................... 0
+--   42703 ......................................... 0
+--   42P01 ........................ 17 (runtime temp tables — expected)
+--   plpgsql functions ............................ 212   (216 minus the four)
+--
+-- ★ Proved in exactly that form on prod, 2026-09-14, rolled back.
+--
+-- ---------------------------------------------------------------------------
+-- Undo
+-- ---------------------------------------------------------------------------
+--
+-- The four dropped functions are recoverable from this repository's history —
+-- `pg_get_functiondef` output for each was read on 2026-09-14 and every one is
+-- reproduced in the PR body. ★ None can run as written, so restoring one
+-- restores a function that raises; the undo is here for forensics, not for use.
+--
+-- The repair is reversed by re-adding `default_assignee` to both column lists
+-- and the matching `coalesce(nullif(task_t->>'assignedTo', …))` to both VALUES
+-- lists — **both halves, or the columns shift.**
