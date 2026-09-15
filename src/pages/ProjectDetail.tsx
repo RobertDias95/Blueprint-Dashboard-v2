@@ -307,11 +307,53 @@ function ProjectDetailBody({
   // fix-217: the permit-detail pane, scrolled into view once the deep-linked
   // permit is selected + rendered (effect runs after commit → ref populated).
   const deepLinkPaneRef = useRef<HTMLDivElement>(null);
+  // ═══════════════════════════════════════════════════════════════════════
+  // ★★★ fix-550 §B (P-256 §2) — SELECTING A PERMIT PUTS YOU AT ITS TOP
+  // ═══════════════════════════════════════════════════════════════════════
+  //
+  // Bobby: it *"lands three-quarters down and everyone scrolls up."*
+  //
+  // ★★★ THE CAUSE: fix-217 scrolled ONLY for the deep link
+  //     (`selectedPermitId === permitParamId`). Clicking a row in the permits
+  //     table selects a permit without ever satisfying that, so the pillbox
+  //     kept **the scroll position it had on the overview** — and the overview
+  //     is long, so you arrive wherever you happened to be reading.
+  //
+  // ★★★ IT SCROLLS THE **PANEL**, NOT THE WINDOW. fix-313 made the shell a
+  //     fixed viewport with `overflow: hidden`; the only thing that scrolls
+  //     here is `pd-right-pillbox` (`overflow-y-auto`). `scrollIntoView` would
+  //     ask the browser to find a scrollable ancestor — setting this one
+  //     container's `scrollTop` says exactly what is meant.
+  //
+  // ★★ ONCE PER PERMIT, NEVER PER RENDER. The ref remembers which permit was
+  //    scrolled for, so a data refresh, a cycle edit or an OCC retry cannot
+  //    yank the page back to the top mid-read — which would be worse than the
+  //    behaviour being fixed. Selecting a DIFFERENT permit scrolls again;
+  //    going back to the overview (null) clears it so re-selecting works.
+  //
+  // ★★ NO FOCUS MOVES. People select a permit to READ it, and focusing an
+  //    input would make the next keystroke type into the permit.
+  //
+  // ★ INSTANT, not smooth: all 8 `scrollIntoView` calls in this app are
+  //   instant and nothing uses `behavior: 'smooth'`. A second motion
+  //   vocabulary introduced by one panel is a worse outcome than no animation.
+  const pillboxRef = useRef<HTMLDivElement>(null);
+  const scrolledForPermitRef = useRef<number | null>(null);
   useEffect(() => {
-    if (selectedPermitId !== null && selectedPermitId === permitParamId) {
+    if (selectedPermitId === null) {
+      scrolledForPermitRef.current = null;
+      return;
+    }
+    if (scrolledForPermitRef.current === selectedPermitId) return;
+    scrolledForPermitRef.current = selectedPermitId;
+    if (pillboxRef.current) {
+      pillboxRef.current.scrollTop = 0;
+    } else {
+      // ★ The deep-link path's original behaviour, kept as the fallback for a
+      //   layout where the pillbox ref has not populated.
       deepLinkPaneRef.current?.scrollIntoView({ block: 'start' });
     }
-  }, [selectedPermitId, permitParamId]);
+  }, [selectedPermitId]);
   // Q9.5.f-fix-16 D + E: the Delete confirmation dialog is owned at the page
   // level so every entry point targets the same instance.
   // ★★★ fix-514 §A: `settingsOpen` is GONE with `ProjectSettingsModal`. There
@@ -638,6 +680,7 @@ function ProjectDetailBody({
              its permit cards, which the table already renders. */}
       <div className="flex flex-1 gap-3 px-3 pb-3 overflow-hidden min-h-0">
         <div
+          ref={pillboxRef}
           className="flex-1 rounded-lg border bg-surface overflow-y-auto min-h-0"
           style={{ borderColor: 'var(--color-border)' }}
           data-testid="pd-right-pillbox"

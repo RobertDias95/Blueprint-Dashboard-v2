@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { readFileSync, readdirSync, statSync } from 'node:fs';
+import { readFileSync, readdirSync } from 'node:fs';
 import { resolve as resolvePath, join } from 'node:path';
 
 // ===========================================================================
@@ -271,9 +271,15 @@ describe('fix-537 §B — the app stops naming a column it asked to have dropped
     //   explained is how a scan quietly stops scanning.
     const offenders: string[] = [];
     const walk = (dir: string) => {
-      for (const entry of readdirSync(dir)) {
+      // ★★ fix-550: `withFileTypes` rather than a `statSync` per entry — one
+      //    syscall instead of two for every file under src/. This walk is
+      //    I/O-bound and grows with the repo; under full-suite parallelism it
+      //    had started tipping past vitest's 5s default. Same traversal, same
+      //    assertion — only the syscall count changed.
+      for (const ent of readdirSync(dir, { withFileTypes: true })) {
+        const entry = ent.name;
         const full = join(dir, entry);
-        if (statSync(full).isDirectory()) walk(full);
+        if (ent.isDirectory()) walk(full);
         else if (/\.tsx?$/.test(entry) && !/Fix537|Fix521/.test(entry)) {
           const stripped = code(readFileSync(full, 'utf8'));
           if (stripped.includes('color_override')) offenders.push(full);
