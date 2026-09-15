@@ -1,4 +1,12 @@
-import { RETIRED_PALETTE, retiredHatch } from '../../lib/retiredState';
+// ★★★ fix-553 §A: the legend paints from the BLOCK's record, so the two
+//     cannot disagree about a park state again.
+import {
+  DS_PARK_PRESENTATION,
+  type DsParkKind,
+} from '../../lib/drawScheduleStatus';
+
+/** Legend order for the parked states: pause first, then the two endings. */
+const PARK_ORDER: readonly DsParkKind[] = ['hold', 'cancelled', 'redesigned'];
 
 // Q9.5.a: status legend bar for the Draw Schedule grid. Exact hex
 // colors lifted from v1's index.html lines 9280-9287 — these are NOT
@@ -17,8 +25,6 @@ interface Chip {
   bg: string;
   fg: string;
   border: string;
-  /** fix-263: struck through, for the terminal (cancelled) chip. */
-  strike?: boolean;
 }
 
 const CHIPS: Chip[] = [
@@ -33,35 +39,39 @@ const CHIPS: Chip[] = [
     border: '#3a9e98',
   },
   { label: 'Approved', bg: '#5abf75', fg: '#ffffff', border: '#3aa55e' },
-  // fix-263: the two PARK states. Without these the amber and the hatch are
-  // unexplained colours on the board. They resolve through the same index.css
-  // tokens the block and the shared HoldBadge use, so each chip is literally
-  // the same paint as the thing it explains — a legend that cannot drift.
-  {
-    label: 'On hold',
-    bg: 'var(--color-hold-bg)',
-    fg: 'var(--color-hold-text)',
-    border: 'var(--color-hold-border)',
-  },
-  // ★★★ fix-524 §A: the two RETIRED states, built from the one recipe. They
-  //     are adjacent in the legend on purpose — that is the only place in the
-  //     app where the grey and the purple appear side by side, so it is the
-  //     only place a reader can learn that the texture means "retired" and the
-  //     hue means which kind. Same paint as the block and the badge, still.
-  {
-    label: RETIRED_PALETTE.cancelled.label,
-    bg: retiredHatch('cancelled'),
-    fg: RETIRED_PALETTE.cancelled.text,
-    border: RETIRED_PALETTE.cancelled.border,
-    strike: true,
-  },
-  {
-    label: RETIRED_PALETTE.redesigned.label,
-    bg: retiredHatch('redesigned'),
-    fg: RETIRED_PALETTE.redesigned.text,
-    border: RETIRED_PALETTE.redesigned.border,
-    strike: true,
-  },
+  // ═══════════════════════════════════════════════════════════════════════
+  // ★★★ fix-553 §A + §F — THE PARK CHIPS ARE THE BLOCK'S OWN PAINT NOW
+  // ═══════════════════════════════════════════════════════════════════════
+  //
+  // ★★★ §A's FINDING WAS THAT A RULE HAD BEEN APPLIED IN ONE PLACE AND NOT THE
+  //     OTHER: fix-530 §D removed the strikethrough from the BLOCKS
+  //     (`DS_PARK_PRESENTATION.strikeAddress`, `false` for all three) and the
+  //     legend kept striking, because the legend held a SECOND copy of the
+  //     colours with a `strike` flag of its own.
+  //
+  // ★★★ SO THE COPY IS GONE, NOT JUST THE FLAG. These three chips are now
+  //     literally `DS_PARK_PRESENTATION` — the same record the block paints
+  //     from — so "the legend matches what the block does" is true by
+  //     construction rather than by two lists agreeing. Removing the flag alone
+  //     would have fixed today's symptom and left tomorrow's.
+  //
+  // ★★ §F: all three wear the same 45° hatch now, three hues. Adjacency is the
+  //    point — this is the one place in the app where they appear side by side,
+  //    so it is the only place a reader can learn that the texture means
+  //    "parked" and the hue says which kind.
+  //
+  // ★ WHAT CARRIES THE DISTINCTION NOW THE LINE IS GONE: the hatch texture
+  //   (against every live status, which is flat), the hue, AND the word — each
+  //   chip is labelled. Nothing here depends on colour alone.
+  ...PARK_ORDER.map((kind) => {
+    const p = DS_PARK_PRESENTATION[kind];
+    return {
+      label: p.label,
+      bg: p.background,
+      fg: p.text,
+      border: p.border,
+    };
+  }),
 ];
 
 export default function StatusLegend() {
@@ -81,7 +91,6 @@ export default function StatusLegend() {
             background: c.bg,
             color: c.fg,
             borderColor: c.border,
-            textDecoration: c.strike ? 'line-through' : 'none',
           }}
           data-testid={`ds-legend-chip-${c.label}`}
         >

@@ -108,8 +108,19 @@ describe('fix-263 legend', () => {
 
   it('the chips paint from the same tokens as the blocks — a legend cannot drift', () => {
     render(<StatusLegend />);
+    // ★★★ AMENDED BY fix-553 §F — ON HOLD WEARS THE HATCH NOW, and this test's
+    //     own rule got STRONGER rather than weaker: the chip's background IS
+    //     the block's background, for all three park states, asserted by
+    //     identity. Bobby: *"can hold get the same color effect … with the grey
+    //     hashes with yellow? that way those 3 resemble one another?"*
+    //
+    // ★★ §A's half is here too: the legend used to hold a SECOND copy of these
+    //    colours with a `strike` flag of its own, which is how it kept striking
+    //    through Cancelled and Redesigned after fix-530 §D removed the line
+    //    from the blocks. The copy is gone — these chips are
+    //    `DS_PARK_PRESENTATION` — so the two cannot disagree again.
     const hold = screen.getByTestId('ds-legend-chip-On hold').getAttribute('style') ?? '';
-    expect(hold).toContain('var(--color-hold-bg)');
+    expect(hold).toContain(DS_PARK_PRESENTATION.hold.background);
     expect(hold).toContain('var(--color-hold-border)');
 
     // ★★★ STRONGER THAN THE ASSERTION IT REPLACES. It used to check that both

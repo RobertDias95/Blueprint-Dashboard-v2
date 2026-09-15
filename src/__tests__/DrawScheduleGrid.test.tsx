@@ -2111,12 +2111,35 @@ describe('fix-263 draw schedule — parked block treatment', () => {
   });
 
   // ---- HELD ------------------------------------------------------------
-  it('held: paints amber from the shared hold token', () => {
+  // ★★★ AMENDED BY fix-553 §F — A HELD BLOCK WEARS THE HATCH, IN YELLOW.
+  //     Bobby asked for the three park states to resemble one another. The
+  //     rule this test carries — *paint from the SHARED token, never a local
+  //     literal* — is unchanged and is what the two assertions still check;
+  //     the token is now a two-stripe pair fed through `hatch()`, so the
+  //     yellow is still the hold's own yellow (`--color-hold-b` IS the old
+  //     `--color-hold-bg` value).
+  //
+  // ⚠️ AND NO STRIKETHROUGH CAME WITH IT. A hold is a PAUSE; cancelled and
+  //    redesigned are ENDINGS. Measured 2026-09-14: of 7 `hold` rows, SIX had
+  //    already ended. Asserted separately below.
+  it('held: paints the yellow hatch from the shared hold tokens', () => {
     holdRows.current = [parkRow('p-now', 'hold', 'MHA')];
     renderGrid();
     const style = screen.getByTestId('block-p-now').getAttribute('style') ?? '';
-    expect(style).toContain('var(--color-hold-bg)');
+    expect(style).toContain('var(--color-hold-a)');
+    expect(style).toContain('var(--color-hold-b)');
+    expect(style).toContain('repeating-linear-gradient');
     expect(style).toContain('var(--color-hold-border)');
+  });
+
+  it('★★★ fix-553 §F: a held block takes NO strikethrough', () => {
+    // ★★★ Six of seven holds came back. Striking a project through and
+    //     un-striking it a fortnight later is the display lying in both
+    //     directions.
+    holdRows.current = [parkRow('p-now', 'hold', 'MHA')];
+    renderGrid();
+    const style = screen.getByTestId('block-p-now').getAttribute('style') ?? '';
+    expect(style).not.toContain('line-through');
   });
 
   it('held: KEEPS the phase pill — a held project is still active', () => {

@@ -268,9 +268,19 @@ describe('fix-524 §B — the four surfaces, both causes', () => {
   //     `useUpdateProject`. The measurement (11 of 17) was sound; the hazard
   //     was not. **A comment is not evidence.**
   it('★★★ 4 · Library KEEPS a redesigned-away original, hatched', () => {
+    // ★★★ AMENDED BY fix-553 §D, AND THE RULING THIS TEST IS ABOUT SURVIVES.
+    //     fix-524 §B ruled that the Library **KEEPS** a redesigned-away
+    //     original — 11 of the pairs hold the only unit dimensions their pair
+    //     has — and it still does: `redesignedAwayProjectIds` and `hatchedIds`
+    //     are both still here, and the header still counts them.
+    //
+    // ★★ WHAT WENT IS THE PER-ROW BADGE, by a later ruling Bobby made knowing
+    //    what it meant (§D, P-247 accepted). Reported rather than softened:
+    //    these rows are not hatched, only badged, so the Library's per-row
+    //    marker is gone and the `· N superseded` count is what remains.
     expect(lib).toContain('redesignedAwayProjectIds(projectsQ.data)');
     expect(lib).toContain('hatchedIds');
-    expect(lib).toContain('RetiredBadge');
+    expect(lib).not.toContain('RetiredBadge');
     // ★★ The divergence is read from the shared record, not decided here — §B:
     //    *"the Library asks the cause and treats them differently; it does not
     //    ask a second question of its own."*

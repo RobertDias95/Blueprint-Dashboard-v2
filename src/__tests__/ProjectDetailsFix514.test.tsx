@@ -443,7 +443,17 @@ describe('fix-514 §F — the tag editor reads its registry', () => {
 describe('fix-514 §H — the Library reads left-to-right like its filters', () => {
   const l = code(librarySrc);
 
-  it('★★★ the Site tab reads address · lot W · lot D · lot SF · juris · zone · alley · corner', () => {
+  // ★★★ AMENDED BY fix-553 §C — JURISDICTION AND ZONE MOVED RIGHT, BESIDE
+  //     STAGE. Bobby: the left of the row should read address then the
+  //     dimensional data; the three shared fields sat between `Lot SF` and
+  //     `Corner`, splitting the lot dimensions from the parcel facts.
+  //
+  // ★★ WHAT fix-514 §H ACTUALLY RULED IS UNCHANGED AND STILL ASSERTED: the
+  //    address leads, the four dimension columns run in filter order, and the
+  //    three shared fields stay TOGETHER in their declared order
+  //    (`LIBRARY_SITE_SHARED_FIELDS`, fix-519 §C) — which is why Alley moved
+  //    with them rather than being orphaned mid-row.
+  it('★★★ the Site tab reads address · lot W · lot D · lot SF · corner · juris · zone · alley', () => {
     // ★ Scoped to the SITE table — the UNIT table above it has its own
     //   `col="juris"`, and an unscoped scan reads the wrong header row.
     // ★★★ fix-519 §C: `juris · zone · alley` are no longer three literals in
@@ -465,11 +475,11 @@ describe('fix-514 §H — the Library reads left-to-right like its filters', () 
       ['address', 'lotWidth'],
       ['lotWidth', 'lotDepth'],
       ['lotDepth', 'lotSizeSf'],
-      ['lotSizeSf', 'juris'],
+      ['lotSizeSf', 'isCornerLot'],
+      ['isCornerLot', 'juris'],
       ['juris', 'zone'],
       ['zone', 'alley'],
-      ['alley', 'isCornerLot'],
-      ['isCornerLot', 'stage'],
+      ['alley', 'stage'],
     ] as const) {
       expect(idx(a), `${a} before ${b}`).toBeLessThan(idx(b));
     }

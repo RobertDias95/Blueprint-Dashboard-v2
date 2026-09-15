@@ -1,4 +1,5 @@
 import { useMemo, useState } from 'react';
+import { TASK_STATUS_PAINT } from '../../lib/taskStatus';
 import OriginLink from '../OriginLink';
 import {
   useWaitingOnTasks,
@@ -40,11 +41,16 @@ import type { WaitingOnTaskRow } from '../../lib/database.types';
 // that token. An unmapped login (no roster name) sees the holistic view and no
 // toggle, exactly as on the board.
 
-const STATUS_BG: Record<string, string> = {
-  Open: 'var(--color-s2)',
-  'In Progress': 'var(--color-de)',
-  Resolved: 'var(--color-pm)',
-};
+// ★★★ fix-553 §B — THIS WAS THE SECOND COPY, with the same failing values.
+//     `--color-text` measured **2.94:1** on `--color-de` and **4.03:1** on
+//     `--color-pm`; both now read from the one measured map in
+//     `lib/taskStatus`, so a contrast fix cannot land on one chip and miss
+//     this one.
+const STATUS_BG: Record<string, string> = Object.fromEntries(
+  (Object.keys(TASK_STATUS_PAINT) as (keyof typeof TASK_STATUS_PAINT)[]).map(
+    (k) => [k, TASK_STATUS_PAINT[k].background],
+  ),
+);
 
 // ===========================================================================
 // ★★★ fix-409 — WAITING ON IS CHIPPED, NOT FILTERED. THE JUDGEMENT, WRITTEN OUT
