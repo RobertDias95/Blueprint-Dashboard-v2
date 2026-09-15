@@ -982,16 +982,27 @@ describe('PermitDetailV2 fix-70 task editor', () => {
 
 // fix-notes-6: Notes reflow under the tasks + top-level task cards.
 describe('PermitDetailV2 fix-notes-6 — Notes reflow + task cards', () => {
-  it('Notes render inside the left task column (directly under tasks), not in the sidebar', () => {
-    treeRef.current = []; // 0 tasks → Notes should sit high alongside the tasks
+  // ★★★ AMENDED BY fix-559 §A — THIS WAS THE **THIRD** MOUNT OF THE PERMIT
+  //     NOTES PANEL, and the brief only knew of two; it asked for a third to be
+  //     named if one existed. It did, and it was here: the permit detail's
+  //     running notes log, the same `NotesPanel` as Project Overview and the
+  //     My Tasks pane, scoped by `permit_id`.
+  //
+  // ★★ Bobby ruled the surface away: *"remove the permit level note, we only
+  //    need a tasks level note."* All 107 rows it rendered are already in the
+  //    General channel (fix-542, verified 107 of 107), so nothing it showed
+  //    became unreachable — and the TASK's own note now renders on each task
+  //    row here instead (§C), which is the thing P-257 asked for.
+  //
+  // ★ fix-notes-6's ruling — that the left column is tasks, and the sidebar is
+  //   NOT tasks — is what survives, and is what this now asserts.
+  it('the permit notes panel is gone from the left column (fix-559 §A)', () => {
+    treeRef.current = [];
     renderIt();
-    const notes = screen.getByTestId('notes-panel');
+    expect(screen.queryByTestId('notes-panel')).toBeNull();
     const tasksPanel = screen.getByTestId('pd-v2-tasks-panel');
-    // The left column wraps BOTH the tasks panel and the notes panel, so Notes
-    // follow the tasks directly (no dead space below a tall sidebar).
     const leftCol = tasksPanel.parentElement as HTMLElement;
-    expect(leftCol).toContainElement(notes);
-    // The sidebar (Schedule Estimator stub) is NOT in that left column.
+    // The sidebar (Schedule Estimator stub) is still NOT in that left column.
     expect(leftCol).not.toContainElement(
       screen.getByTestId('stub-schedule-estimator'),
     );

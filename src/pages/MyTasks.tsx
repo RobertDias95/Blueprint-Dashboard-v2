@@ -2389,6 +2389,26 @@ export const TaskCard = memo(function TaskCard({
           {task.text}
         </span>
       </div>
+      {/* ★★★ fix-559 §C (P-218 + P-257) — THE TASK NOTE, ON THE ROW ITSELF.
+          27 notes have sat in `permit_tasks.notes` unreadable since fix-294
+          froze the column. This is one of the three surfaces that now read it.
+
+          ★★ ABSENT WHEN EMPTY. 1,783 of 1,810 tasks have no note — a label or a
+             zero on every row would be a worse product than the one this
+             replaces. No note, no element, no extra height.
+          ★ `whitespace-pre-wrap` because one of the 27 is multi-line and ends
+            in a path; clamped so a long note cannot push a row off the lane,
+            with the whole text in `title`. Not linkified — that is P-149. */}
+      {(task.notes ?? '').trim() !== '' && (
+        <div
+          className="text-[10px] leading-snug mt-1 whitespace-pre-wrap line-clamp-3"
+          style={{ color: 'var(--color-muted)' }}
+          title={task.notes ?? undefined}
+          data-testid={`mytasks-note-${task.id}`}
+        >
+          {task.notes}
+        </div>
+      )}
       <div className="flex items-center justify-between mt-1 gap-2">
         {/* ★★★ fix-460 §B2 — THE CONTEXT LINE IS THE ONLY VISIBLE DIFFERENCE.
             A project task shows its address; a team task has none, so it says

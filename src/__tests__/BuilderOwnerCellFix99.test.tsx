@@ -26,9 +26,8 @@ vi.mock('../hooks/useExternalTeamDirectory', () => ({
 // QUEUED supabase responses and starve the OCC retry of the one it needs.
 // Stubbed for the same reason fix-227 stubbed the directory above: the subject
 // here is BuilderOwnerCell's write path, and the assertion below is unchanged.
-vi.mock('../components/ProjectDetail/NotesPanel', () => ({
-  default: () => <div data-testid="stub-notes-panel" />,
-}));
+// ★ fix-559 §A: the NotesPanel mock went with the component. The permit/project
+//   notes surface no longer exists — a task carries its own note now.
 vi.mock('../components/ProjectDetail/PlanOfRecordCard', () => ({
   default: () => <div data-testid="stub-plan-of-record-card" />,
 }));

@@ -10,7 +10,7 @@ import { waitingOnOptions } from '../lib/waitingOn';
 //   `task.agenda === true` here would be a second definition of one question.
 import { isAgendaItem, taskContextLine } from '../lib/taskSource';
 import TaskProvenance from './TaskProvenance';
-import { useMemo } from "react";
+import { useMemo, useRef, useState } from "react";
 import { useUpsertTask, useSetTaskAssignees } from "../hooks/useTaskTree";
 import { useUpsertTeamTask } from "../hooks/useTeamTasks";
 import { useDmDaGroups } from "../hooks/useDmDaGroups";
@@ -21,7 +21,6 @@ import { useProjects } from "../hooks/useProjects";
 import CoAssigneeEditor from "./CoAssigneeEditor";
 import PrimaryAssigneeEditor from "./PrimaryAssigneeEditor";
 import TaskDateField from "./TaskDateField";
-import NotesPanel from "./ProjectDetail/NotesPanel";
 import { inputStyle } from "../lib/taskFieldStyles";
 import {
   resolvePrimaryAssignee,
@@ -131,11 +130,50 @@ export default function TaskDetailEditor({
   // Notes is the only multi-line free-form field — debounce-commit on
   // blur via local draft + onBlur. Every other field commits on change
   // (single click / single pick).
-  // fix-294: the notesDraft / notesInitial / commitNotes trio is GONE with the
-  // box it fed. permit_tasks.notes is frozen -- nothing in the app writes it
-  // any more -- so leaving the commit path here would be a loaded gun: the next
-  // person to add a "Notes" field would find a working writer for a column
-  // nothing reads.
+  // ════════════════════════════════════════════════════════════════════
+  // ★★★ fix-559 §C (P-218 + P-257) — THE NOTE COMES BACK, AND IT IS THE TASK'S
+  // ════════════════════════════════════════════════════════════════════
+  //
+  // ★★★ THIS REVERSES fix-294, ON PURPOSE, BECAUSE BOBBY RULED IT:
+  //     *"remove the permit level note, we only need a tasks level note. all
+  //     permit and project level notes either live in the task or can be
+  //     managed in the chat."*
+  //
+  //     fix-294 removed this exact trio and warned: *"leaving the commit path
+  //     here would be a loaded gun — the next person to add a Notes field would
+  //     find a working writer for a column nothing reads."* It was right at the
+  //     time. **The gun now gets a reader** (§C renders `notes` on every task
+  //     surface), so the condition that made it dangerous is gone.
+  //
+  // ★★★ AND THE MEASUREMENT IS WHAT PRODUCED THE RULING: **532 tasks sit under
+  //     only 72 noted permits — 7.4 tasks each.** A permit-level note "shown on
+  //     the task" would repeat itself seven times down a list. One note, one
+  //     task, or it is not a task note.
+  //
+  // ★★ BOTH KINDS OF TASK. `permit_tasks.notes` and `team_tasks.notes` both
+  //    exist and both writers already accepted the field, so nothing here is a
+  //    new write path — see §C's note in `patch()`.
+  const [notesDraft, setNotesDraft] = useState(task.notes ?? '');
+  // ★ Re-seed when the panel moves to another task: this component stays
+  //   mounted and swaps `task`, so a stale draft would leak one task's note
+  //   onto the next one.
+  const notesInitial = task.notes ?? '';
+  const lastNotesTaskRef = useRef(task.id);
+  if (lastNotesTaskRef.current !== task.id) {
+    lastNotesTaskRef.current = task.id;
+    setNotesDraft(notesInitial);
+  }
+  function commitNotes() {
+    const next = notesDraft.trim();
+    if (next === notesInitial.trim()) return;
+    // ★★ EMPTYING THE BOX CLEARS THE COLUMN, and that needs the explicit flag:
+    //    `bp_upsert_permit_task` reads `p_notes IS NOT NULL` as "set" and
+    //    anything else as "leave unchanged", so a null alone would silently
+    //    leave the old note in place. (That same rule is why the 27 existing
+    //    notes have survived every unrelated task edit.)
+    if (next === '') patch({ clearNotes: true, notes: null });
+    else patch({ notes: next });
+  }
 
   function patch(p: Partial<Parameters<typeof upsert.mutate>[0]>) {
     // ★★★ fix-460: a TEAM TASK has no permit, so `bp_upsert_permit_task`
@@ -160,6 +198,12 @@ export default function TaskDetailEditor({
           assigned_to: 'assignedTo' in p ? (p.assignedTo as string | null) : task.assigned_to,
           completion_status: (p.status as string | undefined) ?? task.status,
           priority: (p.priority as boolean | undefined) ?? task.priority,
+          // ★★★ fix-559 §C: a TEAM task gets a note too. `team_tasks` has its
+          //     own `notes` column and `TeamTaskPatch` already carried the
+          //     field — so "a note belongs to a task" is true for BOTH kinds of
+          //     task, not just the permit ones. Re-sent like every other field
+          //     on this writer, because `p_data` is a whole-patch overwrite.
+          notes: 'notes' in p ? (p.notes as string | null) : task.notes ?? null,
         },
       });
       return;
@@ -489,32 +533,59 @@ export default function TaskDetailEditor({
           />
         </FieldRow>
 
-        {/* ★ fix-294: 9 Notes — now the PERMIT's notes, not a private field.
-            This box used to write permit_tasks.notes, which was rendered on
-            exactly one screen: this panel. Nothing on Project Overview, the
-            permit detail, or any report ever read it back, so 19 real
-            operational notes ("Holding for MHA", "Pending Builder Signature",
-            paths to picked-up redlines) were invisible to everyone but the
-            person who typed them. Those 19 were migrated onto their permits;
-            permit_tasks.notes is now frozen and unwritten, the same treatment
-            fix-notes-1 gave the legacy per-permit notes columns.
+        {/* ═══════════════════════════════════════════════════════════
+            ★★★ fix-559 §A + §C — THE PERMIT'S NOTES BOX IS GONE; THIS IS THE
+                TASK'S OWN NOTE
+            ═══════════════════════════════════════════════════════════
 
-            It is the same NotesPanel the permit detail and Project Overview
-            mount, scoped to this task's permit — so a note typed here appears
-            where people actually look, and one typed there appears here. */}
-        {/* No "task has no permit" fallback, deliberately: permit_tasks.permit_id
-            is NOT NULL and 0 of the 1,057 production rows are without one, so a
-            branch for it would be a state that cannot occur — the same kind of
-            invented emptiness this ticket is removing. */}
-        {/* ★★ fix-460: a TEAM TASK has no permit, so it has no permit notes.
-            The block is absent rather than empty — fix-406's rule about a
-            control that cannot act. */}
-        {task.project_id !== null && task.permit_id !== null && (
-          <div className="flex flex-col gap-0.5" data-testid="task-detail-permit-notes">
-            <FieldLabel>Notes on this permit</FieldLabel>
-            <NotesPanel projectId={task.project_id} permitId={task.permit_id} />
-          </div>
-        )}
+            What stood here was a NotesPanel mount (projectId + permitId) — headed
+            **"Notes on this permit"**, writing the `notes` TABLE, permit-scoped.
+            That heading beside a task is most of why P-257 existed: two
+            different boxes were both called Notes, and this one wrote somewhere
+            the task never read back.
+
+            ★★ It is one box now, and it is the task's. A team task gets one too
+               — `team_tasks.notes` exists and its writer already took the field
+               — so there is no "this kind of task cannot have a note".
+
+            ★ Editing REPLACES. It is one text column, not a thread; if a
+              conversation is wanted that is the General channel. Said on screen
+              rather than assumed. */}
+        <div className="flex flex-col gap-0.5" data-testid="task-detail-notes">
+          <FieldLabel>Note</FieldLabel>
+          <textarea
+            value={notesDraft}
+            onChange={(e) => setNotesDraft(e.target.value)}
+            onBlur={commitNotes}
+            rows={3}
+            placeholder="A note for this task — saving replaces what is here"
+            className="text-[11px] px-2 py-1 border rounded outline-none resize-y"
+            style={inputStyle()}
+            aria-label="Note on this task"
+            data-testid="task-detail-notes-input"
+          />
+          {/* ★★★ fix-559 §C — A MACHINE-WRITTEN NOTE SAYS SO, AND STAYS EDITABLE.
+              8 of the 27 existing notes are the tool's own plan-of-record
+              sentence (*"3 marketing sets, archived · no schematic · no design
+              guidance"*, *"nothing indexed"*). Marked with the same BOT
+              vocabulary the task chips already use, so nobody reads the
+              tool's sentence as a colleague's.
+              ★★ EDITABLE, not locked: the tool rewrites this note on its next
+                 run, so a lock would protect nothing and would leave somebody
+                 unable to correct a sentence they can see is wrong. The warning
+                 is the honest control — and it is what tells them why their
+                 edit may not last. */}
+          {task.is_auto_generated && notesInitial !== '' && (
+            <span
+              className="text-[9px] leading-snug"
+              style={{ color: 'var(--color-muted)' }}
+              data-testid="task-detail-notes-bot"
+            >
+              BOT — written by the tool. You can edit it, but the next run may
+              replace it.
+            </span>
+          )}
+        </div>
       </div>
 
       {/* ===================================================================

@@ -17,29 +17,36 @@ import type { Note } from '../lib/database.types';
 // pattern): the notes_default_tenant trigger stamps tenant_id, notes_author
 // stamps created_by from auth.uid(), notes_completed_at syncs completed_at.
 
-export function useProjectNotes(projectId: string | undefined) {
-  const tenantId = useAuthStore((s) => s.activeTenantId);
-  return useQuery<Note[]>({
-    queryKey: queryKeys.notes(tenantId ?? '', projectId ?? ''),
-    enabled: !!tenantId && !!projectId,
-    queryFn: async () => {
-      const { data, error } = await supabase.rpc('bp_list_project_notes', {
-        p_project_id: projectId,
-      });
-      if (error) throw error;
-      return (data ?? []) as Note[];
-    },
-  });
-}
+// ═══════════════════════════════════════════════════════════════════════
+// ★★★ fix-559 §A (P-218) — `useProjectNotes` IS GONE WITH `NotesPanel`
+// ═══════════════════════════════════════════════════════════════════════
+//
+// It had exactly one consumer — the permit/project notes panel §A removed —
+// so it goes with it rather than lingering as a reader for a surface that no
+// longer exists.
+//
+// ★★★ THE REST OF THIS FILE STAYS, AND THAT IS NOT AN OVERSIGHT. The brief
+//     said *"remove the component and its hook"*; grepping the hook rather than
+//     the heading (which is what it asked for) found **three more consumers
+//     that are not note-taking surfaces at all**:
+//
+//       useAllNotes                → Weekly Updates report (fix-notes-3) — the
+//                                    report IS the notes, grouped
+//       useAddNote / useUpdateNote → Weekly Updates + the Weekly DA report's
+//                                    editable note box (fix-notes-4)
+//       useProjectNoteSearchIndex  → Project View's note-body search
+//
+//     Deleting them would delete two reports and a search filter, which Bobby's
+//     ruling does not ask for. **§B's staged delete of the 107 rows leaves all
+//     three rendering empty** — that consequence is stated in the PR and in the
+//     migration header, because it is the thing to decide before applying it,
+//     not after.
 
 interface NoteSearchRow {
   project_id: string;
   body: string;
 }
 
-/** fix-notes-2: project_id → concatenated active-note bodies (holistic +
- *  permit notes), so the Project List free-text search finds a project by its
- *  note text. Keyed under the notes prefix so any note change invalidates it. */
 export function useProjectNoteSearchIndex() {
   const tenantId = useAuthStore((s) => s.activeTenantId);
   return useQuery<Map<string, string>>({

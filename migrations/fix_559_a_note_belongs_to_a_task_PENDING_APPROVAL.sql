@@ -1,0 +1,302 @@
+-- ===========================================================================
+-- fix-559 — a note belongs to a task (P-218, P-257)
+-- STAGED, NOT APPLIED.  Cowork applies migrations.
+-- MEASURED ON PROD 2026-09-15 (project eibnmwthkcuumyclyxoe)
+-- ===========================================================================
+--
+-- EVERY STATEMENT BELOW IS COMMENTED OUT.  Uncomment as a whole, in order.
+--
+-- ---------------------------------------------------------------------------
+-- WHAT THIS DOES, AND WHOSE DECISION IT IS
+-- ---------------------------------------------------------------------------
+--
+-- Bobby, ruling the model:
+--   "remove the permit level note, we only need a tasks level note. all permit
+--    and project level notes either live in the task or can be managed in the
+--    chat."
+--
+-- ★★★ THIS REVERSES fix-294 ON PURPOSE.  fix-294 deleted the task-note box,
+--     migrated 19 notes onto permits and left the write path out, warning:
+--     *"leaving the commit path here would be a loaded gun — the next person to
+--     add a Notes field would find a working writer for a column nothing
+--     reads."*  Bobby is adding that field on purpose.  The gun gets a reader:
+--     §C of this ticket renders `permit_tasks.notes` on every task surface.
+--
+-- ★★★ AND THE MEASUREMENT IS WHAT PRODUCED THE RULING.  532 tasks sit under
+--     only 72 noted permits — 7.4 tasks each.  A permit-level note "shown on
+--     the task" would repeat itself down seven rows.  One note, one task.
+--
+-- ---------------------------------------------------------------------------
+-- MEASURED (re-derived by the assertions below — fix-450: never let a header
+-- be the only place a number lives)
+-- ---------------------------------------------------------------------------
+--
+--   public.notes                                   107 rows
+--     permit-scoped                                 92
+--     project-only                                  15
+--     distinct projects                             57
+--     authors                                        9
+--     oldest / newest                       2026-06-29 / 2026-09-11
+--     total body characters                       6,412
+--
+--   ★★★ ALREADY COPIED INTO THE GENERAL CHANNEL BY fix-542:
+--     project_messages with a source_note_id       107
+--     notes with NO General copy                     0   ← THE GUARD
+--
+--   permit_tasks                                 1,810 rows
+--     with a non-empty `notes`                      27   (19 human · 8 machine)
+--     of those, still open                           6
+--
+-- ---------------------------------------------------------------------------
+-- ⚠️ WHAT EMPTYING `notes` ALSO EMPTIES — READ BEFORE APPLYING
+-- ---------------------------------------------------------------------------
+--
+-- §A removed all three note-taking surfaces.  It did NOT remove three OTHER
+-- readers of this table, because Bobby's ruling does not ask for them and they
+-- are not note-taking surfaces:
+--
+--   · Weekly Updates report (/reports/weekly-updates)  — the report IS these
+--     notes, grouped by project.  It will render EMPTY.
+--   · Weekly DA report's editable note box (fix-notes-4) — will show nothing
+--     and will write a NEW note if somebody types in it.
+--   · Project View's note-body search (`bp_project_note_search_index`) — will
+--     match nothing.
+--
+-- ★ None of these breaks; each simply has no rows.  **This is the thing to
+--   decide before applying, not after.**  All 107 remain readable in the
+--   General channel either way.
+--
+-- ---------------------------------------------------------------------------
+-- LOCKING / REVERSIBILITY
+-- ---------------------------------------------------------------------------
+-- ★ The table is NOT dropped.  §B: *"leaving an empty table is fine and
+--   reversible, dropping it is not."*  Three readers above still query it and
+--   a drop would turn three empty screens into three 500s.
+-- ★ Step 0 takes a real backup table first, so the delete is undoable by one
+--   INSERT … SELECT rather than by retyping a comment.
+--
+-- ===========================================================================
+
+
+-- begin;
+-- set local lock_timeout = '5s';
+
+
+-- ---------------------------------------------------------------------------
+-- §B.0 — the backup. Taken FIRST, so nothing below can lose a row.
+-- ---------------------------------------------------------------------------
+-- ★ A table, not a comment: the snapshot in the header is for a person reading
+--   this file; this is what a restore would actually use.
+
+-- create table if not exists public.notes_deleted_fix559 as
+--   select * from public.notes;
+
+-- do $$
+-- declare v_n int;
+-- begin
+--   select count(*) into v_n from public.notes_deleted_fix559;
+--   if v_n <> 107 then
+--     raise exception 'backup holds % rows, expected 107 — STOP', v_n;
+--   end if;
+-- end $$;
+
+
+-- ---------------------------------------------------------------------------
+-- §B.1 — THE GUARD.  Delete nothing unless every row is provably in General.
+-- ---------------------------------------------------------------------------
+-- ★★★ THE BRIEF'S RULE: *"assert all 107 resolve to a General message before
+--     removing any.  If that count is not 0, delete nothing and report."*
+--     Measured 2026-09-15: 0.  Re-derived here rather than trusted, because the
+--     number that matters is the one true at APPLY time, not at write time.
+
+-- do $$
+-- declare v_orphans int; v_total int; v_copies int;
+-- begin
+--   select count(*) into v_total from public.notes;
+--   select count(*) into v_copies
+--     from public.project_messages where source_note_id is not null;
+--   select count(*) into v_orphans
+--     from public.notes n
+--    where not exists (select 1 from public.project_messages m
+--                       where m.source_note_id = n.id);
+--   raise notice 'fix-559 guard: % notes, % General copies, % with no copy',
+--     v_total, v_copies, v_orphans;
+--   if v_orphans <> 0 then
+--     raise exception
+--       'fix-559 STOP: % of % notes have no General copy — nothing deleted',
+--       v_orphans, v_total;
+--   end if;
+-- end $$;
+
+
+-- ---------------------------------------------------------------------------
+-- §B.2 — the delete
+-- ---------------------------------------------------------------------------
+-- ★ The TABLE STAYS (see the reversibility note above).  Rows only.
+
+-- delete from public.notes;
+
+
+-- ---------------------------------------------------------------------------
+-- ASSERTIONS — run INSIDE the same transaction, before COMMIT.
+-- ---------------------------------------------------------------------------
+
+-- (a) the rows are gone and the backup holds them.
+-- do $$
+-- declare v_live int; v_backup int;
+-- begin
+--   select count(*) into v_live from public.notes;
+--   select count(*) into v_backup from public.notes_deleted_fix559;
+--   if v_live <> 0 then raise exception 'notes still holds % rows', v_live; end if;
+--   if v_backup <> 107 then
+--     raise exception 'backup holds % rows, expected 107', v_backup;
+--   end if;
+-- end $$;
+
+-- (b) ★★★ THE NEIGHBOURS ARE UNTOUCHED (fix-545's rule) — and here the
+--     neighbour IS the point of the whole ticket.  fix-542's General copies and
+--     `permit_tasks.notes` must both be exactly as they were.
+-- do $$
+-- declare v_general int; v_task_notes int;
+-- begin
+--   select count(*) into v_general
+--     from public.project_messages where source_note_id is not null;
+--   select count(*) into v_task_notes
+--     from public.permit_tasks where nullif(btrim(notes),'') is not null;
+--   if v_general <> 107 then
+--     raise exception 'General copies moved: % (expected 107)', v_general;
+--   end if;
+--   if v_task_notes < 27 then
+--     raise exception 'permit_tasks.notes LOST rows: % (expected 27 or more)',
+--       v_task_notes;
+--   end if;
+-- end $$;
+
+-- (c) the table still exists, because three readers still query it.
+-- do $$
+-- begin
+--   if to_regclass('public.notes') is null then
+--     raise exception 'public.notes was DROPPED — three readers now 500';
+--   end if;
+-- end $$;
+
+-- commit;
+
+
+-- ===========================================================================
+-- THE SNAPSHOT — all 107 rows, as they stood 2026-09-15
+--   project | permit | author | date | body   ( / = a newline in the body)
+-- ===========================================================================
+--
+--   10004 116th Ave NE             | -      | Miles        | 2026-08-18 | Remodel
+--   10044 37th Ave SW              | -      | (unknown)    | 2026-07-17 | CONVERT EXISTING SFR TO DADU, CONSTRUCT NEW SFR WITH ADU
+--   10431 SE 19th St               | 253    | (unknown)    | 2026-06-29 | Waiting on Civil? COB is getting me a response on tree credits fee reductions. Should hear back today
+--   10431 SE 19th St               | 252    | (unknown)    | 2026-06-29 | Waiting on Civil? COB is getting me a response on tree credits fee reductions. Should hear back today
+--   10431 SE 19th St               | 248    | (unknown)    | 2026-06-29 | Waiting on Civil? COB is getting me a response on tree credits fee reductions. Should hear back today
+--   10431 SE 19th St               | 251    | (unknown)    | 2026-06-29 | Waiting on Civil? COB is getting me a response on tree credits fee reductions. Should hear back today
+--   10431 SE 19th St               | 248    | Bobby        | 2026-07-17 | test
+--   10431 SE 19th St               | 253    | Bobby        | 2026-07-17 | test
+--   10431 SE 19th St               | 253    | Bobby        | 2026-07-17 | test
+--   10719 Phinney Ave N            | 10330  | (unknown)    | 2026-07-15 | Published. Over 2 week periond. need to take finals to city now — Holding for 10727 Phinney ULS so can be signed at same time
+--   11231 NE 67th St               | 10256  | (unknown)    | 2026-06-29 | Let me know where you are at with these and if you need anything to get this resubmitted.
+--   11231 NE 67th St               | -      | (unknown)    | 2026-07-17 | 6.26. Bobby  / LSM resubmittal - BLD intakes follow that.  / LSM is pending geotech drilling, scheduled 6.29, once we have that, verify results with civil, then resubmit and submit bldgs
+--   123 N 48th St                  | 10346  | Briana       | 2026-07-27 | Brent List
+--   12827 NE 80th St               | -      | (unknown)    | 2026-07-17 | 6.26 - potentially LSM submittal while miles it out.
+--   12827 NE 80th St               | 10013  | (unknown)    | 2026-08-11 | S:\--- Blueprint Services ---\Building Permits\12827 NE 80th St - Greenwalk - TP\12827 - Reviews — Redlines picked up. / Rady for review: /  / S:\--- Blueprint Services ---\Building Permits\12827 NE 80th St - Greenwalk - TP\12827 - Reviews
+--   12827 NE 80th St               | 10013  | Lindsay      | 2026-09-02 | All Documents for initial Building permit intake (3 cottages) are ready for review and submittal pending LSM-CR1.   / S:\--- Blueprint Services ---\Building Permits\12827 NE 80th St - Greenwalk - TP\12827 - Permit Submittal
+--   12827 NE 80th St               | 10013  | Lindsay      | 2026-09-04 | Waiting for LSM corrections to finalize before final-final review.
+--   12836 N 60th St                | -      | Bobby        | 2026-07-23 | Builder likely selling. So no activity expected in the near future
+--   12836 N 60th St                | 10235  | Briana       | 2026-07-23 | Permits ready to issue, Pending builder assignment
+--   12836 N 60th St                | 10235  | Briana       | 2026-07-23 | BEAU selling Project
+--   1301 6th Ave N                 | 10281  | (unknown)    | 2026-07-13 | Are these ready to submit?
+--   1301 6th Ave N                 | 10276  | Bobby        | 2026-07-22 | Pinged reviewer 7.22
+--   13515 27th Ave NE              | 219    | (unknown)    | 2026-06-29 | Pending SSS 7.17 - anything else needed for submitting?
+--   1515 Martin Luther King Jr Way | 10294  | (unknown)    | 2026-06-29 | RTI pending salvage — Pending Builder Assignment
+--   1515 Martin Luther King Jr Way | -      | Briana       | 2026-07-22 | Permits ready to issue, Pending builder assignment
+--   1515 Martin Luther King Jr Way | 10293  | Briana       | 2026-07-23 | Permits ready to issue, Pending builder assignment
+--   1515 Martin Luther King Jr Way | 10294  | Briana       | 2026-07-23 | Permits ready to issue, Pending builder assignment
+--   1515 Martin Luther King Jr Way | 10295  | Briana       | 2026-07-27 | Resubmit after building permit issuance 7/23 to check on status
+--   1524 Martin Luther King Jr Way | 10298  | (unknown)    | 2026-06-29 | RTI Pending salvage — Pending Builder Assignemnt
+--   1524 Martin Luther King Jr Way | -      | Briana       | 2026-07-22 | Permits ready to issue pending builder assignment
+--   1524 Martin Luther King Jr Way | 10297  | Briana       | 2026-07-23 | Permits ready to issue, Pending builder assignment
+--   1524 Martin Luther King Jr Way | 10299  | Briana       | 2026-07-27 | Resubmit after building permit issuance
+--   1953 10th Ave W                | 223    | (unknown)    | 2026-06-29 | Per Miles message 6.24 - only correction is trees. let me know when this is ready to resubmit.?
+--   2039 N 78th St                 | 338    | Bobby        | 2026-07-23 | Builder is working on getting a construction loan outside of BP
+--   2039 N 78th St                 | 339    | Bobby        | 2026-07-23 | Builder is working on getting a construction loan outside of BP
+--   220 N 58th St                  | 10290  | Briana       | 2026-07-22 | Andrew to pay fees in end of august per Andrew
+--   220 N 58th St                  | 10292  | (unknown)    | 2026-08-04 | RFI pending fees — To be paid near mid- end of august per andrew
+--   220 N 58th St                  | 10292  | Briana       | 2026-08-28 | Followed up with Andrew on intake fees 8/27
+--   224 2nd Ave N                  | 10230  | (unknown)    | 2026-06-29 | Pending civil 7.17 target // Got this back, anything else needed to submit?
+--   224 2nd Ave N                  | 10232  | (unknown)    | 2026-06-29 | Pending civil 7.17 target // Got this back, anything else needed to submit?
+--   233 31st Ave E                 | -      | Lindsay      | 2026-09-04 | @Miles  - do we have an infiltration test in progress?  Geotech did not complete and it would be great to have to avoid drainage corrections in the future.
+--   2601 E Galer St                | 10084  | Brittani     | 2026-08-26 | Also update for engineering change during corrections
+--   2725 Belvidere Ave SW          | -      | Miles        | 2026-08-13 | Front duplex with SFR in rear
+--   2822 NW 92nd St                | 233    | Briana       | 2026-08-12 | Salvage to be completed at closing (8/26) per Rob
+--   3021 NW 62nd St                | 10104  | Bobby        | 2026-07-23 | Pinged reviewer on evaluation 7.23
+--   3046 NW 64th St                | 240    | (unknown)    | 2026-07-13 | Pending SPU approval post correction updates, followed up 7/13
+--   3117 W Dravus St               | 299    | Bobby        | 2026-07-29 | Pending fees
+--   3505 Densmore Ave N            | 268    | Briana       | 2026-07-23 | Pending Salvage + TRAO
+--   3505 Densmore Ave N            | 267    | (unknown)    | 2026-07-27 | Window redesign review @ BA — S:\--- Blueprint Services ---\Building Permits\3505 Densmore Ave N - Builder - BP\3505 - Reviews
+--   3505 Densmore Ave N            | 267    | (unknown)    | 2026-08-10 | MGR Redlines CR2 — Redlines picked up. Plan set CR2 is ready for final review.  / File location:  / S:\--- Blueprint Services ---\Building Permits\3505 Densmore Ave N - Cary Granger - Jade\3505 - Corrections II
+--   3623 SW Othello St             | 10237  | Bobby        | 2026-07-23 | Builder is aware, but no money
+--   3623 SW Othello St             | 10238  | (unknown)    | 2026-07-28 | pending salvage — Builder working on
+--   3626 164th Pl SE               | 258    | (unknown)    | 2026-06-29 | Ready to resubmit 6.29
+--   3626 164th Pl SE               | 10058  | (unknown)    | 2026-06-29 | Ready to resubmit 6.29
+--   3626 164th Pl SE               | 10057  | (unknown)    | 2026-06-29 | Ready to resubmit 6.29
+--   3626 164th Pl SE               | 10056  | (unknown)    | 2026-06-29 | Ready to resubmit 6.29
+--   3626 164th Pl SE               | 256    | (unknown)    | 2026-06-29 | Ready to resubmit 6.29
+--   3670 Interlake Ave N           | 345    | (unknown)    | 2026-07-13 | Pending MHA
+--   3931 SW Southern St            | 263    | (unknown)    | 2026-07-10 | Marketing update to new template @ ER — Marketing Plans finished and Renders completed.
+--   3931 SW Southern St            | 263    | (unknown)    | 2026-07-13 | Pending SSS expected 7/17
+--   3931 SW Southern St            | 263    | (unknown)    | 2026-07-24 | Package CR2 set @ ER — Waiting for SSS.
+--   3931 SW Southern St            | 264    | (unknown)    | 2026-08-04 | RTI pending salvage — Builder to complete at closing at end of the month
+--   4017 Corliss Ave N             | 10386  | (unknown)    | 2026-07-23 | Submit Application — Holding on PAR to remove TRAO?
+--   403 W Dravus St                | 10134  | (unknown)    | 2026-07-13 | Pending SSS expected 7/17
+--   403 W Dravus St                | -      | Bobby        | 2026-08-10 | DADU on site, no ULS allowed
+--   4060 E Via Estrella            | 208    | Derry        | 2026-09-11 | Dee agreed that the location I sent on 9.10.26 are good, but we are waiting for Tim and Marija to confirm on Monday
+--   4113 SW Ida ST                 | 10121  | Briana       | 2026-07-27 | Brent List
+--   4147 44th Ave SW               | 10193  | Bobby        | 2026-07-29 | Ready for intake pending fees
+--   4222 Latona Ave NE             | 311    | (unknown)    | 2026-07-13 | Possible updates per Darin
+--   4222 Latona Ave NE             | 312    | Briana       | 2026-07-23 | Per builder, salvage to be done at closing on 7/27
+--   4523 48th Ave NE               | 10263  | Bobby        | 2026-07-23 | City is preparing decision due 7.30
+--   548 3rd Ave N                  | 200    | (unknown)    | 2026-06-29 | TRGT Resub 7.10 // Did we get structural? Civil updates hopefully by end of week. Need brent to go pick up locations per facets request.
+--   548 3rd Ave N                  | 201    | (unknown)    | 2026-07-13 | Sent to facet to handle.
+--   554 N 75th St                  | 10373  | (unknown)    | 2026-07-23 | Geotech Report — Not Required, Non ECA
+--   5606 46th Ave SW               | 194    | (unknown)    | 2026-06-29 | Pinged SDCI on the status of the SPU plan. Anything else needed to resubmit? Still waiting on SPU to approve.
+--   5627 44th Ave SW               | 175    | (unknown)    | 2026-08-11 | Drainage Correction — "S:\--- Blueprint Services ---\Building Permits\5627 44th Ave SW - Green Way Homes - TP\5627 - Corrections II\5627 - Drainage Corr 2.pdf"
+--   5627 44th Ave SW               | 175    | Trevor       | 2026-08-18 | Plan Set - CR2 For Review here: / S:\--- Blueprint Services ---\Building Permits\5627 44th Ave SW - Green Way Homes - TP\5627 - Reviews
+--   5627 44th Ave SW               | 175    | Lindsay      | 2026-08-19 | CR2 documents located here: / S:\--- Blueprint Services ---\Building Permits\5627 44th Ave SW - Green Way Homes - TP\5627 - Corrections II
+--   5947 32nd Ave SW               | 214    | (unknown)    | 2026-06-29 | Pending Civil and Energy - did you get ETA's?
+--   5951 32nd Ave SW               | 211    | (unknown)    | 2026-06-29 | Pending Civil and Energy - did you get ETA's?
+--   6027 4th Ave NE                | 10133  | Bobby        | 2026-07-23 | Decision published. Need finals.
+--   611 3rd Ave N                  | 198    | (unknown)    | 2026-06-29 | Let me know where you are at with this. Miles gave me a few things to do (Sewer permit, TCP). You get the survey updates? Anything else you need?
+--   621 Daley St                   | 202    | (unknown)    | 2026-06-29 | ETA on these?
+--   6340 4th Ave NE                | -      | (unknown)    | 2026-07-17 | Hold for MHA Holiday
+--   6340 4th Ave NE                | 10289  | (unknown)    | 2026-07-23 | Pending intake fees — Holding for MHA
+--   7017 20th Ave NW               | 10303  | Briana       | 2026-07-27 | Brent List
+--   7200 54th Ave S                | -      | Miles        | 2026-08-17 | Cul de sac
+--   7200 54th Ave S                | 10487  | Miles        | 2026-08-17 | redesign post-issuance and fresh permits to change from one SFR to 2 SFRs + DADU
+--   733 N 78th St                  | 244    | Briana       | 2026-07-23 | Fees to be paid once Demo is complete
+--   733 N 78th St                  | 245    | Briana       | 2026-07-23 | Demo abatement and asbestos testing in progress
+--   7336 132nd Ave NE              | -      | (unknown)    | 2026-07-17 | 6.26  Bobby / pending civil and intake docs, once we have civil, a full submittal (Kirkland LSM for the ROW)
+--   7527 137th Ave NE              | 168    | (unknown)    | 2026-06-29 | Ready to resubmit 6.29
+--   7527 137th Ave NE              | -      | Dave         | 2026-09-01 | as of 8/14: Building permit is conditionally approved pending issuance of the clear and grade and final closeout of the demo. Nice work Francesca and Lindsay!
+--   7726 44th Ave NE               | 272    | (unknown)    | 2026-07-13 | Ready to resubmit
+--   7726 44th Ave NE               | 272    | (unknown)    | 2026-07-13 | Marketing - update to new template @ ER — Marketing Plans finished, renders completed.
+--   7938 34th Ave SW               | 277    | Briana       | 2026-07-23 | Pending Salvage - No Builder assigned yet
+--   7938 34th Ave SW               | -      | Briana       | 2026-08-10 | DADU's on Lot, Condo, no ULS
+--   7938 34th Ave SW               | 276    | Briana       | 2026-08-11 | Issuance pending Builder assignment, should be finalized shortly.
+--   8236 120th Ave NE              | 10437  | Nicky        | 2026-09-02 | ATWELL
+--   8256 Ashworth Ave N            | 10140  | (unknown)    | 2026-07-13 | Civil received, pending SSS for builder update, expected 7/17
+--   8256 Ashworth Ave N            | 10141  | Bobby        | 2026-07-24 | RTI pending fees
+--   8256 Ashworth Ave N            | 10305  | Briana       | 2026-07-27 | Bobby Reached out
+--   8307 27th Ave NW               | 10312  | (unknown)    | 2026-07-23 | Need to send finals to the city — Pending Builder Signiuture
+--   8816 38th Ave SW               | 280    | (unknown)    | 2026-07-10 | Marketing Set - update to new template @ ER — Marketing Plans finished, renders completed.
+--   8816 38th Ave SW               | 280    | Briana       | 2026-07-23 | Fees to be paid at closing on property
+--   8816 38th Ave SW               | 281    | (unknown)    | 2026-08-04 | Pending Salvage - Builder to complete at closing — TO be completed after closing per Paul and Katy
+--   8844 10th Ave SW               | 306    | (unknown)    | 2026-07-06 | Corrections sent out - let me know if you need anything
+--
+-- ★ 107 lines above.  Every one of them is also a General-channel message
+--   (fix-542), which is why §B's guard passes and why deleting them loses
+--   nothing a person can reach.
+-- ===========================================================================

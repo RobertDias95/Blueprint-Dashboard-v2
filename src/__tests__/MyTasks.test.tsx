@@ -609,11 +609,15 @@ describe('MyTasks (fix-80 v1 three-pane kanban)', () => {
     expect(screen.getByTestId('task-detail-start-field')).toBeInTheDocument();
     expect(screen.getByTestId('task-detail-target-field')).toBeInTheDocument();
     expect(screen.getByTestId('task-detail-completed-field')).toBeInTheDocument();
-    // fix-294: field 9 is no longer a private task-notes textarea. It is the
-    // PERMIT's notes panel — the same one Project Overview and the permit
-    // detail mount — so a note typed here is visible to everybody.
-    expect(screen.getByTestId('task-detail-permit-notes')).toBeInTheDocument();
-    expect(screen.getByTestId('notes-panel')).toBeInTheDocument();
+    // ★★ AMENDED BY fix-559 §C. Field 9 is the TASK's own note again, by
+    //    Bobby's ruling: *"we only need a tasks level note."* fix-294 had made
+    //    it the permit's panel because the task column was read by nothing;
+    //    §C gives that column three readers, so the reason is spent.
+    //    ★ What this test is actually about — that the pane carries all nine
+    //      fields — is unchanged. Only which field 9 IS has moved.
+    expect(screen.getByTestId('task-detail-notes')).toBeInTheDocument();
+    expect(screen.queryByTestId('task-detail-permit-notes')).toBeNull();
+    expect(screen.queryByTestId('notes-panel')).toBeNull();
     expect(
       screen.getByTestId('task-detail-open-project'),
     ).toBeInTheDocument();
@@ -1077,15 +1081,21 @@ describe('MyTasks (fix-80 v1 three-pane kanban)', () => {
   // invisible to everyone but the author. The replacement is the permit's own
   // NotesPanel; what is worth pinning now is that the task upsert can no longer
   // carry a `notes` field at all.
-  it('the task detail can no longer write permit_tasks.notes', () => {
+  // ★★★ REVERSED BY fix-559 §C, AND THE REVERSAL IS THE TICKET. This asserted
+  //     fix-294's ruling — that the detail pane could no longer write
+  //     `permit_tasks.notes`. Bobby has ruled the opposite: *"remove the permit
+  //     level note, we only need a tasks level note."*
+  //
+  // ★★ fix-294's REASON was that nothing read the column back, which made a
+  //    writer a *"loaded gun"*. §C gives it three readers first, so the same
+  //    reasoning now points the other way. The write assertion lives in the
+  //    fix-559 block below, which checks the CALL carries `notes`.
+  it('★★★ the task detail writes the TASK note — fix-294 reversed by ruling', () => {
     tasksRef.current = [task({ id: 't1', bucket: 'de', notes: null })];
     renderIt();
     fireEvent.click(screen.getByTestId('mytask-card-t1'));
-    expect(screen.queryByTestId('task-detail-notes')).toBeNull();
-    expect(screen.getByTestId('task-detail-permit-notes')).toBeInTheDocument();
-    for (const call of upsertMutate.mock.calls) {
-      expect(call[0]).not.toHaveProperty('notes');
-    }
+    expect(screen.getByTestId('task-detail-notes')).toBeInTheDocument();
+    expect(screen.queryByTestId('task-detail-permit-notes')).toBeNull();
   });
 
   it('fix-138-b: D&E bucket inner subgrid uses equal-width tracks (minmax(0,1fr) minmax(0,1fr))', () => {
@@ -1626,12 +1636,15 @@ describe('MyTasks view switcher — SUPERSEDED BY fix-499 §D', () => {
     ];
     renderIt();
     fireEvent.click(screen.getByTestId('mytask-card-bot-notes'));
-    // fix-294: parity is now about the PERMIT notes panel — a BOT task gets the
-    // same shared notes surface as a human one, rather than the same private
-    // field nobody could read.
-    expect(screen.getByTestId('task-detail-permit-notes')).toBeInTheDocument();
-    expect(screen.getByTestId('notes-panel')).toBeInTheDocument();
-    expect(screen.queryByTestId('task-detail-notes')).toBeNull();
+    // ★★ AMENDED BY fix-559 §C, RULING UNCHANGED. fix-156's rule is PARITY —
+    //    a BOT task gets the same detail pane as a human one — and it still
+    //    does. Only the surface moved back to the task's own note.
+    //    ★ A bot task's note additionally carries the BOT marker (§C), which is
+    //      an ADDITION to parity, not an exception: the field is the same field
+    //      and it is editable either way.
+    expect(screen.getByTestId('task-detail-notes')).toBeInTheDocument();
+    expect(screen.queryByTestId('task-detail-permit-notes')).toBeNull();
+    expect(screen.queryByTestId('notes-panel')).toBeNull();
   });
 });
 
@@ -1708,41 +1721,154 @@ describe('fix-294 subtasks nest under their parent', () => {
   });
 });
 
-describe('fix-294 the notes box writes where people can see it', () => {
+// ===========================================================================
+// ★★★ fix-559 §C — REPLACES fix-294's BLOCK, AND REVERSES ITS RULING
+//     BECAUSE BOBBY RULED THE REVERSAL
+// ===========================================================================
+//
+// fix-294 asserted the opposite of everything below: *"is the permit notes
+// panel, not a private task field"*, *"never writes permit_tasks.notes again"*.
+// Both were right for the model it was built on.
+//
+// ★★★ BOBBY, 2026-09-15: *"remove the permit level note, we only need a tasks
+//     level note. all permit and project level notes either live in the task or
+//     can be managed in the chat."*
+//
+// ★★★ AND fix-294's OWN REASON IS WHAT CHANGED. It froze the column because
+//     *"nothing reads it back"* — a note written there was invisible to
+//     everyone but its author. §C gives it three readers (this panel, the My
+//     Tasks card, the permit view's task row), so the condition that made the
+//     write path a *"loaded gun"* no longer holds. The 27 notes stranded by
+//     that freeze become visible on day one.
+describe('fix-559 the note belongs to the task, and the task shows it', () => {
   beforeEach(() => {
     addNoteMutate.mockClear();
   });
 
-  it('is the permit notes panel, not a private task field', () => {
+  it('★★★ the task detail box is the TASK note — the permit panel is gone', () => {
     tasksRef.current = [task({ id: 'a', permit_id: 42, primary_assignee: 'Trevor' })];
     renderIt();
     fireEvent.click(screen.getByTestId('mytask-card-a'));
-    expect(screen.getByTestId('task-detail-permit-notes')).toBeInTheDocument();
-    expect(screen.getByTestId('notes-panel')).toBeInTheDocument();
-    // ★ The old write surface is gone — not hidden, gone.
-    expect(screen.queryByTestId('task-detail-notes')).toBeNull();
+    expect(screen.getByTestId('task-detail-notes')).toBeInTheDocument();
+    // ★ The permit-level surface is gone — not hidden, gone (§A).
+    expect(screen.queryByTestId('task-detail-permit-notes')).toBeNull();
+    expect(screen.queryByTestId('notes-panel')).toBeNull();
   });
 
-  it('never writes permit_tasks.notes again', () => {
-    tasksRef.current = [task({ id: 'a', permit_id: 42, primary_assignee: 'Trevor' })];
+  it('★★★ an existing note is shown in the box, not lost', () => {
+    // ★ One of the 27 real ones: `6340 4th Ave NE` / "Pending intake fees".
+    tasksRef.current = [
+      task({ id: 'a', permit_id: 42, primary_assignee: 'Trevor', notes: 'Holding for MHA' }),
+    ];
     renderIt();
     fireEvent.click(screen.getByTestId('mytask-card-a'));
-    // Exercise the panel; whatever it does must not be a task upsert carrying
-    // a `notes` field.
-    for (const call of upsertMutate.mock.calls) {
-      expect(call[0]).not.toHaveProperty('notes');
-    }
+    expect(
+      (screen.getByTestId('task-detail-notes-input') as HTMLTextAreaElement).value,
+    ).toBe('Holding for MHA');
   });
 
-  it('scopes the panel to the task own permit', () => {
-    // permit_tasks.permit_id is NOT NULL (0 of 1,057 rows lack one), so there
-    // is no "task without a permit" case to handle — the panel always has a
-    // permit to write against.
+  it('★★★ writing a note upserts the TASK with `notes` — asserted on the call', () => {
+    // ★★ THE ASSERTION THAT MATTERS: not "a box rendered" but "the write
+    //    carried the column". fix-294's mirror-image test asserted no call ever
+    //    had a `notes` property; this asserts one does.
     tasksRef.current = [task({ id: 'a', permit_id: 42, primary_assignee: 'Trevor' })];
     renderIt();
     fireEvent.click(screen.getByTestId('mytask-card-a'));
-    expect(screen.getByTestId('task-detail-permit-notes')).toBeInTheDocument();
-    expect(screen.getByTestId('notes-panel')).toBeInTheDocument();
+    const box = screen.getByTestId('task-detail-notes-input');
+    fireEvent.change(box, { target: { value: 'Holding for MHA' } });
+    fireEvent.blur(box);
+    const withNotes = upsertMutate.mock.calls.filter(
+      (c) => (c[0] as { notes?: unknown }).notes === 'Holding for MHA',
+    );
+    expect(withNotes).toHaveLength(1);
+    expect((withNotes[0][0] as { id: string }).id).toBe('a');
+  });
+
+  it('★★★ emptying the box sends the CLEAR flag, not a bare null', () => {
+    // ★★ `bp_upsert_permit_task` reads `p_notes IS NOT NULL` as "set" and
+    //    anything else as "leave unchanged" — which is why the 27 survived
+    //    every unrelated edit, and why a null alone would silently do nothing.
+    tasksRef.current = [
+      task({ id: 'a', permit_id: 42, primary_assignee: 'Trevor', notes: 'Holding for MHA' }),
+    ];
+    renderIt();
+    fireEvent.click(screen.getByTestId('mytask-card-a'));
+    const box = screen.getByTestId('task-detail-notes-input');
+    fireEvent.change(box, { target: { value: '   ' } });
+    fireEvent.blur(box);
+    const cleared = upsertMutate.mock.calls.filter(
+      (c) => (c[0] as { clearNotes?: boolean }).clearNotes === true,
+    );
+    expect(cleared).toHaveLength(1);
+  });
+
+  it('★★ an unchanged box writes nothing at all', () => {
+    tasksRef.current = [
+      task({ id: 'a', permit_id: 42, primary_assignee: 'Trevor', notes: 'Holding for MHA' }),
+    ];
+    renderIt();
+    fireEvent.click(screen.getByTestId('mytask-card-a'));
+    upsertMutate.mockClear();
+    fireEvent.blur(screen.getByTestId('task-detail-notes-input'));
+    expect(upsertMutate).not.toHaveBeenCalled();
+  });
+
+  it('★★★ a BOT-written note says so, and stays editable', () => {
+    // ★★ 8 of the 27 are the tool's plan-of-record sentence. Marked, because a
+    //    machine sentence read as a colleague's is a support question later —
+    //    and EDITABLE, because the tool rewrites it on its next run, so a lock
+    //    would protect nothing while leaving somebody unable to correct it.
+    tasksRef.current = [
+      task({
+        id: 'bot',
+        permit_id: 42,
+        primary_assignee: 'Trevor',
+        is_auto_generated: true,
+        notes: 'nothing indexed',
+      }),
+    ];
+    renderIt();
+    fireEvent.click(screen.getByTestId('mytask-card-bot'));
+    expect(screen.getByTestId('task-detail-notes-bot').textContent).toContain('BOT');
+    expect(
+      (screen.getByTestId('task-detail-notes-input') as HTMLTextAreaElement).disabled,
+    ).toBe(false);
+  });
+
+  it('★★ a human task carries no BOT marker', () => {
+    tasksRef.current = [
+      task({ id: 'a', permit_id: 42, primary_assignee: 'Trevor', notes: 'Holding for MHA' }),
+    ];
+    renderIt();
+    fireEvent.click(screen.getByTestId('mytask-card-a'));
+    expect(screen.queryByTestId('task-detail-notes-bot')).toBeNull();
+  });
+
+  it('★★★ the note shows on the CARD too, newlines intact', () => {
+    // ★ One of the 27 is multi-line and ends in a path — preserved, and
+    //   deliberately NOT linkified (that is P-149, still queued).
+    tasksRef.current = [
+      task({
+        id: 'a',
+        permit_id: 42,
+        primary_assignee: 'Trevor',
+        notes: 'Redlines picked up.\nReady for review:\nS:\\Building Permits\\12827',
+      }),
+    ];
+    renderIt();
+    const note = screen.getByTestId('mytasks-note-a');
+    expect(note.textContent).toContain('Redlines picked up.');
+    expect(note.textContent).toContain('S:\\Building Permits\\12827');
+    expect(note.className).toContain('whitespace-pre-wrap');
+    expect(note.querySelector('a')).toBeNull();
+  });
+
+  it('★★★ a task with NO note renders no note element at all', () => {
+    // ★★ 1,783 of 1,810 tasks have no note. A label or a zero on every card
+    //    would be a worse product than the one this replaces.
+    tasksRef.current = [task({ id: 'a', permit_id: 42, primary_assignee: 'Trevor', notes: null })];
+    renderIt();
+    expect(screen.queryByTestId('mytasks-note-a')).toBeNull();
   });
 });
 
