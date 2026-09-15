@@ -1,0 +1,581 @@
+-- ===========================================================================
+-- fix-562 — the unit matrix says what drives the floor plan (P-268, P-274)
+-- STAGED, NOT APPLIED.  Cowork applies migrations.
+-- MEASURED ON PROD 2026-09-15 (project eibnmwthkcuumyclyxoe)
+-- ===========================================================================
+--
+-- EVERY STATEMENT BELOW IS COMMENTED OUT.  Uncomment as a whole, IN ORDER —
+-- the SNAPSHOT block is first and the WIPE cannot be run without it, because
+-- the wipe's own guard re-counts the snapshot before touching a row.
+--
+-- ---------------------------------------------------------------------------
+-- WHAT WAS MEASURED, AND IT IS NOT IN THIS HEADER ONLY
+-- ---------------------------------------------------------------------------
+-- fix-450's rule: the assertions in each block RE-DERIVE every number at run
+-- time, so this header cannot become the only place a fact lives.  That rule
+-- earned itself inside one afternoon here — see the drift note below.
+--
+--   projects                                   221
+--   projects holding a unit_types ARRAY        117
+--   unit rows                                  270
+--
+--   parking_kind    key present  126   garage 68 · surface 40 · both 11 · null 7
+--   parking_stalls  key present  126   1 -> 78 · 2 -> 34 · 3 -> 2 · 4 -> 2 · null 10
+--   roof_deck       key present  126   true 58 · false 48 · null 20
+--   stories         key present  259   3 -> 214 · 2 -> 35 · 1 -> 8 · 4 -> 1 · null 1
+--   qty             key present  270   1 -> 168 · 2 -> 86 · 3 -> 5 · 4 -> 11
+--
+--   UNTOUCHED by this file: label · width_ft · depth_ft · size_sf · qty.
+--   After the strip the only keys any unit holds are exactly those five —
+--   asserted, not assumed (the probe below returned
+--   `depth_ft, label, qty, size_sf, width_ft`).
+--
+-- ★★★ THE DRIFT, AND IT IS THE REASON EVERY COUNT BELOW IS RE-DERIVED.
+--     The brief quoted 267 units / 123 parking / 123 roof deck / 256 stories,
+--     measured 2026-09-14.  The first measurement for THIS file, at ~14:05 on
+--     2026-09-15, returned exactly those four numbers.  Twenty-five minutes
+--     later the same query returned 270 / 126 / 126 / 259.
+--
+--     ** SOMEBODY IS BACKFILLING THIS BOOK RIGHT NOW. **  Three unit rows,
+--     three parking answers, three roof-deck answers and three storey counts
+--     arrived while this ticket was being written.  The wipe will clear those
+--     too.  Bobby's ruling is unambiguous — *"Wipe it all as I said"*, given
+--     after he was told ~105 of 123 parking rows would convert automatically —
+--     so this file does not soften it.  It is stated here, and in the PR, so
+--     that the cost is a decision and not a surprise.
+--
+-- ---------------------------------------------------------------------------
+-- WHAT THIS FILE DOES, IN FIVE BLOCKS
+-- ---------------------------------------------------------------------------
+--   A  the snapshot table (+ grants), created empty
+--   B  the snapshot INSERT, one row per unit, with the whole unit object
+--   C  the WIPE — four keys stripped from every unit
+--   D  the three app_config vocabulary registries, seeded
+--   E  bp_update_library_fields: DROP + CREATE with a jsonb patch, so a field
+--      can be cleared, and three new fields (lot_size_sf, is_corner_lot, juris)
+--
+-- ---------------------------------------------------------------------------
+-- ★★★ NO UNIQUE INDEX IS RESHAPED (fix-545).  This file creates one plain
+--     table with a primary key of its own, strips four keys from a jsonb
+--     column, writes three app_config rows and replaces one function.
+--
+--     Block D's `on conflict (key)` INFERS `app_config`'s existing primary key
+--     and does not change it — fix-545's rule is about a migration that alters
+--     an index's columns or predicate, and nothing here does.  ★★ `app_config`'s
+--     primary key is `(key)` ALONE, not `(tenant_id, key)` (fix-415) — an
+--     `on conflict (tenant_id, key)` here would be rejected.
+--
+--     `scripts/sql/on_conflict_census.sql` IS still required after block E,
+--     because E DROPS a function (fix-547's rule: run the census after any DROP
+--     or RENAME, and its output is the acceptance test — 42P10 and 42703 both
+--     0).
+-- ---------------------------------------------------------------------------
+
+
+-- ===========================================================================
+-- BLOCK A — THE SNAPSHOT TABLE
+-- ===========================================================================
+--
+-- ★★★ THIS IS WHAT MAKES THE WIPE REVERSIBLE INSTEAD OF BRAVE.  fix-537's
+--     pattern, where 14 `color_override` values were preserved in the migration
+--     before the column was dropped.
+--
+-- ★★ IT KEEPS THE WHOLE UNIT OBJECT, not only the four values.  "Preserving
+--    the values" when the row they belonged to is also being rewritten is half
+--    a record: `unit_before` is the byte-for-byte jsonb this migration saw, so
+--    a restore is a copy rather than a reconstruction.  The four extracted
+--    columns sit beside it so a human can read the table without `->>`.
+--
+-- ★★★ NEW TABLES INHERIT `anon` FULL DML (fix-415, and the default-privileges
+--     gotcha).  The grants below are explicit and are asserted in block B.
+--
+-- create table if not exists public._fix562_unit_matrix_snapshot (
+--   project_id      uuid        not null,
+--   address         text        not null,
+--   unit_index      int         not null,   -- 0-based, matching unit_types[i]
+--   parking_kind    text,
+--   parking_stalls  int,
+--   roof_deck       boolean,
+--   stories         int,
+--   -- did the KEY exist at all?  A key present with a json null and a key that
+--   -- was never there are different facts, and only these four booleans keep
+--   -- them apart once the values above are read out (fix-386).
+--   had_parking_kind    boolean not null,
+--   had_parking_stalls  boolean not null,
+--   had_roof_deck       boolean not null,
+--   had_stories         boolean not null,
+--   unit_before     jsonb       not null,
+--   taken_at        timestamptz not null default now(),
+--   primary key (project_id, unit_index)
+-- );
+--
+-- revoke all on public._fix562_unit_matrix_snapshot from public, anon, authenticated;
+-- grant select on public._fix562_unit_matrix_snapshot to authenticated;
+-- grant all    on public._fix562_unit_matrix_snapshot to service_role;
+--
+-- comment on table public._fix562_unit_matrix_snapshot is
+--   'fix-562 §B: every unit_types row as it stood before the parking/roof-deck/'
+--   'stories wipe. Bobby ruled the wipe on 2026-09-14 ("Wipe it all as I said"); '
+--   'this is the only record of the answers it clears. DO NOT DROP.';
+
+
+-- ===========================================================================
+-- BLOCK B — THE SNAPSHOT INSERT, AND ITS GUARD
+-- ===========================================================================
+--
+-- ★ One row per unit of every project holding a unit_types ARRAY — including
+--   units where all four keys are absent, because "this unit had nothing
+--   recorded" is itself part of the record and a partial snapshot cannot say
+--   how many units there were.
+--
+-- do $fix562_snapshot$
+-- declare
+--   v_units    int;
+--   v_rows     int;
+--   v_parking  int;
+--   v_stalls   int;
+--   v_deck     int;
+--   v_stories  int;
+-- begin
+--   if exists (select 1 from public._fix562_unit_matrix_snapshot) then
+--     raise exception 'fix-562 B: the snapshot is not empty — it has already been taken';
+--   end if;
+--
+--   insert into public._fix562_unit_matrix_snapshot (
+--     project_id, address, unit_index,
+--     parking_kind, parking_stalls, roof_deck, stories,
+--     had_parking_kind, had_parking_stalls, had_roof_deck, had_stories,
+--     unit_before
+--   )
+--   select p.id,
+--          p.address,
+--          (t.ord - 1)::int,
+--          t.elem->>'parking_kind',
+--          nullif(t.elem->>'parking_stalls','')::int,
+--          nullif(t.elem->>'roof_deck','')::boolean,
+--          nullif(t.elem->>'stories','')::int,
+--          t.elem ? 'parking_kind',
+--          t.elem ? 'parking_stalls',
+--          t.elem ? 'roof_deck',
+--          t.elem ? 'stories',
+--          t.elem
+--     from public.projects p,
+--          lateral jsonb_array_elements(p.unit_types) with ordinality as t(elem, ord)
+--    where jsonb_typeof(p.unit_types) = 'array';
+--
+--   -- ★★★ RE-DERIVED, NOT TRUSTED.  The header's numbers moved by three in
+--   --     twenty-five minutes on the day this was written, so the guard is a
+--   --     comparison against the LIVE table rather than against a literal.
+--   select count(*) into v_units
+--     from public.projects p,
+--          lateral jsonb_array_elements(p.unit_types) as e
+--    where jsonb_typeof(p.unit_types) = 'array';
+--   select count(*),
+--          count(*) filter (where had_parking_kind),
+--          count(*) filter (where had_parking_stalls),
+--          count(*) filter (where had_roof_deck),
+--          count(*) filter (where had_stories)
+--     into v_rows, v_parking, v_stalls, v_deck, v_stories
+--     from public._fix562_unit_matrix_snapshot;
+--
+--   if v_rows <> v_units then
+--     raise exception 'fix-562 B: snapshot holds % rows against % live units', v_rows, v_units;
+--   end if;
+--   if v_rows = 0 then
+--     raise exception 'fix-562 B: snapshot is EMPTY — refusing to make the wipe look safe';
+--   end if;
+--
+--   -- ★ A floor, not an equality: the numbers grow while people work, and a
+--   --   snapshot that refused to run because somebody added a unit would be a
+--   --   guard that protects nothing and blocks everything.  What it must never
+--   --   be is SMALLER than what was measured — that would mean rows vanished.
+--   if v_parking < 126 or v_stalls < 126 or v_deck < 126 or v_stories < 259 then
+--     raise exception
+--       'fix-562 B: snapshot is short of the 2026-09-15 measurement — parking % / stalls % / deck % / stories % (expected at least 126/126/126/259)',
+--       v_parking, v_stalls, v_deck, v_stories;
+--   end if;
+--
+--   raise notice 'fix-562 B: snapshot % units — parking % · stalls % · roof deck % · stories %',
+--     v_rows, v_parking, v_stalls, v_deck, v_stories;
+-- end
+-- $fix562_snapshot$;
+--
+-- -- ★ The grants, asserted rather than assumed (fix-415's rule — fix-412's
+-- --   backup table sat with anon DELETE/INSERT/UPDATE for weeks).
+-- do $fix562_grants$
+-- begin
+--   if has_table_privilege('anon', 'public._fix562_unit_matrix_snapshot', 'SELECT')
+--      or has_table_privilege('anon', 'public._fix562_unit_matrix_snapshot', 'INSERT')
+--      or has_table_privilege('authenticated', 'public._fix562_unit_matrix_snapshot', 'DELETE') then
+--     raise exception 'fix-562 B: the snapshot table is over-granted';
+--   end if;
+-- end
+-- $fix562_grants$;
+
+
+-- ===========================================================================
+-- BLOCK C — THE WIPE
+-- ===========================================================================
+--
+-- Bobby, 2026-09-14, told first that ~105 of 123 parking rows would convert
+-- automatically: *"Wipe it all as I said."*  And on the roof deck: *"update the
+-- options, and wipe clean."*
+--
+-- ★★★ THE STRIP IS FOUR `-` OPERATORS AND NOTHING ELSE.  `elem - 'key'` removes
+--     exactly that key and touches no other byte, which is why the untouched
+--     five come through identical rather than through a rebuild that has to
+--     name them.  Proved read-only on prod before this file was written: over
+--     all 270 units, label/width_ft/depth_ft/size_sf/qty were `is not distinct
+--     from` their originals on every row, and the set of distinct keys
+--     remaining was exactly {depth_ft, label, qty, size_sf, width_ft}.
+--
+-- ★★★ THREE TRIGGERS ARE SUPPRESSED, AND fix-410's RULE ONLY NAMES TWO.
+--
+--     fix-410 established: disable `projects_set_updated_at` (or every open
+--     client is told all 117 projects were "modified by someone else" —
+--     fix-341's exact shape — and `updated_at` permanently claims a human
+--     edited them on the migration date) and `bp_log_user_activity` (one
+--     activity row per project, burying a day of real work).  fix-415 forgot
+--     and said so.
+--
+-- ★★★ THE THIRD ONE IS `projects_audit_row`, AND IT IS NOT IN THAT RULE.
+--     `bp_audit_projects_row` writes a whole before/after diff into
+--     `audit_log` for every changed column.  Measured 2026-09-15: `audit_log`
+--     holds 16,658 rows of which **123 are `project_updated`** — so this wipe
+--     would add 117 more, nearly doubling that action's entire history in one
+--     statement, every one carrying a full `unit_types` blob and `user_id`
+--     NULL.  A table people read to answer *"who changed this project"* would
+--     then be mostly one machine, on one afternoon.
+--
+-- ★★ AND NOTHING IS LOST BY SUPPRESSING IT, which is the only reason it is
+--    allowed: `_fix562_unit_matrix_snapshot` is a better record of exactly the
+--    same fact — per unit rather than per project, and readable.
+--
+-- ★ THE OTHER FIVE TRIGGERS ON `projects` CANNOT FIRE HERE and were checked
+--   rather than assumed: `projects_cascade_lead` is `UPDATE OF
+--   entitlement_lead, construction_admin`, `projects_dm_coassign` is
+--   `UPDATE OF design_manager`, `bp_trg_projects_target_submit_upd` is
+--   `UPDATE OF go_date`, and the remaining two are BEFORE/AFTER INSERT.
+--
+-- ★ ALTER TABLE takes ACCESS EXCLUSIVE, so concurrent writers wait; disable →
+--   update → re-enable happens in ONE transaction.
+--
+-- begin;
+--
+-- alter table public.projects disable trigger projects_set_updated_at;
+-- alter table public.projects disable trigger bp_log_user_activity;
+-- alter table public.projects disable trigger projects_audit_row;
+--
+-- update public.projects p
+--    set unit_types = (
+--      select jsonb_agg(
+--               t.elem - 'parking_kind' - 'parking_stalls' - 'roof_deck' - 'stories'
+--               order by t.ord
+--             )
+--        from jsonb_array_elements(p.unit_types) with ordinality as t(elem, ord)
+--    )
+--  where jsonb_typeof(p.unit_types) = 'array'
+--    and jsonb_array_length(p.unit_types) > 0
+--    and exists (
+--      select 1 from jsonb_array_elements(p.unit_types) as e
+--       where e ?| array['parking_kind','parking_stalls','roof_deck','stories']
+--    );
+--
+-- alter table public.projects enable trigger projects_set_updated_at;
+-- alter table public.projects enable trigger bp_log_user_activity;
+-- alter table public.projects enable trigger projects_audit_row;
+--
+-- do $fix562_wipe_check$
+-- declare
+--   v_left      int;
+--   v_units     int;
+--   v_snapshot  int;
+--   v_changed   int;
+-- begin
+--   -- 1. not one of the four keys survives anywhere
+--   select count(*) into v_left
+--     from public.projects p,
+--          lateral jsonb_array_elements(p.unit_types) as e
+--    where jsonb_typeof(p.unit_types) = 'array'
+--      and e ?| array['parking_kind','parking_stalls','roof_deck','stories'];
+--   if v_left <> 0 then
+--     raise exception 'fix-562 C: % units still carry a wiped key', v_left;
+--   end if;
+--
+--   -- 2. the unit COUNT is unchanged and matches the snapshot — a jsonb_agg
+--   --    that dropped a row would be invisible otherwise, and collateral loss
+--   --    is the whole risk of rewriting a jsonb array.
+--   select count(*) into v_units
+--     from public.projects p, lateral jsonb_array_elements(p.unit_types) as e
+--    where jsonb_typeof(p.unit_types) = 'array';
+--   select count(*) into v_snapshot from public._fix562_unit_matrix_snapshot;
+--   if v_units <> v_snapshot then
+--     raise exception 'fix-562 C: % units after the wipe against % snapshotted', v_units, v_snapshot;
+--   end if;
+--
+--   -- 3. ★★★ THE FIVE UNTOUCHED KEYS ARE BYTE-IDENTICAL TO THE SNAPSHOT.
+--   --    Asserted key by key against `unit_before`, because "the wipe left the
+--   --    rest alone" is exactly the claim a reader cannot check by eye.
+--   select count(*) into v_changed
+--     from public._fix562_unit_matrix_snapshot s
+--     join public.projects p on p.id = s.project_id
+--     cross join lateral (
+--       select (p.unit_types -> s.unit_index) as now_elem
+--     ) x
+--    where (s.unit_before -> 'label')    is distinct from (x.now_elem -> 'label')
+--       or (s.unit_before -> 'width_ft') is distinct from (x.now_elem -> 'width_ft')
+--       or (s.unit_before -> 'depth_ft') is distinct from (x.now_elem -> 'depth_ft')
+--       or (s.unit_before -> 'size_sf')  is distinct from (x.now_elem -> 'size_sf')
+--       or (s.unit_before -> 'qty')      is distinct from (x.now_elem -> 'qty');
+--   if v_changed <> 0 then
+--     raise exception 'fix-562 C: % units lost or changed an untouched key', v_changed;
+--   end if;
+--
+--   raise notice 'fix-562 C: wiped. % units intact, 0 wiped keys left, 0 collateral changes', v_units;
+-- end
+-- $fix562_wipe_check$;
+--
+-- -- ★★★ PROOF THE TRIGGER SUPPRESSION WORKED — fix-410's own acceptance test,
+-- --     and the third line is this ticket's addition.  Run these BEFORE the
+-- --     COMMIT below, inside the same transaction, and abort if any of them has
+-- --     moved by 117.
+-- --
+-- --   projects_touched_today  should be the number a HUMAN edited today, not 117
+-- --   activity rows today     unchanged
+-- --   audit_log project_updated  123 before; must still be 123
+-- --
+-- -- select
+-- --   (select count(*) from public.projects where updated_at::date = current_date) as projects_touched_today,
+-- --   (select count(*) from public.audit_log where action = 'project_updated')      as project_updated_rows;
+--
+-- commit;
+
+
+-- ===========================================================================
+-- BLOCK D — THE THREE VOCABULARY REGISTRIES
+-- ===========================================================================
+--
+-- fix-232's rule: a dropdown's options are canonical in `app_config` and the
+-- control is dropdown-only.  Parking, roof deck and stories were hard-coded in
+-- the app until this ticket — the drift P-173 is about.
+--
+-- ★★ `app_config`'s PRIMARY KEY IS `(key)` ALONE (fix-415), not
+--    `(tenant_id, key)` — `on conflict (tenant_id, key)` is rejected.
+--
+-- ★ The app falls back to the same three lists when a key has never been
+--   written (`lib/unitVocabulary.CANONICAL_*`), and a test asserts the two
+--   agree — so this block makes the registry EDITABLE, it does not switch the
+--   feature on.
+--
+-- insert into public.app_config (key, value)
+-- values ('parkingOptions',
+--         '["1-car garage","2-car garage","3-car garage","4-car garage","Surface / None"]'::jsonb)
+-- on conflict (key) do update set value = excluded.value;
+--
+-- insert into public.app_config (key, value)
+-- values ('roofDeckOptions', '["W/ PH","W/O PH","None"]'::jsonb)
+-- on conflict (key) do update set value = excluded.value;
+--
+-- insert into public.app_config (key, value)
+-- values ('storiesOptions', '["1","1+B","2","2+B","3","3+B","4","4+B"]'::jsonb)
+-- on conflict (key) do update set value = excluded.value;
+
+
+-- ===========================================================================
+-- BLOCK E — bp_update_library_fields CAN CLEAR A FIELD, AND GAINED THREE
+-- ===========================================================================
+--
+-- ★★★ THE DEFECT, PROVED ON PROD BEFORE IT WAS FIXED (rolled back, fix-153's
+--     pattern).  Every assignment in the live function is `coalesce(p_X, pr.X)`,
+--     so passing null means LEAVE UNCHANGED.  Called as Cam, exactly the way the
+--     Library's `—` option calls it today:
+--
+--       conflict = false   zone BEFORE = NR   zone AFTER = NR
+--       -> clearing is IMPOSSIBLE (silently ignored)
+--
+--     A save that reports success and writes nothing.  A backfiller who typed a
+--     wrong value could not blank it, and would not discover that until he
+--     tried.
+--
+-- ★★★ AND THE FIX, PROVED THE SAME WAY, IN ONE ROLLED-BACK TRANSACTION AS CAM:
+--
+--       SET      lot_size_sf = 4321, is_corner_lot = true   -> written, conflict false
+--       CLEAR    lot_size_sf, is_corner_lot, zone -> null   -> all three <NULL>
+--       UNKNOWN  key 'address'                              -> refused 22023
+--       CLEAR    juris                                      -> refused 23502
+--
+--     Prod afterwards: one function, the OLD signature, and 0 rows carrying the
+--     probe's 4321.  Impersonation used BOTH `set_config('request.jwt.claims')`
+--     AND `set local role authenticated` — the JWT alone leaves you as postgres
+--     and RLS is never consulted (fix-549's rule).
+--
+-- ★★★ THE SHAPE IS KEY PRESENCE, NOT A SENTINEL.  `bp_update_project_with_permits`
+--     already works this way, so this is the established idiom rather than a
+--     second convention (fix-326); and a sentinel has to be a value the column
+--     can never hold, which does not exist for `zone` or `lot_size_sf`.
+--
+-- ★★★ A CHANGED ARGUMENT LIST MEANS **DROP THEN CREATE**.  `create or replace`
+--     with a new signature makes an OVERLOAD, and PostgREST cannot choose
+--     between two candidates — fix-438 and fix-532 both recorded this.  DROP
+--     takes the GRANTS with it, so they are re-issued and then ASSERTED below
+--     (fix-523 §0).
+--
+-- ★ This function is NOT the one `anon` may execute (`bp_resolve_plan_share` is
+--   the only one) — asserted below all the same, because a dropped-and-recreated
+--   function is exactly where a grant goes wrong.
+--
+-- ★★★ RUN `scripts/sql/on_conflict_census.sql` AFTER APPLYING THIS BLOCK.
+--     fix-547's rule: any migration that DROPS a function gets the census, and
+--     its output is the acceptance test — `42P10` and `42703` must both be 0.
+--
+-- drop function if exists public.bp_update_library_fields(uuid, timestamptz, text, text, numeric, numeric, jsonb);
+--
+-- create or replace function public.bp_update_library_fields(
+--   p_project_id uuid,
+--   p_expected_updated_at timestamptz,
+--   p_patch jsonb default '{}'::jsonb
+-- )
+-- returns table(out_updated_at timestamptz, out_conflict boolean)
+-- language plpgsql
+-- security definer
+-- set search_path to 'public', 'pg_temp'
+-- as $function$
+-- declare
+--   -- ★★ DECLARED WITHOUT AN INITIALISER (fix-527 §B): a `:= auth_tenant_ids()`
+--   --    here would run BEFORE the capability check below, so the gate would
+--   --    not be first.  Assigned after.
+--   v_tenants uuid[];
+--   v_current timestamptz;
+--   v_allowed text[] := array[
+--     'zone','alley','lot_width','lot_depth',
+--     'lot_size_sf','is_corner_lot','juris','unit_types'
+--   ];
+--   v_key text;
+-- begin
+--   -- ★★★ THE GATE IS FIRST AND COSTS NOTHING TO REACH.  Unchanged from
+--   --     fix-527 §B, which proved it against prod three times (no capability
+--   --     -> 42501, with it -> succeeds, revoked -> refused on the next call).
+--   if not exists (
+--     select 1 from public.profiles p
+--      where p.id = auth.uid() and p.may_edit_library is true
+--   ) then
+--     raise exception 'bp_update_library_fields: caller may not edit Library fields'
+--       using errcode = '42501';
+--   end if;
+--
+--   -- ★★★ STILL NOT A FREE PATCH.  An RPC that applies whatever it is handed is
+--   --     an UPDATE with extra steps and the capability would gate nothing, so
+--   --     the keys are whitelisted BY NAME and anything else RAISES.  A typo is
+--   --     loud rather than silently dropped.
+--   if p_patch is null or jsonb_typeof(p_patch) <> 'object' then
+--     raise exception 'bp_update_library_fields: p_patch must be a json object'
+--       using errcode = '22023';
+--   end if;
+--   for v_key in select jsonb_object_keys(p_patch) loop
+--     if not (v_key = any (v_allowed)) then
+--       raise exception 'bp_update_library_fields: % is not an editable Library field', v_key
+--         using errcode = '22023';
+--     end if;
+--   end loop;
+--
+--   -- ★★ `projects.juris` is NOT NULL and blank on 0 of 221 rows.  Refusing here
+--   --    gives the person a sentence instead of a constraint name.
+--   if (p_patch ? 'juris') and (p_patch -> 'juris' = 'null'::jsonb) then
+--     raise exception 'bp_update_library_fields: jurisdiction cannot be cleared'
+--       using errcode = '23502';
+--   end if;
+--
+--   v_tenants := public.auth_tenant_ids();
+--   select pr.updated_at into v_current
+--     from public.projects pr
+--    where pr.id = p_project_id and pr.tenant_id = any (v_tenants);
+--   if v_current is null then
+--     raise exception 'bp_update_library_fields: project % not in caller tenant', p_project_id
+--       using errcode = '42501';
+--   end if;
+--
+--   if p_expected_updated_at is not null
+--      and v_current is distinct from p_expected_updated_at then
+--     return query select v_current, true;
+--     return;
+--   end if;
+--
+--   -- ★★★ `p_patch ? 'col'` IS THE WHOLE CHANGE.  A key PRESENT with a json null
+--   --     writes null; an ABSENT key leaves the column alone.  `coalesce` could
+--   --     not tell those apart, which is the defect above.
+--   -- ★ `nullif(..., '')` on the two text columns: an empty string is how a
+--   --   `<select>` says "cleared", and `''` is not the same fact as null in a
+--   --   column the Library filters on by equality (fix-415's NR/NR3 lesson).
+--   update public.projects pr set
+--     zone          = case when p_patch ? 'zone'
+--                          then nullif(p_patch ->> 'zone', '')                 else pr.zone end,
+--     alley         = case when p_patch ? 'alley'
+--                          then nullif(p_patch ->> 'alley', '')                else pr.alley end,
+--     lot_width     = case when p_patch ? 'lot_width'
+--                          then (p_patch ->> 'lot_width')::numeric             else pr.lot_width end,
+--     lot_depth     = case when p_patch ? 'lot_depth'
+--                          then (p_patch ->> 'lot_depth')::numeric             else pr.lot_depth end,
+--     lot_size_sf   = case when p_patch ? 'lot_size_sf'
+--                          then (p_patch ->> 'lot_size_sf')::integer           else pr.lot_size_sf end,
+--     is_corner_lot = case when p_patch ? 'is_corner_lot'
+--                          then (p_patch ->> 'is_corner_lot')::boolean         else pr.is_corner_lot end,
+--     juris         = case when p_patch ? 'juris'
+--                          then p_patch ->> 'juris'                            else pr.juris end,
+--     unit_types    = case when p_patch ? 'unit_types'
+--                          then p_patch -> 'unit_types'                        else pr.unit_types end
+--    where pr.id = p_project_id
+--   returning pr.updated_at into v_current;
+--
+--   return query select v_current, false;
+-- end;
+-- $function$;
+--
+-- revoke all on function public.bp_update_library_fields(uuid, timestamptz, jsonb) from public, anon;
+-- grant execute on function public.bp_update_library_fields(uuid, timestamptz, jsonb) to authenticated;
+--
+-- do $fix562_fn_check$
+-- declare v_overloads int;
+-- begin
+--   -- ★★★ EXACTLY ONE CANDIDATE.  Two would break PostgREST for every caller
+--   --     (fix-438), and this file DROPS the old one precisely to avoid that.
+--   select count(*) into v_overloads
+--     from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+--    where n.nspname = 'public' and p.proname = 'bp_update_library_fields';
+--   if v_overloads <> 1 then
+--     raise exception 'fix-562 E: % candidates for bp_update_library_fields — PostgREST cannot choose', v_overloads;
+--   end if;
+--
+--   if has_function_privilege('anon',
+--        'public.bp_update_library_fields(uuid, timestamptz, jsonb)', 'EXECUTE') then
+--     raise exception 'fix-562 E: anon may execute bp_update_library_fields';
+--   end if;
+--   if not has_function_privilege('authenticated',
+--        'public.bp_update_library_fields(uuid, timestamptz, jsonb)', 'EXECUTE') then
+--     raise exception 'fix-562 E: authenticated LOST execute on bp_update_library_fields';
+--   end if;
+--   raise notice 'fix-562 E: one candidate, anon refused, authenticated granted';
+-- end
+-- $fix562_fn_check$;
+
+
+-- ===========================================================================
+-- ROLLING BACK THE WIPE, if Bobby changes his mind
+-- ===========================================================================
+--
+-- Not staged as a runnable block, deliberately: a restore is a decision, and
+-- the shape of it depends on how much has been re-entered by then.  The query
+-- that puts a single project back, for reference:
+--
+--   update public.projects p
+--      set unit_types = (
+--        select jsonb_agg(s.unit_before order by s.unit_index)
+--          from public._fix562_unit_matrix_snapshot s
+--         where s.project_id = p.id
+--      )
+--    where p.id = '<project id>';
+--
+-- ★★ THAT RESTORES fix-402's VOCABULARY, which the app no longer understands:
+--    `parseUnitTypes` refuses `surface`, `both` and `none`, so a restored unit
+--    reads `—` for parking until somebody re-answers it.  The snapshot is a
+--    record, not an undo button, and saying so is the honest form of "the wipe
+--    is reversible".

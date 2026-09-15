@@ -2,9 +2,13 @@ import type { UnitType } from '../../lib/database.types';
 import {
   ParkingKindSelect,
   RoofDeckSelect,
-  StallsInput,
+  StoriesSelect,
 } from '../shared/UnitParkingInputs';
-import { parseStalls } from '../../lib/unitParking';
+import {
+  CANONICAL_PARKING,
+  CANONICAL_ROOF_DECK,
+  CANONICAL_STORIES,
+} from '../../lib/unitVocabulary';
 import {
   OTHER_UNIT_LABEL,
   nextUnitTypeLabel,
@@ -27,6 +31,21 @@ import {
 interface Props {
   /** ★ fix-449 §C: canonical product types for the label picker. */
   productTypeOptions?: string[];
+  /**
+   * ★★★ fix-562 §A — THE THREE VOCABULARIES, PASSED IN FOR fix-449 §C's REASON.
+   *
+   * `useAppConfig` is a React Query hook and this component is rendered
+   * WITHOUT a provider by its own suite (the fix-442 trap), which is why
+   * `productTypeOptions` is a prop here and not a hook call. The same applies
+   * to these, so the wizard step above reads all four registries in one place.
+   *
+   * ★ Defaulted to the canonical lists rather than to `[]`: an empty product
+   *   type list makes the label read-only, which is a real state, but an empty
+   *   parking list would make the control offer nothing at all.
+   */
+  parkingOptions?: readonly string[];
+  roofDeckOptions?: readonly string[];
+  storiesOptions?: readonly string[];
   value: UnitType[];
   onChange: (next: UnitType[]) => void;
 }
@@ -44,9 +63,15 @@ function nextRow(rows: readonly UnitType[]): UnitType {
     //   absent key and a null key read the same to `parseUnitTypes`, but the
     //   seed is where somebody looks to learn what a unit row holds.
     size_sf: null,
+    // ★ fix-562 §A: the two parts of each vocabulary answer, spelled out as
+    //   null for the same reason the rest of this seed is — this is where
+    //   somebody looks to learn what a unit row holds.
     parking_kind: null,
-    parking_stalls: null,
+    parking_count: null,
     roof_deck: null,
+    penthouse: null,
+    stories: null,
+    basement: null,
   };
 }
 
@@ -65,6 +90,9 @@ export default function UnitTypesEditor({
   //    rendered without a provider by its own suite — the fix-442 trap. The
   //    wizard step above already holds the list.
   productTypeOptions = [],
+  parkingOptions: parkingOpts = CANONICAL_PARKING,
+  roofDeckOptions: roofDeckOpts = CANONICAL_ROOF_DECK,
+  storiesOptions: storiesOpts = CANONICAL_STORIES,
 }: Props) {
   const rows = value.length > 0 ? value : [];
 
@@ -198,21 +226,36 @@ export default function UnitTypesEditor({
                   Parking
                 </span>
                 <ParkingKindSelect
-                  value={row.parking_kind}
-                  onChange={(v) => update(i, { parking_kind: v })}
+                  kind={row.parking_kind}
+                  count={row.parking_count}
+                  options={parkingOpts}
+                  onChange={(v) =>
+                    update(i, {
+                      parking_kind: v?.kind ?? null,
+                      parking_count: v?.count ?? null,
+                    })
+                  }
                   testid={`unit-types-parking-kind-${i}`}
                 />
               </label>
+              {/* ★★★ fix-562 §A — THE STALLS BOX IS GONE FROM THE WIZARD TOO.
+                  The count is inside the parking answer now, so asking twice at
+                  creation is how the two start disagreeing on day one. */}
               <label className="col-span-3 flex flex-col gap-0.5">
                 <span className="text-[9px] uppercase tracking-wide text-dim">
-                  Stalls
+                  Stories
                 </span>
-                <StallsInput
-                  value={row.parking_stalls != null ? String(row.parking_stalls) : ''}
-                  onChange={(raw) =>
-                    update(i, { parking_stalls: parseStalls(raw) })
+                <StoriesSelect
+                  stories={row.stories}
+                  basement={row.basement}
+                  options={storiesOpts}
+                  onChange={(v) =>
+                    update(i, {
+                      stories: v?.stories ?? null,
+                      basement: v?.basement ?? null,
+                    })
                   }
-                  testid={`unit-types-stalls-${i}`}
+                  testid={`unit-types-stories-${i}`}
                 />
               </label>
               <label className="col-span-4 flex flex-col gap-0.5">
@@ -220,8 +263,15 @@ export default function UnitTypesEditor({
                   Roof Deck
                 </span>
                 <RoofDeckSelect
-                  value={row.roof_deck}
-                  onChange={(v) => update(i, { roof_deck: v })}
+                  deck={row.roof_deck}
+                  penthouse={row.penthouse}
+                  options={roofDeckOpts}
+                  onChange={(v) =>
+                    update(i, {
+                      roof_deck: v?.deck ?? null,
+                      penthouse: v?.penthouse ?? null,
+                    })
+                  }
                   testid={`unit-types-roof-deck-${i}`}
                 />
               </label>

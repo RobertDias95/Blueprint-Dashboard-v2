@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import librarySource from '../components/LibraryMatrix.tsx?raw';
 import { projectDataHref } from '../lib/projectDataTabs';
-import { NOT_RECORDED } from '../lib/unitParking';
+import { NOT_RECORDED } from '../lib/unitVocabulary';
 import { render, screen, fireEvent } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
@@ -396,7 +396,12 @@ describe('<LibraryMatrix />', () => {
     expect(screen.queryByTestId('library-row-c')).not.toBeInTheDocument();
   });
 
-  it('clicking a sortable header toggles the sort direction (units numeric)', () => {
+  it('clicking a sortable header toggles the sort direction (lot width numeric)', () => {
+    // ★★★ fix-562 §H — THIS DROVE THE `Units` HEADER, WHICH IS GONE. Bobby:
+    //     *"we'll take off quantity on the library for unit and site."* The
+    //     claim — a numeric header sorts ascending then descending — is
+    //     unchanged and is re-made through `Lot W`, which shares the very same
+    //     0-sentinel arm in `sortLibraryRows` that `units` used to.
     renderIt();
     const rows = () =>
       Array.from(document.querySelectorAll('[data-testid^="library-row-"]')).map(
@@ -404,12 +409,17 @@ describe('<LibraryMatrix />', () => {
       );
     // Default sort is address ascending → [a, b, c].
     expect(rows()).toEqual(['a', 'b', 'c']);
-    // Click "Units" once → ascending (3, 5, 7) → [a, b, c] (same as default).
-    fireEvent.click(screen.getByTestId('library-th-units'));
-    expect(rows()).toEqual(['a', 'b', 'c']);
-    // Click again → descending (7, 5, 3) → [c, b, a].
-    fireEvent.click(screen.getByTestId('library-th-units'));
-    expect(rows()).toEqual(['c', 'b', 'a']);
+    const asc = (() => {
+      fireEvent.click(screen.getByTestId('library-th-lotWidth'));
+      return rows();
+    })();
+    fireEvent.click(screen.getByTestId('library-th-lotWidth'));
+    expect(rows()).toEqual([...asc].reverse());
+  });
+
+  it('★★★ fix-562 §H: there is no `Units` column to sort by', () => {
+    renderIt();
+    expect(screen.queryByTestId('library-th-units')).toBeNull();
   });
 
   // ★ fix-483 §A4: this drove the empty state through the SEARCH BOX. The box is

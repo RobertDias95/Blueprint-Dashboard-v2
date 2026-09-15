@@ -357,9 +357,22 @@ describe('fix-209: narrower Qty + Stories inputs', () => {
   it('Qty and Sty are still the narrowest columns (fix-209, via fix-412 grid)', () => {
     const col = (k: string) =>
       UNIT_ROW_COLUMNS.find((c) => c.key === k)!.width;
-    expect(col('qty')).toBe(col('stories'));
+    // ★★★ fix-562 §A — `Sty` IS NO LONGER A NUMBER BOX, so it is no longer
+    //     the same width as `Qty`. It is a dropdown over `1 · 1+B · … · 4+B`,
+    //     and `3+B` plus a chevron does not fit in 22px.
+    //
+    // ★★ fix-209's RULING SURVIVES INTACT and is what is asserted: the
+    //    single-digit counts must not be as wide as the dimension boxes. `Qty`
+    //    is still the narrowest data column on the row; `Sty` is now as wide as
+    //    W and D rather than narrower, which is a CONSEQUENCE of becoming a
+    //    dropdown rather than a reversal of "narrow the counts".
+    expect(col('qty')).toBeLessThan(col('stories'));
     expect(col('qty')).toBeLessThan(col('width_ft'));
-    expect(col('stories')).toBeLessThan(col('depth_ft'));
+    expect(col('qty')).toBe(
+      Math.min(
+        ...UNIT_ROW_COLUMNS.filter((c) => c.key !== 'remove').map((c) => c.width),
+      ),
+    );
     // ...and the cells fill their column rather than carrying their own width.
     setup({ product_types: ['Detached'], unit_types: NAMED_ROW });
     expect(screen.getByTestId('pd-unit-qty').className).toContain('w-full');

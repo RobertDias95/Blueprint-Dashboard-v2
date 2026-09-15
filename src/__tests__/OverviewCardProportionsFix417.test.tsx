@@ -82,8 +82,12 @@ describe('fix-417 §0: the cause, computed rather than quoted', () => {
     //   Work 74, Parking 104); this one abbreviates, uses letter codes, drops
     //   the `×` and moves `work_scope` off the grid entirely.
     const cols = UNIT_ROW_COLUMNS.reduce((a, c) => a + c.width, 0);
-    expect(cols).toBe(244);
-    expect(UNIT_MATRIX_WIDTH).toBe(274);
+    // ★ fix-562 §A: 244 → 240 and 274 → 266. The `#` column and its gap paid
+    //   for widening Stories and Roof Deck into dropdowns, so the matrix got
+    //   NARROWER while gaining two controls — which is the constraint fix-488
+    //   §B could not meet when it tried to add a ninth column.
+    expect(cols).toBe(240);
+    expect(UNIT_MATRIX_WIDTH).toBe(266);
     expect(UNIT_MATRIX_WIDTH).toBeLessThan(FIX_412_ROW_WIDTH / 2);
     // ★★★ AND THE CARD'S FLOOR IS STILL DERIVED FROM ITS MATRIX, not typed
     //     beside it — that is fix-417 §B's scroller replacement and it is
@@ -496,7 +500,8 @@ describe('fix-417 §B (superseded by fix-418): nothing scrolls sideways', () => 
   it('★★ the column table is still the ONE field declaration', () => {
     // ★ Nine columns now (fix-422 moved `work_scope` off the grid), and the
     //   620px that caused fix-417 lives on as a constant rather than a layout.
-    expect(UNIT_ROW_COLUMNS).toHaveLength(9);
+    // ★ fix-562 §A: eight, not nine — `parking_stalls` left the product.
+    expect(UNIT_ROW_COLUMNS).toHaveLength(8);
     expect(UNIT_ROW_GAP).toBe(4);
     expect(FIX_412_ROW_WIDTH).toBe(620);
   });

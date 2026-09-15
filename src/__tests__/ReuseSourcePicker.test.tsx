@@ -66,8 +66,10 @@ describe('buildReuseSources', () => {
         qty: 1,
         stories: null,
         parking_kind: null,
-        parking_stalls: null,
+        parking_count: null,
         roof_deck: null,
+        penthouse: null,
+        basement: null,
         size_sf: null,
         // ★★★ fix-486 §D: `work_scope` IS NO LONGER EMITTED, and this exact-shape
         //   assertion is what proves it. The whitelist mechanism fix-412 noted
@@ -169,8 +171,10 @@ describe('<ReuseSourcePicker />', () => {
         qty: 1,
         stories: 2,
         parking_kind: null,
-        parking_stalls: null,
+        parking_count: null,
         roof_deck: null,
+        penthouse: null,
+        basement: null,
         size_sf: null,
       },
     ]);

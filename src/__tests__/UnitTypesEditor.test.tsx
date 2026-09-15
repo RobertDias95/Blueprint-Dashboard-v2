@@ -47,8 +47,11 @@ describe('<UnitTypesEditor />', () => {
       //   fix-402 trio, for the same reason they are spelled out.
       size_sf: null,
       parking_kind: null,
-      parking_stalls: null,
+      parking_count: null,
       roof_deck: null,
+      penthouse: null,
+      stories: null,
+      basement: null,
     });
   });
 

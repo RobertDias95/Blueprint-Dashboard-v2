@@ -14,19 +14,26 @@ export type Stage = 'de' | 'pm' | 'co' | 'ap' | 'is';
 
 /** fix-22: per-unit-type sub-row stored as jsonb on projects.unit_types.
  *  Wizard's UnitTypesEditor reads/writes this shape. */
-/** ★★★ fix-402: how a unit parks. A CLOSED SET — Bobby: *"by unit it's broken
- *  down: is it a garage, is it surface, is it both"*.
+/** ★★★ fix-562 §A (P-268) — HOW A UNIT PARKS, IN BOBBY'S VOCABULARY.
  *
- *  ★★★ `none` IS A RECORDED ANSWER, and that is the whole reason it is in the
- *  set. "This unit has no parking" is a fact somebody entered; NULL is the
- *  absence of a fact. Conflating them is fix-386's rule broken, and it is why
- *  the set has four members rather than three plus a NULL. */
-export const PARKING_KINDS = ['garage', 'surface', 'both', 'none'] as const;
-export type ParkingKind = (typeof PARKING_KINDS)[number];
-
-export function isParkingKind(v: unknown): v is ParkingKind {
-  return typeof v === 'string' && (PARKING_KINDS as readonly string[]).includes(v);
-}
+ *  *"Is it one-car, two-car, three, four, or surface/none?"*
+ *
+ *  ★★★ THE SET AND THE COUNT ARE ONE ANSWER NOW. fix-402 stored four kinds
+ *  (`garage · surface · both · none`) beside a separate `parking_stalls`
+ *  count. Bobby's list folds the count into the answer (`2-car garage`) and
+ *  collapses the tail into one option (`Surface / None`) — for a floor plan a
+ *  surface stall and no stall constrain the same way, because nothing is taken
+ *  out of the building.
+ *
+ *  ★★ `both` IS GONE BY DESIGN and nothing infers it: the 11 rows that held it
+ *  are in `_fix562_unit_matrix_snapshot`, not converted. So is
+ *  `parking_stalls` — the column, the filter and the input.
+ *
+ *  ★ The vocabulary lives in `lib/unitVocabulary` (and in
+ *  `app_config.parkingOptions`); these two values are what is STORED. */
+import { PARKING_KINDS, isParkingKind, type ParkingKind } from './unitVocabulary';
+export { PARKING_KINDS, isParkingKind };
+export type { ParkingKind };
 
 // ★★★ fix-486 §D (P-143) — `WorkScope` IS RETIRED, AND THE TYPE IS WHY.
 //
@@ -46,42 +53,56 @@ export interface UnitType {
   width_ft: number | null;
   depth_ft: number | null;
   qty: number;
-  /** fix-205: stories for this unit-type structure (1–4+). Optional — older
-   *  rows predate the field. Stored in the same projects.unit_types JSONB
-   *  array (no migration). null/absent = not entered ("—"). */
+  /** fix-205: stories for this unit-type structure. Optional — older rows
+   *  predate the field. Stored in the same projects.unit_types JSONB array
+   *  (no migration). null/absent = not entered ("—").
+   *
+   *  ★★★ fix-562 §A: `basement` below is its MODIFIER, and the two compose the
+   *  displayed answer (`3` / `3+B`). Kept as a NUMBER rather than storing the
+   *  composed string: the Library sorts this column numerically and asks
+   *  *"every 3-storey unit"* as ONE filter. See lib/unitVocabulary. */
   stories?: number | null;
-  // ★★★ fix-402 — PARKING MOVES FROM THE SITE TO THE UNIT.
+  /** ★ fix-562 §A: does this type have a basement? A MODIFIER of `stories` —
+   *  see lib/unitVocabulary for why a missing one beside a recorded storey
+   *  count reads as "no basement" rather than as `—`. */
+  basement?: boolean | null;
+  // ★★★ fix-402 → fix-562 §A — PARKING BELONGS TO THE UNIT, AND THE COUNT
+  // BELONGS TO THE PARKING.
   //
-  // Bobby, 2026-08-25: *"Remove [parking] from the holistic site and merge that
-  // under the units for proposal … by unit it's broken down: is it a garage, is
-  // it surface, is it both, and how many stalls per unit."*
+  // Bobby, 2026-08-25: *"by unit it's broken down"*. Bobby, 2026-09-14: *"the
+  // main thing we're trying to identify is … how is parking driving that? Is it
+  // one-car, two-car, three, four, or surface/none?"*
   //
-  // ★★ THE SAME JSONB ARRAY, NO MIGRATION — fix-205's precedent exactly. Units
-  // live in `projects.unit_types`; `stories` joined them this way and so do
-  // these three. The closed set is enforced by the parser and the editor
-  // dropdown rather than a DB CHECK, because a CHECK cannot reach inside a
-  // JSONB array element without rejecting every legacy row.
+  // ★★ THE SAME JSONB ARRAY AND NO SCHEMA MIGRATION — fix-205's precedent. What
+  // §B's migration does is CLEAR, not restructure: `parking_kind`,
+  // `parking_stalls`, `roof_deck` and `stories` are snapshotted and stripped
+  // from every unit, so no fix-402 vocabulary word is carried forward and
+  // nothing is converted.
   //
-  // ★★★ ALL THREE START NULL ON EVERY ROW, AND NOTHING PRE-FILLS THEM. 231 unit
-  // rows across 102 projects on prod as of 2026-08-25; the team backfills by
-  // hand. NULL means NOT RECORDED — never "none", never 0, never false.
-  /** garage · surface · both · none. null = not recorded. */
+  // ★★★ ALL OF THESE READ NULL ON EVERY ROW THE DAY THIS SHIPS. NULL means NOT
+  // RECORDED — never "none", never 0, never false. The closed sets are enforced
+  // by `parseUnitTypes` and the editor dropdowns, not by a DB CHECK: a CHECK
+  // cannot reach inside a JSONB array element without rejecting legacy rows.
+  /** `garage` · `surface_none`. null = not recorded. */
   parking_kind?: ParkingKind | null;
-  /** Stalls for this unit. 0 is a recorded zero; null is not recorded. */
-  parking_stalls?: number | null;
-  /** Bobby: *"just a yes or no, roof deck"*. null = not recorded. */
+  /** Garage stalls, 1+. null on `surface_none`, which takes no count.
+   *  ★★ A MODIFIER of `parking_kind`, and the only REQUIRED one: a garage with
+   *  no count has no label in the vocabulary, so `parseUnitTypes` refuses that
+   *  pair outright rather than inventing a sixth display string. */
+  parking_count?: number | null;
+  /** Does this type have a roof deck at all. null = not recorded. */
   roof_deck?: boolean | null;
-  /** ★★★ fix-412 (Scope B): on a Remodel, was work actually performed?
-   *
-   *  `'performed'` · `'none'` · **absent/null = nobody has answered**, which is
-   *  the state Bobby asked for — *"at intake the scope is often unknown and
-   *  needs to be identifiable later"*. All 234 unit objects on prod lack this
-   *  key today and therefore read as unanswered, which is true of every one of
-   *  them.
-   *
-   *  ★ Hand-typed, like the rest of this file. Optional for the same reason
-   *  `parking_kind` is: 230 of 234 units predate that key too, and a required
-   *  field would make every stored unit object invalid. */
+  /** ★ fix-562 §A: with a penthouse? A MODIFIER of `roof_deck: true`; the three
+   *  answers are `W/ PH` · `W/O PH` · `None`. */
+  penthouse?: boolean | null;
+  // ★★★ fix-562 §A — `parking_stalls` IS REMOVED FROM THE PRODUCT: the column,
+  // the filter, the editor input and this type. Bobby folded the count into the
+  // parking answer, so a separate stall count is a second way to say the same
+  // thing — and 123 rows of it are preserved in `_fix562_unit_matrix_snapshot`
+  // rather than converted. Named here rather than deleted silently so the next
+  // reader finds a ruling instead of a gap (the fix-326 pattern).
+  //
+  // ★★★ fix-412 (Scope B)'s `work_scope` note left with fix-486 §D.
   /** ★★★ fix-488 §B (P-150): the unit's floor area in whole square feet, TYPED.
    *
    *  Bobby, 2026-09-03: *"how we have lot size, we also want unit size too. It
@@ -209,7 +230,8 @@ export interface Project {
    *
    *  Bobby, 2026-08-25: *"Remove [parking] from the holistic site and merge
    *  that under the units for proposal."* Parking is a per-UNIT property now —
-   *  see UnitType.parking_kind / parking_stalls above.
+   *  see UnitType.parking_kind / parking_count above (fix-562 folded the
+ *  stall count into the parking answer and removed UnitType.parking_stalls).
    *
    *  ★★ THE COLUMNS STILL EXIST AND ARE NULL ON ALL 202 PROJECTS (re-measured
    *  2026-08-30 by fix-456: 0 non-null of 202, for both). The 182 rows that

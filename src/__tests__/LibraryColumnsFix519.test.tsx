@@ -10,6 +10,7 @@ import {
   LIBRARY_UNIT_COLUMN_LABELS,
 } from '../lib/libraryUnitColumns';
 import { LIBRARY_SITE_SHARED_FIELDS } from '../lib/librarySiteFields';
+import { parseUnitTypes } from '../lib/unitTypeNaming';
 
 // ===========================================================================
 // ★★★ fix-519 §A (P-230) + §C (P-228) — THE LIBRARY TELLS THE TRUTH
@@ -67,6 +68,13 @@ import matrixSrc from '../components/LibraryMatrix.tsx?raw';
  *    "qty":1,"stories":3,"parking_kind":"garage","parking_stalls":2,
  *    "roof_deck":false}
  *
+ * ★★★ fix-562 §A RE-EXPRESSES IT IN THE NEW VOCABULARY AND KEEPS THE SHAPE.
+ *     The stored row is `garage` + `parking_count: 2` (the stall count moved
+ *     INSIDE the parking answer) and `roof_deck: false` is now `None` rather
+ *     than `N`. §B clears all of it on prod, so this fixture is now a
+ *     hand-written unit rather than a copy of a live one — said out loud,
+ *     because "from prod" is a claim a reader should be able to trust.
+ *
  * ★ Every value is DISTINCT, which is what makes the fixture able to catch a
  *   shift at all. Two columns holding `1` would have hidden it.
  */
@@ -77,9 +85,11 @@ const BOBBY_UNIT: UnitType = {
   size_sf: 3352,
   qty: 1,
   stories: 3,
+  basement: false,
   parking_kind: 'garage',
-  parking_stalls: 2,
+  parking_count: 2,
   roof_deck: false,
+  penthouse: false,
 } as unknown as UnitType;
 
 function project(over: Partial<Project> = {}): Project {
@@ -171,6 +181,16 @@ beforeEach(() => {
 /** Read a cell by the COLUMN's heading, resolving the index off the rendered
  *  `<thead>` rather than off a number typed here. ★ This is the whole method:
  *  a helper that took an index would be the bug's own accomplice. */
+/** ★ fix-562: the rendered headings of the table this row belongs to, so a
+ *  test can assert a column is ABSENT by the same route it asserts one is
+ *  present — off the `<thead>`, never off a testid (fix-519's own rule). */
+function headingsOf(row: HTMLElement): string[] {
+  const table = row.closest('table')!;
+  return within(table)
+    .getAllByRole('columnheader')
+    .map((h) => (h.textContent ?? '').replace(/[↑↓↕]/g, '').trim());
+}
+
 function cellUnderHeading(row: HTMLElement, heading: string): string {
   const headings = screen
     .getAllByRole('columnheader')
@@ -213,8 +233,10 @@ describe('fix-519 §A (P-230) — every unit column reads its own key', () => {
     //     That is what made Bobby's report diagnosable from one screenshot.
     renderUnitView();
     const row = screen.getByTestId('library-unit-row-p-519-0');
-    expect(cellUnderHeading(row, 'Roof Deck')).toBe('N');
-    expect(cellUnderHeading(row, 'Parking')).toBe('G');
+    // ★ fix-562 §A re-points the VOCABULARY and leaves the argument standing:
+    //   `2-car garage` under ROOF DECK would be just as conclusive as `G` was.
+    expect(cellUnderHeading(row, 'Roof Deck')).toBe('None');
+    expect(cellUnderHeading(row, 'Parking')).toBe('2-car garage');
   });
 
   it('★★★ …and so does every other column, checked against its own key', () => {
@@ -228,11 +250,16 @@ describe('fix-519 §A (P-230) — every unit column reads its own key', () => {
     expect(cellUnderHeading(row, 'Width')).toBe('24');
     expect(cellUnderHeading(row, 'Depth')).toBe('50.5');
     expect(cellUnderHeading(row, 'Size (sf)')).toBe('3352');
-    expect(cellUnderHeading(row, 'Parking')).toBe('G');
-    expect(cellUnderHeading(row, 'Stalls')).toBe('2');
-    expect(cellUnderHeading(row, 'Roof Deck')).toBe('N');
+    expect(cellUnderHeading(row, 'Parking')).toBe('2-car garage');
+    expect(cellUnderHeading(row, 'Roof Deck')).toBe('None');
     expect(cellUnderHeading(row, 'Stories')).toBe('3');
-    expect(cellUnderHeading(row, 'Qty')).toBe('1');
+    // ★★★ fix-562 §A took STALLS (the field left the product) and §H took QTY
+    //     (the column left both Library views; the field is untouched and is
+    //     typed in Project Details → Units). Asserted as ABSENT below rather
+    //     than dropped silently — a column that quietly stops being checked is
+    //     how a heading and a value drift apart again.
+    expect(headingsOf(row)).not.toContain('Stalls');
+    expect(headingsOf(row)).not.toContain('Qty');
   });
 
   it('★★★ the testid a cell carries matches the KEY it reads, not its position', () => {
@@ -245,11 +272,12 @@ describe('fix-519 §A (P-230) — every unit column reads its own key', () => {
     //    testid. This test guards the other direction: a testid that stops
     //    naming the key its cell reads would make a wrong test look right.
     renderUnitView();
-    expect(screen.getByTestId('library-unit-p-519-0-roofdeck').textContent).toBe('N');
-    expect(screen.getByTestId('library-unit-p-519-0-parking').textContent).toBe('G');
-    expect(screen.getByTestId('library-unit-p-519-0-stalls').textContent).toBe('2');
+    expect(screen.getByTestId('library-unit-p-519-0-roofdeck').textContent).toBe('None');
+    expect(screen.getByTestId('library-unit-p-519-0-parking').textContent).toBe('2-car garage');
     expect(screen.getByTestId('library-unit-p-519-0-stories').textContent).toBe('3');
-    expect(screen.getByTestId('library-unit-p-519-0-qty').textContent).toBe('1');
+    // ★ fix-562: neither cell exists any more (§A took stalls, §H took qty).
+    expect(screen.queryByTestId('library-unit-p-519-0-stalls')).toBeNull();
+    expect(screen.queryByTestId('library-unit-p-519-0-qty')).toBeNull();
   });
 
   it('★★ every column NAMES the `unit_types` key it reads', () => {
@@ -264,10 +292,8 @@ describe('fix-519 §A (P-230) — every unit column reads its own key', () => {
       depth: 'depth_ft',
       size: 'size_sf',
       parking: 'parking_kind',
-      stalls: 'parking_stalls',
       roofDeck: 'roof_deck',
       stories: 'stories',
-      qty: 'qty',
     });
   });
 
@@ -283,10 +309,8 @@ describe('fix-519 §A (P-230) — every unit column reads its own key', () => {
       'Depth',
       'Size (sf)',
       'Parking',
-      'Stalls',
       'Roof Deck',
       'Stories',
-      'Qty',
     ]);
   });
 
@@ -305,7 +329,6 @@ describe('fix-519 §A (P-230) — every unit column reads its own key', () => {
             qty: 0,
             stories: null,
             parking_kind: null,
-            parking_stalls: 0,
             roof_deck: null,
           },
         ] as unknown as Project['unit_types'],
@@ -315,14 +338,22 @@ describe('fix-519 §A (P-230) — every unit column reads its own key', () => {
     expect(cellUnderHeading(row, 'Roof Deck')).toBe('—');
     expect(cellUnderHeading(row, 'Parking')).toBe('—');
     expect(cellUnderHeading(row, 'Width')).toBe('—');
-    // …and a recorded zero prints as zero, on the field that admits one.
-    // ★ `parking_stalls` takes `>= 0` deliberately — nought stalls is a fact.
-    //   `qty` and `stories` take `> 0` and normalise 0 to 1 in
-    //   `parseUnitTypes`, because a unit type with none of them is not a unit
-    //   type. Asserted so the asymmetry is a decision on the record rather
-    //   than something the next reader has to rediscover from a fixture.
-    expect(cellUnderHeading(row, 'Stalls')).toBe('0');
-    expect(cellUnderHeading(row, 'Qty')).toBe('1');
+    expect(cellUnderHeading(row, 'Stories')).toBe('—');
+    // ★★★ fix-562 §A — THE `parking_stalls: 0` HALF OF THIS TEST IS GONE WITH
+    //     THE FIELD, and the asymmetry it recorded went with it: stalls was the
+    //     ONLY unit field that admitted a recorded zero (`>= 0`), because nought
+    //     stalls was a fact somebody could enter. Nothing in the vocabulary can
+    //     say that now — the parking answer is `Surface / None`, which is a
+    //     recorded answer rather than a zero.
+    //
+    // ★★ WHAT SURVIVES IS THE HALF THAT STILL BINDS: `qty` and `stories` take
+    //    `> 0` and `parseUnitTypes` normalises a stored 0 — `qty` to 1, and
+    //    `stories` to null — because a unit type with none of them is not a
+    //    unit type. Kept as an assertion so the rule is on the record rather
+    //    than something the next reader rediscovers from a fixture.
+    const parsed = parseUnitTypes([{ label: 'A', qty: 0, stories: 0 }]);
+    expect(parsed[0]!.qty).toBe(1);
+    expect(parsed[0]!.stories).toBeNull();
   });
 });
 
@@ -429,6 +460,12 @@ describe('fix-519 §A — the SITE table next door still agrees with itself', ()
     expect(cellUnderHeading(row, 'Juris')).toBe('Kirkland');
     expect(cellUnderHeading(row, 'Zone')).toBe('RM 3.6');
     expect(cellUnderHeading(row, 'Alley')).toBe('Yes');
-    expect(cellUnderHeading(row, 'Units')).toBe('3');
+    // ★★★ fix-562 §H — THE `Units` COLUMN CAME OFF THE SITE VIEW TOO. Bobby:
+    //     *"we'll take off quantity on the library for unit and site."*
+    //     `projects.units` is untouched and is edited as "Unit count" in
+    //     Project Details → Units (`psm-units`) — verified before the column
+    //     was removed, because taking away the only place a field can be typed
+    //     is how live data becomes uneditable (fix-524 §0.3).
+    expect(headingsOf(row)).not.toContain('Units');
   });
 });

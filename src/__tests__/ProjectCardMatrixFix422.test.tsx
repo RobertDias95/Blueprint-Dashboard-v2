@@ -14,6 +14,7 @@ import {
   UNIT_ROW_COLUMNS,
   UNIT_ROW_GAP,
   UNIT_WD_GAP,
+  FIX_418_DATA_FIELDS,
   fix418BandHeight,
   unitBandHeight,
   unitFieldTooltip,
@@ -28,7 +29,7 @@ import {
   overviewRowWidthAt,
   resolveOverviewWidths,
 } from '../lib/overviewCardLayout';
-import { PARKING_KIND_CODE, parkingKindCode, roofDeckCode } from '../lib/unitParking';
+import { parkingLabel, roofDeckLabel, storiesLabel } from '../lib/unitVocabulary';
 
 // ===========================================================================
 // fix-422 — the unit matrix, and the five cards re-shared around it
@@ -71,7 +72,11 @@ import { PARKING_KIND_CODE, parkingKindCode, roofDeckCode } from '../lib/unitPar
 // ---------------------------------------------------------------------------
 
 describe('fix-422 §A: the columns are Bobby\'s, sized to what they hold', () => {
-  it('★★★ Type · W · D · Qty · Sty · P · # · RD, then remove', () => {
+  it('★★★ Type · W · D · Qty · Sty · P · RD, then remove (fix-562 §A took `#`)', () => {
+    // ★★★ fix-562 §A — `parking_stalls` IS OUT OF THE PRODUCT, so the `#`
+    //     column left with it. Bobby folded the count into the parking answer
+    //     (`2-car garage`), and fix-422's own `#` header was never his — it was
+    //     mine, to avoid two different `S`-es 46px apart.
     expect(UNIT_ROW_COLUMNS.map((c) => c.key)).toEqual([
       'label',
       'width_ft',
@@ -79,21 +84,31 @@ describe('fix-422 §A: the columns are Bobby\'s, sized to what they hold', () =>
       'qty',
       'stories',
       'parking_kind',
-      'parking_stalls',
       'roof_deck',
       'remove',
     ]);
     expect(UNIT_ROW_COLUMNS.map((c) => c.header)).toEqual([
-      'Type', 'W', 'D', 'Qty', 'Sty', 'P', '#', 'RD', '',
+      'Type', 'W', 'D', 'Qty', 'Sty', 'P', 'RD', '',
     ]);
   });
 
-  it('★★★ the whole matrix is 274px — half of what fix-417 was raised for', () => {
+  it('★★★ the matrix is NARROWER after fix-562, not wider — 274px → 266px', () => {
     // ★★ THE NUMBER THAT MAKES HORIZONTAL LEGAL AGAIN. fix-412's row was ten
     //    columns and 620px because it spelled everything out; abbreviations,
-    //    letter codes, no `×` and moving `work_scope` off the grid take it to
-    //    nine columns and 274.
-    expect(UNIT_MATRIX_WIDTH).toBe(274);
+    //    codes, no `×` and moving `work_scope` off the grid took it to nine
+    //    columns and 274.
+    //
+    // ★★★ fix-562 §A TURNED TWO NUMBER BOXES INTO DROPDOWNS AND STILL PAID FOR
+    //     IT. Stories 22px → 30px and Roof Deck 26px → 30px (a chevron plus
+    //     `3+B` / `PH` does not fit in a one-digit box), funded by deleting the
+    //     20px `#` column and its 4px gap. Net −8px.
+    //
+    // ★★ WHY THAT MATTERS RATHER THAN BEING TRIVIA: fix-488 §B built a ninth
+    //    column, measured it at +38px of matrix — 76px on the overview row
+    //    minimum against 12px of slack at 1280 — and REVERTED it. This ticket
+    //    had to add two controls without spending any of that, and it did.
+    expect(UNIT_MATRIX_WIDTH).toBe(266);
+    expect(UNIT_MATRIX_WIDTH).toBeLessThan(274);
     expect(UNIT_MATRIX_WIDTH).toBeLessThan(FIX_412_ROW_WIDTH / 2);
   });
 
@@ -108,7 +123,7 @@ describe('fix-422 §A: the columns are Bobby\'s, sized to what they hold', () =>
     // ★ The template carries the per-gap widths, because one `gap` property
     //   cannot express a tighter pair — one source for the whole geometry.
     expect(UNIT_MATRIX_GRID).toBe(
-      '52px 4px 30px 2px 30px 4px 22px 4px 22px 4px 26px 4px 20px 4px 26px 4px 16px',
+      '52px 4px 30px 2px 30px 4px 22px 4px 30px 4px 30px 4px 30px 4px 16px',
     );
   });
 
@@ -142,6 +157,12 @@ describe('fix-422 §B: the vertical cost per unit type', () => {
     //     engine. This is the honest form of the same claim, computed from the
     //     declared model both layouts render(ed) from.
     expect(unitBandHeight(6)).toBe(130);
+    // ★★★ fix-562 §A: 186 is fix-418's SHIPPED block and it must not move when
+    //     today's column list does. `fix418BandHeight` used to derive its field
+    //     count from `UNIT_ROW_COLUMNS`, so removing the `#` column rewrote
+    //     history to 166 — a counterfactual has to be pinned to what it
+    //     counterfactualises. `FIX_418_DATA_FIELDS` is that pin.
+    expect(FIX_418_DATA_FIELDS).toBe(8);
     expect(fix418BandHeight(1)).toBe(186);
     expect(unitBandHeight(6)).toBeLessThan(fix418BandHeight(1));
     // ★★ And the number Bobby saw: the one six-type project in prod.
@@ -166,47 +187,81 @@ describe('fix-422 §B: the vertical cost per unit type', () => {
 // §C · THE CODES AND THE VOCABULARY
 // ---------------------------------------------------------------------------
 
-describe('fix-422 §C: letter codes that do not conflate two answers', () => {
-  it('★★★ `none` is `N` and only NULL is `—` — the brief said both were `—`', () => {
-    // ★★★ THE ONE PLACE I DID NOT FOLLOW SCOPE 4, and it is fix-402's rule I am
-    //     protecting: *"NULL IS NOT none."* `none` is a recorded answer that a
-    //     unit has no parking; NULL is the absence of one. Prod has 4 NULL
-    //     `parking_kind` rows against 1 recorded `none`, so mapping both to `—`
-    //     would make the commonest state indistinguishable from the rarest
-    //     recorded one — on the field the whole backfill exists for.
-    expect(PARKING_KIND_CODE).toEqual({
-      garage: 'G',
-      surface: 'S',
-      both: 'B',
-      none: 'N',
-    });
-    expect(parkingKindCode(null)).toBe('—');
-    expect(parkingKindCode(undefined)).toBe('—');
-    expect(parkingKindCode('none')).toBe('N');
-    expect(parkingKindCode('none')).not.toBe(parkingKindCode(null));
+describe('fix-422 §C: a cell that does not conflate two answers', () => {
+  // =========================================================================
+  // ★★★ fix-562 §A SUPERSEDES THE LETTER CODES — AND NOT THE RULING BEHIND THEM
+  // =========================================================================
+  //
+  // fix-422 painted `G` / `S` / `B` / `N` because the matrix cell was 26px,
+  // and spent its §C arguing the one thing that mattered: **`none` is `N` and
+  // only NULL is `—`**, because a recorded answer and the absence of one are
+  // different facts (fix-402, fix-386).
+  //
+  // ★★★ BOBBY REPLACED THE VOCABULARY, NOT THE RULE. 2026-09-14: parking is
+  //     *"one-car, two-car, three, four, or surface/none"* — `both` is gone by
+  //     design, the count is inside the answer, and `surface` and `none` are
+  //     ONE option because for a floor plan nothing is taken out of the
+  //     building either way. So there is no `N`-vs-`—` pair left to defend:
+  //     the recorded answer is `Surface / None` and only NULL is `—`.
+  //
+  // ★★ SUPERSEDED, NOT MISTAKEN (fix-400's rule). fix-422 read its evidence
+  //    correctly — prod then held 4 NULLs against 1 recorded `none` — and the
+  //    distinction it protected is asserted below in the new words rather than
+  //    deleted with the old ones.
+
+  it('★★★ a RECORDED answer and NOT RECORDED still render differently', () => {
+    expect(parkingLabel(null, null)).toBe('—');
+    expect(parkingLabel(undefined, undefined)).toBe('—');
+    expect(parkingLabel('surface_none', null)).toBe('Surface / None');
+    expect(parkingLabel('surface_none', null)).not.toBe(parkingLabel(null, null));
   });
 
-  it('★★ …and P\'s tooltip carries the full legend, including that distinction', () => {
+  it('★★★ the count is INSIDE the answer, which is the whole ticket', () => {
+    expect(parkingLabel('garage', 1)).toBe('1-car garage');
+    expect(parkingLabel('garage', 2)).toBe('2-car garage');
+    expect(parkingLabel('garage', 4)).toBe('4-car garage');
+    // ★ A garage with no count has no label, so the pair is refused rather
+    //   than half-rendered — see lib/unitVocabulary and parseUnitTypes.
+    expect(parkingLabel('garage', null)).toBe('—');
+  });
+
+  it("★★ …and P's tooltip carries the new legend, including that distinction", () => {
     const t = unitFieldTooltip('parking_kind');
-    expect(t).toContain('G garage');
-    expect(t).toContain('S surface');
-    expect(t).toContain('B both');
-    expect(t).toContain('N none');
+    expect(t).toContain('1-car garage');
+    expect(t).toContain('Surface / None');
     expect(t).toContain('— not recorded');
+    // ★★ fix-402's four kinds are nowhere in the legend any more.
+    expect(t).not.toContain('B both');
   });
 
-  it('★★★ roof deck is Y / N / — with nothing conflated', () => {
-    // ★ A boolean maps cleanly onto three glyphs; no argument needed.
-    expect(roofDeckCode(true)).toBe('Y');
-    expect(roofDeckCode(false)).toBe('N');
-    expect(roofDeckCode(null)).toBe('—');
+  it('★★★ roof deck is three answers plus the dash, with nothing conflated', () => {
+    expect(roofDeckLabel(true, true)).toBe('W/ PH');
+    expect(roofDeckLabel(true, false)).toBe('W/O PH');
+    expect(roofDeckLabel(false, null)).toBe('None');
+    expect(roofDeckLabel(null, null)).toBe('—');
+    // ★ A recorded `None` is not the dash — the fix-422 ruling, in fix-562's
+    //   vocabulary.
+    expect(roofDeckLabel(false, null)).not.toBe(roofDeckLabel(null, null));
   });
 
-  it('★★ `B` means BOTH, because prod has no valet', () => {
-    // The brief's own default, confirmed against the registry.
-    expect(Object.keys(PARKING_KIND_CODE).sort()).toEqual([
-      'both', 'garage', 'none', 'surface',
-    ]);
+  it('★★★ fix-562 §A: stories carries its basement, and `—` still means nobody said', () => {
+    expect(storiesLabel(3, true)).toBe('3+B');
+    expect(storiesLabel(3, false)).toBe('3');
+    // ★★ A MODIFIER, not an independent field: no vocabulary entry means
+    //    "3 storeys, basement unknown", so a missing flag beside a recorded
+    //    count reads as no basement rather than as `—`.
+    expect(storiesLabel(3, null)).toBe('3');
+    expect(storiesLabel(null, null)).toBe('—');
+  });
+
+  it('★★★ `STALLS` IS NOWHERE — not a column, a header, a width or a tooltip', () => {
+    // ★★★ fix-562 §A removed the field from the product. fix-422's `#` column
+    //     was MINE rather than Bobby's ("Stalls could just be like S" would
+    //     have put two different S-es 46px apart), and it leaves with the
+    //     field it labelled.
+    expect(UNIT_ROW_COLUMNS.map((c) => c.key)).not.toContain('parking_stalls');
+    expect(UNIT_ROW_COLUMNS.map((c) => c.header)).not.toContain('#');
+    expect(() => unitFieldTooltip('parking_stalls')).toThrow();
   });
 });
 
@@ -334,7 +389,9 @@ describe('fix-422 §D: the five cards, re-shared against the real row', () => {
       (a, c) => a + c.width,
       0,
     );
-    expect(dataOnly).toBe(228);
+    // ★ fix-562 §A: 228 → 224. Seven data columns instead of eight, two of them
+    //   widened for their new dropdowns — see §A's 274 → 266 note.
+    expect(dataOnly).toBe(224);
     expect(UNIT_MATRIX_WIDTH - dataOnly).toBeLessThan(50);
 
     // (ii) TAKE IT FROM PLAN OF RECORD — REFUSED, and here is why in numbers.
@@ -757,10 +814,7 @@ describe('fix-422 §2: one header row, one row per unit type', () => {
     renderHeader();
     const row = screen.getAllByTestId('pd-unit-row')[0];
     expect(row.style.gridTemplateColumns).toBe(UNIT_MATRIX_GRID);
-    for (const t of [
-      'pd-unit-w', 'pd-unit-d', 'pd-unit-qty',
-      'pd-unit-stories', 'pd-unit-remove',
-    ]) {
+    for (const t of ['pd-unit-w', 'pd-unit-d', 'pd-unit-qty', 'pd-unit-remove']) {
       expect(within(row).getByTestId(t).parentElement).toBe(row);
     }
     // ★★★ fix-520 §B (P-226) — THE TYPE CELL HOLDS TWO THINGS NOW, so its
@@ -780,7 +834,9 @@ describe('fix-422 §2: one header row, one row per unit type', () => {
     expect(typeCell.getAttribute('data-unit-label')).toBeTruthy();
     // ★ The three coded cells sit one level down, inside the glyph wrapper the
     //   overlay pattern needs — so their WRAPPER is the direct grid child.
-    for (const t of ['pd-unit-parking-kind', 'pd-unit-stalls', 'pd-unit-roof-deck']) {
+    // ★ fix-562 §A: `pd-unit-stalls` is gone and `pd-unit-stories` joined them —
+    //   stories is a coded dropdown now, not a number box.
+    for (const t of ['pd-unit-parking-kind', 'pd-unit-stories', 'pd-unit-roof-deck']) {
       const el = within(row).getByTestId(t);
       expect(el.parentElement === row || el.parentElement!.parentElement === row).toBe(true);
     }
@@ -839,9 +895,11 @@ describe('fix-422 §3: every header explains itself, by hover and by Tab', () =>
     }
   });
 
-  it('★★ the four Bobby named by name are all covered', () => {
+  it('★★ the ones Bobby named by name are all covered', () => {
     // *"If someone hovered their cursor over QTY, or STY, or P, or S…"*
-    for (const key of ['qty', 'stories', 'parking_kind', 'parking_stalls']) {
+    // ★ fix-562 §A: the `S` he named was Stalls, which no longer exists; the
+    //   other three still do, and `roof_deck` is held to the same bar.
+    for (const key of ['qty', 'stories', 'parking_kind', 'roof_deck']) {
       expect(unitFieldTooltip(key).length).toBeGreaterThan(20);
     }
   });
@@ -852,79 +910,138 @@ describe('fix-422 §3: every header explains itself, by hover and by Tab', () =>
 // ---------------------------------------------------------------------------
 
 describe('fix-422 §4: the cell shows a code, the menu shows the words', () => {
-  it('★★★ parking renders G in the cell and "Garage" in the menu', () => {
+  it('★★★ parking renders the short answer in the cell and Bobby\'s words in the menu', () => {
     renderHeader({
-      unit_types: [{ label: 'Attached', qty: 1, parking_kind: 'garage' }],
+      unit_types: [
+        { label: 'Attached', qty: 1, parking_kind: 'garage', parking_count: 2 },
+      ],
     } as unknown as Partial<Project>);
     const sel = screen.getByTestId('pd-unit-parking-kind') as HTMLSelectElement;
-    // ★ The MENU is words — Bobby's requirement, and the platform's own.
+    // ★ The MENU is Bobby's words — his requirement, and the platform's own.
+    //   ★★ And they come from `app_config.parkingOptions` (fix-232), not from a
+    //      literal in the component: this list is the CANONICAL fallback, which
+    //      is what a suite with no app_config sees.
     expect(Array.from(sel.options).map((o) => o.textContent)).toEqual([
-      '— not recorded', 'Garage', 'Surface', 'Both', 'None',
+      '— not recorded',
+      '1-car garage',
+      '2-car garage',
+      '3-car garage',
+      '4-car garage',
+      'Surface / None',
     ]);
-    // ★ The CELL is a glyph. The select is the real control, laid over it at
-    //   zero opacity, so keyboard and the a11y tree are the platform's.
-    expect(sel.parentElement!.textContent).toContain('G');
+    // ★ The CELL is the short form. The select is the real control, laid over
+    //   it at zero opacity, so keyboard and the a11y tree are the platform's.
+    expect(sel.parentElement!.textContent).toContain('2G');
+    // ★★ …and the FULL answer is one hover away, which is fix-422's own rule
+    //    about abbreviations.
+    expect(sel.parentElement!.getAttribute('title')).toBe('2-car garage');
     expect(sel.className).toContain('opacity-0');
-    expect(sel.getAttribute('aria-label')).toBe('Parking kind');
+    expect(sel.getAttribute('aria-label')).toBe('Parking');
   });
 
-  it('★★★ each recorded kind paints its own letter', () => {
-    for (const [kind, code] of Object.entries(PARKING_KIND_CODE)) {
+  it('★★★ each recorded answer paints its own short form', () => {
+    for (const [unitPatch, face] of [
+      [{ parking_kind: 'garage', parking_count: 1 }, '1G'],
+      [{ parking_kind: 'garage', parking_count: 4 }, '4G'],
+      [{ parking_kind: 'surface_none' }, 'S'],
+    ] as const) {
       const { unmount } = renderHeader({
-        unit_types: [{ label: 'Attached', qty: 1, parking_kind: kind }],
+        unit_types: [{ label: 'Attached', qty: 1, ...unitPatch }],
       } as unknown as Partial<Project>);
       const cell = screen.getByTestId('pd-unit-parking-kind').parentElement!;
-      expect(cell.textContent).toContain(code);
+      expect(cell.textContent).toContain(face);
       unmount();
     }
   });
 
-  it('★★★ roof deck renders Y / N / — with the words still in the menu', () => {
-    for (const [value, code] of [
-      [true, 'Y'],
-      [false, 'N'],
-      [null, '—'],
+  it('★★★ roof deck renders PH / RD / N / — with the words still in the menu', () => {
+    for (const [unitPatch, face] of [
+      [{ roof_deck: true, penthouse: true }, 'PH'],
+      [{ roof_deck: true, penthouse: false }, 'RD'],
+      [{ roof_deck: false }, 'N'],
+      [{}, '—'],
     ] as const) {
       const { unmount } = renderHeader({
-        unit_types: [{ label: 'Attached', qty: 1, roof_deck: value }],
+        unit_types: [{ label: 'Attached', qty: 1, ...unitPatch }],
       } as unknown as Partial<Project>);
       const sel = screen.getByTestId('pd-unit-roof-deck') as HTMLSelectElement;
-      expect(sel.parentElement!.textContent).toContain(code);
+      expect(sel.parentElement!.textContent).toContain(face);
       expect(Array.from(sel.options).map((o) => o.textContent)).toEqual([
-        '— not recorded', 'Yes', 'No',
+        '— not recorded', 'W/ PH', 'W/O PH', 'None',
       ]);
       unmount();
     }
   });
 
+  it('★★★ fix-562 §A: stories is a dropdown, and `3+B` needs no second form', () => {
+    renderHeader({
+      unit_types: [{ label: 'Attached', qty: 1, stories: 3, basement: true }],
+    } as unknown as Partial<Project>);
+    const sel = screen.getByTestId('pd-unit-stories') as HTMLSelectElement;
+    expect(Array.from(sel.options).map((o) => o.textContent)).toEqual([
+      '— not recorded', '1', '1+B', '2', '2+B', '3', '3+B', '4', '4+B',
+    ]);
+    expect(sel.parentElement!.textContent).toContain('3+B');
+  });
+
   it('★★★ an UNSET field renders an em dash, never an empty box', () => {
     // ★★ fix-402's rule, at the point it bites hardest: NULL is "nobody has
-    //    said", and a blank cell says nothing at all.
+    //    said", and a blank cell says nothing at all. ★★★ After fix-562 §B's
+    //    wipe this is the state of EVERY unit on prod, so it is the common case
+    //    rather than the corner.
     renderHeader({
       unit_types: [{ label: 'Attached', qty: 1 }],
     } as unknown as Partial<Project>);
-    expect(
-      screen.getByTestId('pd-unit-parking-kind').parentElement!.textContent,
-    ).toContain('—');
-    expect(
-      screen.getByTestId('pd-unit-roof-deck').parentElement!.textContent,
-    ).toContain('—');
+    for (const t of ['pd-unit-parking-kind', 'pd-unit-roof-deck', 'pd-unit-stories']) {
+      expect(screen.getByTestId(t).parentElement!.textContent).toContain('—');
+    }
     // The numeric cells say it with a placeholder, which is the same claim.
-    for (const t of ['pd-unit-w', 'pd-unit-d', 'pd-unit-stalls']) {
+    for (const t of ['pd-unit-w', 'pd-unit-d']) {
       const el = screen.getByTestId(t) as HTMLInputElement;
       expect(el.value).toBe('');
       expect(el.getAttribute('placeholder')).toBe('—');
     }
   });
 
-  it('★★ picking a value still writes through to the unit', () => {
+  it('★★★ picking a value writes BOTH PARTS of the answer through', () => {
     renderHeader({
       unit_types: [{ label: 'Attached', qty: 1 }],
     } as unknown as Partial<Project>);
     fireEvent.change(screen.getByTestId('pd-unit-parking-kind'), {
-      target: { value: 'surface' },
+      target: { value: '3-car garage' },
     });
-    expect(saves[0].unit_types[0].parking_kind).toBe('surface');
+    // ★★★ THE POINT OF STORING THE PARTS: one pick, one write, both halves.
+    //     A `(field, value)` callback would have had to fire twice and could
+    //     land a kind with no count — the pair `parseUnitTypes` refuses.
+    expect(saves[0].unit_types[0].parking_kind).toBe('garage');
+    expect(saves[0].unit_types[0].parking_count).toBe(3);
+
+    saves.length = 0;
+    fireEvent.change(screen.getByTestId('pd-unit-stories'), {
+      target: { value: '2+B' },
+    });
+    expect(saves[0].unit_types[0].stories).toBe(2);
+    expect(saves[0].unit_types[0].basement).toBe(true);
+
+    saves.length = 0;
+    fireEvent.change(screen.getByTestId('pd-unit-roof-deck'), {
+      target: { value: 'W/O PH' },
+    });
+    expect(saves[0].unit_types[0].roof_deck).toBe(true);
+    expect(saves[0].unit_types[0].penthouse).toBe(false);
+  });
+
+  it('★★★ …and clearing it back to NOT RECORDED clears both parts too', () => {
+    renderHeader({
+      unit_types: [
+        { label: 'Attached', qty: 1, parking_kind: 'garage', parking_count: 2 },
+      ],
+    } as unknown as Partial<Project>);
+    fireEvent.change(screen.getByTestId('pd-unit-parking-kind'), {
+      target: { value: '' },
+    });
+    expect(saves[0].unit_types[0].parking_kind).toBeNull();
+    expect(saves[0].unit_types[0].parking_count).toBeNull();
   });
 });
 

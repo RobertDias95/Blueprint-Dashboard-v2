@@ -7,9 +7,7 @@ import {
   str,
   strArray,
 } from './filterPrefs';
-import { PARKING_KINDS, type ParkingKind } from './database.types';
 import type { LibraryFilters } from './libraryHelpers';
-import type { RoofDeckFilter, StallsTier } from './unitParking';
 
 // ===========================================================================
 // ★★★ fix-403 — WHAT EACH SURFACE REMEMBERS
@@ -44,8 +42,6 @@ import type { RoofDeckFilter, StallsTier } from './unitParking';
 
 const LIBRARY_NS = 'library.filters';
 
-const STALLS_TIERS: readonly StallsTier[] = ['', '1+', '2+'];
-const ROOF_DECKS: readonly RoofDeckFilter[] = ['', 'Yes', 'No'];
 /** ★ fix-447: the two views, as a closed set — same shape as every other
  *  stored enum here, so a value retired later cannot come back from storage
  *  and match nothing forever. */
@@ -93,16 +89,23 @@ export function loadLibraryFilters(
       juris: str(o.juris),
       isCornerLot: oneOf(o.isCornerLot, CORNERS, ''),
       stories: oneOf(o.stories, STORIES, ''),
-      // ★★ fix-402's three. `parkingKind` is validated against the closed set,
-      //   so a kind retired later cannot come back from storage and match
-      //   nothing forever.
-      parkingKind: oneOf<'' | ParkingKind>(
-        o.parkingKind,
-        ['', ...PARKING_KINDS],
-        '',
-      ),
-      stalls: oneOf(o.stalls, STALLS_TIERS, ''),
-      roofDeck: oneOf(o.roofDeck, ROOF_DECKS, ''),
+      // ★★★ fix-562 §A — THESE TWO ARE REGISTRY LABELS NOW, SO THEY DECODE AS
+      //     STRINGS. fix-402 validated them against a closed union here, which
+      //     was right while the vocabulary lived in the code; it lives in
+      //     `app_config.parkingOptions` / `roofDeckOptions` now, which this
+      //     module cannot read (it is synchronous and pre-auth).
+      //
+      // ★★ THAT IS SAFE BECAUSE MATCHING IS BY LABEL EQUALITY, NOT BY A SWITCH.
+      //    fix-406's throw came from a stored column name reaching a `switch`
+      //    with no arm; a stored filter label that no longer exists simply
+      //    matches nothing — and the control APPENDS it (fix-415's rule) so the
+      //    person can see what they are filtering by and clear it.
+      //
+      // ★ `stalls` is not decoded because it no longer exists: a stored blob
+      //   from before this ticket still carries the key, and a field-by-field
+      //   decoder ignores it, which is exactly the behaviour wanted.
+      parkingKind: str(o.parkingKind),
+      roofDeck: str(o.roofDeck),
     };
   });
 }

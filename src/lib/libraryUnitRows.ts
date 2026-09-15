@@ -166,10 +166,13 @@ export const UNIT_SORTABLE_COLUMNS = [
   //   exhaustive-return, so a member added here without an arm below is a
   //   COMPILE error rather than a render-time throw.
   'size',
-  'qty',
+  // ★★★ fix-562 §H: `qty` left this union with its column. fix-562 §A: so did
+  //     `stalls`, with the field. A sort on a column nobody can see is not a
+  //     feature (fix-406's rule, applied for the fourth and fifth time) — and
+  //     this union's `switch` is exhaustive-return, so a member left here
+  //     without an arm below is a COMPILE error rather than a render-time throw.
   'stories',
   'parking',
-  'stalls',
   'roofDeck',
   'stage',
 ] as const;
@@ -233,18 +236,27 @@ export function sortUnitRows(
     case 'stage':
       return byText((r) => r.project.stage);
     case 'parking':
-      // ★ Text, but nulls still last: an unrecorded kind sorts after every
-      //   recorded one rather than under the empty string.
+      // ★★★ fix-562 §A — SORTED ON THE PARTS, NOT ON THE COMPOSED LABEL, AND
+      //     THIS IS THE ARM THAT PROVES THE STORAGE DECISION. As text,
+      //     `10-car garage` sorts between `1-car` and `2-car`; as (kind, count)
+      //     every garage groups and the counts run 1, 2, 3, 4 inside the group.
+      //
+      // ★ `surface_none` sorts after every garage (it is the answer with no
+      //   building constraint), and an unrecorded kind after both — nulls last
+      //   in BOTH directions, like every other arm here.
       return out.sort((a, b) => {
         // ★ `?? null` because the DB type marks these optional: an ABSENT key
         //   and a null are the same fact ("not recorded"), and only one of
         //   them survives a JSON round-trip.
-        const av = a.unit.parking_kind ?? null;
-        const bv = b.unit.parking_kind ?? null;
-        if (av === null && bv === null) return a.index - b.index;
-        if (av === null) return 1;
-        if (bv === null) return -1;
-        return av.localeCompare(bv) * dir || a.index - b.index;
+        const rank = (u: UnitType) =>
+          u.parking_kind == null
+            ? null
+            : u.parking_kind === 'garage'
+              ? (u.parking_count ?? 0)
+              : 1000;
+        return (
+          cmpNullable(rank(a.unit), rank(b.unit), dir) || a.index - b.index
+        );
       });
     case 'width':
       return out.sort(
@@ -261,25 +273,28 @@ export function sortUnitRows(
         (a, b) =>
           cmpNullable(a.unit.size_sf ?? null, b.unit.size_sf ?? null, dir) || a.index - b.index,
       );
-    case 'qty':
-      return out.sort(
-        (a, b) => cmpNullable(a.unit.qty ?? null, b.unit.qty ?? null, dir) || a.index - b.index,
-      );
     case 'stories':
+      // ★★★ fix-562 §A — NUMERIC, AND THIS IS THE OTHER HALF OF THE STORAGE
+      //     ARGUMENT. `2`, `2+B`, `3` must order 2, 2, 3; a stored `"3+B"`
+      //     string would sort away from `3` and put `10` between `1` and `2`.
+      //     The basement is a tie-break inside a storey count, never a rank.
       return out.sort(
         (a, b) =>
-          cmpNullable(a.unit.stories ?? null, b.unit.stories ?? null, dir) || a.index - b.index,
-      );
-    case 'stalls':
-      return out.sort(
-        (a, b) =>
-          cmpNullable(a.unit.parking_stalls ?? null, b.unit.parking_stalls ?? null, dir) ||
+          cmpNullable(a.unit.stories ?? null, b.unit.stories ?? null, dir) ||
+          // ★ The tie-break takes the DIRECTION too, or `2` and `2+B` keep
+          //   their relative order while everything around them reverses —
+          //   which reads as a sort that half-worked.
+          (Number(a.unit.basement === true) - Number(b.unit.basement === true)) * dir ||
           a.index - b.index,
       );
     case 'roofDeck':
+      // ★ fix-562 §A: the deck is the rank and the penthouse the tie-break, so
+      //   `None` · `W/O PH` · `W/ PH` read in that order and `—` stays last.
       return out.sort(
         (a, b) =>
-          cmpBool(a.unit.roof_deck ?? null, b.unit.roof_deck ?? null, dir) || a.index - b.index,
+          cmpBool(a.unit.roof_deck ?? null, b.unit.roof_deck ?? null, dir) ||
+          (Number(a.unit.penthouse === true) - Number(b.unit.penthouse === true)) * dir ||
+          a.index - b.index,
       );
   }
 }

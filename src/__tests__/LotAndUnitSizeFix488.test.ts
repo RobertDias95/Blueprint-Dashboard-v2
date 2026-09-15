@@ -264,8 +264,10 @@ describe('fix-488 §B: unit_types[].size_sf', () => {
         qty: 2,
         stories: 3,
         parking_kind: 'garage',
-        parking_stalls: 0,
+        parking_count: 2,
         roof_deck: true,
+        penthouse: true,
+        basement: false,
         size_sf: 2100,
       },
     ]);
@@ -275,9 +277,11 @@ describe('fix-488 §B: unit_types[].size_sf', () => {
       depth_ft: 40,
       qty: 2,
       stories: 3,
+      basement: false,
       parking_kind: 'garage',
-      parking_stalls: 0,
+      parking_count: 2,
       roof_deck: true,
+      penthouse: true,
       size_sf: 2100,
     });
   });
@@ -371,7 +375,7 @@ const FILTERS: LibraryFilters = {
   unitwTarget: null, unitwBuf: 2, unitdTarget: null, unitdBuf: 2,
   unitsizeTarget: null, unitsizeBuf: 100,
   zone: '', alley: '', productTypes: [], juris: '',
-  isCornerLot: '', stories: '', parkingKind: '', stalls: '', roofDeck: '',
+  isCornerLot: '', stories: '', parkingKind: '', roofDeck: '',
 };
 
 const unit = (over: Partial<UnitType> = {}): UnitType =>
@@ -422,31 +426,35 @@ describe("fix-488 §B: Bobby's acceptance query", () => {
     // ★★★ *"show me all my 1,700 sqft units with a garage."* Verbatim, as a
     //     test — and the conjunction is PER UNIT (fix-402), which is the part
     //     that makes the answer mean what the sentence means.
+    // ★ fix-562 §A re-points the vocabulary and NOT the query: Bobby's
+    //   sentence is still *"1,700 sqft units with a garage"*, and a garage is
+    //   now `2-car garage` rather than a bare `garage`. The conjunction it
+    //   tests is untouched.
     const both = row('both', {});
-    both.unitTypes = [unit({ size_sf: 1700, parking_kind: 'garage' })];
+    both.unitTypes = [unit({ size_sf: 1700, parking_kind: 'garage', parking_count: 2 })];
 
     const sizeOnly = row('size-only', {});
-    sizeOnly.unitTypes = [unit({ size_sf: 1700, parking_kind: 'surface' })];
+    sizeOnly.unitTypes = [unit({ size_sf: 1700, parking_kind: 'surface_none' })];
 
     const garageOnly = row('garage-only', {});
-    garageOnly.unitTypes = [unit({ size_sf: 2400, parking_kind: 'garage' })];
+    garageOnly.unitTypes = [unit({ size_sf: 2400, parking_kind: 'garage', parking_count: 2 })];
 
     // ★★★ THE ONE THAT WOULD PASS UNDER A PER-*FILTER* READING AND MUST NOT:
     //     unit A is 1,700 sf with no garage, unit B has a garage and is 2,400.
     //     No single unit is both, so the project does not match.
     const split = row('split', {});
     split.unitTypes = [
-      unit({ size_sf: 1700, parking_kind: 'surface' }),
-      unit({ size_sf: 2400, parking_kind: 'garage' }),
+      unit({ size_sf: 1700, parking_kind: 'surface_none' }),
+      unit({ size_sf: 2400, parking_kind: 'garage', parking_count: 2 }),
     ];
 
     const unmeasured = row('unmeasured', {});
-    unmeasured.unitTypes = [unit({ parking_kind: 'garage' })];
+    unmeasured.unitTypes = [unit({ parking_kind: 'garage', parking_count: 2 })];
 
     const q: LibraryFilters = {
       ...FILTERS,
       unitsizeTarget: 1700,
-      parkingKind: 'garage',
+      parkingKind: '2-car garage',
     };
     const out = filterLibraryRows(
       [both, sizeOnly, garageOnly, split, unmeasured],
@@ -543,11 +551,15 @@ describe('fix-488 §B: why the overview units matrix has no Size column', () => 
     // ★★ fix-422's note said "a ninth data column costs nothing but a row in
     //    the table above". That was wrong, and lib/unitRowLayout now carries
     //    the correction with the arithmetic.
+    // ★ fix-562 §A: `parking_stalls` left the product, and its 20px plus a 4px
+    //   gap paid for widening Stories and Roof Deck into dropdowns — so the
+    //   matrix is 266 rather than 274, which STRENGTHENS this section's claim:
+    //   there is still no width for a ninth column.
     expect(UNIT_ROW_COLUMNS.map((c) => c.key)).toEqual([
       'label', 'width_ft', 'depth_ft', 'qty', 'stories',
-      'parking_kind', 'parking_stalls', 'roof_deck', 'remove',
+      'parking_kind', 'roof_deck', 'remove',
     ]);
-    expect(UNIT_MATRIX_WIDTH).toBe(274);
+    expect(UNIT_MATRIX_WIDTH).toBe(266);
     // ★★★ fix-506 §D SPENT WHAT fix-488 COULD NOT AFFORD, BY TRANSPOSING.
     //     fix-488 §B built P-150's ninth column, measured matrix 274 → 312,
     //     PROJECT floor 296 → 334, row minimum 1,172 → 1,248, wrap point 1,742

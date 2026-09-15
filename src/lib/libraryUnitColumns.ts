@@ -55,7 +55,24 @@
 // ===========================================================================
 
 import type { UnitType } from './database.types';
-import { NOT_RECORDED, parkingKindCode } from './unitParking';
+import {
+  parkingLabel,
+  roofDeckLabel,
+  storiesLabel,
+} from './unitVocabulary';
+
+// ★★★ fix-562 §A — `lib/unitParking` IS GONE, AND ITS JOB MOVED WHOLE.
+//
+// It held fix-402's four-kind vocabulary, the stall coercion, the letter codes
+// and two project-level rollups. Bobby replaced the vocabulary
+// (`1-car garage` … `Surface / None`), removed stalls from the product, and the
+// two rollups (`parkingRollup` / `roofDeckRollup`) had had **no caller in
+// `src/` since fix-447 §B removed the Library's rollup chips** — they were
+// scenery with a test suite. `NOT_RECORDED` and the three vocabularies now live
+// in `lib/unitVocabulary`, which is the one place a reader looks for any of it.
+//
+// ★ Named here rather than deleted silently: the next reader of a fix-402
+//   comment needs somewhere to land (the fix-326 pattern).
 import type { UnitSortableColumn } from './libraryUnitRows';
 
 /** What a cell prints. `text` wins over `value`; `value` gets fix-386's
@@ -145,29 +162,31 @@ export const LIBRARY_UNIT_COLUMNS: readonly LibraryUnitColumn[] = [
     align: 'center',
     sourceKey: 'parking_kind',
     testId: 'parking',
-    // ★ A CODE, not the raw word: `parkingKindCode` is what the Overview's
-    //   matrix prints too, so the two surfaces say the same letter.
-    read: (u) => ({ text: parkingKindCode(u.parking_kind ?? null) }),
+    // ★★★ fix-562 §A — THE COMPOSED LABEL, NOT A LETTER CODE. fix-422's `G` /
+    //     `S` / `B` existed because the Project Overview matrix cell was 26px;
+    //     this table's cell is not, and the whole point of the new vocabulary
+    //     is that `2-car garage` says the thing a one-letter code could not.
+    //     `parkingLabel` is what the Overview prints too, so the two surfaces
+    //     still say the same words.
+    read: (u) => ({ text: parkingLabel(u.parking_kind ?? null, u.parking_count ?? null) }),
   },
-  {
-    col: 'stalls',
-    label: 'Stalls',
-    align: 'center',
-    sourceKey: 'parking_stalls',
-    testId: 'stalls',
-    read: (u) => ({ value: u.parking_stalls ?? null }),
-  },
+  // ★★★ fix-562 §A — `STALLS / UNIT` IS GONE FROM THIS LIST, AND FROM THE
+  //     PRODUCT. Bobby folded the count into the parking answer, so the column,
+  //     its filter, its sort arm, its editor input and `UnitType.parking_stalls`
+  //     all left together. 123 rows of it are in `_fix562_unit_matrix_snapshot`.
+  //     A column removed from here removes its `<th>` too — that is what this
+  //     list is for (fix-519 §A).
   {
     col: 'roofDeck',
     label: 'Roof Deck',
     align: 'center',
     sourceKey: 'roof_deck',
     testId: 'roofdeck',
-    // ★ Three states, not two: `null` is NOT RECORDED and is a different fact
-    //   from `false`. This is the cell that was printing `G`.
-    read: (u) => ({
-      text: u.roof_deck == null ? NOT_RECORDED : u.roof_deck ? 'Y' : 'N',
-    }),
+    // ★★★ fix-562 §A — `W/ PH` · `W/O PH` · `None`, replacing fix-402's Y/N.
+    //     Still three states plus the dash: `null` is NOT RECORDED and is a
+    //     different fact from a recorded `None`. This is the cell that was
+    //     printing `G` (fix-519 §A).
+    read: (u) => ({ text: roofDeckLabel(u.roof_deck ?? null, u.penthouse ?? null) }),
   },
   {
     col: 'stories',
@@ -175,16 +194,26 @@ export const LIBRARY_UNIT_COLUMNS: readonly LibraryUnitColumn[] = [
     align: 'center',
     sourceKey: 'stories',
     testId: 'stories',
-    read: (u) => ({ value: u.stories ?? null }),
+    // ★★★ fix-562 §A — `3` or `3+B`. The TEXT composes the basement modifier;
+    //     the SORT (lib/libraryUnitRows) still reads the NUMBER, which is the
+    //     whole reason the parts are stored separately rather than the label.
+    read: (u) => ({ text: storiesLabel(u.stories ?? null, u.basement ?? null) }),
   },
-  {
-    col: 'qty',
-    label: 'Qty',
-    align: 'center',
-    sourceKey: 'qty',
-    testId: 'qty',
-    read: (u) => ({ value: u.qty ?? null }),
-  },
+  // ★★★ fix-562 §H (P-274) — `QTY` COMES OFF BOTH LIBRARY VIEWS. Bobby,
+  //     2026-09-14: *"we'll take off quantity on the library for unit and site,
+  //     and then he could just put the quantity in at the project overview
+  //     screen in the project details."* This supersedes fix-553 §E, which said
+  //     the unit view only.
+  //
+  // ★★★ THE FIELD IS NOT DELETED — this is the P-236 shape: drop the INPUT,
+  //     keep the COLUMN. `unit_types[].qty` is live data (2–4 on 102 of 267
+  //     units, measured 2026-09-15) and it is still read by the Project
+  //     Overview matrix, the unit-count rollup and the Project Details editor.
+  //
+  // ★★★ AND THE DESTINATION WAS VERIFIED FIRST, which is fix-524 §0.3's lesson:
+  //     `pd-unit-qty` in Project Details → Units already writes this field, and
+  //     `psm-units` beside it writes `projects.units`. Removing the only place
+  //     a field can be typed is how 102 units become uneditable.
 ] as const;
 
 /** The headings, in order — for the empty state's `colSpan` and for any test

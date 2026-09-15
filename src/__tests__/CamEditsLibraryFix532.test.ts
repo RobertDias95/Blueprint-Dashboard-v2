@@ -1,4 +1,5 @@
 import { describe, it, expect } from 'vitest';
+import { LIBRARY_PATCH_FIELDS } from '../hooks/useUpdateLibraryFields';
 import { readFileSync } from 'node:fs';
 import { resolve as resolvePath } from 'node:path';
 import {
@@ -95,14 +96,51 @@ describe('fix-532 §A — the RPC is the gate; the browser check is cosmetic', (
   });
 
   it('★★★ the five fields, and only the five the RPC accepts', () => {
+    // ★★★ fix-562 §G SUPERSEDES THE ARGUMENT LIST, NOT THE RULE.
+    //
+    //     fix-532 asserted five NAMED parameters, and the point was that the
+    //     hook does not hand the server a free patch. §G widened the function
+    //     to EIGHT fields and moved them into a single `p_patch jsonb`, because
+    //     `coalesce(p_X, pr.X)` meant a null could never CLEAR a field — proved
+    //     on prod, rolled back: zone `NR` in, `NR` out, conflict false.
+    //
+    // ★★ THE "NOT A FREE PATCH" RULE IS UNCHANGED AND IS STILL WHAT IS TESTED:
+    //    `LIBRARY_PATCH_FIELDS` is the browser-side whitelist the hook builds
+    //    from, and the function RAISES `22023` on any key outside its own copy
+    //    of the same list. An RPC that applied whatever it was handed would be
+    //    an UPDATE with extra steps and the capability would gate nothing.
     const h = read('src/hooks/useUpdateLibraryFields.ts');
-    for (const f of ['p_zone', 'p_alley', 'p_lot_width', 'p_lot_depth', 'p_unit_types']) {
+    expect(h).toContain('p_patch');
+    for (const f of LIBRARY_PATCH_FIELDS) {
       expect(h).toContain(f);
     }
-    // ★ Listed rather than a free patch: an RPC that applies whatever jsonb it
-    //   is handed is an UPDATE with extra steps, and the capability would gate
-    //   nothing.
-    expect(h).not.toMatch(/p_patch|JSON\.stringify\(patch\)/);
+    expect(LIBRARY_PATCH_FIELDS).toEqual([
+      'zone', 'alley', 'lot_width', 'lot_depth',
+      'lot_size_sf', 'is_corner_lot', 'juris', 'unit_types',
+    ]);
+    // ★★★ fix-562 §G — THE ASSERTION INVERTS AND THE RULE DOES NOT.
+    //
+    //     fix-532 wrote `not.toMatch(/p_patch/)` because a jsonb patch was the
+    //     obvious way to build an RPC that applies whatever it is handed. §G
+    //     adopts `p_patch` for a reason that ticket could not have had: the
+    //     old `coalesce(p_X, pr.X)` signature made a null mean LEAVE UNCHANGED,
+    //     so a Library field could not be CLEARED — proved on prod and rolled
+    //     back (zone `NR` in, `NR` out, conflict false, success toast).
+    //
+    // ★★ SO WHAT MUST BE ASSERTED IS THE WHITELIST, NOT THE ABSENCE OF A
+    //    PATCH. The hook builds the jsonb from `LIBRARY_PATCH_FIELDS` rather
+    //    than from `Object.keys(patch)`, and the function RAISES `22023` on any
+    //    key outside its own copy of that list. SUPERSEDED, NOT MISTAKEN
+    //    (fix-400's rule) — the old line is quoted above so the reversal is on
+    //    the record rather than a test that quietly changed sign.
+    expect(h).not.toMatch(/Object\.keys\(\s*input\.patch/);
+    expect(h).toContain('for (const k of LIBRARY_PATCH_FIELDS)');
+    // ★★★ AND THE `undefined` / `null` DISTINCTION IS THE WHOLE CONTRACT: a key
+    //     the caller did not supply must NOT reach the jsonb, or the column is
+    //     written to null; a key supplied AS null must reach it, or the field
+    //     cannot be cleared. `?? null` would merge the two, which is exactly
+    //     the conflation this ticket removes from the server.
+    expect(h).toContain('if (v !== undefined) p_patch[k] = v;');
   });
 });
 

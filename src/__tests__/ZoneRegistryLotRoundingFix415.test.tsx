@@ -285,7 +285,7 @@ const BASE: LibraryFilters = {
   unitwTarget: null, unitwBuf: 2, unitdTarget: null, unitdBuf: 2, unitsizeTarget: null, unitsizeBuf: 100,
   zone: '', alley: '', productTypes: [], juris: '',
   isCornerLot: '', stories: '',
-  parkingKind: '', stalls: '', roofDeck: '',
+  parkingKind: '', roofDeck: '',
 };
 
 const row = (id: string, zone: string): LibraryRow =>

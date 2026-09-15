@@ -1,5 +1,4 @@
 import type {
-  ParkingKind,
   PermitWithCycles,
   Project,
   Stage,
@@ -7,13 +6,7 @@ import type {
 } from './database.types';
 import { effectiveStage } from './permitStage';
 import { parseUnitTypes } from './unitTypeNaming';
-import {
-  matchParkingKind,
-  matchRoofDeck,
-  matchStallsTier,
-  type RoofDeckFilter,
-  type StallsTier,
-} from './unitParking';
+import { matchParkingOption, matchRoofDeckOption } from './unitVocabulary';
 // ★ fix-486 §D: `isNoWorkUnit` was this module's last reader of `work_scope`,
 //   and it left with the default exclusion above. Nothing here reads the field.
 
@@ -283,13 +276,28 @@ export interface LibraryFilters {
    *  the SITE card. Recorded here rather than silently deleted so the next
    *  reader finds a ruling instead of a gap (the fix-326 pattern). */
 
-  // ★★★ fix-402 — THE UNIT CARD'S THREE NEW FILTERS.
-  /** '' = Any. A picked kind requires that RECORDED kind on a unit. */
-  parkingKind: '' | ParkingKind;
-  /** '' = Any · '1+' · '2+' stalls on a unit. */
-  stalls: StallsTier;
-  /** '' = Any · Yes · No, tri-state like fix-122's corner. */
-  roofDeck: RoofDeckFilter;
+  // ★★★ fix-402 → fix-562 §A — THE UNIT CARD'S PARKING FILTERS.
+  /**
+   * '' = Any, else one of `app_config.parkingOptions` verbatim
+   * (`2-car garage`, `Surface / None`, …). A picked option requires that exact
+   * RECORDED answer on a unit; an unanswered unit does not match.
+   *
+   * ★★★ A REGISTRY LABEL, NOT A UNION MEMBER, and that is deliberate: an admin
+   *     who adds `5-car garage` in Settings gets a filter value for it in the
+   *     same edit, with no union to extend and no stored string that can
+   *     outlive its type (fix-406's throw). An option that leaves the registry
+   *     while a filter still holds it simply matches nothing, and the control
+   *     appends it so the person can SEE what they are filtering by.
+   */
+  parkingKind: string;
+  // ★★★ fix-562 §A — `stalls` IS GONE. Bobby folded the stall count into the
+  //     parking answer, so the filter left with the field it asked about.
+  //     `libraryFilterKeyCoverage` is what forced this to be a deliberate
+  //     removal from `UNIT_FILTER_KEYS` rather than a stranded key.
+  /** '' = Any, else one of `app_config.roofDeckOptions` (`W/ PH` · `W/O PH` ·
+   *  `None`). Replaces fix-402's Yes/No tri-state — same rule, new vocabulary:
+   *  a recorded `None` matches `None` and an UNANSWERED unit matches neither. */
+  roofDeck: string;
   // ★★★ fix-486 §D (P-143) — AND NOW THE DEFAULT EXCLUSION GOES TOO.
   //
   // fix-412 ruled that *"a confirmed No-work remodel drops out of the Library
@@ -376,12 +384,17 @@ export function matchingUnitIndices(
       //     reading would return a project with a 1,700 sf unit and a garage on
       //     a different unit, and the reader would open it to find no such unit.
       matchTargetWithBuffer(u.size_sf, filters.unitsizeTarget, filters.unitsizeBuf) &&
+      // ★★★ fix-562 §A — THE STORIES FILTER STILL ASKS FOR A NUMBER, so
+      //     picking `3` returns BOTH `3` and `3+B`. That is the whole benefit
+      //     of storing the parts: "every 3-storey unit" is one question, not
+      //     two values to remember to tick. Flagged in the PR in case Bobby
+      //     wants them apart.
       matchStoriesTier(u.stories, filters.stories) &&
-      matchParkingKind(u.parking_kind, filters.parkingKind) &&
-      matchStallsTier(u.parking_stalls, filters.stalls) &&
+      matchParkingOption(u.parking_kind, u.parking_count, filters.parkingKind) &&
       // ★ fix-483 §A2: fix-412's `matchWorkScope` conjunct left with its
-      //   filter. The per-unit AND itself (fix-402) is untouched.
-      matchRoofDeck(u.roof_deck, filters.roofDeck)
+      //   filter; fix-562 §A's `matchStallsTier` left with `parking_stalls`.
+      //   The per-unit AND itself (fix-402) is untouched.
+      matchRoofDeckOption(u.roof_deck, u.penthouse, filters.roofDeck)
     ) {
       out.push(i);
     }
@@ -403,7 +416,6 @@ export function hasAnyUnitFilter(filters: LibraryFilters): boolean {
     filters.unitsizeTarget !== null ||
     filters.stories !== '' ||
     filters.parkingKind !== '' ||
-    filters.stalls !== '' ||
     // ★★ fix-483 §A2: `filters.workScope !== ''` left this list with the
     //    filter — and fix-412's warning that omitting it makes a filter INERT
     //    is kept above, because it is the reason this function exists and the
@@ -472,7 +484,7 @@ export const UNIT_FILTER_KEYS = [
   'unitsizeTarget',
   'unitsizeBuf',
   'parkingKind',
-  'stalls',
+  // ★ fix-562 §A: `stalls` left this list with its filter and its field.
   'roofDeck',
   'stories',
   // ★ fix-483 §A2: `workScope` left this list with its filter.
@@ -676,7 +688,14 @@ export const SORTABLE_COLUMNS = [
   'address',
   'juris',
   'productTypes',
-  'units',
+  // ★★★ fix-562 §H — `units` LEFT THIS UNION WITH ITS COLUMN, on fix-406's
+  //     precedent: *a sort on a column nobody can see is not a feature.* Bobby
+  //     took the site view's quantity column (P-274), so the arm went with the
+  //     header. `projects.units` and `LibraryRow.units` are untouched — the
+  //     DATA still reaches every other reader.
+  //   ★ Safe to remove from the union because the Library persists FILTERS
+  //     only (fix-553 §D) — there is no stored sort that can hand this name
+  //     back, which is the fix-406 throw this rule exists to avoid.
   'zone',
   'lotWidth',
   // ★★★ fix-514 §H (P-196): `Lot W×D` SPLITS INTO TWO COLUMNS, so depth gets a
@@ -762,7 +781,8 @@ export function sortLibraryRows(
     sorted.sort((a, b) => (STAGE_ORDER[a.stage] - STAGE_ORDER[b.stage]) * dir);
     return sorted;
   }
-  if (col === 'units' || col === 'lotWidth' || col === 'lotDepth') {
+  // ★ fix-562 §H: `units` left this arm with its column.
+  if (col === 'lotWidth' || col === 'lotDepth') {
     sorted.sort((a, b) => (a[col] - b[col]) * dir);
     return sorted;
   }

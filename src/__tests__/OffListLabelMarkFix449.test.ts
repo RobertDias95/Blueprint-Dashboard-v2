@@ -137,7 +137,7 @@ describe('fix-449 §C3: the mark costs the matrix no width', () => {
       'qty',
       'stories',
       'parking_kind',
-      'parking_stalls',
+      // ★ fix-562 §A: `parking_stalls` left this list with the field.
       'roof_deck',
       'remove',
     ]);

@@ -379,7 +379,11 @@ describe('fix-411 §3 (P-053): the Units table header reads RD', () => {
     expect(UNIT_ROW_COLUMNS.map((c) => c.header)).not.toContain('Deck');
     // ★★ THE CURE FOR THE ABBREVIATION, asserted rather than assumed. Without
     //    this, "RD" is fix-411's problem with fewer letters.
-    expect(roofCol.tooltip).toBe('Whether this type has a roof deck.');
+    // ★ fix-562 §A widened the sentence — the cell is `PH` / `RD` / `N` now,
+    //   so the tooltip has to say what those letters mean. fix-411's rule is
+    //   satisfied MORE completely, not less: the meaning is still one hover or
+    //   one Tab away, and there is more of it.
+    expect(roofCol.tooltip).toContain('Whether this type has a roof deck');
     expect(roofCol.tooltip).toContain('roof deck');
   });
 

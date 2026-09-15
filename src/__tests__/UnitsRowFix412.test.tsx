@@ -243,7 +243,7 @@ describe('fix-412 §C (third edition, fix-422): one template, header and rows', 
       'qty',
       'stories',
       'parking_kind',
-      'parking_stalls',
+      // ★ fix-562 §A: `parking_stalls` left this list with the field.
       'roof_deck',
     ]);
     expect(UNIT_ROW_COLUMNS.some((c) => c.key === 'work_scope')).toBe(false);
@@ -274,7 +274,10 @@ describe('fix-412 §C (third edition, fix-422): one template, header and rows', 
     // than either previous edition offered.
     const rd = UNIT_ROW_COLUMNS.find((c) => c.key === 'roof_deck')!;
     expect(rd.header).toBe('RD');
-    expect(rd.tooltip).toBe('Whether this type has a roof deck.');
+    // ★ fix-562 §A widened the sentence: the cell is `PH` / `RD` / `N` now, so
+    //   the tooltip carries what those letters cost. fix-411's ruling is
+    //   satisfied more completely, not less.
+    expect(rd.tooltip).toContain('Whether this type has a roof deck');
     expect(UNIT_ROW_COLUMNS.map((c) => c.header)).not.toContain('Deck');
   });
 
@@ -360,7 +363,7 @@ describe('fix-412 §B (surviving): the unit row, after work_scope', () => {
       'pd-unit-qty',
       'pd-unit-stories',
       'pd-unit-parking-kind',
-      'pd-unit-stalls',
+      // ★ fix-562 §A: `pd-unit-stalls` left this list with the field.
       'pd-unit-roof-deck',
       'pd-unit-label-select',
     ]) {

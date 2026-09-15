@@ -377,7 +377,8 @@ describe('fix-483 §A3: clicking the card switches the view; clicking a control 
       ).toBe('true');
     }
     goUnit();
-    for (const id of ['filter-parking-kind', 'filter-stalls', 'unitw-target']) {
+    // ★ fix-562 §A: `filter-stalls` left this list with its control.
+    for (const id of ['filter-parking-kind', 'filter-roof-deck', 'unitw-target']) {
       fireEvent.click(screen.getByTestId(id));
       expect(
         screen.getByTestId('filter-chip-unit').dataset.active,

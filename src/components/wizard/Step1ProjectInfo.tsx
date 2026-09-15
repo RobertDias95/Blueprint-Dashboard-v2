@@ -11,6 +11,11 @@ import { useAppConfig, readAppConfigStringArray } from '../../hooks/useAppConfig
 //   routing editor.
 import { useDaTeamRouting } from '../../hooks/useDaTeamRouting';
 import UnitTypesEditor from './UnitTypesEditor';
+import {
+  parkingOptions,
+  roofDeckOptions,
+  storiesOptions,
+} from '../../lib/unitVocabulary';
 import ReuseSourcePicker, { type ReuseSource } from './ReuseSourcePicker';
 import BuilderAutocompleteField from '../builder/BuilderAutocompleteField';
 import { memberLabel, isNonActiveMember } from '../../lib/teamMemberLabel';
@@ -133,6 +138,12 @@ export default function Step1ProjectInfo({
     () => readAppConfigStringArray(appConfig.map, 'productTypeOptions'),
     [appConfig.map],
   );
+  // ★ fix-562 §A: the three unit vocabularies, read here and passed down for
+  //   the same reason `productTypeOptions` is (UnitTypesEditor's suite renders
+  //   it with no React Query provider).
+  const parkingOpts = useMemo(() => parkingOptions(appConfig.map), [appConfig.map]);
+  const roofDeckOpts = useMemo(() => roofDeckOptions(appConfig.map), [appConfig.map]);
+  const storiesOpts = useMemo(() => storiesOptions(appConfig.map), [appConfig.map]);
 
   // fix-143: when backfill mode is on the role pickers open to inactive +
   // former staff so a historical project can be assigned to them.
@@ -1074,6 +1085,11 @@ export default function Step1ProjectInfo({
 
         <UnitTypesEditor
           productTypeOptions={productTypeOptions}
+          // ★ fix-562 §A: the three unit vocabularies, read here for the same
+          //   reason productTypeOptions is — see UnitTypesEditor's Props.
+          parkingOptions={parkingOpts}
+          roofDeckOptions={roofDeckOpts}
+          storiesOptions={storiesOpts}
           value={value.unit_types}
           onChange={(next: UnitType[]) => set('unit_types', next)}
         />
