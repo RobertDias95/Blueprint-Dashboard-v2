@@ -1,14 +1,11 @@
-import {
-  useEffect,
-  useLayoutEffect,
-  useMemo,
-  useRef,
-  useState,
-} from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import OriginLink from '../components/OriginLink';
 import { useWeeklyDaReport } from '../hooks/useWeeklyDaReport';
-import { useAddNote, useUpdateNote } from '../hooks/useNotes';
+// ★★★ fix-569 §A: this page no longer imports a note-writing hook. It was the
+//     LAST writer of `public.notes` — asserted on the import graph, because a
+//     rendered-string test would pass against a hook that is imported and
+//     merely unused.
 import { usePermits } from '../hooks/usePermits';
 import { useProjects } from '../hooks/useProjects';
 import {
@@ -336,7 +333,10 @@ function DaSection({
               <Th>Address</Th>
               <Th>Permit Type / #</Th>
               <Th>Corr Issued</Th>
-              <Th>Notes</Th>
+              {/* ★★★ fix-569 §A — THE `Notes` COLUMN GOES WITH ITS EDITOR.
+                  Leaving the header over a deleted control would print an
+                  empty column on every row, which is the "invented emptiness"
+                  fix-460 removed from the task panel for the same reason. */}
             </tr>
           </thead>
           <tbody>
@@ -354,14 +354,23 @@ function DaSection({
                 <Td className="font-mono whitespace-nowrap">
                   {fmtDate(row.corr_issued)}
                 </Td>
-                <td className="px-2 py-1 w-[40%]">
-                  <NoteEditor
-                    permitId={row.permit_id}
-                    projectId={row.project_id}
-                    noteId={row.note_id ?? null}
-                    noteBody={row.note_body}
-                  />
-                </td>
+                {/* ★★★ fix-569 §A — THE LAST PERMIT-LEVEL NOTE BOX IS GONE.
+                    fix-559 removed three mounts of the permit/project note
+                    surface and deleted all 107 rows (applied 2026-09-15;
+                    `notes` is 0, the backup holds them, all 107 are in
+                    General). This editor survived that sweep — it sits in a
+                    report rather than on a project screen — and I reported it
+                    rather than removing it unasked.
+
+                    ★★★ WITH THE TABLE EMPTY IT BECAME STRICTLY WORSE THAN
+                        BEFORE: it displayed nothing, and anything typed into
+                        it wrote a `notes` row **no surface in the product
+                        reads**. That is exactly the defect P-257 described,
+                        recreated in the one place the sweep did not reach.
+                        Bobby ruled it out on 2026-09-15.
+
+                    ★ Only the note box goes. Every other column of this report
+                      is untouched. */}
               </tr>
             ))}
           </tbody>
@@ -488,159 +497,26 @@ function PermitTypeNum({ row }: { row: WeeklyDaReportRow }) {
   );
 }
 
-// ===========================================================
-// NoteEditor — autosizing, debounced, stale-prop-synced textarea.
-// fix-notes-4: bound to the permit's NEWEST ACTIVE unified note
-// (public.notes) instead of the old report_notes table. Edits update THAT
-// note via the fix-notes-1 useUpdateNote hook; when the permit has no
-// active note yet, the first save creates one via useAddNote (permit-
-// scoped). Single source: an edit here shows on the permit NotesPanel,
-// the dashboard card, and the Weekly Updates report via the shared
-// notes-prefix invalidation (and vice-versa via realtime).
-// ===========================================================
-
-function NoteEditor({
-  permitId,
-  projectId,
-  noteId,
-  noteBody,
-}: {
-  permitId: number;
-  projectId: string;
-  /** public.notes.id of the newest active note, or null (create on save). */
-  noteId: string | null;
-  noteBody: string;
-}) {
-  const [draft, setDraft] = useState(noteBody);
-  // dirty lives twice on purpose: the STATE copy gates the in-render upstream
-  // sync below (render may not read refs — react-hooks/refs), while the REF
-  // copy is what the debounce timer / blur handlers consult (event context).
-  // Both flip together in onChange/flush.
-  const dirtyRef = useRef(false);
-  const [dirty, setDirty] = useState(false);
-  // React 19 in-render setState pattern (same as fix-63/64): keep the draft
-  // synced when the upstream note_body changes (a refetch or a DA switch
-  // remounting with a new permit). Track a {permitId, noteBody} snapshot;
-  // reset the draft synchronously in-render when either moves.
-  // fix-notes-4: EXCEPT while the user has un-flushed keystrokes (dirty) —
-  // the notes hooks invalidate this report's query on save, so an upstream
-  // refetch can now land mid-typing; the dirty guard keeps the draft.
-  const [snap, setSnap] = useState<{ id: number; value: string }>({
-    id: permitId,
-    value: noteBody,
-  });
-  if (snap.id !== permitId || snap.value !== noteBody) {
-    setSnap({ id: permitId, value: noteBody });
-    if (!dirty) setDraft(noteBody);
-  }
-
-  const addNote = useAddNote();
-  const updateNote = useUpdateNote();
-  const taRef = useRef<HTMLTextAreaElement>(null);
-  const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  // The note this editor created on its first save, until a refetch delivers
-  // it as the upstream noteId prop. Read/written ONLY in event context
-  // (flush / mutation callbacks) — flush resolves the target note as
-  // `noteId ?? createdIdRef.current`, which also stops a stale debounce
-  // timer (whose closure predates the create) from creating a duplicate.
-  const createdIdRef = useRef<string | null>(null);
-  const pendingCreate = useRef(false);
-  const latestBody = useRef('');
-
-  // Autosize to content (min 3 rows via the rows attr). Touches DOM style
-  // only — no setState — so it's lint-clean inside a layout effect.
-  useLayoutEffect(() => {
-    const el = taRef.current;
-    if (!el) return;
-    el.style.height = 'auto';
-    el.style.height = `${el.scrollHeight}px`;
-  }, [draft]);
-
-  // Clear any pending debounce on unmount.
-  useEffect(() => {
-    return () => {
-      if (timer.current) clearTimeout(timer.current);
-    };
-  }, []);
-
-  function flush(value: string) {
-    if (timer.current) {
-      clearTimeout(timer.current);
-      timer.current = null;
-    }
-    dirtyRef.current = false;
-    setDirty(false);
-    // Never persist an empty body (mirrors NotesPanel's commit rule) — the
-    // note keeps its last saved text; complete it from a notes surface to
-    // clear it out of the report.
-    const body = value.trim();
-    if (!body) return;
-    latestBody.current = body;
-    const id = noteId ?? createdIdRef.current;
-    if (id) {
-      updateNote.mutate({ id, projectId, body });
-      return;
-    }
-    if (pendingCreate.current) return; // create in flight — reconciled below
-    pendingCreate.current = true;
-    addNote.mutate(
-      { projectId, permitId, body },
-      {
-        onSuccess: (newId) => {
-          createdIdRef.current = newId;
-          pendingCreate.current = false;
-          // Keystrokes flushed while the create was in flight — bring the
-          // created note up to the latest text.
-          if (latestBody.current !== body) {
-            updateNote.mutate({ id: newId, projectId, body: latestBody.current });
-          }
-        },
-        onError: () => {
-          pendingCreate.current = false;
-        },
-      },
-    );
-  }
-
-  function onChange(e: React.ChangeEvent<HTMLTextAreaElement>) {
-    const v = e.target.value;
-    setDraft(v);
-    dirtyRef.current = true;
-    setDirty(true);
-    if (timer.current) clearTimeout(timer.current);
-    // Debounce: save ~500ms after the user stops typing.
-    timer.current = setTimeout(() => {
-      if (dirtyRef.current) flush(v);
-    }, 500);
-  }
-
-  function onBlur() {
-    if (dirtyRef.current) flush(draft);
-  }
-
-  return (
-    <textarea
-      ref={taRef}
-      value={draft}
-      onChange={onChange}
-      onBlur={onBlur}
-      rows={3}
-      placeholder="Add a note for this permit…"
-      className="w-full text-[11px] leading-snug px-1.5 py-1 border rounded outline-none resize-none min-h-[3.5rem]"
-      style={{
-        borderColor: 'var(--color-border)',
-        background: 'var(--color-bg)',
-        color: 'var(--color-text)',
-      }}
-      data-testid={`wdr-note-${permitId}`}
-      aria-label={`Note for permit ${permitId}`}
-    />
-  );
-}
-
-// ===========================================================
-// Small presentational helpers
-// ===========================================================
+// ===========================================================================
+// ★★★ fix-569 §A — `NoteEditor` WAS DELETED HERE
+// ===========================================================================
+//
+// fix-notes-4 bound this textarea to the permit's newest active `public.notes`
+// row, creating one on first save. It was the LAST writer of that table.
+//
+// ★★★ fix-559 removed the three project-screen mounts of the permit-level
+//     note surface and Cowork applied its delete on 2026-09-15: `notes` is
+//     **0 rows**, `notes_deleted_fix559` holds all 107, and all 107 are in the
+//     General channel. This box survived because it lives in a report, not on
+//     a project screen — fix-559 reported it rather than removing it unasked.
+//
+// ★★★ AND THAT LEFT IT STRICTLY WORSE THAN BEFORE: it showed nothing, and a
+//     save wrote a row **nothing in the product reads**. Bobby: remove it.
+//
+// ★ The report's own data path is untouched — `bp_get_weekly_da_report` still
+//   returns `note_id` / `note_body` on every row; nothing renders them now.
+//   Left alone deliberately: changing the RPC's shape is a server change this
+//   display-only ticket does not need, and the columns cost nothing.
 
 function Field({ label, children }: { label: string; children: React.ReactNode }) {
   return (

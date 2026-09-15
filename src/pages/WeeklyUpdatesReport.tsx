@@ -173,6 +173,38 @@ export default function WeeklyUpdatesReport() {
         </label>
       </div>
 
+      {/* ═══════════════════════════════════════════════════════════════
+          ★★★ fix-569 §B — WHY THIS REPORT IS EMPTY, SAID ON THE REPORT
+          ═══════════════════════════════════════════════════════════════
+
+          This report IS the `public.notes` rows, grouped by project. fix-559
+          deleted all 107 of them by Bobby's ruling (applied 2026-09-15; the
+          backup holds them and every one is in the General channel), so every
+          note section below is empty and will stay empty.
+
+          ★★★ AN EMPTY REPORT WITH NO EXPLANATION READS AS A BUG and gets
+              reported as one. One sentence, standing — not only in the
+              empty-state branch, because the "only with notes" filter DEFAULTS
+              OFF: the usual render lists projects with blank note sections and
+              never reaches that branch at all.
+
+          ⚠️ DELIBERATELY NOT RE-POINTED at chat or at task notes. That is a
+             product decision Bobby has not made (fix-569 §B). This says where
+             the notes went; it does not go and get them. */}
+      <div
+        className="text-[11px] px-3 py-2 mb-3 rounded border"
+        style={{
+          background: 'var(--color-s2)',
+          borderColor: 'var(--color-border)',
+          color: 'var(--color-muted)',
+        }}
+        data-testid="weekly-updates-notes-moved"
+      >
+        The 107 project notes moved to each project&rsquo;s General channel, and
+        a note about a task now lives on the task. Anything added here is
+        visible only in this report.
+      </div>
+
       {isLoading ? (
         <SkeletonRows count={5} rowClassName="h-20" />
       ) : groups.length === 0 ? (
@@ -180,8 +212,10 @@ export default function WeeklyUpdatesReport() {
           className="text-xs text-dim italic px-3 py-8 bg-s2 border border-border rounded text-center"
           data-testid="weekly-updates-empty"
         >
+          {/* ★ fix-569 §B: "right now" implied this might fill up again. It
+              will not — the notes moved. */}
           {onlyWithNotes
-            ? 'No projects have active notes right now.'
+            ? 'No project notes: they now live in each project\u2019s General channel.'
             : 'No active projects.'}
         </div>
       ) : (
@@ -260,6 +294,21 @@ function NotesScope({
   notes: Note[];
   testid: string;
 }) {
+  // ★★★ fix-569 — THIS REPORT IS THE OTHER WRITER, AND IT IS LEFT ALONE.
+  //
+  //     fix-569's brief said *"one writer survived"* — the Weekly DA report's
+  //     note box, which §A removed. Grepping the hooks (which §A asked for)
+  //     found a SECOND: this report has a full add/edit surface of its own
+  //     (fix-notes-3 built it editable on purpose).
+  //
+  // ★★ IT IS NOT THE SAME DEFECT, WHICH IS WHY IT IS STILL HERE. The Weekly
+  //    DA box wrote into the void — it displayed nothing and no surface read
+  //    what it saved. This report READS `notes` as well as writing them, so a
+  //    note added here is visible… here. A self-contained island, not a hole.
+  //
+  // ⚠️ REMOVING IT IS A PRODUCT DECISION BOBBY HAS NOT MADE. §B is explicit:
+  //    *"Report, do not improvise."* So it is reported in the PR and the
+  //    banner above says plainly that anything added here goes no further.
   const addNote = useAddNote();
   const updateNote = useUpdateNote();
   const [showHistory, setShowHistory] = useState(false);

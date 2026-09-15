@@ -432,11 +432,26 @@ function FilterRow({
       >
         Active
       </button>
+      {/* ★★★ fix-569 §B — THE PLACEHOLDER STOPS PROMISING NOTES.
+          This box searched note bodies via `bp_project_note_search_index`
+          (fix-notes-2). fix-559 deleted all 107 `notes` rows by Bobby's ruling
+          (applied 2026-09-15), so that index is empty and matches nothing.
+
+          ★★★ THE SEARCH HAS NO EMPTY STATE OF ITS OWN — it just silently stops
+              matching — so the PLACEHOLDER is the thing that made it look
+              broken: it advertised a capability that had gone. Removing the
+              word is the honest one-sentence fix, and the title says where the
+              notes went for anybody who wondered.
+
+          ⚠️ The hook and the index are LEFT IN PLACE, deliberately. Re-pointing
+             this at chat or at task notes is a product decision Bobby has not
+             made (§B), and ripping out the plumbing would pre-empt it. */}
       <input
         type="text"
         value={filters.search}
         onChange={(e) => onPatch({ search: e.target.value })}
-        placeholder="Search address, tags, notes…"
+        placeholder="Search address, tags…"
+        title="Project notes now live in each project’s General channel; notes on a task live on the task."
         className="text-[12px] px-2 py-1 border rounded outline-none min-w-[200px]"
         style={inputStyle()}
         data-testid="project-view-search"

@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
-import { render, screen, fireEvent, act } from '@testing-library/react';
+import { render, screen, fireEvent } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import type { WeeklyDaReportPayload } from '../lib/database.types';
 
@@ -307,10 +307,34 @@ describe('<WeeklyDaReport /> (fix-67)', () => {
     expect(unassigned.textContent).toMatch(/Approved – Awaiting Issuance \(0\)/);
   });
 
-  it('seeds a Notes textarea from the server note_body', () => {
+  // ═══════════════════════════════════════════════════════════════════════
+  // ★★★ fix-569 §A — THE NOTE BOX IS GONE, SO fix-notes-4's SIX TESTS ARE
+  // ═══════════════════════════════════════════════════════════════════════
+  //
+  // They asserted the seeding, the debounced create, the update-not-duplicate
+  // path and the empty-draft guard of `NoteEditor` — a control that wrote
+  // `public.notes` from this report. All six were right about a box that no
+  // longer exists.
+  //
+  // ★★★ fix-559 removed the three project-screen note mounts and Cowork applied
+  //     its delete on 2026-09-15: `notes` is 0 rows, the backup holds all 107,
+  //     and all 107 are in the General channel. This box survived that sweep
+  //     (it is in a report, not on a project screen) and was REPORTED rather
+  //     than removed unasked — which left it **strictly worse than before**:
+  //     it displayed nothing and a save wrote a row nothing read. Bobby ruled
+  //     it out.
+  //
+  // ★ What replaces them is one assertion that the control is absent, plus the
+  //   neighbouring-content check the brief asked for. The import-graph
+  //   assertion — the one that stops a writer coming back — lives in
+  //   `LastPermitNoteBoxFix569`.
+  it('★★★ fix-569: the note box is gone, and the rest of the row is not', () => {
     renderReport();
-    const note = screen.getByTestId('wdr-note-101') as HTMLTextAreaElement;
-    expect(note.value).toBe('Waiting on structural revisions.');
+    expect(screen.queryByTestId('wdr-note-101')).toBeNull();
+    expect(screen.queryByTestId('wdr-note-200')).toBeNull();
+    // ★ the corrections rows themselves, and their other columns, still render
+    expect(screen.getByTestId('wdr-corr-row-101')).toBeInTheDocument();
+    expect(screen.getByTestId('wdr-corr-row-200')).toBeInTheDocument();
   });
 
   it('passes the updated filter object to useWeeklyDaReport when a dropdown changes', () => {
@@ -322,91 +346,6 @@ describe('<WeeklyDaReport /> (fix-67)', () => {
     // The most recent call reflects the new filter.
     const lastCall = reportHookSpy.mock.calls[reportHookSpy.mock.calls.length - 1];
     expect(lastCall[2]).toEqual({ da: 'Fisk' });
-  });
-
-  it('typing on a permit with NO active note creates one (debounced ~500ms) via useAddNote', () => {
-    vi.useFakeTimers();
-    renderReport();
-    // Notes live on CORRECTIONS rows only. Permit 200 (Unassigned
-    // corrections) starts with an empty note (note_id null).
-    const note = screen.getByTestId('wdr-note-200') as HTMLTextAreaElement;
-    fireEvent.change(note, { target: { value: 'Call the city Monday.' } });
-    // Not saved immediately.
-    expect(addMutate).not.toHaveBeenCalled();
-    act(() => {
-      vi.advanceTimersByTime(500);
-    });
-    expect(addMutate).toHaveBeenCalledTimes(1);
-    expect(addMutate.mock.calls[0][0]).toEqual({
-      projectId: 'pr1',
-      permitId: 200,
-      body: 'Call the city Monday.',
-    });
-    expect(updateMutate).not.toHaveBeenCalled();
-  });
-
-  it('editing a permit WITH an active note updates THAT note via useUpdateNote', () => {
-    vi.useFakeTimers();
-    renderReport();
-    const note = screen.getByTestId('wdr-note-101') as HTMLTextAreaElement;
-    fireEvent.change(note, { target: { value: 'Structural received 7/20.' } });
-    act(() => vi.advanceTimersByTime(500));
-    expect(updateMutate).toHaveBeenCalledTimes(1);
-    expect(updateMutate.mock.calls[0][0]).toEqual({
-      id: 'note-101',
-      projectId: 'pr1',
-      body: 'Structural received 7/20.',
-    });
-    expect(addMutate).not.toHaveBeenCalled();
-  });
-
-  it('after a create resolves, further edits UPDATE the created note (no duplicate create)', () => {
-    vi.useFakeTimers();
-    // The create resolves with the new note's id.
-    addMutate.mockImplementation((_input, opts) => opts?.onSuccess?.('new-note-id'));
-    renderReport();
-    const note = screen.getByTestId('wdr-note-200') as HTMLTextAreaElement;
-    fireEvent.change(note, { target: { value: 'First save' } });
-    act(() => vi.advanceTimersByTime(500));
-    expect(addMutate).toHaveBeenCalledTimes(1);
-    fireEvent.change(note, { target: { value: 'Second save' } });
-    act(() => vi.advanceTimersByTime(500));
-    expect(addMutate).toHaveBeenCalledTimes(1); // no second create
-    expect(updateMutate).toHaveBeenCalledWith({
-      id: 'new-note-id',
-      projectId: 'pr1',
-      body: 'Second save',
-    });
-  });
-
-  it('an empty draft is never persisted (no create, no update)', () => {
-    vi.useFakeTimers();
-    renderReport();
-    const note = screen.getByTestId('wdr-note-101') as HTMLTextAreaElement;
-    fireEvent.change(note, { target: { value: '   ' } });
-    act(() => vi.advanceTimersByTime(500));
-    expect(addMutate).not.toHaveBeenCalled();
-    expect(updateMutate).not.toHaveBeenCalled();
-  });
-
-  it('debounce coalesces rapid keystrokes into one save', () => {
-    vi.useFakeTimers();
-    renderReport();
-    const note = screen.getByTestId('wdr-note-200') as HTMLTextAreaElement;
-    fireEvent.change(note, { target: { value: 'a' } });
-    act(() => vi.advanceTimersByTime(200));
-    fireEvent.change(note, { target: { value: 'ab' } });
-    act(() => vi.advanceTimersByTime(200));
-    fireEvent.change(note, { target: { value: 'abc' } });
-    // Still within debounce — no save yet.
-    expect(addMutate).not.toHaveBeenCalled();
-    act(() => vi.advanceTimersByTime(500));
-    expect(addMutate).toHaveBeenCalledTimes(1);
-    expect(addMutate.mock.calls[0][0]).toEqual({
-      projectId: 'pr1',
-      permitId: 200,
-      body: 'abc',
-    });
   });
 
   it('print button calls window.print()', () => {
