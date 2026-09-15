@@ -769,7 +769,15 @@ function ProjectRowView({
               </span>
               <OriginLink
                 to={`/project/${original.project.id}`}
-                className="hover:underline line-through"
+                /* ★★★ fix-553 §A — THE LINE COMES OFF HERE TOO, AND THIS IS THE
+                   THIRD INSTANCE THE BRIEF WARNED ABOUT: *"a third instance
+                   turning up in two weeks is the failure mode."* It turned up
+                   in ONE week — fix-556 §D added this folded-original row on
+                   2026-09-14 and struck it through, unaware that fix-530 §D had
+                   retired the treatment for retired states.
+                   ★ The distinction survives without it: the row keeps the
+                     purple hatch AND the `ORIGINAL` chip beside the address. */
+                className="hover:underline"
                 style={{ color: RETIRED_PALETTE.redesigned.text }}
                 data-testid={`project-view-original-link-${original.project.id}`}
               >

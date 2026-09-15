@@ -123,6 +123,30 @@
   --color-hold-text:    #412402;
   --color-hold-subtext: #633806;
 
+  /* ★★★ fix-553 §F — ON HOLD JOINS THE HATCH FAMILY.
+     Bobby, 2026-09-14: *"can hold get the same color effect on the draw
+     schedule as cancelled and redesigned, with the grey hashes with yellow?
+     that way those 3 resemble one another?"*
+
+     ★★★ TWO TOKENS, NOT A THIRD PATTERN. `lib/retiredState.hatch(a, b)` is the
+     recipe and it already takes its colours as arguments (fix-524 §A), so a
+     third state is two more colours — never a second gradient literal, which
+     is where the stripe width would drift.
+
+     ★★ THE DARKER STRIPE IS THE HOLD'S EXISTING YELLOW (`--color-hold-bg`),
+        so the state keeps the identity people already know; the lighter one is
+        the same hue, in the same lightness relationship the other two families
+        use. `--color-hold-text` #412402 measures **9.13:1** on the darker
+        stripe and **11.38:1** on the lighter — comfortably past the 6.58 and
+        7.05 the cancelled and redesigned families run at.
+
+     ⚠️ A HOLD IS NOT RETIRED. These live beside the retired pair because they
+        are painted by the same function, NOT because a hold is one — it is a
+        PAUSE, it keeps its phase pill, and it takes no strikethrough. See
+        `DS_PARK_PRESENTATION`. */
+  --color-hold-a:      #fde3b4;
+  --color-hold-b:      #fac775;
+
   --color-cancelled-a:      #d3d1c7;
   --color-cancelled-b:      #b4b2a9;
   --color-cancelled-border: #5f5e5a;

@@ -49,6 +49,7 @@ import {
 // calling useUpsertTask directly.
 import { useSetTaskStatus } from '../hooks/useSetTaskStatus';
 import TaskStatusChip from '../components/MyTasks/TaskStatusChip';
+import { TASK_STATUS_PAINT } from '../lib/taskStatus';
 import { TaskStatusOverlayProvider } from '../lib/taskStatusOverlay';
 import {
   applyStatusOverlay,
@@ -208,13 +209,16 @@ const BUCKET_ACCENT: Record<DiagBucket, string> = {
   de: 'var(--color-de)',
   pm: 'var(--color-pm)',
 };
-const STATUS_BG: Record<Task['status'], string> = {
-  Open: 'var(--color-s2)',
-  'In Progress': 'var(--color-de)',
-  Resolved: 'var(--color-pm)',
-  // fix-262: parked by a project cancel — muted, never a live-work colour.
-  Cancelled: 'var(--color-s2)',
-};
+// ★★★ fix-553 §B: the chip's paint moved to `lib/taskStatus.TASK_STATUS_PAINT`
+//     — ONE map, measured, shared with the Waiting On report, which held a
+//     second literal with the same failing values. See that file for the
+//     before/after ratios.
+const STATUS_BG: Record<Task['status'], string> = Object.fromEntries(
+  (Object.keys(TASK_STATUS_PAINT) as Task['status'][]).map((k) => [
+    k,
+    TASK_STATUS_PAINT[k].background,
+  ]),
+) as Record<Task['status'], string>;
 
 function loadFilters(): FilterState {
   if (typeof window === 'undefined') return DEFAULT_FILTERS;
@@ -2531,6 +2535,7 @@ export const TaskCard = memo(function TaskCard({
           taskId={task.id}
           status={task.status}
           background={STATUS_BG[task.status]}
+          border={TASK_STATUS_PAINT[task.status].border}
           onSelect={(next) => setStatus(task, next)}
         />
         {/* ★★ fix-308b #44: an unassigned OPEN task says so, here, where the

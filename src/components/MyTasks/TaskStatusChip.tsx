@@ -52,6 +52,11 @@ export interface TaskStatusChipProps {
   status: TaskStatus;
   /** Background token for the chip, so it keeps the row's existing vocabulary. */
   background: string;
+  /** ★ fix-553 §B: the matching border. The three grounds are pale tints now
+   *  (measured 12.45–13.39:1 for the ink, up from 2.94 and 4.03), so the
+   *  border, the dot glyph and the word carry the distinction between them
+   *  rather than hue alone. */
+  border?: string;
   onSelect: (next: TaskWriteStatus) => void;
 }
 
@@ -59,6 +64,7 @@ export default function TaskStatusChip({
   taskId,
   status,
   background,
+  border,
   onSelect,
 }: TaskStatusChipProps) {
   const [open, setOpen] = useState(false);
@@ -96,8 +102,12 @@ export default function TaskStatusChip({
   if (cancelled) {
     return (
       <span
-        className="text-[9px] px-1.5 py-0.5 rounded font-bold"
-        style={{ background, color: 'var(--color-text)' }}
+        className="text-[9px] px-1.5 py-0.5 rounded font-bold border"
+        style={{
+          background,
+          color: 'var(--color-text)',
+          borderColor: border ?? 'var(--color-border)',
+        }}
         data-testid={`mytask-card-${taskId}-status`}
       >
         {label}
@@ -164,8 +174,12 @@ export default function TaskStatusChip({
       <button
         ref={triggerRef}
         type="button"
-        className="text-[9px] px-1.5 py-0.5 rounded font-bold cursor-pointer"
-        style={{ background, color: 'var(--color-text)' }}
+        className="text-[9px] px-1.5 py-0.5 rounded font-bold cursor-pointer border"
+        style={{
+          background,
+          color: 'var(--color-text)',
+          borderColor: border ?? 'var(--color-border)',
+        }}
         aria-haspopup="listbox"
         aria-expanded={open}
         aria-controls={open ? listId : undefined}

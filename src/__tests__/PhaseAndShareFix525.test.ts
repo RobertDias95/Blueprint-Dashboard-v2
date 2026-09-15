@@ -284,8 +284,13 @@ describe('fix-525 §B — cancelled hidden, redesigned kept and hatched', () => 
   it('★★ the hatch is the one fix-524 built — not a second one', () => {
     // ⚠️ *"Do NOT rebuild the hatch, the retired predicate, or the
     //    plan-of-record card."*
+    // ★★ AMENDED BY fix-553 §D. The BADGE is gone from the Library by Bobby's
+    //    ruling — but this test's actual rule is *"do NOT rebuild the hatch"*,
+    //    and that is asserted by the two NEGATIVES below, which are the half
+    //    that catches a second pattern being written. They still hold, and now
+    //    they hold more strongly: the Library paints no retired treatment at
+    //    all rather than a correct one.
     const lib = code(read('src/components/LibraryMatrix.tsx'));
-    expect(lib).toContain('RetiredBadge');
     expect(lib).not.toContain('repeating-linear-gradient');
     expect(lib).not.toContain('--color-redesigned');
   });

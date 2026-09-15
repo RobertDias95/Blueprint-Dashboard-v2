@@ -43,14 +43,25 @@ describe('fix-532 §C — the same words on every surface that shows a set', () 
   it('★★★ ONE string, and every surface reads it', () => {
     // ★ Four surfaces wording this differently is four chances for one of them
     //   to sound optional.
-    for (const f of Object.values(SURFACES)) {
+    // ★★ AMENDED BY fix-553 §D, RULING UNCHANGED FOR THE SURFACES THAT KEEP
+    //    IT. Bobby was told exactly what `ARCHIVED` means — not a stage, not
+    //    "issued", but `is_archived_fallback` on 60 projects — and ruled the
+    //    BADGE off the Library anyway (P-247, accepted).
+    //
+    // ★★★ THE SENTENCE SURVIVES WHERE IT WAS PROTECTED: §D is explicit that the
+    //     plan-of-record card's explanation stays, and the `/s/` share page's
+    //     reader is a builder with no legend to consult. fix-532 §C's rule —
+    //     ONE string, never four wordings — still holds across every surface
+    //     that still says it.
+    for (const [name, f] of Object.entries(SURFACES)) {
+      if (name === 'library') continue;
       expect(code(read(f))).toContain('ARCHIVED_FALLBACK_LABEL');
     }
-    // ★ The table cell has no room for a sentence, so the short form carries
-    //   the long one as its `title` — the sentence is never unsaid.
+    // ★ The Library said the SHORT form ('ARCHIVED') with the sentence as its
+    //   title. That badge is what §D removed; the constant is untouched and is
+    //   still what any future cell would use.
     const lib = code(read(SURFACES.library));
-    expect(lib).toContain('ARCHIVED_FALLBACK_SHORT');
-    expect(lib).toContain('title={ARCHIVED_FALLBACK_LABEL}');
+    expect(lib).not.toContain('ARCHIVED_FALLBACK_SHORT');
     expect(ARCHIVED_FALLBACK_SHORT).toBe('ARCHIVED');
   });
 
@@ -92,10 +103,14 @@ describe('fix-532 §C — the same words on every surface that shows a set', () 
   it('★★ the Library asks ONE query for the screen, not one per row', () => {
     // ★ 220 subscriptions to answer one boolean each is the shape fix-434
     //   measured at 1.1 MB an invalidation.
+    // ★★ AMENDED BY fix-553 §D. The HOOK's shape is fix-532 §C's actual rule —
+    //    one query for a screen, never 220 subscriptions — and it is unchanged
+    //    and still asserted. What changed is that the Library no longer CALLS
+    //    it: the badge it fed is gone, so the screen stopped asking. The
+    //    per-row shape it was written to avoid is not back.
     const hook = code(read('src/hooks/useArchivedFallbackProjects.ts'));
     expect(hook).toContain("from('project_plan_of_record_sets')");
     expect(hook).toContain("eq('is_archived_fallback', true)");
-    expect(code(read(SURFACES.library))).toContain('useArchivedFallbackProjects()');
     expect(code(read(SURFACES.library))).not.toContain('usePlanOfRecordSets');
   });
 

@@ -2,14 +2,12 @@ import { useMemo, useState } from 'react';
 import OriginLink from './OriginLink';
 import { PREVIOUS_ORIGINS } from '../lib/previousOrigin';
 import { useProjects } from '../hooks/useProjects';
-import RetiredBadge from './shared/RetiredBadge';
+// ★ fix-553 §D: `RetiredBadge`, `useArchivedFallbackProjects` and the two
+//   ARCHIVED strings went with the badges. Each still exists and is still used
+//   elsewhere — the badge strings on the plan-of-record card and the share page,
+//   `RetiredBadge` on the hold/cancelled surfaces. This screen stopped asking.
 import { LibraryChoiceCell, LibraryDimensionCell } from './LibraryEditCell';
 import { parseUnitTypes } from '../lib/unitTypeNaming';
-import { useArchivedFallbackProjects } from '../hooks/useArchivedFallbackProjects';
-import {
-  ARCHIVED_FALLBACK_LABEL,
-  ARCHIVED_FALLBACK_SHORT,
-} from '../lib/archivedFallback';
 import {
   useMayEditLibrary,
   useUpdateLibraryFields,
@@ -462,9 +460,10 @@ function Body({ projects, permits, retiredSets }: BodyProps) {
   //   and for a missing column.
   const canEditLibrary = useMayEditLibrary();
   const saveLibrary = useUpdateLibraryFields();
-  // ★★★ fix-532 §C (P-247): the 60 projects whose plan of record is a
-  //     superseded drawing. One query for the screen — see the hook.
-  const archivedFallbackQ = useArchivedFallbackProjects();
+  // ★★★ fix-553 §D: `useArchivedFallbackProjects` fed the `ARCHIVED` badge and
+  //     nothing else on this screen, so the QUERY went with the badge. The
+  //     hook, `is_archived_fallback` and the plan-of-record card's sentence are
+  //     all untouched — this screen simply stopped asking.
 
   function toggleSort(col: SortableColumn) {
     setSort((prev) =>
@@ -1016,7 +1015,13 @@ function Body({ projects, permits, retiredSets }: BodyProps) {
           <thead>
             <tr className="bg-s2 border-b-2 border-border">
               <UTh sort={unitSort} col="address" onClick={toggleUnitSort} align="left">Address</UTh>
-              <UTh sort={unitSort} col="juris" onClick={toggleUnitSort} align="left">Juris</UTh>
+              {/* ★★★ fix-553 §C — `Juris` MOVED RIGHT, BESIDE `Stage`. Bobby: the
+                  left of the row should read address then the dimensional data.
+                  It sat second, between the address and the unit's own width /
+                  depth / size. ★ It still sorts — same `col`, same handler.
+                  ★ The `Type` half of §C's sentence is already done: fix-483 §A5
+                    removed `Type` from THIS table (*"under unit, TYPE and UNIT
+                    TYPE 2x. seems redundant"*), so there is nothing to move. */}
               {/* ★★★ fix-483 §A5 (P-136) — THE `Type` COLUMN IS GONE FROM THIS
                   TABLE ONLY. Bobby, 2026-09-02: *"under unit, TYPE and UNIT
                   TYPE 2x. seems redundant."*
@@ -1055,6 +1060,7 @@ function Body({ projects, permits, retiredSets }: BodyProps) {
                 </UTh>
               ))}
               {/* ★ fix-483 §A2: the `Work` column went with its filter. */}
+              <UTh sort={unitSort} col="juris" onClick={toggleUnitSort} align="left">Juris</UTh>
               <UTh sort={unitSort} col="stage" onClick={toggleUnitSort} align="center">Stage</UTh>
             </tr>
           </thead>
@@ -1117,23 +1123,21 @@ function Body({ projects, permits, retiredSets }: BodyProps) {
                       {/* ★★★ fix-525 §B: and on the UNIT row too — this is the
                           view the 11 originals are kept FOR, so it is the one
                           place the mark must not be forgotten. */}
-                      {hatchedIds.get(u.project.projectId) && (
-                        <>
-                          {' '}
-                          <RetiredBadge
-                            cause={hatchedIds.get(u.project.projectId)!}
-                            compact
-                            title="Superseded by a redesign — kept here because its unit dimensions are the only copy"
-                            testid={`library-retired-unit-${u.key}`}
-                          />
-                        </>
-                      )}
+                      {/* ★★★ fix-553 §D — the `REDESIGNED` badge is off the unit
+                          row too. fix-525 §B put it here because this is the
+                          view the originals are KEPT for; that reason is
+                          unchanged and so is their presence. Only the badge
+                          went. */}
                     </td>
-                    <td className="px-2 py-1.5 text-muted">{u.project.juris || '—'}</td>
                   </>
                 }
                 trailing={
                   <>
+                    {/* ★ fix-553 §C: moved WITH its header — the strip and the row
+                        are one declaration (fix-519 §A), and a cell that moves
+                        without its `<th>` prints every value after it under
+                        somebody else's heading. */}
+                    <td className="px-2 py-1.5 text-muted">{u.project.juris || '—'}</td>
                     {/* ★★★ fix-514 §H (P-196) — THE `Edit in Project Data →`
                         LINK IS GONE, AND THIS SUPERSEDES fix-506 §H RATHER
                         THAN CONTRADICTING IT.
@@ -1238,23 +1242,6 @@ function Body({ projects, permits, retiredSets }: BodyProps) {
                   (Bobby's rule: the number is the number), with the derived
                   ones marked only by the `~` a hover explains. */}
               <Th sort={sort} col="lotSizeSf" onClick={toggleSort} align="center">Lot SF</Th>
-              {/* ★★★ fix-519 §C (P-228) — THESE THREE AND THE FILTER BOX'S
-                  THREE ARE ONE LIST NOW. fix-514 §H named the deviation in a
-                  comment — *"Bobby's list reads jurisdiction before zone; the
-                  filter box asks Zone first"* — and a comment is not a rule.
-                  Jurisdiction is first in both, and the order is declared in
-                  `lib/librarySiteFields` so it cannot drift again. */}
-              {LIBRARY_SITE_SHARED_FIELDS.map((f) => (
-                <Th
-                  key={f.key}
-                  sort={sort}
-                  col={f.key}
-                  onClick={toggleSort}
-                  align={f.align}
-                >
-                  {f.columnLabel}
-                </Th>
-              ))}
               {/* fix-122: Corner Lot — same dimensions feel very different on a
                   corner. */}
               <Th sort={sort} col="isCornerLot" onClick={toggleSort} align="center">Corner</Th>
@@ -1282,6 +1269,37 @@ function Body({ projects, permits, retiredSets }: BodyProps) {
                   places. */}
               <Th sort={sort} col="productTypes" onClick={toggleSort} align="left">Type</Th>
               <Th sort={sort} col="units" onClick={toggleSort} align="center">Units</Th>
+              {/* ★★★ fix-553 §C — JURISDICTION AND ZONE MOVED RIGHT, BESIDE STAGE.
+                  Bobby: the left of the row should read address, then the
+                  dimensional data. These sat between `Lot SF` and `Corner`,
+                  splitting the lot dimensions from the parcel facts.
+
+                  ★★ ALLEY RODE ALONG, AND THAT IS DELIBERATE. fix-519 §C made
+                     these three ONE declared list precisely so the header and
+                     the filter box could not drift — `lib/librarySiteFields`.
+                     Moving two of the three would split that list and undo the
+                     ticket that unified it, for no gain: Alley is a parcel fact
+                     like the two beside it, not a dimension.
+
+                  ★ Both still SORT (same `col` keys, same `toggleSort`) and both
+                    still FILTER (the filter box reads the same list). */}
+              {/* ★★★ fix-519 §C (P-228) — THESE THREE AND THE FILTER BOX'S
+                  THREE ARE ONE LIST NOW. fix-514 §H named the deviation in a
+                  comment — *"Bobby's list reads jurisdiction before zone; the
+                  filter box asks Zone first"* — and a comment is not a rule.
+                  Jurisdiction is first in both, and the order is declared in
+                  `lib/librarySiteFields` so it cannot drift again. */}
+              {LIBRARY_SITE_SHARED_FIELDS.map((f) => (
+                <Th
+                  key={f.key}
+                  sort={sort}
+                  col={f.key}
+                  onClick={toggleSort}
+                  align={f.align}
+                >
+                  {f.columnLabel}
+                </Th>
+              ))}
               {/* ★ fix-483 §A2: the `Tags` header went with the Tag filter —
                   one ruling, both halves. */}
               <Th sort={sort} col="stage" onClick={toggleSort} align="center">Stage</Th>
@@ -1293,9 +1311,7 @@ function Body({ projects, permits, retiredSets }: BodyProps) {
                 key={r.projectId}
                 row={r}
                 bandClass={siteBands[i] === 1 ? PROJECT_BAND_CLASS : ''}
-                retired={hatchedIds.get(r.projectId) ?? null}
                 editable={canEditLibrary}
-                archivedPlan={archivedFallbackQ.data?.has(r.projectId) ?? false}
                 zoneOptions={zoneFilterOptions}
                 onSave={(patch, fieldLabel) =>
                   saveLibrary.mutate({ projectId: r.projectId, patch, fieldLabel })
@@ -1410,16 +1426,9 @@ interface RowProps {
    *  — the band depends on the row's POSITION IN THE SORTED LIST, which only
    *  the table knows. */
   bandClass: string;
-  /** ★★★ fix-525 §B: `redesigned` for a project another one has superseded —
-   *  kept in the Library because 11 of 17 originals hold the only unit
-   *  dimensions their pair has. Null for everything else. */
-  retired: RetiredCause | null;
   /** ★★★ fix-532 §A: does this viewer hold `may_edit_library`? Cosmetic — the
    *  RPC is the gate. */
   editable: boolean;
-  /** ★★★ fix-532 §C: this project's plan of record is a superseded drawing.
-   *  60 of 220 on prod, 2026-09-12. */
-  archivedPlan: boolean;
   /** fix-415's registry, so a capable typist cannot reintroduce an off-list
    *  zone. */
   zoneOptions: readonly string[];
@@ -1429,12 +1438,14 @@ interface RowProps {
  *  the two surfaces cannot offer different answers to one question. */
 const ALLEY_OPTIONS = ['Yes', 'No'] as const;
 
+// ★ fix-553 §D: `retired` and `archivedPlan` went with the two badges they
+//   fed. The DATA behind them is untouched — `hatchedIds` still counts the
+//   superseded originals for the header, and `archivedFallbackQ` still answers
+//   the plan-of-record card — what went is this row's two markers.
 function Row({
   row,
   bandClass,
-  retired,
   editable,
-  archivedPlan,
   zoneOptions,
   onSave,
 }: RowProps) {
@@ -1471,30 +1482,37 @@ function Row({
               sentence, so the short form carries the `title` — the long one is
               never the only thing said, and it is the SAME string every other
               surface uses. */}
-          {archivedPlan && (
-            <>
-              {' '}
-              <span
-                className="text-[9px] font-extrabold uppercase tracking-wider"
-                style={{ color: 'var(--color-co)' }}
-                title={ARCHIVED_FALLBACK_LABEL}
-                data-testid={`library-archived-${row.projectId}`}
-              >
-                {ARCHIVED_FALLBACK_SHORT}
-              </span>
-            </>
-          )}
-          {retired && (
-            <>
-              {' '}
-              <RetiredBadge
-                cause={retired}
-                compact
-                title="Superseded by a redesign — kept here because its unit dimensions are the only copy"
-                testid={`library-retired-${row.projectId}`}
-              />
-            </>
-          )}
+          {/* ★★★ fix-553 §D (P-247, ACCEPTED) — THE `ARCHIVED` BADGE COMES OFF.
+              Bobby was told exactly what it means and chose removal anyway:
+              it is NOT a stage and NOT "issued" — `projects.archived` is false
+              on all 221 rows — it is
+              `project_plan_of_record_sets.is_archived_fallback`, true for 60
+              projects, meaning *the set shown as the plan of record came out of
+              an Archive folder and may be superseded.*
+
+              ★★★ THE BADGE ONLY. `is_archived_fallback`, the file index and
+                  `bp_resolve_plan_share`'s return are untouched, and the
+                  SENTENCE survives where §D protects it: `ARCHIVED_FALLBACK_LABEL`
+                  ("Archived — nothing current on file.") still renders on the
+                  plan-of-record card and on the `/s/` share page, whose reader
+                  is a builder with no legend to consult.
+              ★ What was removed here is `ARCHIVED_FALLBACK_SHORT` — the bare
+                word. The explanation was never the badge. */}
+          {/* ★★★ fix-553 §D — AND THE `REDESIGNED` BADGE, BY THE SAME RULING.
+              `projects.redesign_of_project_id is not null` — 18 projects today
+              (17 when the brief was written). **The relationship stays in the
+              data and stays where a redesign is actually described**: the
+              Project View folds the original under its successor with an
+              `ORIGINAL` chip (fix-556 §D), the Draw Schedule block keeps its
+              purple hatch, and the project page carries the two-way switch.
+
+              ⚠️ WHAT THIS COSTS, STATED: the Library row loses its only
+                 per-row marker — these rows are not hatched, only badged. The
+                 header's `· N superseded` count survives, so the Library still
+                 says how many are here, and the fix-524 §B ruling that keeps
+                 them here at all (their unit dimensions are the only copy for
+                 11 pairs) is untouched. Reported rather than quietly softened,
+                 because the brief says Bobby was told and chose this. */}
         </td>
         {/* ★★★ fix-514 §H: LOT WIDTH AND LOT DEPTH, two cells, in filter order.
             ★ fix-411 §2's rule survives the split: the SORT reads the
@@ -1578,28 +1596,6 @@ function Row({
             );
           })()}
         </td>
-        <td className="px-2 py-1.5 text-muted">{row.juris || '—'}</td>
-        <td className="px-2 py-1.5 text-center">
-          <LibraryChoiceCell
-            value={row.zone || null}
-            options={zoneOptions}
-            editable={editable}
-            testId={`library-zone-${row.projectId}`}
-            onCommit={(v) => onSave({ zone: v }, 'Zone')}
-          />
-        </td>
-        <td className="px-2 py-1.5 text-center">
-          {/* ★ Alley is the same tri-state the Site card offers — Yes / No /
-              not recorded. The list is short and closed, so it is stated here
-              rather than threaded from a registry that does not exist. */}
-          <LibraryChoiceCell
-            value={row.alley || null}
-            options={ALLEY_OPTIONS}
-            editable={editable}
-            testId={`library-alley-${row.projectId}`}
-            onCommit={(v) => onSave({ alley: v }, 'Alley')}
-          />
-        </td>
         {/* fix-122: Corner column. Tri-state — NULL renders as the dim em dash
             so unanswered rows are visually distinct from a confirmed No. */}
         <td
@@ -1627,6 +1623,32 @@ function Row({
           {row.units || '—'}
         </td>
         {/* ★ fix-483 §A2: the Tags cell went with its header. */}
+        {/* ★ fix-553 §C: moved WITH their headers — the row and the header strip
+            are one declaration (fix-519 §A), and a cell that moves without its
+            `<th>` prints every value after it under somebody else's heading.
+            That defect is on record; this is the rule that prevents it. */}
+        <td className="px-2 py-1.5 text-muted">{row.juris || '—'}</td>
+        <td className="px-2 py-1.5 text-center">
+          <LibraryChoiceCell
+            value={row.zone || null}
+            options={zoneOptions}
+            editable={editable}
+            testId={`library-zone-${row.projectId}`}
+            onCommit={(v) => onSave({ zone: v }, 'Zone')}
+          />
+        </td>
+        <td className="px-2 py-1.5 text-center">
+          {/* ★ Alley is the same tri-state the Site card offers — Yes / No /
+              not recorded. The list is short and closed, so it is stated here
+              rather than threaded from a registry that does not exist. */}
+          <LibraryChoiceCell
+            value={row.alley || null}
+            options={ALLEY_OPTIONS}
+            editable={editable}
+            testId={`library-alley-${row.projectId}`}
+            onCommit={(v) => onSave({ alley: v }, 'Alley')}
+          />
+        </td>
         <td className="px-2 py-1.5 text-center">
           <span
             className={`text-[9px] font-bold uppercase px-2 py-0.5 rounded border ${STAGE_BADGE[row.stage]}`}

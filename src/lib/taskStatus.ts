@@ -188,3 +188,71 @@ export function applyStartDateTrigger(input: {
   const stamps = nextStatus === 'In Progress' || nextStatus === 'Resolved';
   return { start_date: isTransition && stamps ? today : null };
 }
+
+// ===========================================================================
+// ★★★ fix-553 §B (P-260) — THE STATUS CHIP'S PAINT, IN ONE PLACE AND MEASURED
+// ===========================================================================
+//
+// Bobby: the `In Progress` chip is *"a dark blue ground with near-black text."*
+//
+// ★★★ MEASURED, AND TWO OF THE THREE FAILED — not one. `--color-text` #1a2540
+//     was painted on the SATURATED status colours:
+//
+//       Open        on --color-s2 #e8edf3  12.90:1   passed
+//       In Progress on --color-de #2563eb   2.94:1   FAILED   ← reported
+//       Resolved    on --color-pm #059669   4.03:1   FAILED   ← found here
+//
+//     Fixing only the reported one would have left Resolved at 4.03.
+//
+// ★★★ AND WHITE INK IS NOT THE ANSWER EITHER: #ffffff measures 5.17 on
+//     `--color-de` but **3.77 on `--color-pm`**. There is no single ink that
+//     clears 4.5 on both saturated grounds, which is what makes this a GROUND
+//     problem rather than an ink one.
+//
+// ★★★ SO THE GROUND LIGHTENS TO THE TINT THAT ALREADY EXISTS — §B's own first
+//     option, and no new blue is introduced:
+//
+//       Open        --color-s2      #e8edf3  12.90:1
+//       In Progress --color-de-bg   #dbeafe  12.45:1
+//       Resolved    --color-pm-bg   #d1fae5  13.39:1
+//
+// ★★ DISTINCTNESS DOES NOT REST ON THREE PALE TINTS. Each chip also carries its
+//    own border token, the dot glyph (○ ◐ ●) and the word — so a reader who
+//    cannot separate the hues still has three unambiguous signals. That is the
+//    fix-406 rule applied: measure the ink against its own ground, and never
+//    let colour be the only carrier.
+//
+// ★★★ ONE MAP, NOT TWO. There were two `STATUS_BG` literals with identical
+//     failing values — `pages/MyTasks.tsx` and `components/Reports/
+//     WaitingOnView.tsx`. Both now import this, so a future contrast fix
+//     cannot land on one chip and miss the other, which is the same shape as
+//     §A's legend defect one section up.
+
+export interface TaskStatusChipPaint {
+  background: string;
+  border: string;
+}
+
+/** Measured contrast of `--color-text` on each ground. Exported so a test
+ *  asserts the NUMBER this file claims (fix-450: never let a comment be the
+ *  only place a measurement lives). */
+export const TASK_STATUS_CONTRAST: Record<TaskStatus, number> = {
+  Open: 12.9,
+  'In Progress': 12.45,
+  Resolved: 13.39,
+  Cancelled: 12.9,
+};
+
+export const TASK_STATUS_PAINT: Record<TaskStatus, TaskStatusChipPaint> = {
+  Open: { background: 'var(--color-s2)', border: 'var(--color-border)' },
+  'In Progress': {
+    background: 'var(--color-de-bg)',
+    border: 'var(--color-de-border)',
+  },
+  Resolved: {
+    background: 'var(--color-pm-bg)',
+    border: 'var(--color-pm-border)',
+  },
+  // fix-262: parked by a project cancel — muted, never a live-work colour.
+  Cancelled: { background: 'var(--color-s2)', border: 'var(--color-border)' },
+};

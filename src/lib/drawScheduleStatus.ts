@@ -3,7 +3,7 @@ import {
   isTerminalIssuedStatus,
   isTerminalApprovedStatus,
 } from './permitTerminalStatus';
-import { RETIRED_PALETTE, retiredHatch } from './retiredState';
+import { RETIRED_PALETTE, retiredHatch, hatch } from './retiredState';
 
 // Q9.5.g: Auto-derive a draw_schedule block's status from the current BP
 // permit data. Mirrors v1 dsAutoStatus at index.html:8404-8445. The
@@ -131,7 +131,7 @@ export const STATUS_PRESENTATION: Record<DsStatus, DsStatusPresentation> = {
 // true for a hold (a held project is still ACTIVE and its phase still means
 // something).
 export interface DsParkPresentation {
-  /** CSS `background` value — a flat colour for hold, a hatch for cancelled. */
+  /** CSS `background` value — a hatch for all three since fix-553 §F. */
   background: string;
   border: string;
   /** Title / primary text colour. */
@@ -168,8 +168,25 @@ export interface DsParkPresentation {
 export type DsParkKind = 'hold' | 'cancelled' | 'redesigned';
 
 export const DS_PARK_PRESENTATION: Record<DsParkKind, DsParkPresentation> = {
+  // ★★★ fix-553 §F — ON HOLD WEARS THE HATCH, IN YELLOW.
+  //
+  //     Bobby: *"can hold get the same color effect … with the grey hashes with
+  //     yellow? that way those 3 resemble one another?"* Same 45° texture, same
+  //     stripe width, third hue — `hatch()` takes its colours as arguments, so
+  //     this is two tokens rather than a third pattern (fix-524 §A's whole
+  //     point, used as designed).
+  //
+  // ★★★ AND THE STRIKETHROUGH DOES NOT COME WITH IT. **A hold is a PAUSE;
+  //     cancelled and redesigned are ENDINGS.** Measured prod 2026-09-14:
+  //     `project_holds` kind `hold` — 7 rows, **six already ended**, one open.
+  //     `cancelled` — 5 rows, all five open-ended. Striking a project through
+  //     and un-striking it a fortnight later is the display lying in both
+  //     directions.
+  //
+  // ★★ THE PHASE PILL STAYS TOO, for the same reason: a held project is still
+  //    active work with a meaningful phase. Only the paint changed.
   hold: {
-    background: 'var(--color-hold-bg)',
+    background: hatch('var(--color-hold-a)', 'var(--color-hold-b)'),
     border: 'var(--color-hold-border)',
     text: 'var(--color-hold-text)',
     subtext: 'var(--color-hold-subtext)',
