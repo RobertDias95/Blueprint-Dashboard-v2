@@ -746,13 +746,22 @@ export default function Dashboard() {
           the route stays /dashboard, the same discipline as fix-310. Bobby:
           "My Board, Pipeline, Project Overview — so the only one that gets
           renamed is the landing page." Project View and Project Overview keep
-          their names. */}
+          their names.
+
+          ★★★ fix-554 §B (P-262) — AND NOW IT IS CALLED **PROJECTS**. Bobby,
+              2026-09-14. fix-313's DISCIPLINE is what survives and is why this
+              is a one-word diff: the route has stayed `/dashboard` through both
+              renames, so neither one broke a bookmark.
+          ★ The `data-testid` stays `pipeline-page` / `pipeline-title`. A testid
+            is not a word anybody reads, and churning it would touch a dozen
+            suites to say nothing new (§C: component names keep their
+            spelling). */}
       <h1
         className="font-display font-bold text-text flex-none"
         style={{ fontSize: 20, letterSpacing: '-.01em' }}
         data-testid="pipeline-title"
       >
-        Pipeline
+        Projects
       </h1>
       <div className="flex items-center gap-3 flex-wrap flex-none">
         <ScopeToggle

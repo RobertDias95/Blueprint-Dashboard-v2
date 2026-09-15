@@ -271,7 +271,21 @@ export const RIBBON_ENTRIES: RibbonEntry[] = [
   //   drew no rule anyway (it is first), so all it ever contributed was the
   //   label — which is why removing it costs the top of the ribbon nothing.
   { kind: 'divider', id: 'div-work' },
-  { kind: 'link', link: { to: '/dashboard', label: 'Pipeline', icon: '▦' } },
+  // ★★★ fix-554 §B (P-262) — "PIPELINE" BECOMES "PROJECTS". Bobby,
+  //     2026-09-14, in the same sitting as §A's rename.
+  //
+  // ★★ THE ROUTE IS UNTOUCHED, and it was already `/dashboard` — fix-313 #63
+  //    renamed this label from "Dashboard" to "Pipeline" and recorded the same
+  //    discipline: *"Display only — the route stays /dashboard."* So this is
+  //    the second label on one path and the third time this codebase has
+  //    renamed a page without moving it (fix-310, fix-313 #63, fix-415 §C).
+  //    No bookmark changes, no redirect is needed, and there is nothing to
+  //    deprecate.
+  //
+  // ★ `previousOrigin.PAGE_LABELS` carries the SAME word for this path and
+  //   says in its own header that it takes the name from the ribbon. Both were
+  //   changed together; a guard asserts they agree.
+  { kind: 'link', link: { to: '/dashboard', label: 'Projects', icon: '▦' } },
   // ★ Promoted out of Entitlements to the top tier: it is a daily destination,
   // not a sub-page of a category.
   { kind: 'link', link: { to: '/draw-schedule', label: 'Draw Schedule', icon: '▥' } },

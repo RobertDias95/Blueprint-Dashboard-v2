@@ -62,7 +62,13 @@ export const TEAM_LABEL: Record<string, string> = {
   'Design Manager': 'Design Manager',
   // ★ fix-222's retired key. A pre-migration template still carries it, and a
   //   picker that showed a blank for one would look broken rather than legacy.
-  Architecture: 'Architecture',
+  // ★★★ fix-554 §A — AND IT IS RENAMED TOO, because a legacy key is still a
+  //     word somebody reads. Measured on prod 2026-09-15: `default_team =
+  //     'Architecture'` on **0** task_templates but `permit_tasks.assigned_to =
+  //     'Architecture'` on **25 live rows**, so this label is on screen today.
+  //     The TOKEN is untouched — renaming it would be a data migration plus two
+  //     SQL edits, which is what the header of this file forbids.
+  Architecture: 'Design',
 };
 
 /** The display word for a stored team token.

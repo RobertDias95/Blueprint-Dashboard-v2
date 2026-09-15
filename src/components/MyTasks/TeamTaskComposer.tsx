@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { DISCIPLINE_LABEL } from '../../lib/disciplineLabels';
 import { useUpsertTeamTask } from '../../hooks/useTeamTasks';
 import BufferedDateInput from '../BufferedDateInput';
 import type { TeamMember } from '../../lib/database.types';
@@ -141,8 +142,13 @@ export default function TeamTaskComposer({
           style={{ borderColor: 'var(--color-border)' }}
           data-testid={`${testidPrefix}-discipline`}
         >
-          <option value="ent">Permitting</option>
-          <option value="arch">Design &amp; Engineering</option>
+          {/* ★★★ fix-554 §A — THIS ONE WAS ACTIVELY WRONG, not merely
+              inconsistent. `D&E` is a STAGE, rendered as its own pill beside
+              the discipline pill in the task detail pane; naming the DISCIPLINE
+              after it made two axes share a word. `Design` removes the
+              collision and matches the other three surfaces. */}
+          <option value="ent">{DISCIPLINE_LABEL.ent}</option>
+          <option value="arch">{DISCIPLINE_LABEL.arch}</option>
         </select>
       </label>
       <label className="flex flex-col gap-0.5">

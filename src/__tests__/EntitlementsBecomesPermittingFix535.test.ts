@@ -131,7 +131,16 @@ describe('fix-535 §C — `Entitlements` is a stored TOKEN, and it stays', () =>
     //   rather than a blank — a picker that showed "" for Miles would look
     //   broken rather than legacy.
     expect(teamLabel('Miles')).toBe('Miles');
-    expect(teamLabel('Architecture')).toBe('Architecture');
+    // ★★★ fix-554 §A: this line used to read
+    //     `expect(teamLabel('Architecture')).toBe('Architecture')`, as a second
+    //     example of a token that maps to itself. It no longer does — the
+    //     legacy `Architecture` TEAM token now renders as `Design`, on the 25
+    //     live `permit_tasks.assigned_to` rows that carry it. The claim this
+    //     test makes (an UNKNOWN token returns itself) is unchanged and is what
+    //     `Miles` and the line below assert; the old example simply stopped
+    //     being unknown-shaped.
+    expect(teamLabel('Not A Team')).toBe('Not A Team');
+    expect(teamLabel('Architecture')).toBe('Design');
     expect(teamLabel(null)).toBe('');
     expect(teamLabel('  ')).toBe('');
   });

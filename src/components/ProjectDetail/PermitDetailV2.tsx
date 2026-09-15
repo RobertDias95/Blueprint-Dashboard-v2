@@ -78,6 +78,7 @@ import { useProjectExternalTeamBlob } from '../../hooks/useProjectExternalTeamBl
 import BotBadge from '../shared/BotBadge';
 import AutoClosedBadge from '../shared/AutoClosedBadge';
 import PendingScrapeChip from '../shared/PendingScrapeChip';
+import { DISCIPLINE_LABEL, DISCIPLINE_SHORT } from '../../lib/disciplineLabels';
 import { STAGE_LABEL } from '../../lib/stageLabel';
 import { LandUsePhaseBadge } from './LandUsePhaseBadge';
 import ScheduleEstimator from './ScheduleEstimator';
@@ -1800,17 +1801,23 @@ function deriveCurrentPhase(
 // Tasks panel (fix-70): discipline buckets + multi-assign + subtasks + status
 // ============================================================
 //
-// Two columns by discipline (Entitlements | Architecture). The PRIMARY
+// Two columns by discipline (Permitting | Design). The PRIMARY
 // assignee is derived server-side (arch -> permit.da, ent -> permit.ent_lead)
 // and shown read-only; co-assignees are explicit chips a user adds/removes. A
 // task can be flipped between disciplines (moves columns), grow one level of
 // subtasks, and cycle status Open -> In Progress -> Resolved (Resolved
 // auto-stamps the Done date server-side).
 
+// ★★★ fix-554 §A — THE LABELS COME FROM `lib/disciplineLabels` NOW.
+//
+//     `key` is the STORED discipline and is untouched on 1,816 rows. What
+//     changed is that this list no longer owns the words: three other surfaces
+//     printed the same two keys as `Arch` / `Architecture` / `Design &
+//     Engineering`, and a literal here would have left them free to disagree
+//     again. One map, four readers.
 const DISCIPLINES = [
-  // ★ fix-535: the label only — `key: 'ent'` is the stored discipline.
-      { key: 'ent' as const, label: 'Permitting', accent: 'var(--color-de)' },
-  { key: 'arch' as const, label: 'Architecture', accent: 'var(--color-jv)' },
+  { key: 'ent' as const, label: DISCIPLINE_LABEL.ent, accent: 'var(--color-de)' },
+  { key: 'arch' as const, label: DISCIPLINE_LABEL.arch, accent: 'var(--color-jv)' },
 ];
 function TasksPanel({
   permitId,
@@ -2542,8 +2549,12 @@ function TaskItem({
             }}
             data-testid={`task-bucket-${task.id}`}
           >
-            <option value="ent">PERM</option>
-            <option value="arch">Arch</option>
+            {/* ★★★ fix-554 §A — THE ABBREVIATION COUNTS TOO (fix-535 §A's
+                rule). `PERM` was already right; `Arch` was the old word in the
+                tightest box on the screen, which is the one people read most.
+                Both now come from `DISCIPLINE_SHORT`. */}
+            <option value="ent">{DISCIPLINE_SHORT.ent}</option>
+            <option value="arch">{DISCIPLINE_SHORT.arch}</option>
           </select>
         )}
         <select

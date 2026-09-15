@@ -201,7 +201,7 @@ describe('fix-408 §1: the origin helper — set, read, fall back', () => {
     });
     expect(previousTarget({ from: PREVIOUS_ORIGINS.pipeline })).toEqual({
       to: '/dashboard',
-      label: '← Pipeline',
+      label: '← Projects',
     });
   });
 });
@@ -297,11 +297,11 @@ const ENTRY_PATHS: ReadonlyArray<{
   { surface: "What's New — “Open it →”", originPath: '/whats-new', label: "← What's New" },
   // (g) + (h) fix-403's two, unchanged
   { surface: 'Library matrix rows', originPath: '/library', label: '← Library' },
-  { surface: 'Pipeline address groups', originPath: '/dashboard', label: '← Pipeline' },
+  { surface: 'Projects address groups', originPath: '/dashboard', label: '← Projects' },
   // (i) everything else that links into a project
   { surface: 'Activity feed project groups', originPath: '/activity', label: '← Activity' },
   { surface: 'Draw Schedule block popup', originPath: '/draw-schedule', label: '← Draw Schedule' },
-  { surface: 'the New Project wizard (a modal over any page)', originPath: '/dashboard', label: '← Pipeline' },
+  { surface: 'the New Project wizard (a modal over any page)', originPath: '/dashboard', label: '← Projects' },
 ];
 
 describe('fix-408 §3: every entry path records its own page', () => {
@@ -557,7 +557,7 @@ describe('fix-408 §5: <OriginLink>, mounted', () => {
       </MemoryRouter>,
     );
     fireEvent.click(screen.getByTestId('go'));
-    expect(screen.getByTestId('probe').textContent).toBe('← Pipeline');
+    expect(screen.getByTestId('probe').textContent).toBe('← Projects');
   });
 
   it('★★ a page with NO name records nothing — the button stays "← Search"', () => {

@@ -171,10 +171,13 @@ beforeEach(() => {
 // ★ fix-313 #63/#65: the landing page is renamed. Asserted on the same render
 // the rest of this file already drives, so the rename is checked against the
 // real page rather than a fixture of it.
-describe('Dashboard — fix-313 the landing page is Pipeline', () => {
-  it('★ reads Pipeline, and the third column reads Approved', () => {
+describe('Dashboard — fix-554 §B: the landing page is Projects', () => {
+  // ★★★ was fix-313's 'Pipeline'. The testid is deliberately still
+  //     `pipeline-title`: a testid is not a word anybody reads, and churning it
+  //     would touch a dozen suites to say nothing new.
+  it('★ reads Projects, and the third column reads Approved', () => {
     renderDash();
-    expect(screen.getByTestId('pipeline-title').textContent).toBe('Pipeline');
+    expect(screen.getByTestId('pipeline-title').textContent).toBe('Projects');
     // ★ fix-324 §4 (was fix-323): the column title is past tense now, matching
     // `stageLabel.ts` — which has read `ap: 'Approved'` all along — and the
     // Issued column beside it.

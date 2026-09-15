@@ -1,4 +1,5 @@
 import { useAppConfig } from '../hooks/useAppConfig';
+import { disciplineLabel } from '../lib/disciplineLabels';
 import OriginLink from './OriginLink';
 import { usePermitHolds, activePermitHold } from '../hooks/usePermitHolds';
 import { useProjectHolds, activeHold } from '../hooks/useProjectHolds';
@@ -277,8 +278,12 @@ export default function TaskDetailEditor({
           borderBottomColor: 'var(--color-border)',
         }}
       >
+        {/* ★★★ fix-554 §A — the DISCIPLINE pill. It sits directly beside the
+            STAGE pill below, which is a different axis, and this one used to
+            say `Architecture` while the team composer said `Design &
+            Engineering` about the same stored key. One map now. */}
         <Pill
-          label={task.discipline === 'arch' ? 'Architecture' : 'Permitting'}
+          label={disciplineLabel(task.discipline)}
           color={task.discipline === 'arch' ? 'var(--color-jv)' : 'var(--color-de)'}
           testid="mytasks-detail-discipline"
         />

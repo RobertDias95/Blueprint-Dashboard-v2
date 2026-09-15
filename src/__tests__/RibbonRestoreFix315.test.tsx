@@ -612,7 +612,7 @@ describe('fix-315: fix-313 survives', () => {
     // collapsed here, so its children are not rendered and SharePoint follows
     // My Board / Library directly.
     expect(labels).toEqual([
-      'Pipeline',
+      'Projects',
       'Draw Schedule',
       'My Board',
       // ★★★ fix-483 §C (P-138), the EIGHTH reorder: Agenda LEFT this tier for
