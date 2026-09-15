@@ -36,6 +36,7 @@ import { STAGE_LABEL } from '../lib/stageLabel';
 import { useScopeMode } from '../hooks/useSelfScope';
 import {
   permitMatchesSelf,
+  buildProjectLeadIndex,
   projectMatchesSelf,
   type RosterIdentity,
   type ScopeMode,
@@ -152,6 +153,14 @@ export default function ProjectList() {
   // carrying a permit assigned to them. Unmapped users / "Everyone" = no-op.
   const { mode: scopeMode, setMode: setScopeMode, identity } =
     useScopeMode('projects');
+  // ★★★ fix-573 (P-278): the original's leads, for the redesign fallback.
+  //     Built off the FULL projects list rather than `filtered`, because the
+  //     original may itself be filtered out of this view — fix-524 hides a
+  //     superseded one — and the redesign still has to find it.
+  const originalLeads = useMemo(
+    () => buildProjectLeadIndex(projectsQ.data ?? []),
+    [projectsQ.data],
+  );
   const scoped = useMemo(() => {
     const name = identity.name;
     if (scopeMode !== 'mine' || !name) return filtered;
@@ -160,8 +169,9 @@ export default function ProjectList() {
         r.permits.some((p) => permitMatchesSelf(p.permit, name)),
       );
     }
-    return filtered.filter((r) => projectMatchesSelf(r.project, name));
-  }, [filtered, scopeMode, identity.name, identity.scope]);
+    // ★ Same predicate, same index — one change fixed both boards.
+    return filtered.filter((r) => projectMatchesSelf(r.project, name, originalLeads));
+  }, [filtered, scopeMode, identity.name, identity.scope, originalLeads]);
 
   // fix-178: three-way hold filter (project-level), layered after the scope
   // filter. Default 'all'; no persistence.

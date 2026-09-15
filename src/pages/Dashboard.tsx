@@ -63,7 +63,11 @@ import StageFilters, {
 import { SkeletonRows } from '../components/Skeleton';
 import QueryError from '../components/QueryError';
 import { useScopeMode } from '../hooks/useSelfScope';
-import { permitMatchesSelf, projectMatchesSelf } from '../lib/selfScope';
+import {
+  buildProjectLeadIndex,
+  permitMatchesSelf,
+  projectMatchesSelf,
+} from '../lib/selfScope';
 import ScopeToggle from '../components/shared/ScopeToggle';
 import { distinctProjectCount } from '../lib/dashboardCounts';
 import { useAuthStore } from '../stores/authStore';
@@ -415,6 +419,13 @@ export default function Dashboard() {
     distributionByAddress,
   } = useMemo(() => {
     const projects = projectsQ.data ?? [];
+    // ★★★ fix-573 (P-278) — THE ORIGINAL'S LEADS, FOR THE SCOPE PREDICATE.
+    //     Built HERE, from the projects this memo already holds, and passed IN:
+    //     `lib/selfScope` is pure and must stay that way. A redesign carries no
+    //     `entitlement_lead` on 15 of 19 prod rows, so without this the Mine
+    //     filter drops work whose original the person leads — while fix-524
+    //     hides the original itself. See `projectMatchesSelf`.
+    const originalLeads = buildProjectLeadIndex(projects);
     const permits = permitsQ.data ?? [];
     const draw = drawQ.data ?? [];
     const reviewers = reviewersQ.data ?? [];
@@ -543,7 +554,13 @@ export default function Dashboard() {
       // fix-178: hold filter is project-level (a permit is held iff its project
       // is). Drop the whole project's permits when it fails the hold filter.
       if (!passesHoldFilter(activeHeld.has(project.id), holdMode)) continue;
-      if (selfName && selfScope === 'project' && !projectMatchesSelf(project, selfName)) {
+      // ★ fix-573: the index is the THIRD argument — the chase lives in the
+      //   predicate, never at a call site, so the two boards cannot drift.
+      if (
+        selfName &&
+        selfScope === 'project' &&
+        !projectMatchesSelf(project, selfName, originalLeads)
+      ) {
         continue;
       }
       for (const b of projectPermits) {
