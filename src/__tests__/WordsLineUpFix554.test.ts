@@ -227,7 +227,13 @@ describe('fix-554 §B — no user-facing word says Pipeline for the landing page
     // ★ Asserted on comment-stripped source because the file quotes fix-313's
     //   ruling — including the old word — directly above the heading.
     const src = code(read('src/pages/Dashboard.tsx'));
-    expect(src).toContain('Projects\n      </h1>');
+    // ★★★ WHITESPACE-TOLERANT, AND fix-574 IS WHY. This read
+    //     `toContain('Projects\n      </h1>')` and passed on a worktree checked
+    //     out with LF endings — then failed on the next one, which git gave
+    //     CRLF. **A literal anchor encodes somebody's line endings as if they
+    //     were syntax** (fix-537's `E"…"` lesson, in a test rather than a
+    //     migration). The claim is about the heading, not about its indentation.
+    expect(src.replace(/\s+/g, ' ')).toContain('Projects </h1>');
     expect(src).not.toMatch(/>\s*Pipeline\s*</);
   });
 
