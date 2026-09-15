@@ -295,36 +295,27 @@ function mostRecent<T>(rows: T[], pick: (row: T) => string | null): string | nul
   return dates.length ? dates[dates.length - 1] : null;
 }
 
-/**
- * Hide an issued permit only if every permit at its address is also issued.
- * Mirrors v1's `hasActivePermit` rule (line 2594-2596).
- */
-export function hideIssuedAtAddress(
-  inputs: BucketInput[],
-  projectIdToAddress: Map<string, string>,
-): Set<number> {
-  const permitsByAddress = new Map<string, BucketInput[]>();
-  for (const input of inputs) {
-    const addr = projectIdToAddress.get(input.permit.project_id);
-    if (!addr) continue;
-    const list = permitsByAddress.get(addr) ?? [];
-    list.push(input);
-    permitsByAddress.set(addr, list);
-  }
-  const hide = new Set<number>();
-  for (const [, list] of permitsByAddress) {
-    const allIssued = list.every(
-      ({ permit, cycles, reviewers }) =>
-        effectiveStage(permit, cycles, reviewers) === 'is',
-    );
-    // v1 rule (index.html line 2602): hide an issued permit only when
-    // EVERY permit at that address is also issued — i.e. the project is
-    // fully complete. When the address still has any active work, keep
-    // the issued cards visible so progress reads at a glance.
-    if (!allIssued) continue;
-    for (const { permit, cycles, reviewers } of list) {
-      if (effectiveStage(permit, cycles, reviewers) === 'is') hide.add(permit.id);
-    }
-  }
-  return hide;
-}
+// ===========================================================================
+// ★★★ fix-552 §A (P-258) — `hideIssuedAtAddress` WAS DELETED HERE
+// ===========================================================================
+//
+// It carried v1's rule (index.html:2602): hide an issued permit once EVERY
+// permit at that address is issued — i.e. take a finished project off the
+// board entirely. **It was the one place the board decided this**, which is
+// why removing it was a one-line change at the call site.
+//
+// ★★★ BOBBY REVERSED THE RULE: *the board keeps what it issued.* A finished
+//     project now stays, in the Issued column, newest-issued-first. That
+//     column has been collapsed-by-default and per-user remembered since
+//     fix-324b, so 81-and-growing costs nothing until somebody opens it.
+//
+// ★★★ AND THE DEFINITION WENT WITH IT, WHICH IS THE POINT. Nothing on the
+//     board needs to decide "is this project fully issued" any more — it shows
+//     every card and orders the Issued column by date. The concept only
+//     survives as a MEASUREMENT (81 projects / 196 permits on 2026-09-15,
+//     every permit at the address reading `effectiveStage === 'is'`), not as
+//     a branch. A rule nothing needs is better deleted than kept warm.
+//
+// ★ `effectiveStage` and `bucketPermits` are untouched: what changed is
+//   whether the board subtracts a set at the end, not how it stages a permit.
+

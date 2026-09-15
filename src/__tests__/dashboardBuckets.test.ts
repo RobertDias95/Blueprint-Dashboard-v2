@@ -1,7 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import {
   bucketPermits,
-  hideIssuedAtAddress,
   type BucketInput,
 } from '../lib/permitStage';
 import type { DrawScheduleRow, Permit, PermitCycle } from '../lib/database.types';
@@ -118,40 +117,15 @@ describe('bucketPermits', () => {
   });
 });
 
-describe('hideIssuedAtAddress', () => {
-  it('keeps issued permits visible when sibling permits are still active', () => {
-    const inputs: BucketInput[] = [
-      {
-        permit: permit(1, { project_id: 'a', actual_issue: '2025-01-01' }),
-        cycles: [],
-      },
-      { permit: permit(2, { project_id: 'b' }), cycles: [] }, // de — active
-    ];
-    const projectAddrs = new Map([
-      ['a', '123 Main'],
-      ['b', '123 Main'],
-    ]);
-    const hidden = hideIssuedAtAddress(inputs, projectAddrs);
-    expect(hidden.size).toBe(0);
-  });
-
-  it('hides issued permits when every permit at the address is issued', () => {
-    const inputs: BucketInput[] = [
-      {
-        permit: permit(1, { project_id: 'a', actual_issue: '2025-01-01' }),
-        cycles: [],
-      },
-      {
-        permit: permit(2, { project_id: 'b', actual_issue: '2025-01-15' }),
-        cycles: [],
-      },
-    ];
-    const projectAddrs = new Map([
-      ['a', '123 Main'],
-      ['b', '123 Main'],
-    ]);
-    const hidden = hideIssuedAtAddress(inputs, projectAddrs);
-    expect(hidden.has(1)).toBe(true);
-    expect(hidden.has(2)).toBe(true);
-  });
-});
+// ===========================================================================
+// ★★★ fix-552 §A (P-258) — `hideIssuedAtAddress`'s TWO TESTS WENT WITH IT
+// ===========================================================================
+//
+// They asserted v1's rule: keep issued cards while a sibling is still active,
+// and HIDE them once every permit at the address is issued. The first half is
+// still true and is now true by construction — nothing is hidden at all. The
+// second half is what Bobby reversed: *the board keeps what it issued.*
+//
+// ★ The replacement is not a mirror-image unit test of a deleted function but
+//   the board-level assertion in `BoardKeepsIssuedFix552`: a fully-issued
+//   address still produces cards, and they land in the Issued column.
