@@ -192,14 +192,146 @@ export function resolveRosterIdentity(
   return { name, roles, notes, scope: deriveSelfScope(name, projects) };
 }
 
-/** Project-scope match: the person is on a PROJECT-level role for this project. */
+// ===========================================================================
+// ★★★ fix-573 (P-278) — A REUSE-REDESIGN INHERITS ITS ORIGINAL'S LEADS
+// ===========================================================================
+//
+// 🚨 Briana hit this on the Pipeline. Measured on prod 2026-09-15: **19
+//    redesigns, 15 with no `entitlement_lead` of their own and 18 with no
+//    `design_manager`** — while their originals have both.
+//
+// ★★★ THE DEFECT IS THE INTERACTION OF TWO CORRECT TICKETS. fix-524 HIDES a
+//     superseded original from the Pipeline; fix-556 MOVES its permits onto the
+//     redesign's row. Neither moved the LEADS, and this predicate reads
+//     `entitlement_lead` / `design_manager` only. So on **Mine** the original
+//     is suppressed and the redesign matches nobody; on **Everyone** no scope
+//     filter runs and it appears. Briana's own work vanished from her own board.
+//
+// ★★★ THIS IS THE THIRD PARENT-CHASE, AND THE READS ARE ENUMERATED THIS TIME.
+//     fix-150 chased the parent for the lane STATUS; fix-556 chased it for the
+//     CARDS; nobody chased it for the SCOPE. fix-556's closing line said two
+//     reads had been confused and only one written — so, counted:
+//
+//       1. lane STATUS      fix-150  ✔ chases
+//       2. the CARDS        fix-556  ✔ chases
+//       3. project SCOPE    fix-573  ✔ chases (here)
+//       4. task OWNERSHIP   —        ✘ does NOT chase; `useTaskOwnership` and
+//                                      `myBoard` fall back to the PROJECT's
+//                                      lead, which on a redesign is null. It
+//                                      does not route through this predicate
+//                                      and needs its own change. Reported in
+//                                      the fix-573 PR, not fixed here.
+//
+//     **Four reads, three chased.** Naming the fourth is the point: the last
+//     two tickets each found one more and each thought it had found the last.
+
+/** The lead fields this predicate reads. */
+export type ProjectLeads = Pick<Project, 'entitlement_lead' | 'design_manager'>;
+
+/**
+ * ★★★ THE ORIGINAL'S LEADS, BY PROJECT ID — AND IT CARRIES **ONLY** THE LEADS.
+ *
+ * This is how the original's row reaches a PURE predicate: the caller builds
+ * the index from the projects it already has and passes it in. Nothing here
+ * fetches, no hook, no module-level state — `lib/selfScope` stays pure and its
+ * suite keeps depending on that.
+ *
+ * ★★★ AND THE ONE-LEVEL RULE IS ENFORCED BY THE TYPE, NOT BY A COMMENT. The
+ *     index maps an id to `ProjectLeads`, which has no `redesign_of_project_id`
+ *     — so there is nothing to chase a second hop with. A redesign of a
+ *     redesign resolves exactly one level and stops, structurally.
+ *     Measured 2026-09-15: **0 of 19 redesigns point at another redesign**, so
+ *     one level is the whole of the data today; `redesignsOfRedesigns` below is
+ *     how anybody checks that it still is.
+ */
+export type ProjectLeadIndex = ReadonlyMap<string, ProjectLeads>;
+
+/** Build the index a board passes to `projectMatchesSelf`. ★ Pure, and cheap
+ *  enough to sit in a `useMemo` beside the projects query. */
+export function buildProjectLeadIndex(
+  projects: ReadonlyArray<Pick<Project, 'id'> & ProjectLeads>,
+): ProjectLeadIndex {
+  const out = new Map<string, ProjectLeads>();
+  for (const p of projects) {
+    if (!p.id) continue;
+    out.set(p.id, {
+      entitlement_lead: p.entitlement_lead ?? null,
+      design_manager: p.design_manager ?? null,
+    });
+  }
+  return out;
+}
+
+/**
+ * ★ Which redesigns point at a project that is ITSELF a redesign.
+ *
+ * Empty on prod today (19 redesigns, 0 two-deep). The chase above handles one
+ * level and stops, so a two-deep chain would silently resolve to the middle
+ * row's leads rather than the root's. This function is how that stops being a
+ * silent assumption: a test asserts the behaviour is named, and a prod probe or
+ * a Settings panel can assert the population is still zero.
+ */
+export function redesignsOfRedesigns(
+  projects: ReadonlyArray<Pick<Project, 'id' | 'redesign_of_project_id'>>,
+): string[] {
+  const isRedesign = new Set(
+    projects.filter((p) => p.redesign_of_project_id).map((p) => p.id),
+  );
+  return projects
+    .filter((p) => p.redesign_of_project_id && isRedesign.has(p.redesign_of_project_id))
+    .map((p) => p.id);
+}
+
+/**
+ * Project-scope match: the person is on a PROJECT-level role for this project.
+ *
+ * ★★★ fix-573: …or on the ORIGINAL's, when this is a redesign and the field is
+ *     its own is blank.
+ *
+ * ⚠️⚠️ A FALLBACK, NEVER AN OVERRIDE, AND IT IS **PER FIELD**.
+ *
+ *   · An explicit value always wins — fix-386's rule, and four redesigns on
+ *     prod carry their own `entitlement_lead`. `7603 8th Ave NW [Redesign 1]`
+ *     is the case that proves it: its own lead is **Briana** while its
+ *     original's is **Miles**, so Miles must NOT match it.
+ *   · PER FIELD, not per row, because `entitlement_lead` and `design_manager`
+ *     are two independent facts about two different jobs. A redesign that names
+ *     its own permitting lead has said nothing about who manages the design —
+ *     and under a per-ROW rule `7603`'s design manager (Brittani, on the
+ *     original) would lose the project from her board for a reason that is
+ *     about somebody else's field. Measured: the per-field rule restores work
+ *     to **six** people, not one — Briana 9 and Miles 6 via the lead, Brittani
+ *     9, Derry 6, Lindsay 2 and Jade 1 via the manager.
+ *
+ * ★★ `originals` IS OPTIONAL SO `deriveSelfScope` IS BYTE-IDENTICAL. That
+ *    function decides a person's SCOPE TIER and fix-428's note says to leave it
+ *    alone; it also does not need the chase, because a redesign only ever
+ *    inherits from an original the same person already leads — so anybody the
+ *    chase would promote to 'project' is there already.
+ */
 export function projectMatchesSelf(
-  project: Pick<Project, 'entitlement_lead' | 'design_manager'>,
+  project: ProjectLeads & Partial<Pick<Project, 'redesign_of_project_id'>>,
   name: string | null,
+  originals?: ProjectLeadIndex,
 ): boolean {
   const n = norm(name);
   if (!n) return false;
-  return norm(project.entitlement_lead) === n || norm(project.design_manager) === n;
+  const ownEnt = norm(project.entitlement_lead);
+  const ownDm = norm(project.design_manager);
+  if (ownEnt === n || ownDm === n) return true;
+
+  // ★ Not a redesign, or the caller did not supply the index → the predicate is
+  //   exactly what it was before fix-573.
+  const originalId = project.redesign_of_project_id;
+  if (!originalId || !originals) return false;
+  const original = originals.get(originalId);
+  if (!original) return false;
+
+  // ★★ Each field falls back on its OWN emptiness. A blank inherits; a value
+  //    never yields.
+  if (ownEnt === '' && norm(original.entitlement_lead) === n) return true;
+  if (ownDm === '' && norm(original.design_manager) === n) return true;
+  return false;
 }
 
 /** Permit-scope match: the person is assigned to this permit in ANY role —
