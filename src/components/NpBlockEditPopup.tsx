@@ -15,7 +15,30 @@ import ProjectLinkPicker, {
 // This component only renders the popover body — it doesn't manage
 // click-outside dismissal.
 
-const TYPES = ['Vacation', 'Training', 'Redesign', 'Corrections', 'Other'] as const;
+// ===========================================================================
+// ★★★ fix-577 §B + §D (P-281) — `PTO`, AND NO `Redesign`
+// ===========================================================================
+//
+// ★★ §B — `Vacation` IS `PTO`, VALUE AND ALL. Bobby's word for it, and the
+//    rename reaches the STORED value rather than just the label: a picker that
+//    shows `PTO` while writing `Vacation` is two vocabularies for one fact, and
+//    the Library has already cost this codebase a ticket for exactly that
+//    (fix-519 §A). Prod: 37 blocks carry `type='Vacation'`; the staged
+//    migration renames the type on all 37 and the label on the 16 that merely
+//    echo it. The 21 custom labels are left alone — a label somebody typed is
+//    not this ticket's to rewrite.
+//
+// ★★★ §D — `Redesign` COMES OFF. Bobby, 2026-09-15: *"any redesign that was
+//     entered on the draw schedule through that option and not through the
+//     project overview project details is a bug."* A redesign is a PROJECT: it
+//     is made in Project Details and earns a lane of its own that way. This
+//     option let somebody draw a grey rectangle that looks like one and is not.
+//     No replacement — the route already exists.
+//
+// ★ VERIFIED ON PROD 2026-09-15: `da_time_blocks` holds Vacation 37 ·
+//   Corrections 24 · Other 17 · Training 13 and **zero** Redesign, so §D moves
+//   no data. The legacy branch below is defensive, not a cleanup.
+const TYPES = ['PTO', 'Training', 'Corrections', 'Other'] as const;
 
 // ★★ fix-384: both callbacks gained `projectId`. It is the LAST argument and
 // nullable, because the link is optional and never gates a save — a Vacation
@@ -44,13 +67,30 @@ type ProjectOptionsProp = { projectOptions?: ProjectLinkOption[] };
 export type Props = (AddProps | EditProps) & ProjectOptionsProp;
 
 export default function NpBlockEditPopup(props: Props) {
-  const initialType = props.mode === 'edit' ? props.block.type : 'Vacation';
+  const initialType = props.mode === 'edit' ? props.block.type : 'PTO';
   const initialLabel =
     props.mode === 'edit' && props.block.label && props.block.label !== props.block.type
       ? props.block.label
       : '';
 
   const [selectedType, setSelectedType] = useState(initialType);
+  // ★★★ fix-577 §D — AN OFF-LIST STORED VALUE IS SHOWN, NOT SWALLOWED.
+  //
+  //     `selectedType` is seeded from `block.type` while the list renders from
+  //     `TYPES`, so a value no longer on the list ticks NOTHING — and `commit()`
+  //     would then write it straight back unchanged. The person sees an
+  //     apparently unanswered picker, presses Save, and the old value persists.
+  //
+  // ★★ fix-415's APPEND RULE, which this codebase has now paid for three times
+  //    (fix-415 zones, fix-449 unit labels, fix-406's `sortLibraryRows` throwing
+  //    on a stored string its union no longer named): **a control must be able
+  //    to display what it holds.** Removing a value from a list does not remove
+  //    it from the database.
+  //
+  // ★ DISABLED rather than selectable: the row says what this block IS, and
+  //   offers no way back to a type Bobby has ruled off. Picking any live type
+  //   replaces it, which is the only move out.
+  const isOffList = !(TYPES as readonly string[]).includes(selectedType);
   const [label, setLabel] = useState(initialLabel);
   // ★★ fix-384: the optional project link, seeded from the block being edited.
   const [projectId, setProjectId] = useState<string | null>(
@@ -85,6 +125,18 @@ export default function NpBlockEditPopup(props: Props) {
       <div className="text-[9px] uppercase tracking-wide text-dim font-display font-bold pb-1.5 border-b border-border">
         {headerText}
       </div>
+
+      {isOffList && (
+        <button
+          type="button"
+          disabled
+          className="px-2.5 py-1 rounded text-[11px] font-semibold text-left border bg-s2 text-dim border-border cursor-not-allowed"
+          title={`“${selectedType}” is no longer offered. Pick a type above to replace it.`}
+          data-testid="np-popup-type-legacy"
+        >
+          ✓ {selectedType} <span className="font-normal">(retired)</span>
+        </button>
+      )}
 
       {TYPES.map((t) => {
         const isCur = selectedType === t;

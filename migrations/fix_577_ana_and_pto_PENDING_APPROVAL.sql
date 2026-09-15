@@ -1,0 +1,199 @@
+-- ===========================================================================
+-- fix-577 (P-281) — Ana can edit, and Vacation becomes PTO
+-- ===========================================================================
+--
+-- ⚠️⚠️ **NOT APPLIED.** Written for Cowork. Every statement below is commented
+--       out and a test (fix-450) keeps it that way.
+--
+-- MEASURED ON PROD 2026-09-15 (eibnmwthkcuumyclyxoe). Every count and every
+-- verdict below is the output of a real run there, inside a transaction that
+-- ended in ROLLBACK (fix-153's pattern) — `bp_write_caps` is byte-identical on
+-- prod right now and was re-checked after the probe.
+--
+-- Two unrelated changes ride together because they are one popup and one
+-- capability line, and both are Bobby's rulings from the same 2026-09-15 pass.
+--
+-- ---------------------------------------------------------------------------
+-- ★★★ §A — `schematic` JOINS THE `project_details` CAPABILITY
+-- ---------------------------------------------------------------------------
+--
+-- Bobby: *"DM and Schematic can edit all projects in the project details, da
+-- can only edit their project details they are assigned to outside of cam and
+-- shire"*
+--
+-- `bp_write_caps()` grants `project_details` to `dm, director, ent, ent_lead`.
+-- Three of those four already satisfy the ruling; `schematic` is absent.
+--
+-- ★★★ THE GAP IS EXACTLY ONE PERSON, and that is measured rather than assumed.
+--     Every `schematic` holder on the active roster:
+--
+--       Ana      schematic                   ← passes on NOTHING else
+--       Dave     director, schematic
+--       Derry    dm, schematic
+--       Jade     da, dm, schematic
+--       Lindsay  dm, schematic
+--
+--     Simulating the arm before and after across the whole active roster
+--     returns exactly one changed row: **Ana, false → true.** Nobody else
+--     moves, because everybody else already held the cap by another role.
+--
+-- ★★★ THE PROBE — prod, rolled back, 2026-09-15
+--
+--     Impersonated with BOTH `set_config('request.jwt.claims', …)` and
+--     `set local role authenticated` (either alone silently reads as the
+--     caller), against `020a02cd-…` — a project Ana is on no member column of,
+--     and which HAS a DA, so no fallback could mask the result:
+--
+--       Ana      bp_write_caps()        {schematic_designer}
+--                                    → {project_details,schematic_designer}
+--       Ana      bp_may_write_project()   false → **true**
+--       a `da`-only login, same project  false → **false**   (unchanged)
+--
+--     The block ended in `RAISE EXCEPTION 'PROBE: …'`, so nothing persisted.
+--
+-- ⚠️ NOTHING ELSE IN THE FUNCTION MOVES. The `schematic_designer` and
+--    `reassign_da` arms are re-emitted byte-identical — a `CREATE OR REPLACE`
+--    rewrites the whole body, so they are copied from the LIVE
+--    `pg_get_functiondef` rather than retyped from memory.
+--
+-- ⚠️ AND `bp_may_write_project` IS NOT TOUCHED, which is the point: it already
+--    reads `'project_details' = any (bp_write_caps())`. One line here reaches
+--    the RLS policy, the write RPC and every field in the modal, because all
+--    three ask the same function.
+--
+-- ---------------------------------------------------------------------------
+-- ★ FLAGGED, NOT CHANGED — the `da` branch also grants on an UNASSIGNED project
+-- ---------------------------------------------------------------------------
+--
+-- Out of scope and unruled; recorded because §A is the ticket that made
+-- somebody read this function.
+--
+--   if 'da' = any (bp_roster_roles()) then
+--     return bp_is_project_member(…) or bp_project_has_no_da(p_project_id);
+--
+-- So ANY active DA may write ANY project that has no DA assigned at all.
+-- **Measured on prod 2026-09-15: 24 of 224 projects (10.7%) match**, and every
+-- active DA can edit all 24. That may well be intended — an unclaimed project
+-- has nobody to protect — but it is a second, wider grant sitting underneath
+-- the narrow one Bobby described, and he has not ruled on it.
+--
+-- ---------------------------------------------------------------------------
+-- ★★★ §B — `Vacation` BECOMES `PTO`, VALUE AND ALL
+-- ---------------------------------------------------------------------------
+--
+-- MEASURED ON PROD 2026-09-15 — `da_time_blocks` by type:
+--
+--       Vacation     37     (2026-05-01 → 2026-09-15)
+--       Corrections  24
+--       Other        17
+--       Training     13
+--       Redesign      0     ← §D's option, already unused
+--
+--   Of the 37 Vacation rows: **16 carry `label = 'Vacation'`, 21 carry a custom
+--   label, 0 are NULL.**
+--
+-- ★★★ THE LABEL RENAME IS DELIBERATELY PARTIAL. The 16 that merely echo the
+--     type are restating it and must follow it, or the grid prints `Vacation`
+--     on a block typed `PTO`. **The 21 custom labels are left exactly alone** —
+--     somebody typed those, several name a person or a destination, and a
+--     blanket `UPDATE … SET label = 'PTO'` would erase 21 deliberate sentences
+--     to fix 16 automatic ones.
+--
+-- ⚠️ ORDER MATTERS AND IS NOT INTERCHANGEABLE. The label statement selects on
+--    `label = 'Vacation'`, so it must run BEFORE or independently of the type
+--    statement — but both filter on `type = 'Vacation'`, so the label update
+--    MUST run FIRST. Reversed, the type update makes its own WHERE clause match
+--    nothing and the 16 echoes survive as `Vacation` on a `PTO` block.
+--
+-- ⚠️ `da_time_blocks` HAS NO CHECK CONSTRAINT ON `type` — verified against
+--    `pg_constraint` (only a PK and two FKs), which is why this is an UPDATE
+--    and not an enum migration, and also why §D's off-list branch in the popup
+--    is defensive rather than decorative.
+--
+-- ⚠️ THE `updated_at` TRIGGER IS **LEFT ENABLED**, ON PURPOSE — and this is the
+--    one place this file departs from fix-410/415/425's "suppress the triggers
+--    on every bulk migration" rule, so it is stated rather than assumed.
+--
+--    `da_time_blocks_set_updated_at` (BEFORE UPDATE, `bp_set_updated_at`) will
+--    bump all 37 rows. Those migrations suppressed it because they were writing
+--    rows whose VALUES were not really changing, and a bumped token on an
+--    untouched row is fix-341's false "modified by someone else". **These rows
+--    are genuinely changing**, so the new token is true, and an OCC collision
+--    for somebody holding the grid open is the system working: they reload and
+--    see `PTO`. Suppressing it would hand them a stale token for a row that
+--    moved underneath them, which is the defect rather than the fix.
+--
+--    ★ There is no `bp_log_user_activity` or audit trigger on this table, so
+--      the other two halves of that rule have nothing to suppress here.
+--
+-- ---------------------------------------------------------------------------
+-- §D — NOTHING TO MIGRATE
+-- ---------------------------------------------------------------------------
+--
+-- `Redesign` comes off the picker in the same ticket. There are **zero** rows
+-- carrying it (all three were removed on 2026-09-15, before this was written),
+-- so there is no statement here. The popup still renders an unrecognised stored
+-- type as a disabled "(retired)" row, because removing a value from a list does
+-- not remove it from the database — fix-415's append rule, which this codebase
+-- has now paid for three times.
+--
+-- ===========================================================================
+-- THE STATEMENTS
+-- ===========================================================================
+
+-- ---------------------------------------------------------------------------
+-- §A — one line changes: `'schematic'` joins the `project_details` arm.
+--      The other two arms are the live definition, unchanged.
+-- ---------------------------------------------------------------------------
+--
+-- CREATE OR REPLACE FUNCTION public.bp_write_caps(p_uid uuid DEFAULT auth.uid())
+--  RETURNS text[]
+--  LANGUAGE sql
+--  STABLE SECURITY DEFINER
+--  SET search_path TO 'public', 'pg_temp'
+-- AS $function$
+--   select array_remove(array[
+--     case when r && array['dm','director','ent','ent_lead','schematic'] then 'project_details'    end,
+--     case when r && array['dm','director','schematic']                  then 'schematic_designer' end,
+--     case when r && array['dm','director']                              then 'reassign_da'        end
+--   ], null)
+--   from (select public.bp_roster_roles(p_uid) as r) s;
+-- $function$;
+
+-- ---------------------------------------------------------------------------
+-- §B.1 — the 16 echoed labels. MUST RUN BEFORE §B.2 (see the note above).
+--        Expected: UPDATE 16
+-- ---------------------------------------------------------------------------
+--
+-- UPDATE public.da_time_blocks
+--    SET label = 'PTO'
+--  WHERE type = 'Vacation'
+--    AND label = 'Vacation';
+
+-- ---------------------------------------------------------------------------
+-- §B.2 — the type, on all 37. Expected: UPDATE 37
+-- ---------------------------------------------------------------------------
+--
+-- UPDATE public.da_time_blocks
+--    SET type = 'PTO'
+--  WHERE type = 'Vacation';
+
+-- ---------------------------------------------------------------------------
+-- VERIFY — after applying, all four must hold
+-- ---------------------------------------------------------------------------
+--
+-- -- 1. no Vacation left, 37 PTO
+-- SELECT type, count(*) FROM public.da_time_blocks GROUP BY type ORDER BY 1;
+--
+-- -- 2. no block says Vacation while typed PTO
+-- SELECT count(*) AS should_be_zero
+--   FROM public.da_time_blocks WHERE label = 'Vacation';
+--
+-- -- 3. the 21 custom labels are untouched
+-- SELECT count(*) AS should_be_21
+--   FROM public.da_time_blocks
+--  WHERE type = 'PTO' AND label IS DISTINCT FROM 'PTO';
+--
+-- -- 4. Ana holds the cap; a da-only login still does not
+-- SELECT public.bp_write_caps('b4374346-2196-40ef-96a8-48f28a4c5a0b')
+--        @> array['project_details'] AS ana_should_be_true;
