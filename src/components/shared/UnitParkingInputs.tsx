@@ -1,4 +1,3 @@
-import type { ReactNode } from 'react';
 import type { ParkingKind } from '../../lib/database.types';
 import {
   NOT_RECORDED,
@@ -62,79 +61,33 @@ function cls(fill?: boolean): string {
 }
 
 // ---------------------------------------------------------------------------
-// ★★★ fix-422 — A CELL THAT SHOWS ONE GLYPH AND A MENU THAT SHOWS THE WORDS
+// ★★★ fix-572 §C (P-277) — THE CODED CELL IS DELETED, AND SO IS ITS LAST
+//     CALLER. Recorded rather than dropped, because it was a real solution to a
+//     real constraint and the reasoning is worth keeping.
 // ---------------------------------------------------------------------------
 //
-// ★★★ A NATIVE `<select>` CANNOT DO THAT ON ITS OWN. Its closed face is the
-// selected `<option>`'s own text, so "G closed, Garage open" is not two states
-// of one element — it is two elements.
+// ★★ WHAT IT WAS. A native `<select>`'s closed face is the selected option's
+//    own text, so *"G closed, Garage open"* is not two states of one element —
+//    it is two elements. Hand-rolling a `<button>` + `<ul role="listbox">` would
+//    have re-implemented type-ahead, Escape, arrow keys, the mobile picker and
+//    the screen-reader contract the platform already ships. So the real
+//    `<select>` stayed and was laid over a painted face at zero opacity:
+//    keyboard, type-ahead, the native menu and the a11y tree all the platform's,
+//    only the face ours. fix-562 §A narrowed the face from a letter code
+//    (`G`/`S`/`B`) to the short form of the real answer (`2G`, `PH`, `3+B`).
 //
-// ★★ AND THE OBVIOUS FIX IS THE WRONG ONE. Replacing it with a `<button>` plus
-// a `<ul role="listbox">` would hand-roll type-ahead, Escape, arrow keys, the
-// mobile picker and the screen-reader contract that the platform already ships.
+// ★★★ WHY IT GOES. The whole mechanism existed to fit an answer into a 26px
+//     matrix cell. §C retires that matrix, and the only surface that ever
+//     passed `code` was the modal's unit row — the Overview card has printed
+//     the answers in full since fix-507/508 transposed it, and the wizard's
+//     `UnitTypesEditor` never used it. **With `code` unset everywhere, keeping
+//     the prop would leave a shape the next reader would believe was live.**
+//     §A's rule, applied to a prop instead of a callback: *"A prop left
+//     dangling is how the next grep lies."*
 //
-// ★★★ SO THE REAL `<select>` STAYS AND IS LAID OVER THE FACE AT ZERO OPACITY.
-// Keyboard, type-ahead, the native menu and the accessibility tree are all the
-// platform's, unmodified; only the painted face is ours.
-//
-// ★★★ fix-562 §A NARROWS WHAT THAT FACE SAYS. fix-422 painted a letter CODE
-//     (`G` / `S` / `B`) because the matrix cell was 26px. The new vocabulary is
-//     the answer itself — `2-car garage`, `W/ PH`, `3+B` — and abbreviating it
-//     back to a letter would undo the ticket. The compact face now shows the
-//     SHORT FORM of the real answer (`2G`, `PH`, `3+B`) with the full words in
-//     the menu and in the `title`, and the wide mounts show the answer in full.
-function CodedCell({
-  code,
-  title,
-  children,
-  disabled,
-}: {
-  code: string;
-  title: string;
-  children: ReactNode;
-  disabled?: boolean;
-}) {
-  return (
-    <span
-      title={title}
-      className={`relative flex items-center justify-center w-full h-[16px] rounded border border-border bg-bg text-[9px] font-bold text-text focus-within:border-de focus-within:ring-1 focus-within:ring-de ${
-        disabled ? 'opacity-40' : ''
-      }`}
-    >
-      <span aria-hidden="true" className="pointer-events-none select-none">
-        {code}
-      </span>
-      {children}
-    </span>
-  );
-}
-
-/** ★ The real control, invisible but entirely present. */
-const OVERLAY_CLASS =
-  'absolute inset-0 w-full h-full opacity-0 cursor-pointer disabled:cursor-default';
-
-/**
- * ★★★ THE SHORT FACE FOR A 26px CELL — derived from the answer, never a second
- *     vocabulary. `2-car garage` → `2G`, `Surface / None` → `S`, `W/ PH` →
- *     `PH`, `W/O PH` → `RD`, `None` → `N`. Stories need no shortening: `3+B` is
- *     already three characters.
- *
- * ★ The full answer is one hover or one Tab away on every one of them (the
- *   `title` on `CodedCell`), which is fix-422's own rule about abbreviations.
- */
-function shortParking(label: string): string {
-  if (label === NOT_RECORDED) return NOT_RECORDED;
-  const parts = decodeParking(label);
-  if (!parts) return label;
-  return parts.kind === 'garage' ? `${parts.count}G` : 'S';
-}
-
-function shortRoofDeck(label: string): string {
-  if (label === NOT_RECORDED) return NOT_RECORDED;
-  const parts = decodeRoofDeck(label);
-  if (!parts) return label;
-  return parts.deck ? (parts.penthouse ? 'PH' : 'RD') : 'N';
-}
+// ★ `fill` STAYS: it is what makes a select take the width it is given, which
+//   is exactly what a field in the new form needs (fix-412 Scope C's rule, and
+//   the reason "Parking" once pushed the row right).
 
 /**
  * ★★ ONE SHAPE FOR ALL THREE CONTROLS. Each takes the OPTIONS (from the
@@ -149,8 +102,6 @@ function VocabularySelect({
   testid,
   ariaLabel,
   fill,
-  code,
-  face,
 }: {
   value: string;
   options: readonly string[];
@@ -159,9 +110,6 @@ function VocabularySelect({
   testid: string;
   ariaLabel: string;
   fill?: boolean;
-  code?: boolean;
-  /** The compact face, when `code` is set. */
-  face?: string;
 }) {
   // ★ fix-415/fix-364's append rule: a stored answer the registry no longer
   //   offers is shown at the BOTTOM rather than dropped, because a `<select>`
@@ -186,15 +134,6 @@ function VocabularySelect({
     'data-testid': testid,
     'aria-label': ariaLabel,
   };
-  if (code) {
-    return (
-      <CodedCell code={face ?? value} title={value} disabled={disabled}>
-        <select {...shared} className={OVERLAY_CLASS}>
-          {menu}
-        </select>
-      </CodedCell>
-    );
-  }
   return (
     <select {...shared} className={cls(fill)}>
       {menu}
@@ -210,7 +149,6 @@ export function ParkingKindSelect({
   disabled,
   testid,
   fill,
-  code,
 }: {
   kind: ParkingKind | null | undefined;
   count: number | null | undefined;
@@ -224,7 +162,6 @@ export function ParkingKindSelect({
   disabled?: boolean;
   testid: string;
   fill?: boolean;
-  code?: boolean;
 }) {
   const label = parkingLabel(kind, count);
   return (
@@ -235,8 +172,6 @@ export function ParkingKindSelect({
       testid={testid}
       ariaLabel="Parking"
       fill={fill}
-      code={code}
-      face={shortParking(label)}
       onPick={(picked) => {
         if (picked === null) return onChange(null);
         const parts = decodeParking(picked);
@@ -258,7 +193,6 @@ export function RoofDeckSelect({
   disabled,
   testid,
   fill,
-  code,
 }: {
   deck: boolean | null | undefined;
   penthouse: boolean | null | undefined;
@@ -267,7 +201,6 @@ export function RoofDeckSelect({
   disabled?: boolean;
   testid: string;
   fill?: boolean;
-  code?: boolean;
 }) {
   const label = roofDeckLabel(deck, penthouse);
   return (
@@ -278,8 +211,6 @@ export function RoofDeckSelect({
       testid={testid}
       ariaLabel="Roof deck"
       fill={fill}
-      code={code}
-      face={shortRoofDeck(label)}
       onPick={(picked) => {
         if (picked === null) return onChange(null);
         const parts = decodeRoofDeck(picked);
@@ -298,7 +229,6 @@ export function StoriesSelect({
   disabled,
   testid,
   fill,
-  code,
 }: {
   stories: number | null | undefined;
   basement: boolean | null | undefined;
@@ -307,7 +237,6 @@ export function StoriesSelect({
   disabled?: boolean;
   testid: string;
   fill?: boolean;
-  code?: boolean;
 }) {
   // ★★★ fix-562 §A — STORIES BECOMES A DROPDOWN. It was a free-text number box
   //     in all three mounts, which is what let `0`, blanks and half-typed
@@ -322,9 +251,6 @@ export function StoriesSelect({
       testid={testid}
       ariaLabel="Stories"
       fill={fill}
-      code={code}
-      // ★ `3+B` is already short enough for the compact cell — no second form.
-      face={label}
       onPick={(picked) => {
         if (picked === null) return onChange(null);
         const parts = decodeStories(picked);

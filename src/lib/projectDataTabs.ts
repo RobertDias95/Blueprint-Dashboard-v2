@@ -91,3 +91,59 @@ export function projectDataHref(
     ? base
     : `${base}&${PARAM_DATA_FOCUS}=${focusPermitId}`;
 }
+
+// ===========================================================================
+// ★★★ fix-572 §B (P-277) — THE MODAL STOPS RESIZING
+// ===========================================================================
+//
+// Bobby: the box changed size as he moved between tabs. It already SCROLLED —
+// `max-h-[90vh]` with a `flex-1 overflow-y-auto` body — and the defect was that
+// there was no MINIMUM, so a short tab collapsed the shell and Units stretched
+// it.
+//
+// ---------------------------------------------------------------------------
+// ★★★ MEASURED IN CHROME, NOT PICKED. Every tab rendered at 760px through
+//     `harness/project-data-height-572.html`, body `scrollHeight` with the
+//     shell unconstrained, AFTER §C's restack:
+//
+//       permits        781px   ← tallest, and UNBOUNDED (3 permits in the fixture)
+//       units          638px   ← 3 unit types; grows 133px per type
+//       dates          429px   ← tallest BOUNDED tab
+//       team           373px
+//       site           355px
+//       actions        330px
+//       builder        226px
+//       consultants    153px
+//       plan            64px
+//       header+tabs+footer  132px of chrome
+//
+// ★★★ THE TALLEST TAB IS THE WRONG TARGET, AND THAT IS THE ONE JUDGEMENT HERE.
+//     `permits` is a repeating sub-form: its height is a function of how many
+//     permits a project has, so **no fixed height can contain it** and sizing
+//     to my fixture's three would be picking a number and calling it a
+//     measurement. Same for `units` beyond a point — 133px per type, and prod's
+//     deepest project carries six.
+//
+// ★★ SO THE RULE IS: fit every BOUNDED tab, plus a Units tab at more types than
+//    the average project has (prod: 2.28 where present, max 6), and let the two
+//    unbounded tabs scroll — which they would at any real size anyway.
+//    **638 + 132 = 770.** That clears the tallest bounded tab (429 + 132 = 561)
+//    by 209px of deliberate headroom for Units.
+//
+// ★ AND IT FITS A LAPTOP. 90vh on a 1080p screen is ~820px, so the cap below
+//   does not bind on the common machine — the box is the same size everywhere
+//   most of the time, which is the entire point of fixing it. A flat `90vh`
+//   would have made the `plan` tab a 64px sliver in an 820px box, which §B
+//   names as a different bad thing.
+
+/** The shell's fixed height, px. See the measurement table above. */
+export const PROJECT_DATA_MODAL_HEIGHT_PX = 770;
+
+/** ★ The cap, so a short screen never gets a modal taller than the window.
+ *  `min(770px, 90vh)` — a HEIGHT, not a max-height: a max-height is what let
+ *  the box collapse to its content and resize per tab. */
+export const PROJECT_DATA_MODAL_MAX_VH = 90;
+
+/** The CSS the shell renders. ★ One string, so the number and the cap cannot
+ *  drift apart across a class list and a style object. */
+export const PROJECT_DATA_MODAL_HEIGHT = `min(${PROJECT_DATA_MODAL_HEIGHT_PX}px, ${PROJECT_DATA_MODAL_MAX_VH}vh)`;

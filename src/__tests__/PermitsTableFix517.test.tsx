@@ -138,7 +138,6 @@ function permit(over: Partial<PermitWithCycles> = {}): PermitWithCycles {
 }
 
 const selected: number[] = [];
-const edited: number[] = [];
 
 function renderTable(
   permits: PermitWithCycles[],
@@ -157,7 +156,6 @@ function renderTable(
       permits={permits}
       redesignLabelByPermitId={opts.redesignLabels}
       onSelect={(id) => selected.push(id)}
-      onEditPermit={(id) => edited.push(id)}
     />,
     { wrapper },
   );
@@ -165,7 +163,6 @@ function renderTable(
 
 beforeEach(() => {
   selected.length = 0;
-  edited.length = 0;
   useAuthStore.setState({
     activeTenantId: T,
     memberships: [{ tenant_id: T, role: 'admin' }],
@@ -494,9 +491,8 @@ describe('fix-517 §C — phase is the default, urgency is one click', () => {
     for (const b of screen.getAllByRole('button')) {
       const id = b.getAttribute('data-testid') ?? '';
       expect(
-        id.startsWith('permits-sort-') ||
-          id.startsWith('schedule-health-edit-') ||
-          id.startsWith('reviewer-chip-'),
+        // ★ fix-572 §A: `schedule-health-edit-` left this list with the ✎↗.
+        id.startsWith('permits-sort-') || id.startsWith('reviewer-chip-'),
         `unexpected control in the table header: ${id}`,
       ).toBe(true);
     }
@@ -700,54 +696,55 @@ describe('fix-517 §E — one permit editor, reached from the row', () => {
     );
   });
 
-  it('★★★ the edit affordance is a HOVER control, not a double-click', () => {
-    // ★★★ Bobby floated double-tap. NOT USED: single-click already opens the
-    //     Permit View (§D), so single=view / double=edit is a coin flip, and
-    //     double-click fights text selection in a table.
-    renderTable([permit({ id: 7 })]);
-    const btn = screen.getByTestId('schedule-health-edit-7');
-    expect(btn.className).toContain('opacity-0');
-    expect(btn.className).toContain('group-hover:opacity-100');
-    // Reachable by keyboard too — a hover-only control is invisible to one.
-    expect(btn.className).toContain('focus:opacity-100');
-    expect(btn.getAttribute('aria-label')).toContain('Project Details');
-    expect(tableSrc).not.toContain('onDoubleClick');
-  });
-
-  it('★★★ fix-519 §D (P-232) — the glyph CARRIES the navigation, and says where', () => {
-    // ★★★ SUPERSEDING fix-517's BARE ✎. The behaviour was already right — this
-    //     control opens Project Details and always did — but **Bobby still had
-    //     to ask whether the rule had been broken**, because a pencil is the
-    //     universal sign for EDIT IN PLACE. When a ruling changes what a
-    //     control does, the control's SIGN changes with it, or the ruling reads
-    //     as broken. Nothing about the click changed.
-    renderTable([permit({ id: 7 })]);
-    const btn = screen.getByTestId('schedule-health-edit-7');
-    // The arrow is decorative — the accessible name is the sentence.
-    expect(btn.textContent).toContain('↗');
-    expect(btn.getAttribute('title')).toBe('Edit in Project Details');
-    expect(btn.getAttribute('aria-label')).toContain('in Project Details');
-    // ★ The destination is NAMED, not merely implied by an icon: a screen
-    //   reader hearing "Edit" alone learns nothing about the page changing.
-    expect(btn.querySelector('[aria-hidden="true"]')?.textContent).toBe('↗');
-  });
-
-  it('★★★ it targets the Permits tab, and does not also open the Permit View', () => {
-    renderTable([permit({ id: 7 })]);
-    fireEvent.click(screen.getByTestId('schedule-health-edit-7'));
-    expect(edited).toEqual([7]);
-    expect(selected).toEqual([]);
-  });
-
-  it('★★★ the deep link reuses fix-514 §C’s parameter and does NOT reuse `?permit=`', () => {
-    // ★★★ `?permit=` ALREADY MEANS SOMETHING ELSE — ProjectDetail reads it to
-    //     select a permit and swap the overview pane for the Permit View
-    //     (fix-217/218/219). Reusing it would open the modal over a page that
-    //     had silently navigated away underneath it.
-    expect(pageSrc).toContain("next.set(PARAM_DATA, 'permits')");
-    expect(pageSrc).toContain('next.set(PARAM_DATA_FOCUS, String(permitId))');
-    // ★ …and closing the modal clears the focus, so it cannot re-fire.
-    expect(pageSrc).toContain('next.delete(PARAM_DATA_FOCUS)');
+  // =======================================================================
+  // ★★★ fix-572 §A (P-277) — THE ✎↗ IS REMOVED, BY BOBBY, AND THREE TESTS
+  //     RETIRE WITH IT. Named rather than deleted quietly.
+  // =======================================================================
+  //
+  //   · the edit affordance is a HOVER control, not a double-click
+  //     (`opacity-0` / `group-hover:opacity-100` / `focus:opacity-100`, and
+  //     no `onDoubleClick` — single-click already opens the Permit View, so
+  //     single=view / double=edit was a coin flip)
+  //   · fix-519 §D — the glyph CARRIES the navigation, and says where
+  //     (`↗` decorative, `title="Edit in Project Details"`, the destination
+  //     NAMED in the accessible name rather than implied by a pencil)
+  //   · it targets the Permits tab, and does not also open the Permit View
+  //
+  // ★★ fix-519 §D'S RULING IS NOT REVERSED BY THIS. *"When a ruling changes
+  //    what a control does, the control's SIGN changes with it"* was right
+  //    about the glyph for as long as the glyph existed. The control is gone;
+  //    the rule about signs is not.
+  //
+  // ★★★ AND THE ONE BELOW IS **KEPT**, WHICH IS THE POINT OF §A. The ✎↗ was
+  //     the only thing in the app that WROTE `?data=permits&focus=<id>`. The
+  //     READ side is untouched — `PARAM_DATA_FOCUS`, `projectDataHref`'s third
+  //     argument, and the Permits tab's scroll-and-ring are all still live —
+  //     so fix-514 §C's deep link still works by URL. Losing this assertion
+  //     with the button would leave a working address nobody could prove.
+  it('★★★ THE WRITER IS GONE AND THE PARAMETER IS NOT: fix-514 §C’s deep link survives', () => {
+    // ★★★ fix-572 §A: the three `pageSrc` lines this used to assert were
+    //     `openPermitInProjectDetails`, which is deleted with its only caller.
+    //     What has to remain true is that the PARAMETER is still read, and
+    //     still distinct from `?permit=`.
+    // ⚠️ COMMENTS STRIPPED FIRST. The note explaining the deletion NAMES the
+    //    deleted function, so an unstripped `not.toContain` would be satisfied
+    //    by its own gravestone — this codebase has paid for that one before.
+    const pageClean = pageSrc
+      .replace(/\/\*[\s\S]*?\*\//g, '')
+      .replace(/^\s*\/\/.*$/gm, '');
+    expect(pageClean).toContain('PARAM_DATA_FOCUS');
+    expect(pageClean).toContain('dataFocusPermitId');
+    // ★ …and closing the modal still clears the focus, so it cannot re-fire.
+    expect(pageClean).toContain('next.delete(PARAM_DATA_FOCUS)');
+    // ★★ THE WRITER, ASSERTED ABSENT. If a future ticket wants the jump back it
+    //    should be a deliberate re-add, not a quiet reappearance.
+    expect(pageClean).not.toContain('openPermitInProjectDetails');
+    const tableClean = tableSrc
+      .replace(/\/\*[\s\S]*?\*\//g, '')
+      .replace(/^\s*\/\/.*$/gm, '')
+      .replace(/\{\/\*[\s\S]*?\*\/\}/g, '');
+    expect(tableClean).not.toContain('schedule-health-edit');
+    expect(tableClean).not.toContain('Edit in Project Details');
   });
 
   it('★★★ `Sub-permit of` is editable in the Permits tab, on fix-194’s rules', () => {
@@ -777,7 +774,11 @@ describe('fix-517 §F — the rename sweep', () => {
     const src = tableSrc.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '');
     expect(src).not.toContain('Project Data.');
     expect(src).not.toContain('Project Settings');
-    expect(src).toContain('Project Details → Permits');
+    // ★★★ fix-572 §A: `Project Details → Permits` WAS the ✎↗'s own accessible
+    //     name, so asserting it here would re-require the control §A removed.
+    //     §F's actual ruling — this table calls the modal by its current name or
+    //     does not name it — is what survives, and it is assertable either way.
+    expect(src).not.toMatch(/Project Data/);
   });
 });
 

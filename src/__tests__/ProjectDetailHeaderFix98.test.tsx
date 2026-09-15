@@ -118,11 +118,30 @@ function projectFixture(over: Partial<Record<string, unknown>> = {}) {
   } as unknown as Parameters<typeof ProjectDetailsModal>[0]['project'];
 }
 
+/** ★★★ fix-572 §C — THE DEFAULT FIXTURE SEEDS ONE TYPE, because an empty
+ *  `unit_types` no longer renders a dimension box at all.
+ *
+ *  It used to: a project with no types got the COMPACT editor, whose W/D pair
+ *  CREATED the first row on blur. §C removes the compact form — there is one
+ *  shape now — so an empty list says *"No types yet — add one under Types
+ *  above"* and points at `+ Add type`, which is where a type is made.
+ *
+ *  ★★ WHAT THAT COSTS, SAID PLAINLY: on a project with no types, typing a width
+ *     is now two steps (add the type, then fill it) instead of one. §C's own
+ *     answer is that the one-step version is what made *"which unit am I
+ *     updating?"* askable — a width with no type attached is a number nobody
+ *     can read back.
+ *
+ *  ★ fix-98's and fix-99's subjects — the dirty-flag prop sync and the single
+ *    mutateAsync per blur — are unaffected by which form hosts the input, so
+ *    these tests keep asserting exactly what they always did. */
+const ONE_TYPE = [{ label: '', width_ft: null, depth_ft: null, qty: 1 }];
+
 function setup(over: Partial<Record<string, unknown>> = {}) {
   const queryClient = new QueryClient({
     defaultOptions: { queries: { retry: false } },
   });
-  const project = projectFixture(over);
+  const project = projectFixture({ unit_types: ONE_TYPE, ...over });
   queryClient.setQueryData(queryKeys.projects(T), [project]);
   const wrapper = ({ children }: { children: ReactNode }) => (
     <QueryClientProvider client={queryClient}>
@@ -155,6 +174,17 @@ beforeEach(() => {
   });
 });
 
+// ★★★ fix-572 §C — `pd-units-compact-w` IS NOW `pd-unit-w`, AND THAT IS THE
+//     ONLY CHANGE IN THIS FILE. The compact/expanded split is gone: a project
+//     with one unnamed type used to render a reduced editor with its own
+//     testids, which meant fix-98's dirty-flag sync and fix-99's single-call
+//     rule were only ever asserted on ONE of the two forms. There is one form
+//     now, so these assertions cover every project.
+//
+// ★★ THE BEHAVIOURS THEMSELVES ARE UNTOUCHED by this ticket: one mutateAsync
+//    per blur, the OCC token read from the cache at send time (fix-532), and
+//    the dirty-flag prop sync (fix-73 → fix-98) all still live in
+//    `UnitConfigBlock`, which is why repointing the testid is sufficient.
 describe('UnitDimensions — fix-99 single mutateAsync call (recovery in hook)', () => {
   it('happy path: writeTypes fires ONE mutateAsync with the project\'s current updated_at and no silentOnOcc flag', async () => {
     updateMutateAsync.mockResolvedValueOnce({
@@ -162,7 +192,7 @@ describe('UnitDimensions — fix-99 single mutateAsync call (recovery in hook)',
       updated_at: NEW_TOKEN,
     });
     setup();
-    const wInput = screen.getByTestId('pd-units-compact-w') as HTMLInputElement;
+    const wInput = screen.getByTestId('pd-unit-w') as HTMLInputElement;
     fireEvent.change(wInput, { target: { value: '40' } });
     fireEvent.blur(wInput);
     await waitFor(() => expect(updateMutateAsync).toHaveBeenCalledTimes(1));
@@ -184,7 +214,7 @@ describe('UnitDimensions — fix-99 single mutateAsync call (recovery in hook)',
       new OCCConflictError(0, 'Unit Dimensions'),
     );
     setup();
-    const wInput = screen.getByTestId('pd-units-compact-w') as HTMLInputElement;
+    const wInput = screen.getByTestId('pd-unit-w') as HTMLInputElement;
     fireEvent.change(wInput, { target: { value: '40' } });
     fireEvent.blur(wInput);
     await waitFor(() => expect(updateMutateAsync).toHaveBeenCalledTimes(1));
@@ -199,7 +229,7 @@ describe('UnitDimensions — fix-99 single mutateAsync call (recovery in hook)',
   it('NON-OCC rejection: writeTypes still only calls mutateAsync once and surfaces no errors to the void caller', async () => {
     updateMutateAsync.mockRejectedValueOnce(new Error('network glitch'));
     setup();
-    const wInput = screen.getByTestId('pd-units-compact-w') as HTMLInputElement;
+    const wInput = screen.getByTestId('pd-unit-w') as HTMLInputElement;
     fireEvent.change(wInput, { target: { value: '40' } });
     fireEvent.blur(wInput);
     await waitFor(() => expect(updateMutateAsync).toHaveBeenCalledTimes(1));
@@ -262,13 +292,13 @@ function setupControlled(over: Partial<Record<string, unknown>> = {}) {
   return { ...utils, queryClient, hostRef };
 }
 
-describe('UnitDimensionsCompact — fix-98 dirty-flag prop sync', () => {
+describe('UnitConfigBlock — fix-98 dirty-flag prop sync (was UnitDimensionsCompact)', () => {
   it('clean (non-dirty) prop refresh updates the visible width input', async () => {
     const { hostRef } = setupControlled({
       unit_types: [{ label: '', width_ft: 30, depth_ft: 60, qty: 1 }],
     });
     expect(
-      (screen.getByTestId('pd-units-compact-w') as HTMLInputElement).value,
+      (screen.getByTestId('pd-unit-w') as HTMLInputElement).value,
     ).toBe('30');
 
     // Flip the project prop — what React Query would do after a
@@ -281,7 +311,7 @@ describe('UnitDimensionsCompact — fix-98 dirty-flag prop sync', () => {
     );
     await waitFor(() => {
       expect(
-        (screen.getByTestId('pd-units-compact-w') as HTMLInputElement).value,
+        (screen.getByTestId('pd-unit-w') as HTMLInputElement).value,
       ).toBe('45');
     });
   });
@@ -290,7 +320,7 @@ describe('UnitDimensionsCompact — fix-98 dirty-flag prop sync', () => {
     const { hostRef } = setupControlled({
       unit_types: [{ label: '', width_ft: 30, depth_ft: 60, qty: 1 }],
     });
-    const wInput = screen.getByTestId('pd-units-compact-w') as HTMLInputElement;
+    const wInput = screen.getByTestId('pd-unit-w') as HTMLInputElement;
     // User starts typing. dirtyRef flips to true.
     fireEvent.change(wInput, { target: { value: '99' } });
     expect(wInput.value).toBe('99');
@@ -306,7 +336,7 @@ describe('UnitDimensionsCompact — fix-98 dirty-flag prop sync', () => {
     // Without the dirty flag the input would revert to '30'.
     await settle();
     expect(
-      (screen.getByTestId('pd-units-compact-w') as HTMLInputElement).value,
+      (screen.getByTestId('pd-unit-w') as HTMLInputElement).value,
     ).toBe('99');
   });
 
@@ -318,7 +348,7 @@ describe('UnitDimensionsCompact — fix-98 dirty-flag prop sync', () => {
     const { hostRef } = setupControlled({
       unit_types: [{ label: '', width_ft: 30, depth_ft: 60, qty: 1 }],
     });
-    const wInput = screen.getByTestId('pd-units-compact-w') as HTMLInputElement;
+    const wInput = screen.getByTestId('pd-unit-w') as HTMLInputElement;
     fireEvent.change(wInput, { target: { value: '99' } });
     fireEvent.blur(wInput);
     // Save fires; assume the server persists 99 and the cache patches
@@ -332,7 +362,7 @@ describe('UnitDimensionsCompact — fix-98 dirty-flag prop sync', () => {
     );
     await waitFor(() => {
       expect(
-        (screen.getByTestId('pd-units-compact-w') as HTMLInputElement).value,
+        (screen.getByTestId('pd-unit-w') as HTMLInputElement).value,
       ).toBe('100');
     });
   });

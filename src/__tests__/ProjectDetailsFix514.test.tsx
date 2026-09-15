@@ -18,6 +18,7 @@ import modalSrc from '../components/ProjectDetail/ProjectDetailsModal.tsx?raw';
 import formSrc from '../components/ProjectDetail/ProjectDetailsForm.tsx?raw';
 import controllerSrc from '../hooks/useProjectDetailsForm.ts?raw';
 import editorsSrc from '../components/ProjectDetail/ProjectDataEditors.tsx?raw';
+import overviewBoxesSrc from '../components/ProjectDetail/ProjectOverviewBoxes.tsx?raw';
 import librarySrc from '../components/LibraryMatrix.tsx?raw';
 import pageSrc from '../pages/ProjectDetail.tsx?raw';
 import consultantHookSrc from '../hooks/useProjectConsultants.ts?raw';
@@ -362,11 +363,32 @@ describe('fix-514 §D — remove goes through an RPC, and nothing is hard-delete
 // ---------------------------------------------------------------------------
 
 describe('fix-514 §E — unit size is TYPED and never computed', () => {
-  it('★★★ there is an editor, writing size_sf through the unit_types path', () => {
+  // =======================================================================
+  // ★★★ fix-572 §C (P-277) — `UnitSizeEditor` IS DELETED AND THE FIELD IS NOT
+  // =======================================================================
+  //
+  // §E gave `size_sf` a LIST OF ITS OWN below the matrix, and the reason was
+  // arithmetic rather than design: fix-488 §B built it as a ninth matrix
+  // column, measured it at +38px of matrix and +76px of OVERVIEW row minimum,
+  // and reverted it because that broke fix-423 §D's guarantee that both wrapped
+  // lines fit at 1280.
+  //
+  // ★★★ EVERY NUMBER IN THAT ARGUMENT IS ABOUT THE OVERVIEW ROW. §C's form is
+  //     inside a 760px modal that owes the overview row nothing, so the field
+  //     sits beside the two dimensions it is read against and the second list
+  //     asking about one unit from a different place stops existing.
+  //
+  // ⚠️ THE OVERVIEW MATRIX STILL DOES NOT SHOW UNIT SIZE — asserted below.
+  //    fix-488's ruling is unchanged on the surface it was made about.
+  it('★★★ the field survives its editor, writing size_sf through the unit_types path', () => {
     const e = code(editorsSrc);
-    expect(e).toContain('export function UnitSizeEditor');
-    expect(e).toContain('size_sf: size');
-    expect(e).toContain("patch: { unit_types: resolveUnitTypesForSave(next, productTypes) }");
+    expect(e).not.toContain('export function UnitSizeEditor');
+    expect(e).not.toContain('UnitSizeRow');
+    // ★ It is a FIELD of the per-type block now, and it still writes the same
+    //   key through the same save path.
+    expect(e).toContain('data-testid="pd-unit-size"');
+    expect(e).toContain("fieldKey=\"size_sf\"");
+    expect(e).toContain('resolveUnitTypesForSave(next, productTypes)');
   });
 
   it('★★★ SIZE IS NEVER COMPUTED FROM WIDTH × DEPTH — the failure mode, asserted', () => {
@@ -374,22 +396,37 @@ describe('fix-514 §E — unit size is TYPED and never computed', () => {
     //     footprint is not its bounding box, and P-161 reopened on 2026-09-09
     //     when two "regular" lots turned out to record MORE area than their own
     //     box holds. 20 × 35 is not the answer.
+    // ★ fix-572 §C: the scope is the per-type BLOCK now rather than the
+    //   deleted editor. The claim is unchanged — nothing near this input may
+    //   multiply the two dimensions — and the window is tighter than before.
     const e = code(editorsSrc);
-    const start = e.indexOf('export function UnitSizeEditor');
-    const body = e.slice(start, start + 4000);
+    const start = e.indexOf('function UnitConfigBlock(');
+    const body = e.slice(start, e.indexOf('function AddUnitTypeButton('));
+    expect(body.length).toBeGreaterThan(500);
     expect(body).not.toMatch(/width_ft\s*\*\s*depth_ft/);
     expect(body).not.toMatch(/depth_ft\s*\*\s*width_ft/);
     expect(body).not.toContain('lotSizeView');
   });
 
-  it('★★ it is not a ninth matrix column — that costs the Overview 76px', () => {
-    // fix-488 §B measured it and reverted: `UNIT_ROW_COLUMNS` drives
-    // `UNIT_MATRIX_GRID` AND `overviewCardLayout`'s PROJECT card floor.
-    expect(code(modalSrc)).toContain('<UnitSizeEditor project={project} />');
+  it('★★★ it is STILL not on the Overview — the surface fix-488 measured', () => {
+    // ★★★ THE HALF OF §E THAT DOES NOT MOVE. fix-488 §B's revert was about the
+    //     OVERVIEW card's row minimum, and the Overview card renders from its
+    //     own transposed declaration (fix-507/508). §C's exception is scoped to
+    //     the modal; if `size_sf` ever appeared in the Overview matrix, that
+    //     revert would be undone without anyone deciding to.
+    const boxes = code(overviewBoxesSrc);
+    const rows = boxes.slice(boxes.indexOf('const UNIT_ATTRIBUTES'), boxes.indexOf('function num('));
+    expect(rows).not.toContain("key: 'size_sf'");
+    expect(rows).not.toContain("label: 'Unit Size'");
   });
 
   it('★★ blank clears — "not recorded" is a real answer', () => {
-    expect(code(editorsSrc)).toMatch(/n !== null && Number\.isFinite\(n\) && n > 0 \? n : null/);
+    // ★ fix-572 §C keeps the guard verbatim: a blank, a zero and a non-number
+    //   all persist as NULL, which is fix-386's "nobody has said" rather than a
+    //   recorded 0.
+    expect(code(editorsSrc)).toMatch(
+      /n != null && Number\.isFinite\(n\) && n > 0 \? n : null/,
+    );
   });
 });
 

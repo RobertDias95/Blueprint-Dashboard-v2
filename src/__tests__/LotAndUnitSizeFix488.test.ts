@@ -23,7 +23,10 @@ import {
   type LibraryFilters,
   type LibraryRow,
 } from '../lib/libraryHelpers';
-import { UNIT_ROW_COLUMNS, UNIT_MATRIX_WIDTH } from '../lib/unitRowLayout';
+import {
+  FIX_422_MATRIX_WIDTH,
+  UNIT_CONFIG_FIELDS,
+} from '../lib/unitConfigFields';
 import { OVERVIEW_ROW_MIN_WIDTH } from '../lib/overviewCardLayout';
 import type { UnitType } from '../lib/database.types';
 
@@ -551,15 +554,24 @@ describe('fix-488 §B: why the overview units matrix has no Size column', () => 
     // ★★ fix-422's note said "a ninth data column costs nothing but a row in
     //    the table above". That was wrong, and lib/unitRowLayout now carries
     //    the correction with the arithmetic.
-    // ★ fix-562 §A: `parking_stalls` left the product, and its 20px plus a 4px
-    //   gap paid for widening Stories and Roof Deck into dropdowns — so the
-    //   matrix is 266 rather than 274, which STRENGTHENS this section's claim:
-    //   there is still no width for a ninth column.
-    expect(UNIT_ROW_COLUMNS.map((c) => c.key)).toEqual([
-      'label', 'width_ft', 'depth_ft', 'qty', 'stories',
-      'parking_kind', 'roof_deck', 'remove',
+    // ★★★ fix-572 §C — SUPERSEDED, AND IN THE DIRECTION THIS SECTION ARGUED
+    //     AGAINST. fix-488 §B refused `size_sf` a place beside the dimensions
+    //     because a ninth MATRIX column cost 38px of matrix and 76px of
+    //     OVERVIEW row minimum, breaking fix-423 §D's 1280 guarantee.
+    //
+    //     Every number in that argument is about the OVERVIEW ROW. The Units
+    //     tab is no longer a matrix — it is one labelled block per type inside
+    //     a 760px modal — so the constraint does not reach it, and Unit Size
+    //     sits beside Width and Depth where §B wanted it.
+    //
+    // ★★ THE RULING IS INTACT WHERE IT WAS MADE: the OVERVIEW matrix still does
+    //    not show Unit Size (asserted below), and the retired matrix's width is
+    //    kept as evidence.
+    expect(UNIT_CONFIG_FIELDS.map((c) => c.key)).toEqual([
+      'label', 'qty', 'width_ft', 'depth_ft', 'size_sf',
+      'stories', 'parking_kind', 'roof_deck',
     ]);
-    expect(UNIT_MATRIX_WIDTH).toBe(266);
+    expect(FIX_422_MATRIX_WIDTH).toBe(266);
     // ★★★ fix-506 §D SPENT WHAT fix-488 COULD NOT AFFORD, BY TRANSPOSING.
     //     fix-488 §B built P-150's ninth column, measured matrix 274 → 312,
     //     PROJECT floor 296 → 334, row minimum 1,172 → 1,248, wrap point 1,742
@@ -572,7 +584,9 @@ describe('fix-488 §B: why the overview units matrix has no Size column', () => 
     //     retired rank (D-2026-09-09). The PROPERTY each of these tests was
     //     written for is unchanged; only the number it is held against is.
     expect(OVERVIEW_ROW_MIN_WIDTH).toBe(996);
-    expect(UNIT_ROW_COLUMNS.some((c) => c.key === 'size_sf')).toBe(false);
+        // ★ fix-572 §C: it IS a field in the modal now — and still not on the
+    //   Overview, which is the surface fix-488's arithmetic was about.
+    expect(UNIT_CONFIG_FIELDS.some((c) => c.key === 'size_sf')).toBe(true);
   });
 
   it('★★ …and the FIELD still ships — typed and searchable, which is the ask', () => {

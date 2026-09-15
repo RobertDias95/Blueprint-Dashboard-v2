@@ -272,7 +272,10 @@ describe('fix-418 §B (inverted by fix-486): the whitelist now REMOVES it', () =
     renderProjectData(makeProject(), [], 'units');
     expect(screen.queryByTestId('pd-unit-work-scope')).toBeNull();
     expect(screen.queryByTestId('pd-unit-work-chip')).toBeNull();
-    expect(screen.getAllByTestId('pd-unit-row')[0].dataset.remodel).toBeUndefined();
+    // ★ fix-572 §C: the flag rode on `pd-unit-row`, which the restack replaced
+    //   with `pd-unit-block`. The assertion moves rather than going — it is the
+    //   falsifiable half of fix-486's retirement of `work_scope`.
+    expect(screen.getAllByTestId('pd-unit-block')[0].dataset.remodel).toBeUndefined();
   });
 });
 
