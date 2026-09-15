@@ -12,13 +12,81 @@ import type { DsStatusColor } from './drawScheduleStatus';
 export type StatusColor = DsStatusColor;
 export { DS_STATUS_COLORS } from './drawScheduleStatus';
 
-/** Q6.2.c: NP block colors (Vacation/Training/Redesign/Corrections/Other).
- * v1 used the same flat grey for every type (index.html line 8035). */
+/** Q6.2.c: NP block colors (PTO/Training/Corrections/Other).
+ * v1 used the same flat grey for every type (index.html line 8035).
+ *
+ * ★ Still the default for every type EXCEPT PTO — see `npBlockColor`. */
 export const NP_BLOCK_COLOR: StatusColor = {
   bg: '#cacaca',
   border: '#a0a0a0',
   text: '#1a2540',
 };
+
+// ===========================================================================
+// ★★★ fix-577 §C (P-281) — PTO GETS A SAND TINT, AND ONLY PTO
+// ===========================================================================
+//
+// Bobby, 2026-09-15: *"something like a sand color, something light, something
+// that doesn't jump out or pop out on the draw schedule, but a subtle color
+// change to let us know."*
+//
+// ★★★ THE HARD PART IS THE WORD "SUBTLE", and it is measurable. This grid
+//     already carries a taught colour key — `STATUS_PRESENTATION`'s blues,
+//     teals and greens — and fix-263 spent a ticket proving that a flat fill
+//     nobody taught reads as a status. So PTO must be legible as *different*
+//     without entering that key.
+//
+// ★★ MEASURED (WCAG relative luminance, the same arithmetic `index.css` uses
+//    for its own palette notes):
+//
+//                          text ink   its own border   on the grid ground
+//      grey NP  #cacaca      9.27           1.60             1.48
+//      PTO sand #e3d5b8     10.47           1.62             1.31
+//
+//    · TEXT CONTRAST GOES UP, not down — 10.47:1 against `#1a2540`, past AA
+//      (4.5) and AAA (7), and better than the grey it replaces.
+//    · THE BORDER IS THE SAME STRENGTH as grey's (1.62 vs 1.60), because it is
+//      the fill darkened by the same factor — fix-515 §B's rule, so PTO does
+//      not gain an edge treatment the other NP types lack.
+//    · AGAINST THE GRID IT IS *QUIETER* than grey (1.31 vs 1.48), which is
+//      what "does not jump out" means in a number. The border carries the edge
+//      at 2.13:1 against `--color-bg`, so a lighter fill does not dissolve.
+//
+// ★★ AND IT IS NOWHERE NEAR THE STATUS KEY: 1.62:1 against `Under Review`'s
+//    teal, at a far higher luminance than any of the seven status fills, so it
+//    reads as an absence rather than as a phase.
+//
+// ★★★ ONE THEME, CHECKED. The brief asked for both. **There is no dark theme
+//     in this app** — `index.css` declares a single palette (`--color-bg:
+//     #f0f4f8`, `--color-surface: #ffffff`) with no `prefers-color-scheme` or
+//     `data-theme` block anywhere in `src/`. Beyond that, every draw-schedule
+//     block paints LITERAL hexes rather than tokens (`STATUS_PRESENTATION` is
+//     v1-parity hex, and so is this), so the numbers above are the numbers a
+//     reader sees, and would stay so if a second theme ever landed.
+export const PTO_BLOCK_COLOR: StatusColor = {
+  bg: '#e3d5b8',
+  border: '#b3a891',
+  text: '#1a2540',
+};
+
+/** The NP type that is paid time off. ★ It was `Vacation` until fix-577 §B
+ *  renamed the option **and the stored value**; nothing should compare against
+ *  the old string, which is why this is a constant and not a literal. */
+export const PTO_BLOCK_TYPE = 'PTO';
+
+/**
+ * ★★★ THE ONE PLACE A BLOCK'S TYPE BECOMES A COLOUR. Everything that is not
+ *     PTO stays the flat grey it has been since v1 — §C is explicit that
+ *     Training, Corrections and Other do not move.
+ *
+ * ★★ An UNKNOWN type gets the grey too, deliberately. A legacy or hand-written
+ *    value must still paint something readable; a lookup that returned
+ *    `undefined` would render a transparent block with no border, which is how
+ *    fix-406 lost `--color-ok` for a ticket.
+ */
+export function npBlockColor(type: string | null | undefined): StatusColor {
+  return type === PTO_BLOCK_TYPE ? PTO_BLOCK_COLOR : NP_BLOCK_COLOR;
+}
 
 // ===========================================================================
 // ★★★ fix-515 §B (P-212) — THE BORDER IS THE FILL, DARKENED. ONE FUNCTION.

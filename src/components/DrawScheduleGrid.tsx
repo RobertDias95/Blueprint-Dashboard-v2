@@ -41,7 +41,7 @@ import ProjectBlockPopup from './DrawSchedule/ProjectBlockPopup';
 import GapFillPrompt from './GapFillPrompt';
 import EntCascadePrompt from './EntCascadePrompt';
 import {
-  NP_BLOCK_COLOR,
+  npBlockColor,
   addWeeksToWeekKey,
   BLOCK_ADDRESS_MAX_LINES,
   BLOCK_ADDRESS_MIN_FONT,
@@ -2037,9 +2037,12 @@ function DrawScheduleBody({
                             left: 2,
                             right: 2,
                             height,
-                            background: NP_BLOCK_COLOR.bg,
-                            color: NP_BLOCK_COLOR.text,
-                            border: `1px solid ${NP_BLOCK_COLOR.border}`,
+                            // ★★★ fix-577 §C: PTO paints sand, everything else
+                            //     keeps v1's flat grey. One resolver, so the
+                            //     block and the legend cannot disagree.
+                            background: npBlockColor(np.type).bg,
+                            color: npBlockColor(np.type).text,
+                            border: `1px solid ${npBlockColor(np.type).border}`,
                             borderRadius: 4,
                             padding: '2px 4px',
                             overflow: 'hidden',
@@ -3417,14 +3420,49 @@ function Toolbar({
         )}
       </div>
 
-      <input
-        type="text"
-        value={search}
-        onChange={(e) => setSearch(e.target.value)}
-        placeholder="Search projects…"
-        className="bg-bg border border-border rounded-md px-3 py-1 text-xs font-display text-text placeholder:text-dim focus:outline-none focus:border-de min-w-[220px]"
-        data-testid="schedule-search"
-      />
+      {/* ═══════════════════════════════════════════════════════════════
+          ★★★ fix-577 §E (P-281) — A WAY OUT OF THE SEARCH BOX
+          ═══════════════════════════════════════════════════════════════
+
+          There was none but backspacing, and this box filters a whole quarter
+          of the board — so the cost of a stale query is a grid that looks
+          empty for a reason nobody can see.
+
+          ★★ THE SHAPE IS `ScheduleEstimator`'s CLEAR, not a new one: a bare
+             `✕` at `text-[10px]` in `--color-dim`, with a `title`. §E asked for
+             the affordance this codebase already uses, and that is the one that
+             clears a VALUE (the other, `ProjectLinkPicker`'s, is a bordered
+             chip action — a different job).
+
+          ★ It renders only when there is something to clear, so the toolbar is
+            unchanged for somebody who never searches. `relative` + `absolute`
+            rather than a sibling button: a sibling would reflow the row the
+            moment a character is typed. */}
+      <span className="relative inline-flex items-center">
+        <input
+          type="text"
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+          placeholder="Search projects…"
+          className={`bg-bg border border-border rounded-md py-1 text-xs font-display text-text placeholder:text-dim focus:outline-none focus:border-de min-w-[220px] ${
+            search ? 'pl-3 pr-7' : 'px-3'
+          }`}
+          data-testid="schedule-search"
+        />
+        {search && (
+          <button
+            type="button"
+            onClick={() => setSearch('')}
+            className="absolute right-1.5 w-4 h-4 text-[10px] flex items-center justify-center"
+            style={{ color: 'var(--color-dim)' }}
+            title="Clear search"
+            aria-label="Clear search"
+            data-testid="schedule-search-clear"
+          >
+            ✕
+          </button>
+        )}
+      </span>
 
       {canEdit ? (
         <span className="text-[10px] text-muted font-mono ml-auto">

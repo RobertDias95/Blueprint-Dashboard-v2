@@ -18,7 +18,7 @@ const SAMPLE_BLOCK: DaTimeBlock = {
 };
 
 describe('<NpBlockEditPopup /> Q6.2.f', () => {
-  it('Add mode: header shows DA + week, default type is Vacation', () => {
+  it('Add mode: header shows DA + week, default type is PTO', () => {
     const onAdd = vi.fn();
     const onClose = vi.fn();
     render(
@@ -33,10 +33,12 @@ describe('<NpBlockEditPopup /> Q6.2.f', () => {
     expect(screen.getByTestId('np-edit-popup').textContent).toMatch(
       /Trevor.*wk 5\/4/,
     );
-    // Default ✓ marker on Vacation.
-    expect(screen.getByTestId('np-popup-type-Vacation').textContent).toMatch(
-      /✓/,
-    );
+    // ★ fix-577 §B: the default is `PTO` — the option AND the stored value.
+    expect(screen.getByTestId('np-popup-type-PTO').textContent).toMatch(/✓/);
+    // ★★ ...and the old name is gone from the picker entirely, not merely
+    //    relabelled: a control that shows one word and writes another is two
+    //    vocabularies for one fact.
+    expect(screen.queryByTestId('np-popup-type-Vacation')).toBeNull();
   });
 
   it('Add: clicking Save fires onAdd with chosen type + custom label', () => {
@@ -76,7 +78,7 @@ describe('<NpBlockEditPopup /> Q6.2.f', () => {
       />,
     );
     fireEvent.click(screen.getByTestId('np-popup-save'));
-    expect(onAdd).toHaveBeenCalledWith('Vacation', '', null);
+    expect(onAdd).toHaveBeenCalledWith('PTO', '', null);
   });
 
   it('Add: Enter in the label input submits', () => {
@@ -94,7 +96,7 @@ describe('<NpBlockEditPopup /> Q6.2.f', () => {
     const input = screen.getByTestId('np-popup-label') as HTMLInputElement;
     fireEvent.change(input, { target: { value: 'Custom' } });
     fireEvent.keyDown(input, { key: 'Enter' });
-    expect(onAdd).toHaveBeenCalledWith('Vacation', 'Custom', null);
+    expect(onAdd).toHaveBeenCalledWith('PTO', 'Custom', null);
   });
 
   it('Add: Escape closes without firing onAdd', () => {
@@ -148,12 +150,12 @@ describe('<NpBlockEditPopup /> Q6.2.f', () => {
         onClose={onClose}
       />,
     );
-    fireEvent.click(screen.getByTestId('np-popup-type-Vacation'));
+    fireEvent.click(screen.getByTestId('np-popup-type-PTO'));
     fireEvent.change(screen.getByTestId('np-popup-label'), {
       target: { value: 'Beach' },
     });
     fireEvent.click(screen.getByTestId('np-popup-save'));
-    expect(onUpdate).toHaveBeenCalledWith('Vacation', 'Beach', null);
+    expect(onUpdate).toHaveBeenCalledWith('PTO', 'Beach', null);
     expect(onClose).toHaveBeenCalled();
   });
 

@@ -102,7 +102,7 @@ describe('fix-384 — the column', () => {
     expect(addColumn).not.toMatch(/DEFAULT/i);
     // no CHECK tying the link to a block type
     expect(sqlDdl).not.toMatch(/CHECK\s*\(/i);
-    expect(sqlDdl).not.toMatch(/'Vacation'|'Training'|'Redesign'/);
+    expect(sqlDdl).not.toMatch(/'Vacation'|'PTO'|'Training'|'Redesign'/);
   });
 
   it('★★ deleting a project nulls the link rather than deleting the block', () => {
@@ -171,7 +171,7 @@ describe('fix-384 — the picker', () => {
     });
     fireEvent.click(screen.getByTestId('project-link-option-proj-1'));
     fireEvent.click(screen.getByTestId('np-popup-save'));
-    expect(onAdd).toHaveBeenCalledWith('Vacation', '', 'proj-1');
+    expect(onAdd).toHaveBeenCalledWith('PTO', '', 'proj-1');
   });
 
   it('★★ a block saved without picking a project passes null', () => {
@@ -188,13 +188,20 @@ describe('fix-384 — the picker', () => {
     );
     fireEvent.click(screen.getByTestId('np-popup-save'));
     // ★ Most rows. Behaves exactly as before this ticket.
-    expect(onAdd).toHaveBeenCalledWith('Vacation', '', null);
+    expect(onAdd).toHaveBeenCalledWith('PTO', '', null);
   });
 
   it('★★★ the link is offered on EVERY type, not only "Other"', () => {
     // Three of the four blocks that already name a project in their label are
-    // typed Vacation. Gating on type would have made exactly those unlinkable.
-    for (const t of ['Vacation', 'Training', 'Redesign', 'Corrections', 'Other']) {
+    // typed PTO (`Vacation` when fix-384 measured it). Gating on type would
+    // have made exactly those unlinkable.
+    //
+    // ★★★ fix-577 §D KEEPS `Redesign` IN THIS LIST DELIBERATELY. The option is
+    //     off the picker, but the picker is not the only way a type reaches
+    //     this component — a stored row carrying a retired value still renders,
+    //     and fix-384's ruling is that the link is offered on EVERY type. A
+    //     legacy block must not become un-linkable because its type was retired.
+    for (const t of ['PTO', 'Training', 'Redesign', 'Corrections', 'Other']) {
       const { unmount } = render(
         <NpBlockEditPopup
           mode="edit"
