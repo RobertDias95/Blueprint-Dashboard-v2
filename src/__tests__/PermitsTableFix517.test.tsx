@@ -778,7 +778,7 @@ describe('fix-517 §F — the rename sweep', () => {
     //     name, so asserting it here would re-require the control §A removed.
     //     §F's actual ruling — this table calls the modal by its current name or
     //     does not name it — is what survives, and it is assertable either way.
-    expect(src).not.toMatch(/Project Data/);
+    expect(src).not.toContain('Project Data');
   });
 });
 
