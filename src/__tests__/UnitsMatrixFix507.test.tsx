@@ -100,8 +100,10 @@ describe('fix-507 §E: the columns are ordinals and Type is a row', () => {
     expect(
       rows.map((r) => r.querySelector('th')?.textContent),
     ).toEqual([
+      // ★ fix-562 §A: the `Stalls` ROW left with the field — the count lives
+      //   inside the parking answer now.
       'Width', 'Depth', 'Size (sf)', 'Qty', 'Stories', 'Parking',
-      'Stalls', 'Roof deck',
+      'Roof deck',
     ]);
     // ★★ PARENTAGE, NOT PRESENCE (fix-422's rule) — applied to where the type
     //    lives NOW. It has to be a CELL of the header row, not merely somewhere

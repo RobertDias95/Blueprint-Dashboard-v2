@@ -6,7 +6,13 @@ import { useProjects } from '../hooks/useProjects';
 //   ARCHIVED strings went with the badges. Each still exists and is still used
 //   elsewhere — the badge strings on the plan-of-record card and the share page,
 //   `RetiredBadge` on the hold/cancelled surfaces. This screen stopped asking.
-import { LibraryChoiceCell, LibraryDimensionCell } from './LibraryEditCell';
+import {
+  LibraryChoiceCell,
+  LibraryDimensionCell,
+  LibraryIntegerCell,
+  LibraryTriStateCell,
+  LibraryVocabularyCell,
+} from './LibraryEditCell';
 import { parseUnitTypes } from '../lib/unitTypeNaming';
 import {
   useMayEditLibrary,
@@ -53,15 +59,20 @@ import type {
   UnitType,
 } from '../lib/database.types';
 import { STAGE_LABEL } from '../lib/stageLabel';
-import { PARKING_KINDS, type ParkingKind } from '../lib/database.types';
+// ★★★ fix-562 §A: the three unit vocabularies, registry-driven. `lib/unitParking`
+//     is gone — see the gravestone in lib/libraryUnitColumns.
 import {
   NOT_RECORDED,
-  PARKING_KIND_LABEL,
-  // ★ fix-519 §A: `parkingKindCode` moved to `lib/libraryUnitColumns` with the
-  //   cell that calls it — the column declares what it prints.
-  type RoofDeckFilter,
-  type StallsTier,
-} from '../lib/unitParking';
+  decodeParking,
+  decodeRoofDeck,
+  decodeStories,
+  parkingLabel,
+  parkingOptions,
+  roofDeckLabel,
+  roofDeckOptions,
+  storiesLabel,
+  storiesOptions,
+} from '../lib/unitVocabulary';
 import {
   isOffListUnitLabel,
   resolveUnitLabel,
@@ -94,7 +105,7 @@ import { zoneOptions } from '../lib/zoneOptions';
 //   cell asks `lotSizeView` instead, because it has to be able to say
 //   "varies". The function itself is UNCHANGED and still serves its other
 //   callers (the wizard's reuse picker); see its note in lib/lotDimensions.
-import { lotSizeView } from '../lib/lotDimensions';
+import { LOT_SIZE_SF_MAX, lotSizeView } from '../lib/lotDimensions';
 // ★ fix-483 §A4: `clearLibraryFilters` is no longer imported — the page-level
 //   Clear was its only caller. It STAYS in surfaceFilterPrefs (exported,
 //   symmetric with its two siblings, independently tested); see the note where
@@ -260,11 +271,12 @@ const INITIAL_FILTERS: LibraryFilters = {
   isCornerLot: '',
   // fix-205: Stories tier filter on a project's unit_types.
   stories: '',
-  // ★★ fix-402: the UNIT card's parking trio. All start Any — and note that
-  // "Any" is the only state in which a NOT-RECORDED unit can match, which is
-  // the correct behaviour while 231 unit rows await their backfill.
+  // ★★ fix-402 → fix-562 §A: the UNIT card's parking pair, registry labels now.
+  // Both start Any — and "Any" is the only state in which a NOT-RECORDED unit
+  // can match, which is the correct behaviour while the whole book awaits its
+  // backfill (§B cleared 123 parking and 123 roof-deck answers on purpose).
+  // ★ `stalls` left this object with its filter and its field.
   parkingKind: '',
-  stalls: '',
   roofDeck: '',
 };
 
@@ -289,6 +301,22 @@ function Body({ projects, permits, retiredSets }: BodyProps) {
   // ★ fix-415 A5: the same registry the three write surfaces use, so the filter
   //   can never offer a zone nothing can be stored as — or miss one that can.
   const zoneFilterOptions = useMemo(() => zoneOptions(appConfig.map), [appConfig.map]);
+  // ★★★ fix-562 §A — THE THREE UNIT VOCABULARIES, from the same registries the
+  //     three write surfaces use. Same rule fix-415 A5 set for zone: a filter
+  //     that offers a value nothing can be stored as, or misses one that can,
+  //     is a filter that answers the wrong question.
+  const parkingFilterOptions = useMemo(
+    () => parkingOptions(appConfig.map),
+    [appConfig.map],
+  );
+  const roofDeckFilterOptions = useMemo(
+    () => roofDeckOptions(appConfig.map),
+    [appConfig.map],
+  );
+  const storiesPickOptions = useMemo(
+    () => storiesOptions(appConfig.map),
+    [appConfig.map],
+  );
   // ★ fix-406: the default comes from the same constant `sortLibraryRows` falls
   //   back to, so "what the Library sorts by" has one answer.
   const [sort, setSort] = useState<SortState>(DEFAULT_LIBRARY_SORT);
@@ -392,6 +420,20 @@ function Body({ projects, permits, retiredSets }: BodyProps) {
     for (const r of allRows) if (r.juris) set.add(r.juris);
     return Array.from(set).sort();
   }, [allRows]);
+  // ★★★ fix-562 §G — THE JURIS *EDITOR* READS THE REGISTRY, THE *FILTER* STAYS
+  //     DATA-DERIVED, and the two are deliberately different lists.
+  //
+  //     A filter must be able to find whatever is stored, including a spelling
+  //     nothing offers — that is how you discover one exists. An EDITOR must
+  //     not be able to create one: free text on `zone` is what produced 33
+  //     spellings of 21 zones (fix-415), and this is the same field class.
+  //     `app_config.jurisdictions` holds the 8 canonical names.
+  // ★ Falls back to the derived list when the registry has never been written,
+  //   so a fresh tenant gets a working control rather than an empty one.
+  const jurisEditOptions = useMemo(() => {
+    const configured = readAppConfigStringArray(appConfig.map, 'jurisdictions');
+    return configured.length > 0 ? configured : jurisOptions;
+  }, [appConfig.map, jurisOptions]);
 
   const filtered = useMemo(
     () => filterLibraryRows(allRows, filters),
@@ -827,41 +869,30 @@ function Body({ projects, permits, retiredSets }: BodyProps) {
           </div>
 
           <div className="flex flex-wrap items-end gap-3">
-            {/* ★★ fix-402: parking is a UNIT property now. A picked kind
-                requires that RECORDED kind — a unit nobody has answered for
-                does not match, and `None` matches only an explicit none. */}
+            {/* ★★★ fix-562 §A — THE FILTER BOBBY'S QUESTION IS ABOUT. *"How is
+                parking driving [the unit width/depth]? Is it one-car, two-car,
+                three, four, or surface/none?"* The options come from
+                `app_config.parkingOptions`, so an admin who adds `5-car garage`
+                gets a filter value for it in the same edit.
+                ★★ A picked option requires that exact RECORDED answer: a unit
+                   nobody has answered for does not match, and `Surface / None`
+                   matches only units somebody recorded that way. */}
             <FieldLabel label="Parking">
-              <select
+              <FilterSelect
                 value={filters.parkingKind}
-                onChange={(e) =>
-                  update('parkingKind', e.target.value as '' | ParkingKind)
-                }
-                className={FIELD_CLASS}
-                data-testid="filter-parking-kind"
-              >
-                <option value="">Any</option>
-                {PARKING_KINDS.map((k) => (
-                  <option key={k} value={k}>
-                    {PARKING_KIND_LABEL[k]}
-                  </option>
-                ))}
-              </select>
+                options={parkingFilterOptions}
+                onChange={(v) => update('parkingKind', v)}
+                testid="filter-parking-kind"
+              />
             </FieldLabel>
 
-            <FieldLabel label="Stalls / unit">
-              <select
-                value={filters.stalls}
-                onChange={(e) =>
-                  update('stalls', e.target.value as StallsTier)
-                }
-                className={FIELD_CLASS}
-                data-testid="filter-stalls"
-              >
-                <option value="">Any</option>
-                <option value="1+">1+</option>
-                <option value="2+">2+</option>
-              </select>
-            </FieldLabel>
+            {/* ★★★ fix-562 §A — `STALLS / UNIT` IS GONE, AND SO IS ITS FIELD.
+                Bobby folded the stall count into the parking answer, so this
+                control asked a question the one beside it now answers. The
+                `stalls` key left `LibraryFilters` and `UNIT_FILTER_KEYS` in the
+                same change — `libraryFilterKeyCoverage` is what makes that a
+                deliberate removal rather than a stranded key nothing can
+                clear. */}
 
             {/* ★★★ fix-483 §A2 — THE WORK FILTER IS GONE, AND SO IS THE WORK
                 COLUMN. Bobby: *"Under unit, get rid of work, and the filter
@@ -881,25 +912,30 @@ function Body({ projects, permits, retiredSets }: BodyProps) {
                 anybody's Library — which is why this is a rule being deleted
                 rather than a behaviour. See lib/libraryHelpers. */}
 
+            {/* ★★★ fix-562 §A — `W/ PH` · `W/O PH` · `None` replaces Yes/No.
+                ★★ SAME THREE-STATE RULE, NEW VOCABULARY: a recorded `None`
+                   matches `None`, and an UNANSWERED unit matches none of the
+                   three — a filter is a question about known data (fix-122). */}
             <FieldLabel label="Roof Deck">
-              <select
+              <FilterSelect
                 value={filters.roofDeck}
-                onChange={(e) =>
-                  update('roofDeck', e.target.value as RoofDeckFilter)
-                }
-                className={FIELD_CLASS}
-                data-testid="filter-roof-deck"
-              >
-                <option value="">Any</option>
-                <option value="Yes">Yes</option>
-                <option value="No">No</option>
-              </select>
+                options={roofDeckFilterOptions}
+                onChange={(v) => update('roofDeck', v)}
+                testid="filter-roof-deck"
+              />
             </FieldLabel>
 
             {/* fix-205: Stories tier — matches a project that has at least one
                 unit_type with the picked stories (4+ = 4 or more). Highlights
                 the matching unit rows in the expand, like the W/D filters.
-                fix-402 moved it under UNIT; its meaning is unchanged. */}
+                fix-402 moved it under UNIT; its meaning is unchanged.
+
+                ★★★ fix-562 §A — AND IT STAYS A NUMBER, WHICH IS A RULING.
+                    Picking `3` returns BOTH `3` and `3+B` units. That is the
+                    point of storing `stories` and `basement` as separate parts:
+                    *"every 3-storey unit"* is ONE question. Bobby can have them
+                    apart if he wants — it would be two more options here — and
+                    the PR says so rather than deciding it quietly. */}
             <FieldLabel label="Stories">
               <select
                 value={filters.stories}
@@ -1075,21 +1111,27 @@ function Body({ projects, permits, retiredSets }: BodyProps) {
                 //     editors write the result back (fix-412), so reading
                 //     through it here is what stops an unnamed key being
                 //     dropped on the next save.
-                onEditUnit={(idx, key, val) => {
+                // ★★★ fix-562 §G — A PATCH, NOT A (key, value) PAIR. Each of
+                //     the three vocabularies stores TWO parts of one answer, so
+                //     a one-field callback would have to fire twice per pick.
+                onEditUnit={(idx, patch, fieldLabel) => {
                   const all: UnitType[] = parseUnitTypes(
                     visibleProjects.find((p) => p.id === u.project.projectId)
                       ?.unit_types,
                   );
                   if (!all[idx]) return;
                   const next: UnitType[] = all.map((unit, i) =>
-                    i === idx ? { ...unit, [key]: val } : unit,
+                    i === idx ? { ...unit, ...patch } : unit,
                   );
                   saveLibrary.mutate({
                     projectId: u.project.projectId,
                     patch: { unit_types: next },
-                    fieldLabel: key === 'width_ft' ? 'Unit width' : 'Unit depth',
+                    fieldLabel,
                   });
                 }}
+                parkingOpts={parkingFilterOptions}
+                roofDeckOpts={roofDeckFilterOptions}
+                storiesOpts={storiesPickOptions}
                 key={u.key}
                 bandClass={unitBands[i] === 1 ? PROJECT_BAND_CLASS : ''}
                 row={u.unit}
@@ -1188,7 +1230,11 @@ function Body({ projects, permits, retiredSets }: BodyProps) {
                   // ★ fix-488 §B: 12. Was 11 — the Size column joined the
                   //   header. A stale span is invisible until the table is
                   //   empty (the note above).
-                  colSpan={12}
+                  // ★ fix-562: 10. Was 12 — §A took `Stalls` and §H took `Qty`.
+                  //   Asserted against the RENDERED header count, which is the
+                  //   only reason removing two columns cannot quietly break the
+                  //   empty state (fix-406's header-count test, its job).
+                  colSpan={10}
                   className="px-4 py-8 text-center text-xs text-dim italic"
                 >
                   No units match the current filters.
@@ -1268,7 +1314,27 @@ function Body({ projects, permits, retiredSets }: BodyProps) {
                   untouched — `projects.num_lots` still renders in five other
                   places. */}
               <Th sort={sort} col="productTypes" onClick={toggleSort} align="left">Type</Th>
-              <Th sort={sort} col="units" onClick={toggleSort} align="center">Units</Th>
+              {/* ★★★ fix-562 §H (P-274) — THE `Units` COLUMN COMES OFF THE SITE
+                  VIEW. Bobby, 2026-09-14: *"we'll take off quantity on the
+                  library for unit and site, and then he could just put the
+                  quantity in at the project overview screen in the project
+                  details."* This supersedes fix-553 §E, which said the unit
+                  view only.
+
+                  ★★★ IT IS `projects.units`, NOT `unit_types[].qty` — a
+                      DIFFERENT field from the one §H removes on the unit view,
+                      and measured before removing it: populated on 220 of 221
+                      projects and disagreeing with the summed per-unit qty on
+                      14 of the 117 that have units. So this is the site-grain
+                      quantity, and it is the only thing on this row that Bobby's
+                      sentence can be about.
+
+                  ★★★ AND THE DESTINATION WAS VERIFIED FIRST (fix-524 §0.3's
+                      lesson): `psm-units` — "Unit count" — is already editable
+                      in Project Details → Units, beside `pd-unit-qty` which
+                      writes the per-unit one. Nothing became uneditable.
+                  ★ `projects.units` itself is untouched and still renders in the
+                    Project Overview, the wizard and the reports. */}
               {/* ★★★ fix-553 §C — JURISDICTION AND ZONE MOVED RIGHT, BESIDE STAGE.
                   Bobby: the left of the row should read address, then the
                   dimensional data. These sat between `Lot SF` and `Corner`,
@@ -1313,6 +1379,7 @@ function Body({ projects, permits, retiredSets }: BodyProps) {
                 bandClass={siteBands[i] === 1 ? PROJECT_BAND_CLASS : ''}
                 editable={canEditLibrary}
                 zoneOptions={zoneFilterOptions}
+                jurisOptions={jurisEditOptions}
                 onSave={(patch, fieldLabel) =>
                   saveLibrary.mutate({ projectId: r.projectId, patch, fieldLabel })
                 }
@@ -1338,7 +1405,8 @@ function Body({ projects, permits, retiredSets }: BodyProps) {
                   // ★ fix-488 §A: 11. Was 10 — the Lot SF column joined the
                   //   header, and a stale span is invisible until the table is
                   //   empty (the note above, third time it has mattered).
-                  colSpan={11}
+                  // ★ fix-562 §H: 10. Was 11 — the `Units` column came off.
+                  colSpan={10}
                   className="px-4 py-8 text-center text-xs text-dim italic"
                 >
                   No projects match the current filters.
@@ -1350,6 +1418,50 @@ function Body({ projects, permits, retiredSets }: BodyProps) {
         )}
       </div>
     </div>
+  );
+}
+
+/**
+ * ★★★ fix-562 §A — A REGISTRY-DRIVEN FILTER SELECT.
+ *
+ * Parking and roof deck stopped being closed unions in the code and became
+ * `app_config` registries, so their filter values are LABELS. Two consequences
+ * this component exists to hold in one place:
+ *
+ *   ★★★ A STORED FILTER WHOSE OPTION HAS LEFT THE REGISTRY IS APPENDED, not
+ *       dropped. `surfaceFilterPrefs` restores the label verbatim, and a
+ *       `<select>` whose value matches no option renders BLANK — which would
+ *       tell somebody their filter was Any while it was quietly returning
+ *       nothing. fix-364's `waitingOnOptions` rule, fix-415's zone rule, here.
+ *   ★ …and it is NOT a render-time throw, unlike fix-406's stored sort column:
+ *     matching is label equality, so an unknown label simply matches no unit.
+ */
+function FilterSelect({
+  value,
+  options,
+  onChange,
+  testid,
+}: {
+  value: string;
+  options: readonly string[];
+  onChange: (next: string) => void;
+  testid: string;
+}) {
+  const offered = value && !options.includes(value) ? [...options, value] : options;
+  return (
+    <select
+      value={value}
+      onChange={(e) => onChange(e.target.value)}
+      className={FIELD_CLASS}
+      data-testid={testid}
+    >
+      <option value="">Any</option>
+      {offered.map((o) => (
+        <option key={o} value={o}>
+          {o}
+        </option>
+      ))}
+    </select>
   );
 }
 
@@ -1432,6 +1544,8 @@ interface RowProps {
   /** fix-415's registry, so a capable typist cannot reintroduce an off-list
    *  zone. */
   zoneOptions: readonly string[];
+  /** ★ fix-562 §G: `app_config.jurisdictions`, for the same reason. */
+  jurisOptions: readonly string[];
   onSave: (patch: LibraryFieldPatch, fieldLabel: string) => void;
 }
 /** ★ The Site card's own list (`SiteSelectRow` for Alley), stated once here so
@@ -1447,6 +1561,7 @@ function Row({
   bandClass,
   editable,
   zoneOptions,
+  jurisOptions,
   onSave,
 }: RowProps) {
   return (
@@ -1571,7 +1686,31 @@ function Row({
           )}
         </td>
         <td className="px-2 py-1.5 text-center">
-          {(() => {
+          {/* ★★★ fix-562 §G (P-274) — LOT SIZE BECOMES TYPEABLE HERE. It is
+              blank on **179 of 221** projects (measured 2026-09-15), the biggest
+              hole in the Library, and it was not even a parameter of
+              `bp_update_library_fields` — genuinely impossible server-side, not
+              merely un-offered.
+
+              ★★★ IT WRITES ONLY WHAT A PERSON TYPES. 39 projects hold a size
+                  that is NOT width × depth and fix-555 (P-261) is told to read
+                  those and change none; nothing here derives, rounds or
+                  reconciles, so none of the 39 moves either.
+              ★ The read-only cell keeps the `~` marker for a DERIVED size; an
+                editable cell shows the row's own stored number, because that is
+                the one a person is about to change (fix-532 §A's rule for the
+                lot dimensions, same reasoning). */}
+          {editable ? (
+            <LibraryIntegerCell
+              value={row.lotSizeSf}
+              editable
+              label="Lot size"
+              max={LOT_SIZE_SF_MAX}
+              testId={`library-lot-size-input-${row.projectId}`}
+              onCommit={(v) => onSave({ lot_size_sf: v }, 'Lot size')}
+            />
+          ) : (
+          (() => {
             const v = lotSizeView(row.lotWidth || null, row.lotDepth || null, row.lotSizeSf);
             if (v.sizeText === null) return <span className="text-dim">—</span>;
             return (
@@ -1594,7 +1733,8 @@ function Row({
                 {v.sizeText}
               </span>
             );
-          })()}
+          })()
+          )}
         </td>
         {/* fix-122: Corner column. Tri-state — NULL renders as the dim em dash
             so unanswered rows are visually distinct from a confirmed No. */}
@@ -1602,13 +1742,17 @@ function Row({
           className="px-2 py-1.5 text-center"
           data-testid={`library-corner-${row.projectId}`}
         >
-          {row.isCornerLot === true ? (
-            <span className="font-mono text-text">Yes</span>
-          ) : row.isCornerLot === false ? (
-            <span className="font-mono text-text">No</span>
-          ) : (
-            <span className="text-dim">—</span>
-          )}
+          {/* ★★★ fix-562 §G — `is_corner_lot` WAS NOT A PARAMETER of the RPC,
+              so this is one of the three fields §G had to GRANT rather than
+              merely offer. Tri-state kept whole: `—` is "nobody has answered"
+              and is reachable again, which only works because §G taught the
+              function to write a null (fix-122's rule, finally writable). */}
+          <LibraryTriStateCell
+            value={row.isCornerLot}
+            editable={editable}
+            testId={`library-corner-input-${row.projectId}`}
+            onCommit={(v) => onSave({ is_corner_lot: v }, 'Corner lot')}
+          />
         </td>
         {/* ★★★ fix-514 §H: the `Shape` CELL went with its header — see the
             ruling quoted there. `projects.is_regular_shape` is untouched. */}
@@ -1619,15 +1763,35 @@ function Row({
             row.productTypes.join(', ')
           )}
         </td>
-        <td className="px-2 py-1.5 text-center font-mono font-bold text-text">
-          {row.units || '—'}
-        </td>
+        {/* ★ fix-562 §H: the `Units` cell went WITH its header — a cell that
+            moves or leaves without its `<th>` prints every value after it under
+            somebody else's heading (fix-519 §A, the defect that is on record).*/}
         {/* ★ fix-483 §A2: the Tags cell went with its header. */}
         {/* ★ fix-553 §C: moved WITH their headers — the row and the header strip
             are one declaration (fix-519 §A), and a cell that moves without its
             `<th>` prints every value after it under somebody else's heading.
             That defect is on record; this is the rule that prevents it. */}
-        <td className="px-2 py-1.5 text-muted">{row.juris || '—'}</td>
+        <td className="px-2 py-1.5 text-muted">
+          {/* ★★★ fix-562 §G — JURISDICTION IS WIRED FOR CORRECTION, NOT FOR
+              BACKFILL, AND THE MEASUREMENT IS WHY NOBODY SHOULD COUNT IT AS A
+              WIN: it is blank on **0 of 221** projects. Cam asked for it and
+              there is nothing to fill in. What it buys is the ability to fix a
+              wrong one.
+              ★ `projects.juris` is `NOT NULL`, so the blank option is absent
+                here — the RPC refuses a null juris with a sentence rather than
+                letting a constraint name reach a person. */}
+          <LibraryChoiceCell
+            value={row.juris || null}
+            options={jurisOptions}
+            editable={editable}
+            allowClear={false}
+            testId={`library-juris-${row.projectId}`}
+            onCommit={(v) => {
+              if (v === null) return;
+              onSave({ juris: v }, 'Jurisdiction');
+            }}
+          />
+        </td>
         <td className="px-2 py-1.5 text-center">
           <LibraryChoiceCell
             value={row.zone || null}
@@ -1750,6 +1914,9 @@ function LibraryUnitRow({
   trailing,
   bandClass = '',
   editable = false,
+  parkingOpts = [],
+  roofDeckOpts = [],
+  storiesOpts = [],
   onEditUnit,
 }: {
   row: UnitType;
@@ -1772,11 +1939,18 @@ function LibraryUnitRow({
   /** ★★★ fix-532 §A: does this viewer hold `may_edit_library`? Cosmetic — the
    *  RPC is the gate. */
   editable?: boolean;
-  /** Commit one unit's width or depth. Absent when not editable. */
+  /** ★ fix-562 §A: the three unit vocabularies, from `app_config`. */
+  parkingOpts?: readonly string[];
+  roofDeckOpts?: readonly string[];
+  storiesOpts?: readonly string[];
+  /** ★★★ fix-562 §G — COMMIT A PARTIAL UNIT. fix-532 §A offered width and depth
+   *  only, as a `(key, value)` pair; §G offers every unit field except the Type,
+   *  and each of the three vocabularies stores TWO parts of one answer, so the
+   *  callback takes a patch. Absent when not editable. */
   onEditUnit?: (
     index: number,
-    key: 'width_ft' | 'depth_ft',
-    value: number | null,
+    patch: Partial<UnitType>,
+    fieldLabel: string,
   ) => void;
 }) {
   // fix-209 → fix-212: the shown label is the RESOLVED one — with several
@@ -1823,14 +1997,21 @@ function LibraryUnitRow({
             )}
           </td>
         ) : editable && (c.sourceKey === 'width_ft' || c.sourceKey === 'depth_ft') ? (
-          // ★★★ fix-532 §A — THE FIFTH FIELD, AND ONLY ITS TWO NUMBERS.
+          // ★★★ fix-532 §A → fix-562 §G — EVERY UNIT FIELD EXCEPT THE TYPE.
           //
-          //     `unit_types` is one of the five `bp_update_library_fields`
-          //     accepts, and the Library IS the unit-dimension matrix — a width
-          //     and a depth are what somebody comes here to correct. The label,
-          //     the quantity and the rest stay read-only: they are edited in
-          //     Project Data's Units tab, and re-opening a second editor for
-          //     them is exactly what fix-506 §H closed.
+          //     fix-532 §A offered width and depth and stopped: *"the label, the
+          //     quantity and the rest stay read-only."* §G is Bobby's reversal
+          //     of the "and the rest" half — Cam holds `may_edit_library`, and
+          //     every one of these already passed the server's capability check
+          //     because they live inside `p_unit_types`. The SCREEN was the
+          //     block, not the permission.
+          //
+          //     ★ THE TYPE IS STILL READ-ONLY, and that is the one exception
+          //       Bobby named: it stays dropdown-only off
+          //       `app_config.productTypeOptions`, edited where the project's
+          //       own type list is (fix-232).
+          //     ★ `Qty` is not here because §H took the COLUMN — the field is
+          //       untouched and typed in Project Details → Units.
           //
           // ★★ BOUND BY `sourceKey`, not by column position. fix-519 §A cost a
           //    ticket to the other arrangement — two hand-written lists that
@@ -1841,7 +2022,92 @@ function LibraryUnitRow({
               editable
               label={c.sourceKey === 'width_ft' ? 'Unit width' : 'Unit depth'}
               testId={`library-unit-${projectId}-${index}-${c.testId}`}
-              onCommit={(v) => onEditUnit?.(index, c.sourceKey as 'width_ft' | 'depth_ft', v)}
+              onCommit={(v) =>
+                onEditUnit?.(
+                  index,
+                  c.sourceKey === 'width_ft' ? { width_ft: v } : { depth_ft: v },
+                  c.sourceKey === 'width_ft' ? 'Unit width' : 'Unit depth',
+                )
+              }
+            />
+          </td>
+        ) : editable && c.sourceKey === 'size_sf' ? (
+          <td key={c.col} className="px-2 py-0.5">
+            <LibraryIntegerCell
+              value={row.size_sf ?? null}
+              editable
+              label="Unit size"
+              // ★ Bounded by the same ceiling the lot area uses — an `integer`
+              //   column (P-198), derived rather than a number somebody picked.
+              max={LOT_SIZE_SF_MAX}
+              testId={`library-unit-${projectId}-${index}-${c.testId}`}
+              onCommit={(v) => onEditUnit?.(index, { size_sf: v }, 'Unit size')}
+            />
+          </td>
+        ) : editable && c.sourceKey === 'parking_kind' ? (
+          <td key={c.col} className="px-2 py-0.5">
+            <LibraryVocabularyCell
+              value={parkingLabel(row.parking_kind ?? null, row.parking_count ?? null)}
+              options={parkingOpts}
+              editable
+              testId={`library-unit-${projectId}-${index}-${c.testId}`}
+              onCommit={(label) => {
+                // ★★★ BOTH PARTS MOVE TOGETHER. There is no vocabulary entry
+                //     that records a kind without its count, so there is no
+                //     write here that can land half an answer.
+                const parts = label === null ? null : decodeParking(label);
+                if (label !== null && !parts) return;
+                onEditUnit?.(
+                  index,
+                  {
+                    parking_kind: parts?.kind ?? null,
+                    parking_count: parts?.count ?? null,
+                  },
+                  'Parking',
+                );
+              }}
+            />
+          </td>
+        ) : editable && c.sourceKey === 'roof_deck' ? (
+          <td key={c.col} className="px-2 py-0.5">
+            <LibraryVocabularyCell
+              value={roofDeckLabel(row.roof_deck ?? null, row.penthouse ?? null)}
+              options={roofDeckOpts}
+              editable
+              testId={`library-unit-${projectId}-${index}-${c.testId}`}
+              onCommit={(label) => {
+                const parts = label === null ? null : decodeRoofDeck(label);
+                if (label !== null && !parts) return;
+                onEditUnit?.(
+                  index,
+                  {
+                    roof_deck: parts?.deck ?? null,
+                    penthouse: parts?.penthouse ?? null,
+                  },
+                  'Roof deck',
+                );
+              }}
+            />
+          </td>
+        ) : editable && c.sourceKey === 'stories' ? (
+          <td key={c.col} className="px-2 py-0.5">
+            <LibraryVocabularyCell
+              value={storiesLabel(row.stories ?? null, row.basement ?? null)}
+              options={storiesOpts}
+              editable
+              testId={`library-unit-${projectId}-${index}-${c.testId}`}
+              onCommit={(label) => {
+                const parts = label === null ? null : decodeStories(label);
+                if (label !== null && !parts) return;
+                onEditUnit?.(
+                  index,
+                  {
+                    stories: parts?.stories ?? null,
+                    basement: parts?.basement ?? null,
+                  },
+                  'Stories',
+                );
+              }}
             />
           </td>
         ) : (

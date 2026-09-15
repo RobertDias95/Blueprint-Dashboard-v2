@@ -69,7 +69,6 @@ const EMPTY: LibraryFilters = {
   isCornerLot: '',
   stories: '',
   parkingKind: '',
-  stalls: '',
   roofDeck: '',
 };
 

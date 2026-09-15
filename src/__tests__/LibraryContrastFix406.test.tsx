@@ -492,7 +492,9 @@ describe('fix-406 §3: the two cards carry their colours on screen', () => {
       'filter-alley',
       'filter-corner',
       'filter-parking-kind',
-      'filter-stalls',
+      // ★ fix-562 §A: `filter-stalls` left this list with its control. fix-406's
+      //   rule is about every field that RENDERS, so the list shrinks with the
+      //   panel rather than the rule being relaxed.
       'filter-roof-deck',
       'filter-stories',
       'filter-product-type',
@@ -622,7 +624,9 @@ describe('fix-406 §4: the Lots column and its sort are gone', () => {
       .getByTestId('library-table')
       .querySelectorAll('thead th');
     // ★ fix-488 §A: 11 — the Lot SF column joined the header.
-    expect(headers.length).toBe(11);
+    // ★ fix-562 §H: 10 — the `Units` column came off (P-274), and this test did
+    //   its job for the FOURTH time: the colSpan had to move with it.
+    expect(headers.length).toBe(10);
   });
 
   it('★★ fix-447: the UNIT table\'s header count and its colSpan agree too', () => {
@@ -636,7 +640,9 @@ describe('fix-406 §4: the Lots column and its sort are gone', () => {
       .getByTestId('library-table-unit')
       .querySelectorAll('thead th');
     // ★ fix-488 §B: 12 — the Size (sf) column joined the unit header.
-    expect(headers.length).toBe(12);
+    // ★ fix-562: 10 — §A took `Stalls` (with the field) and §H took `Qty`
+    //   (the column only; the field is typed in Project Details → Units).
+    expect(headers.length).toBe(10);
   });
 });
 

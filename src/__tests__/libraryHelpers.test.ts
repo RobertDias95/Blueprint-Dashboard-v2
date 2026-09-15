@@ -7,8 +7,10 @@ import {
   matchStoriesTier,
   matchTargetWithBuffer,
   pickBpForProject,
+  isSortableColumn,
   sortLibraryRows,
   worstStage,
+  SORTABLE_COLUMNS,
   type LibraryFilters,
   type LibraryRow,
 } from '../lib/libraryHelpers';
@@ -249,7 +251,6 @@ describe('filterLibraryRows', () => {
     stories: '',
     // ★ fix-402: the UNIT card's three new filters, all Any.
     parkingKind: '',
-    stalls: '',
     roofDeck: '',
   };
   const rows = [
@@ -431,7 +432,6 @@ describe('fix-205: stories filter', () => {
     stories: '',
     // ★ fix-402: the UNIT card's three new filters, all Any.
     parkingKind: '',
-    stalls: '',
     roofDeck: '',
   };
   function mkRow(id: string, stories: (number | null)[]): LibraryRow {
@@ -540,9 +540,28 @@ describe('sortLibraryRows', () => {
     ]);
   });
 
-  it('sorts by units numerically (descending)', () => {
-    const out = sortLibraryRows(rows, { col: 'units', asc: false });
-    expect(out.map((r) => r.units)).toEqual([7, 5, 3]);
+  // ★★★ fix-562 §H — THE `units` SORT IS GONE, WITH ITS COLUMN.
+  //
+  // Bobby, 2026-09-14: *"we'll take off quantity on the library for unit and
+  // site."* fix-406's rule then decides the rest: *a sort on a column nobody
+  // can see is not a feature*, so the arm left with the header — the third
+  // time that rule has been applied here (numLots, work, units).
+  //
+  // ★ `LibraryRow.units` and `projects.units` are UNTOUCHED. The data still
+  //   reaches the Project Overview, the wizard and the reports; what went is
+  //   this table's column and the sort that ordered it.
+  it('★★★ fix-562 §H: `units` is no longer a sortable column', () => {
+    expect(SORTABLE_COLUMNS).not.toContain('units');
+    expect(isSortableColumn('units')).toBe(false);
+  });
+
+  it('sorts by lot width numerically (descending)', () => {
+    // ★ The 0-sentinel arm that `units` used to share — kept live by its two
+    //   remaining members, so removing `units` did not remove the coverage.
+    const out = sortLibraryRows(rows, { col: 'lotWidth', asc: false });
+    expect(out.map((r) => r.lotWidth)).toEqual(
+      [...rows].map((r) => r.lotWidth).sort((a, b) => b - a),
+    );
   });
 
   it('sorts by stage using workflow rank, not alphabetical', () => {

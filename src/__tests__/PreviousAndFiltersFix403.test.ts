@@ -62,7 +62,7 @@ const LIB_DEFAULT: LibraryFilters = {
   lotwTarget: null, lotwBuf: 2, lotdTarget: null, lotdBuf: 2, lotsizeTarget: null, lotsizeBuf: 500,
   unitwTarget: null, unitwBuf: 2, unitdTarget: null, unitdBuf: 2, unitsizeTarget: null, unitsizeBuf: 100,
   zone: '', alley: '', productTypes: [], juris: '',
-  isCornerLot: '', stories: '', parkingKind: '', stalls: '', roofDeck: '',
+  isCornerLot: '', stories: '', parkingKind: '', roofDeck: '',
 };
 
 describe('fix-403 §1: the Library round-trips its whole filter shape', () => {
@@ -74,7 +74,7 @@ describe('fix-403 §1: the Library round-trips its whole filter shape', () => {
       zone: 'NR3', alley: 'Yes', productTypes: ['Townhouse', 'Cottages'],
       juris: 'Seattle',
       isCornerLot: 'Yes', stories: '3',
-      parkingKind: 'garage', stalls: '2+', roofDeck: 'No',
+      parkingKind: '2-car garage', roofDeck: 'W/ PH',
     };
     saveLibraryFilters(USER, full);
     // ★ Asserted field by field via toEqual — a partial restore that dropped
@@ -98,9 +98,23 @@ describe('fix-403 §1: the Library round-trips its whole filter shape', () => {
     //   so a field that still exists carries the claim — which is unchanged:
     //   one bad key costs THAT field, not the panel.
     expect(out.zone).toBe('kept');
-    expect(out.parkingKind).toBe('');
     expect(out.stories).toBe('');
     expect(out.isCornerLot).toBe('');
+
+    // ★★★ fix-562 §A — `parkingKind` DELIBERATELY DOES **NOT** FALL BACK, and
+    //     this is the one field where that is the right answer.
+    //
+    //     It stopped being a closed union in the code: the vocabulary lives in
+    //     `app_config.parkingOptions`, which this module is synchronous and
+    //     pre-auth and cannot read. So it decodes as a plain string.
+    //
+    // ★★ THAT IS SAFE BECAUSE MATCHING IS LABEL EQUALITY, NOT A `switch`.
+    //    fix-406's throw came from a stored SORT COLUMN reaching a switch with
+    //    no arm; a stored filter label nothing offers simply matches no unit —
+    //    and `FilterSelect` APPENDS it to the control (fix-415's rule), so the
+    //    person can SEE what they are filtering by and clear it, rather than
+    //    reading a blank select that claims "Any".
+    expect(out.parkingKind).toBe('carport');
   });
 
   it('★★ a buffer keeps the panel DEFAULT when unreadable, never 0', () => {

@@ -14,7 +14,11 @@ import { useProjectedApprovalFor } from '../../hooks/useProjectedApprovalFor';
 //   `react-refresh/only-export-components` is an ERROR in this repo — the
 //   fourth time that rule has moved a helper (fix-403, fix-408, fix-499).
 import { formatUsDate } from '../../lib/dateUtils';
-import { parkingKindCode } from '../../lib/unitParking';
+import {
+  parkingLabel,
+  roofDeckLabel,
+  storiesLabel,
+} from '../../lib/unitVocabulary';
 // ★ fix-508 §D: Target Approval and the ONE definition of "accepted".
 import { intakeDisplay, targetApproval } from '../../lib/targetApproval';
 import {
@@ -530,19 +534,33 @@ const UNIT_ATTRIBUTES: ReadonlyArray<{
     read: (u) => (u.size_sf == null ? '—' : u.size_sf.toLocaleString()),
   },
   { key: 'qty', label: 'Qty', title: 'How many units on this project match these dimensions.', read: (u) => num(u.qty) },
-  { key: 'stories', label: 'Stories', title: 'How many stories tall this type is.', read: (u) => num(u.stories) },
+  // ★★★ fix-562 §A — THE THREE VOCABULARIES, SPELLED OUT. This matrix is
+  //     TRANSPOSED (fix-507 §E: attributes are ROWS), so an attribute costs
+  //     height rather than width and there is no 26px cell forcing a letter
+  //     code. `3+B`, `2-car garage` and `W/ PH` are the answers themselves.
+  //
+  // ★★ THE SAME THREE FUNCTIONS THE LIBRARY PRINTS FROM, so the two surfaces
+  //    cannot say different words about one unit — which is the defect
+  //    fix-519 §A cost a ticket to.
+  {
+    key: 'stories',
+    label: 'Stories',
+    title: 'How many stories tall this type is. B is a basement — 3+B is three stories over a basement.',
+    read: (u) => storiesLabel(u.stories ?? null, u.basement ?? null),
+  },
   {
     key: 'parking',
     label: 'Parking',
-    title: 'What kind of parking is proposed. G garage · S surface · B both · N none · — not recorded',
-    read: (u) => parkingKindCode(u.parking_kind ?? null),
+    title: 'What kind of parking is proposed — 1-car garage through 4-car garage, or Surface / None. — not recorded',
+    read: (u) => parkingLabel(u.parking_kind ?? null, u.parking_count ?? null),
   },
-  { key: 'stalls', label: 'Stalls', title: 'How many parking stalls this type gets.', read: (u) => num(u.parking_stalls) },
+  // ★★★ fix-562 §A: the `Stalls` ROW went with the field — the count is inside
+  //     the parking answer now.
   {
     key: 'roof_deck',
     label: 'Roof deck',
-    title: 'Whether this type has a roof deck.',
-    read: (u) => (u.roof_deck == null ? '—' : u.roof_deck ? 'Y' : 'N'),
+    title: 'Whether this type has a roof deck, and a penthouse. W/ PH with penthouse · W/O PH without · None · — not recorded',
+    read: (u) => roofDeckLabel(u.roof_deck ?? null, u.penthouse ?? null),
   },
 ];
 

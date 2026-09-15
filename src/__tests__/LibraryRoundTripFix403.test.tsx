@@ -315,16 +315,26 @@ describe('fix-403: the Library filter panel survives leaving the page', () => {
     zone: (screen.getByTestId('filter-zone') as HTMLInputElement).value,
     corner: (screen.getByTestId('filter-corner') as HTMLSelectElement).value,
     parking: (screen.getByTestId('filter-parking-kind') as HTMLSelectElement).value,
-    stalls: (screen.getByTestId('filter-stalls') as HTMLSelectElement).value,
+    // ★ fix-562 §A: `filter-stalls` left this reader with its control AND its
+    //   field. Every other field is unchanged, and the claim — the panel
+    //   remembers — is the same.
     deck: (screen.getByTestId('filter-roof-deck') as HTMLSelectElement).value,
   });
 
   function setFilters() {
     fireEvent.change(screen.getByTestId('filter-zone'), { target: { value: 'NR' } });
     fireEvent.change(screen.getByTestId('filter-corner'), { target: { value: 'Yes' } });
-    fireEvent.change(screen.getByTestId('filter-parking-kind'), { target: { value: 'garage' } });
-    fireEvent.change(screen.getByTestId('filter-stalls'), { target: { value: '1+' } });
-    fireEvent.change(screen.getByTestId('filter-roof-deck'), { target: { value: 'Yes' } });
+    // ★★★ fix-562 §A: these two are REGISTRY LABELS now, not union members —
+    //     so the round trip has to carry a string like `2-car garage` rather
+    //     than a code. That is the interesting half: `surfaceFilterPrefs`
+    //     decodes them as plain strings, because the vocabulary lives in
+    //     `app_config` and that module cannot read it.
+    fireEvent.change(screen.getByTestId('filter-parking-kind'), {
+      target: { value: '2-car garage' },
+    });
+    fireEvent.change(screen.getByTestId('filter-roof-deck'), {
+      target: { value: 'W/ PH' },
+    });
   }
 
   it('★★★ every filter comes back — SITE card and UNIT card', () => {
@@ -351,7 +361,7 @@ describe('fix-403: the Library filter panel survives leaving the page', () => {
 
     renderIt();
     expect(read()).toEqual({
-      zone: '', corner: '', parking: '', stalls: '', deck: '',
+      zone: '', corner: '', parking: '', deck: '',
     });
   });
 

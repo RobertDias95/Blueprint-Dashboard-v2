@@ -18,16 +18,11 @@ import {
 } from '../lib/libraryHelpers';
 import {
   NOT_RECORDED,
-  parkingKindLabel,
-  parkingRollup,
+  matchParkingOption,
+  matchRoofDeckOption,
+  parkingLabel,
   roofDeckLabel,
-  roofDeckRollup,
-  stallsLabel,
-  matchParkingKind,
-  matchRoofDeck,
-  matchStallsTier,
-  parseStalls,
-} from '../lib/unitParking';
+} from '../lib/unitVocabulary';
 import type { UnitType } from '../lib/database.types';
 
 // ===========================================================================
@@ -53,9 +48,13 @@ const unit = (over: Partial<UnitType> = {}): UnitType => ({
   depth_ft: 40,
   qty: 1,
   stories: null,
+  basement: null,
+  // ★ fix-562 §A: `parking_stalls` left this fixture with the field. The
+  //   vocabulary is `garage` + a count, or `surface_none`.
   parking_kind: null,
-  parking_stalls: null,
+  parking_count: null,
   roof_deck: null,
+  penthouse: null,
   ...over,
 });
 
@@ -64,135 +63,158 @@ const unit = (over: Partial<UnitType> = {}): UnitType => ({
 // ---------------------------------------------------------------------------
 
 describe('fix-402 §1: NULL is not none, anywhere', () => {
-  it('★★★ a NULL-parking unit renders "—", and an explicit none renders "None"', () => {
-    expect(parkingKindLabel(null)).toBe(NOT_RECORDED);
-    expect(parkingKindLabel(undefined)).toBe(NOT_RECORDED);
-    expect(parkingKindLabel('none')).toBe('None');
+  // =========================================================================
+  // ★★★ fix-562 §A — THE VOCABULARY CHANGED; THE RULE DID NOT.
+  // =========================================================================
+  //
+  // fix-402's four kinds (`garage · surface · both · none`) and its separate
+  // `parking_stalls` count are RETIRED. Bobby, 2026-09-14: *"Is it one-car,
+  // two-car, three, four, or surface/none?"* — the count is inside the answer
+  // and the tail collapses into one option.
+  //
+  // ★★★ WHAT SURVIVES IS THE ONLY THING THIS SECTION WAS EVER ABOUT: a
+  //     RECORDED answer and NOT RECORDED are different facts and render
+  //     differently. fix-402 proved it about `none` vs NULL; after §B's wipe
+  //     the unrecorded state is EVERY unit on prod, so the rule matters more
+  //     now, not less. The assertions are re-pointed, not deleted.
+  //
+  // ★ `stallsLabel` / `parseStalls` / `matchStallsTier` are GONE with the
+  //   field, and `parkingRollup` / `roofDeckRollup` are gone too — measured
+  //   before removing them: neither had a caller in `src/` since fix-447 §B
+  //   took the Library's rollup chips. See the gravestone in
+  //   lib/libraryUnitColumns.
+
+  it('★★★ a NULL-parking unit renders "—", and a RECORDED answer renders itself', () => {
+    expect(parkingLabel(null, null)).toBe(NOT_RECORDED);
+    expect(parkingLabel(undefined, undefined)).toBe(NOT_RECORDED);
+    expect(parkingLabel('surface_none', null)).toBe('Surface / None');
+    expect(parkingLabel('garage', 2)).toBe('2-car garage');
     // ★★ The distinction the whole ticket exists for, in one line: two
     // different renderings for two different facts.
-    expect(parkingKindLabel(null)).not.toBe(parkingKindLabel('none'));
+    expect(parkingLabel(null, null)).not.toBe(parkingLabel('surface_none', null));
   });
 
-  it('★★★ a RECORDED ZERO is not a NULL — stalls', () => {
-    expect(stallsLabel(null)).toBe(NOT_RECORDED);
-    expect(stallsLabel(0)).toBe('0');
-    expect(parseStalls('')).toBeNull();
-    expect(parseStalls('0')).toBe(0);
-  });
-
-  it('★★★ a RECORDED FALSE is not a NULL — roof deck', () => {
-    expect(roofDeckLabel(null)).toBe(NOT_RECORDED);
-    expect(roofDeckLabel(false)).toBe('No');
-    expect(roofDeckLabel(true)).toBe('Yes');
+  it('★★★ a RECORDED "no deck" is not a NULL — roof deck', () => {
+    expect(roofDeckLabel(null, null)).toBe(NOT_RECORDED);
+    expect(roofDeckLabel(false, null)).toBe('None');
+    expect(roofDeckLabel(true, false)).toBe('W/O PH');
+    expect(roofDeckLabel(true, true)).toBe('W/ PH');
   });
 
   it('★★★ the PARSER never invents a default', () => {
-    // The three temptations, all refused: an absent key must not become
-    // 'none' / 0 / false. This is where a careless default would enter.
+    // The temptations, all refused: an absent key must not become
+    // `surface_none` / 0 / false. This is where a careless default would enter.
     const [u] = parseUnitTypes([{ label: 'A', width_ft: 1, depth_ft: 2, qty: 1 }]);
     expect(u!.parking_kind).toBeNull();
-    expect(u!.parking_stalls).toBeNull();
+    expect(u!.parking_count).toBeNull();
     expect(u!.roof_deck).toBeNull();
+    expect(u!.penthouse).toBeNull();
+    expect(u!.basement).toBeNull();
   });
 
   it('★★ the parser rejects out-of-set and out-of-range values as NOT RECORDED', () => {
     const [u] = parseUnitTypes([
-      { label: 'A', qty: 1, parking_kind: 'carport', parking_stalls: -3, roof_deck: 'yes' },
+      {
+        label: 'A',
+        qty: 1,
+        // ★ fix-402's OWN vocabulary is now out-of-set, which is the point of
+        //   §B's wipe: nothing carries a retired word forward.
+        parking_kind: 'both',
+        parking_count: 2,
+        roof_deck: 'yes',
+        penthouse: 1,
+        basement: 'true',
+      },
     ]);
     expect(u!.parking_kind).toBeNull();
-    expect(u!.parking_stalls).toBeNull();
+    expect(u!.parking_count).toBeNull();
     expect(u!.roof_deck).toBeNull();
+    expect(u!.penthouse).toBeNull();
+    expect(u!.basement).toBeNull();
   });
 
-  it('★★ ...but keeps every legitimate value, zero and false included', () => {
-    const [u] = parseUnitTypes([
-      { label: 'A', qty: 1, parking_kind: 'none', parking_stalls: 0, roof_deck: false },
+  it('★★★ fix-562 §A: a garage with NO COUNT is refused as a PAIR', () => {
+    // ★★★ The one combination the vocabulary cannot say. Admitting it would
+    //     force a sixth display string that no dropdown can produce, so both
+    //     parts drop to null together — the impossible state is collapsed at
+    //     the boundary rather than rendered.
+    const [u] = parseUnitTypes([{ label: 'A', qty: 1, parking_kind: 'garage' }]);
+    expect(u!.parking_kind).toBeNull();
+    expect(u!.parking_count).toBeNull();
+
+    // ★ ...and a `surface_none` carrying a stray count DROPS the count, so the
+    //   stored row says exactly what the screen says.
+    const [v] = parseUnitTypes([
+      { label: 'A', qty: 1, parking_kind: 'surface_none', parking_count: 3 },
     ]);
-    expect(u!.parking_kind).toBe('none');
-    expect(u!.parking_stalls).toBe(0);
-    expect(u!.roof_deck).toBe(false);
+    expect(v!.parking_kind).toBe('surface_none');
+    expect(v!.parking_count).toBeNull();
   });
 
-  it('★★★ a NULL unit fails a "garage" filter; an explicit none matches "none"', () => {
-    expect(matchParkingKind(null, 'garage')).toBe(false);
-    expect(matchParkingKind('none', 'garage')).toBe(false);
-    // ★ Picking "None" is a real query, and it matches ONLY recorded nones.
-    expect(matchParkingKind('none', 'none')).toBe(true);
-    expect(matchParkingKind(null, 'none')).toBe(false);
+  it('★★ ...but keeps every legitimate value, a recorded "no" included', () => {
+    const [u] = parseUnitTypes([
+      {
+        label: 'A',
+        qty: 1,
+        parking_kind: 'garage',
+        parking_count: 4,
+        roof_deck: false,
+        penthouse: false,
+        stories: 3,
+        basement: true,
+      },
+    ]);
+    expect(u!.parking_kind).toBe('garage');
+    expect(u!.parking_count).toBe(4);
+    expect(u!.roof_deck).toBe(false);
+    expect(u!.stories).toBe(3);
+    expect(u!.basement).toBe(true);
+  });
+
+  it('★★★ a NULL unit fails every picked option; Any is the only one it passes', () => {
+    expect(matchParkingOption(null, null, '2-car garage')).toBe(false);
+    expect(matchParkingOption('garage', 1, '2-car garage')).toBe(false);
+    expect(matchParkingOption('garage', 2, '2-car garage')).toBe(true);
+    // ★ Picking "Surface / None" is a real query, and it matches ONLY units
+    //   somebody recorded that way.
+    expect(matchParkingOption('surface_none', null, 'Surface / None')).toBe(true);
+    expect(matchParkingOption(null, null, 'Surface / None')).toBe(false);
     // ★ Any matches everything, including the unrecorded — the only state in
     //   which a NULL unit survives a unit filter.
-    expect(matchParkingKind(null, '')).toBe(true);
+    expect(matchParkingOption(null, null, '')).toBe(true);
   });
 
-  it('★★ stalls and roof-deck filters drop NULLs too', () => {
-    expect(matchStallsTier(null, '1+')).toBe(false);
-    expect(matchStallsTier(0, '1+')).toBe(false);
-    expect(matchStallsTier(1, '1+')).toBe(true);
-    expect(matchStallsTier(1, '2+')).toBe(false);
-    expect(matchStallsTier(null, '')).toBe(true);
-    expect(matchRoofDeck(null, 'No')).toBe(false); // unanswered is not a No
-    expect(matchRoofDeck(false, 'No')).toBe(true);
-    expect(matchRoofDeck(null, '')).toBe(true);
+  it('★★ the roof-deck filter drops NULLs too', () => {
+    expect(matchRoofDeckOption(null, null, 'None')).toBe(false); // unanswered is not a None
+    expect(matchRoofDeckOption(false, null, 'None')).toBe(true);
+    expect(matchRoofDeckOption(true, true, 'W/ PH')).toBe(true);
+    expect(matchRoofDeckOption(true, false, 'W/ PH')).toBe(false);
+    expect(matchRoofDeckOption(true, false, 'W/O PH')).toBe(true);
+    expect(matchRoofDeckOption(null, null, '')).toBe(true);
   });
 });
 
 // ---------------------------------------------------------------------------
-// §2 · The rollup
+// §2 · The rollup — RETIRED, and the reason is worth keeping
 // ---------------------------------------------------------------------------
-
-describe('fix-402 §2: the rollup chip refuses to overclaim', () => {
-  it('★★ same kind everywhere → that kind, with the stall sum', () => {
-    const r = parkingRollup([
-      unit({ parking_kind: 'garage', parking_stalls: 2 }),
-      unit({ parking_kind: 'garage', parking_stalls: 2 }),
-    ]);
-    expect(r.label).toBe('Garage · 4 stalls');
-    expect(r.mixed).toBe(false);
-    expect(r.partial).toBe(false);
-  });
-
-  it('★★ kinds disagree → "Mixed"', () => {
-    const r = parkingRollup([
-      unit({ parking_kind: 'garage', parking_stalls: 2 }),
-      unit({ parking_kind: 'surface', parking_stalls: 2 }),
-    ]);
-    expect(r.mixed).toBe(true);
-    expect(r.label).toBe('Mixed · 4 stalls');
-  });
-
-  it('★★★ nothing recorded → "—", and NOT "none" or "0 stalls"', () => {
-    const r = parkingRollup([unit(), unit()]);
-    expect(r.label).toBe(NOT_RECORDED);
-    expect(r.stalls).toBeNull();
-    expect(r.kind).toBeNull();
-  });
-
-  it('★★★ PARTIAL data is marked, not averaged over', () => {
-    // The common case during the backfill: a confident "Garage · 2 stalls" read
-    // off one of three units would give a reader no way to tell a finished
-    // project from a half-entered one.
-    const r = parkingRollup([
-      unit({ parking_kind: 'garage', parking_stalls: 2 }),
-      unit(),
-      unit(),
-    ]);
-    expect(r.partial).toBe(true);
-    expect(r.unrecordedKinds).toBe(2);
-    expect(r.label).toBe('Garage · 2 stalls · 1 of 3 recorded');
-  });
-
-  it('★★ roof deck reads "N of M" over RECORDED units only', () => {
-    expect(roofDeckRollup([unit(), unit()]).label).toBe(NOT_RECORDED);
-    expect(
-      roofDeckRollup([unit({ roof_deck: true }), unit({ roof_deck: false })]).label,
-    ).toBe('1 of 2');
-    // ★ An untouched project must not read "0 of 5" — that asserts five
-    //   recorded noes.
-    const mixed = roofDeckRollup([unit({ roof_deck: true }), unit(), unit()]);
-    expect(mixed.label).toBe('1 of 1');
-    expect(mixed.total).toBe(3);
-  });
-});
+//
+// ★★★ fix-402 §2 asserted that a project-level chip refuses to overclaim:
+//     same kind everywhere → that kind; kinds disagree → "Mixed"; nothing
+//     recorded → "—" and never "none"/"0 stalls"; SOME recorded → append
+//     "N of M recorded". That was a good rule and it is not being reversed.
+//
+// ★★★ WHAT HAPPENED IS THAT ITS SURFACE WENT AND NOBODY NOTICED. fix-447 §B
+//     removed the Library's rollup chips; `parkingRollup` and `roofDeckRollup`
+//     have had **no caller in `src/` since**, and this section was the only
+//     thing keeping them compiling — a function kept alive by its own test.
+//     fix-562 §A measured that before deleting them (`grep` across `src/`
+//     excluding `__tests__`: zero hits) rather than assuming it.
+//
+// ★ THE RULE OUTLIVES THE FUNCTIONS and is where it can still bite: the
+//   "partial data is marked, not averaged over" argument is recorded in
+//   lib/unitVocabulary's header, and the Project Overview matrix — the surface
+//   that DOES summarise units — prints one answer per unit rather than one per
+//   project, which is the same honesty by a different route.
 
 // ---------------------------------------------------------------------------
 // §3 · Any-unit-matches, as a CONJUNCTION on one unit
@@ -203,7 +225,9 @@ const BASE: LibraryFilters = {
   lotwTarget: null, lotwBuf: 2, lotdTarget: null, lotdBuf: 2, lotsizeTarget: null, lotsizeBuf: 500,
   unitwTarget: null, unitwBuf: 2, unitdTarget: null, unitdBuf: 2, unitsizeTarget: null, unitsizeBuf: 100,
   zone: '', alley: '', productTypes: [], juris: '',
-  isCornerLot: '', stories: '', parkingKind: '', stalls: '', roofDeck: '',
+  // ★ fix-562 §A: `stalls` left this shape with its filter; `parkingKind` and
+  //   `roofDeck` are registry LABELS now, not union members.
+  isCornerLot: '', stories: '', parkingKind: '', roofDeck: '',
 };
 
 const row = (units: UnitType[]): LibraryRow => ({
@@ -221,48 +245,60 @@ describe('fix-402 §3: one unit must satisfy ALL the unit filters', () => {
     // ruling — it does not, because no single unit is both. A reader who
     // opened it would find no such unit exists.
     const r = row([
-      unit({ label: 'A', parking_kind: 'garage', roof_deck: false }),
-      unit({ label: 'B', parking_kind: 'surface', roof_deck: true }),
+      unit({ label: 'A', parking_kind: 'garage', parking_count: 2, roof_deck: false }),
+      unit({ label: 'B', parking_kind: 'surface_none', roof_deck: true, penthouse: true }),
     ]);
     expect(
-      filterLibraryRows([r], { ...BASE, parkingKind: 'garage', roofDeck: 'Yes' }),
+      filterLibraryRows([r], {
+        ...BASE,
+        parkingKind: '2-car garage',
+        roofDeck: 'W/ PH',
+      }),
     ).toEqual([]);
   });
 
   it('★★★ ...and it DOES match when one unit satisfies both', () => {
     const r = row([
-      unit({ label: 'A', parking_kind: 'garage', roof_deck: true }),
-      unit({ label: 'B', parking_kind: 'surface', roof_deck: false }),
+      unit({
+        label: 'A',
+        parking_kind: 'garage',
+        parking_count: 2,
+        roof_deck: true,
+        penthouse: true,
+      }),
+      unit({ label: 'B', parking_kind: 'surface_none', roof_deck: false }),
     ]);
-    const out = filterLibraryRows([r], {
-      ...BASE, parkingKind: 'garage', roofDeck: 'Yes',
-    });
+    const picked = { ...BASE, parkingKind: '2-car garage', roofDeck: 'W/ PH' };
+    const out = filterLibraryRows([r], picked);
     expect(out).toHaveLength(1);
     // ★ ...and only the qualifying unit is highlighted in the expansion.
-    expect(matchingUnitIndices(out[0]!, { ...BASE, parkingKind: 'garage', roofDeck: 'Yes' }))
-      .toEqual([0]);
+    expect(matchingUnitIndices(out[0]!, picked)).toEqual([0]);
   });
 
   it('★★ the conjunction spans the OLD filters too, not just the new ones', () => {
     // width/depth/stories were already per-unit (fix-81/205); parking joins
     // them on the same unit rather than beside them.
     const r = row([
-      unit({ label: 'A', width_ft: 20, stories: 2, parking_kind: 'garage' }),
-      unit({ label: 'B', width_ft: 40, stories: 3, parking_kind: 'surface' }),
+      unit({ label: 'A', width_ft: 20, stories: 2, parking_kind: 'garage', parking_count: 1 }),
+      unit({ label: 'B', width_ft: 40, stories: 3, parking_kind: 'surface_none' }),
     ]);
     expect(
-      filterLibraryRows([r], { ...BASE, unitwTarget: 40, unitwBuf: 1, parkingKind: 'garage' }),
+      filterLibraryRows([r], {
+        ...BASE, unitwTarget: 40, unitwBuf: 1, parkingKind: '1-car garage',
+      }),
     ).toEqual([]);
     expect(
-      filterLibraryRows([r], { ...BASE, unitwTarget: 20, unitwBuf: 1, parkingKind: 'garage' }),
+      filterLibraryRows([r], {
+        ...BASE, unitwTarget: 20, unitwBuf: 1, parkingKind: '1-car garage',
+      }),
     ).toHaveLength(1);
   });
 
   it('★★ a NULL-parking book matches nothing but Any — correct until the backfill', () => {
     const r = row([unit(), unit()]);
-    expect(filterLibraryRows([r], { ...BASE, parkingKind: 'garage' })).toEqual([]);
-    expect(filterLibraryRows([r], { ...BASE, stalls: '1+' })).toEqual([]);
-    expect(filterLibraryRows([r], { ...BASE, roofDeck: 'No' })).toEqual([]);
+    expect(filterLibraryRows([r], { ...BASE, parkingKind: '1-car garage' })).toEqual([]);
+    expect(filterLibraryRows([r], { ...BASE, roofDeck: 'None' })).toEqual([]);
+    expect(filterLibraryRows([r], { ...BASE, stories: '3' })).toEqual([]);
     expect(filterLibraryRows([r], BASE)).toHaveLength(1);
   });
 });
@@ -393,9 +429,14 @@ describe('fix-402 §5: two cards, and the Lots filter is gone', () => {
       expect(at, `${id} must sit in the SITE card`).toBeLessThan(unitAt);
     }
     // ...and the unit-shaped ones sit after it.
-    for (const id of ['filter-parking-kind', 'filter-stalls', 'filter-roof-deck', 'filter-stories']) {
+    // ★ fix-562 §A: `filter-stalls` left this list with its control AND its
+    //   field. The claim — unit-shaped filters live on the UNIT card — is
+    //   unchanged and is what the three remaining ids still prove.
+    for (const id of ['filter-parking-kind', 'filter-roof-deck', 'filter-stories']) {
       expect(src.indexOf(id), `${id} must sit in the UNIT card`).toBeGreaterThan(unitAt);
     }
+    // ★★ ...and STALLS is nowhere on this screen at all (fix-562 §A).
+    expect(src).not.toContain('filter-stalls');
   });
 
   it('★★ the existing filters keep their MEANING — they moved house only', () => {

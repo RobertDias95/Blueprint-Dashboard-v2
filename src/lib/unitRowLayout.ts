@@ -51,11 +51,9 @@ export interface UnitRowColumn {
   /**
    * The header text — an ABBREVIATION now, per Bobby.
    *
-   * ★ `#` for stalls is MINE, not his: he said *"Stalls could just be like S"*,
-   *   and an `S` header would sit one column from a parking cell reading `S`
-   *   for surface. Two different `S`es on one row, 46px apart, is the exact
-   *   class of ambiguity fix-411 §3 removed the bare "Deck" for. Flagged in the
-   *   PR so he can overrule it.
+   * ★ fix-422's `#` header for stalls was MINE rather than Bobby's, and it left
+   *   with the column in fix-562 §A. The ambiguity it existed to avoid — an `S`
+   *   header one column from a parking cell reading `S` — is gone with it.
    */
   header: string;
   /** Fixed px width. */
@@ -134,30 +132,36 @@ export const UNIT_ROW_COLUMNS: readonly UnitRowColumn[] = [
   {
     key: 'stories',
     header: 'Sty',
-    width: 22,
-    tooltip: 'How many stories tall this type is.',
+    // ★★★ fix-562 §A — 22px → 30px. It was a one-digit number box; it is a
+    //     DROPDOWN over `1 · 1+B · … · 4+B` now, and `3+B` plus a chevron does
+    //     not fit in 22. The 8px comes out of the budget the `#` column frees
+    //     below, so the matrix gets NARROWER overall, not wider.
+    width: 30,
+    tooltip:
+      'How many stories tall this type is. B is a basement — 3+B is three ' +
+      'stories over a basement.',
   },
   {
     key: 'parking_kind',
     header: 'P',
-    // ★ One letter plus a chevron. The CELL shows G/S/B/—; the OPEN MENU shows
-    //   the words — see ParkingKindSelect for how both are true at once.
-    width: 26,
-    // ★★ SCOPE 6's COPY, WITH ONE CLAUSE ADDED. The brief mapped `none` AND
-    //    "not recorded" both to `—`; fix-402's rule is that those are different
-    //    answers and prod has 4 NULLs against 1 recorded `none`. So `none` is
-    //    `N`, `—` means nobody has said, and the legend says both. See
-    //    lib/unitParking for the full argument.
+    // ★★★ fix-562 §A — 26px → 30px, AND IT ABSORBS THE `#` COLUMN. The cell
+    //     shows the short answer (`2G` / `S`); the OPEN MENU shows Bobby's
+    //     words — see ParkingKindSelect for how both are true at once.
+    width: 30,
+    // ★★ fix-402's `—` clause survives the new vocabulary unchanged: a
+    //    recorded answer and "nobody has said" are different facts, and after
+    //    §B's wipe the second is the state of every unit on prod.
     tooltip:
-      'What kind of parking is proposed. G garage · S surface · B both · ' +
-      'N none · — not recorded',
+      'What kind of parking is proposed — 1-car garage through 4-car garage, ' +
+      'or Surface / None. 2G means a 2-car garage · S surface or none · ' +
+      '— not recorded',
   },
-  {
-    key: 'parking_stalls',
-    header: '#',
-    width: 20,
-    tooltip: 'How many parking stalls this type gets.',
-  },
+  // ★★★ fix-562 §A — THE `#` (STALLS) COLUMN IS GONE, WITH THE FIELD. Bobby
+  //     folded the count into the parking answer, so a separate 20px number box
+  //     asks a question the cell beside it already answers. Its 20px plus a 4px
+  //     gap pay for the two widenings above, which is why this ticket ADDS two
+  //     dropdowns and the matrix still ends up 8px narrower (274 → 266) — see
+  //     UNIT_MATRIX_WIDTH below, and fix-488's arithmetic for why that matters.
   {
     key: 'roof_deck',
     header: 'RD',
@@ -169,8 +173,13 @@ export const UNIT_ROW_COLUMNS: readonly UnitRowColumn[] = [
     //     tooltip carries what the letters cost. Not a regression: the header is
     //     short AND the meaning is one hover or one Tab away, which is more than
     //     either previous version offered.
-    width: 26,
-    tooltip: 'Whether this type has a roof deck.',
+    // ★★★ fix-562 §A — 26px → 30px, paid for by the `#` column above. `PH` and
+    //     `RD` are two glyphs plus a chevron where `Y`/`N` was one.
+    width: 30,
+    tooltip:
+      'Whether this type has a roof deck, and whether it has a penthouse. ' +
+      'PH means W/ PH (with penthouse) · RD means W/O PH · N none · ' +
+      '— not recorded',
   },
   {
     key: 'remove',
@@ -315,10 +324,23 @@ export function unitBandHeight(typeCount: number): number {
  * a label row plus one `UnitField` per data column, each field a `text-[11px]
  * py-0.5` control on its own line (~18px), 2px apart, inside 8px of padding and
  * a 1px border, with 6px between blocks.
+ *
+ * ★★★ fix-562 §A — THE FIELD COUNT IS A LITERAL NOW, AND THAT IS A FIX.
+ *
+ *     It read `UNIT_ROW_COLUMNS.filter(...).length`, which made a MEASUREMENT
+ *     OF A SHIPPED PAST LAYOUT a function of today's column list: removing the
+ *     `#` column silently rewrote fix-418's history from 186px per block to
+ *     166, and two fix-422 assertions changed sign with nothing having happened
+ *     to fix-418.
+ *
+ * ★★ A counterfactual must be pinned to what it counterfactualises. fix-418
+ *    shipped EIGHT data fields — label, W, D, Qty, Sty, P, #, RD — and that
+ *    number is now written here, where it cannot drift.
  */
+export const FIX_418_DATA_FIELDS = 8;
+
 export function fix418BandHeight(typeCount: number): number {
-  const dataFields = UNIT_ROW_COLUMNS.filter((c) => c.key !== 'remove').length;
-  const block = 16 + dataFields * (18 + 2) + 8 + 2;
+  const block = 16 + FIX_418_DATA_FIELDS * (18 + 2) + 8 + 2;
   return typeCount * block + Math.max(0, typeCount - 1) * 6;
 }
 

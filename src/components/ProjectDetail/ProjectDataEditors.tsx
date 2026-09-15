@@ -20,9 +20,14 @@ import {
 import {
   ParkingKindSelect,
   RoofDeckSelect,
-  StallsInput,
+  StoriesSelect,
 } from '../shared/UnitParkingInputs';
-import { parseStalls, NOT_RECORDED } from '../../lib/unitParking';
+import {
+  NOT_RECORDED,
+  parkingOptions,
+  roofDeckOptions,
+  storiesOptions,
+} from '../../lib/unitVocabulary';
 import { unitLabelNeedsType } from '../../lib/unitTypeVocabulary';
 import { useUpdateProject } from '../../hooks/useUpdateProject';
 import {
@@ -1682,10 +1687,13 @@ export function UnitDimensions({ project }: { project: Project }) {
       types={types}
       productTypes={productTypes}
       disabled={locked}
-      onUpdate={(idx, field, val) => {
-        const next = types.map((t, i) =>
-          i === idx ? { ...t, [field]: val } : t,
-        );
+      // ★★★ fix-562 §A — A PATCH, NOT A (field, value) PAIR. Parking is two
+      //     stored parts of ONE answer (`parking_kind` + `parking_count`), and
+      //     so are roof deck and stories; a one-field-at-a-time callback would
+      //     have to fire twice and could land half an answer if the second
+      //     write lost a race. One patch, one write.
+      onUpdate={(idx, patch) => {
+        const next = types.map((t, i) => (i === idx ? { ...t, ...patch } : t));
         void writeTypes(next);
       }}
       onRemove={(idx) => {
@@ -1806,12 +1814,9 @@ function UnitDimensionsExpanded({
   types: UnitType[];
   productTypes: string[];
   disabled: boolean;
-  // ★ fix-402: boolean joins the value union — roof_deck is yes/no/not-recorded.
-  onUpdate: (
-    idx: number,
-    field: keyof UnitType,
-    val: string | number | boolean | null,
-  ) => void;
+  /** ★ fix-562 §A: a PARTIAL UNIT, because the three vocabularies each store
+   *  two parts that must move together. */
+  onUpdate: (idx: number, patch: Partial<UnitType>) => void;
   onRemove: (idx: number) => void;
   onAdd: () => void;
 }) {
@@ -1823,7 +1828,15 @@ function UnitDimensionsExpanded({
   // ★ fix-486 (P-143) re-worded this with the new vocabulary rather than
   //   leaving the old one in the explanation. The example IS the rule here, so
   //   an example in a vocabulary the app no longer offers reads as a live case.
-  const registryTypes = productTypeRegistry(useAppConfig().map);
+  // ★★★ fix-562 §A — THE THREE VOCABULARIES, READ ONCE FOR THE WHOLE MATRIX.
+  //     fix-232's rule: the options are canonical in `app_config` and the
+  //     control is dropdown-only. Read here rather than per row for the same
+  //     reason `registryTypes` is (fix-449 §C) — one answer for one table.
+  const cfgMap = useAppConfig().map;
+  const registryTypes = productTypeRegistry(cfgMap);
+  const parkingOpts = parkingOptions(cfgMap);
+  const roofDeckOpts = roofDeckOptions(cfgMap);
+  const storiesOpts = storiesOptions(cfgMap);
 
   // ★★★ fix-422 SCOPE 2 — A MATRIX: ONE HEADER ROW, ONE ROW PER UNIT TYPE.
   //
@@ -1869,6 +1882,9 @@ function UnitDimensionsExpanded({
       {types.map((ut, i) => (
         <UnitRow
           registryTypes={registryTypes}
+          parkingOpts={parkingOpts}
+          roofDeckOpts={roofDeckOpts}
+          storiesOpts={storiesOpts}
           key={i}
           // ★★★ fix-520 §B (P-226): which of this project's Detached units
           //     this row is. The TYPE is already in the select beside it, so
@@ -1879,7 +1895,7 @@ function UnitDimensionsExpanded({
           row={ut}
           productTypes={productTypes}
           disabled={disabled}
-          onChange={(field, val) => onUpdate(i, field, val)}
+          onChange={(patch) => onUpdate(i, patch)}
           onRemove={() => onRemove(i)}
         />
       ))}
@@ -1934,6 +1950,9 @@ function UnitRow({
   row,
   productTypes,
   registryTypes,
+  parkingOpts,
+  roofDeckOpts,
+  storiesOpts,
   unitOrdinal,
   unitLabel,
   disabled,
@@ -1944,6 +1963,10 @@ function UnitRow({
   productTypes: string[];
   /** ★ fix-449 §C: the canonical registry, for the off-list mark. */
   registryTypes: string[];
+  /** ★ fix-562 §A: the three unit vocabularies, read once by the matrix. */
+  parkingOpts: readonly string[];
+  roofDeckOpts: readonly string[];
+  storiesOpts: readonly string[];
   /** ★★★ fix-520 §B (P-226): this unit's position AMONG ITS OWN TYPE — the `2`
    *  in `Detached 2`. Not the row index: two Detached and one Attached reads
    *  `Detached 1 · Detached 2 · Attached 1`. */
@@ -1951,20 +1974,21 @@ function UnitRow({
   /** The one-piece form, for the title and the testid. */
   unitLabel: string;
   disabled: boolean;
-  onChange: (field: keyof UnitType, val: string | number | boolean | null) => void;
+  onChange: (patch: Partial<UnitType>) => void;
   onRemove: () => void;
 }) {
   const [label, setLabel] = useState(row.label);
   const [w, setW] = useState(row.width_ft != null ? String(row.width_ft) : '');
   const [d, setD] = useState(row.depth_ft != null ? String(row.depth_ft) : '');
   const [qty, setQty] = useState(String(row.qty || 1));
-  const [stories, setStories] = useState(
-    row.stories != null ? String(row.stories) : '',
-  );
-  // ★ fix-402: buffered like every other numeric cell here (fix-73/98).
-  const [stalls, setStalls] = useState(
-    row.parking_stalls != null ? String(row.parking_stalls) : '',
-  );
+  // ★★★ fix-562 §A — NO BUFFERED STATE FOR STORIES OR STALLS ANY MORE. Stories
+  //     is a dropdown (a pick IS the commit, so there is nothing to leave) and
+  //     the stall count is gone from the product. `qty` keeps its buffer
+  //     because it is still a typed number.
+  //
+  // ★ That also closes the deps gap fix-402 left and fix-412 named: this effect
+  //   used to seed `stalls` in its body while omitting `row.parking_stalls`
+  //   from its dependency list. The field it was about no longer exists.
   // fix-98: dirty-flag prop sync (fix-73 pattern). UnitRow is keyed by array
   // index in the parent, so React reuses the same instance across re-renders
   // when the underlying row data changes (after a save). The dirty flag
@@ -1977,15 +2001,9 @@ function UnitRow({
     setW(row.width_ft != null ? String(row.width_ft) : '');
     setD(row.depth_ft != null ? String(row.depth_ft) : '');
     setQty(String(row.qty || 1));
-    setStories(row.stories != null ? String(row.stories) : '');
-    setStalls(row.parking_stalls != null ? String(row.parking_stalls) : '');
     // ★ fix-488 §B: no `size_sf` state here — the column was measured and
     //   reverted (see the note where the input would have been).
-    //   ★ `row.parking_stalls` is seeded in the body and MISSING from these
-    //     deps — a pre-existing gap (fix-402). Left as found, and named so
-    //     whoever fixes it also fixes the Library's copy of this row, which
-    //     does list it.
-  }, [row.label, row.width_ft, row.depth_ft, row.qty, row.stories]);
+  }, [row.label, row.width_ft, row.depth_ft, row.qty]);
 
   // ★ fix-422: the matrix cell. 9px, centred, one baseline for every column so
   //   a number and a letter code sit on the same line.
@@ -2067,13 +2085,13 @@ function UnitRow({
               const next = typed.trim();
               dirtyRef.current = true;
               setLabel(next);
-              onChange('label', next);
+              onChange({ label: next });
               dirtyRef.current = false;
               return;
             }
             dirtyRef.current = true;
             setLabel(v);
-            onChange('label', v);
+            onChange({ label: v });
             dirtyRef.current = false;
           }}
           disabled={disabled}
@@ -2159,7 +2177,7 @@ function UnitRow({
           setW(e.target.value);
         }}
         onBlur={() => {
-          onChange('width_ft', w === '' ? null : Number(w) || 0);
+          onChange({ width_ft: w === '' ? null : Number(w) || 0 });
           dirtyRef.current = false;
         }}
         disabled={off}
@@ -2182,7 +2200,7 @@ function UnitRow({
           setD(e.target.value);
         }}
         onBlur={() => {
-          onChange('depth_ft', d === '' ? null : Number(d) || 0);
+          onChange({ depth_ft: d === '' ? null : Number(d) || 0 });
           dirtyRef.current = false;
         }}
         disabled={off}
@@ -2220,7 +2238,7 @@ function UnitRow({
           setQty(e.target.value);
         }}
         onBlur={() => {
-          onChange('qty', Number(qty) || 1);
+          onChange({ qty: Number(qty) || 1 });
           dirtyRef.current = false;
         }}
         disabled={off}
@@ -2229,58 +2247,45 @@ function UnitRow({
         data-testid="pd-unit-qty"
       />
       <span aria-hidden="true" />
-      {/* Sty */}
-      <input
-        type="number"
-        min={1}
-        value={stories}
-        placeholder={NOT_RECORDED}
-        onChange={(e) => {
-          dirtyRef.current = true;
-          setStories(e.target.value);
-        }}
-        onBlur={() => {
-          const n =
-            stories === '' ? null : Math.max(1, Number(stories) || 0) || null;
-          onChange('stories', n);
-          dirtyRef.current = false;
-        }}
+      {/* ★★★ fix-562 §A — Sty IS A DROPDOWN NOW: 1 · 1+B · 2 · 2+B · … The
+          basement half has no honest text form, and a free-text box is what let
+          `0` and half-typed values reach the parser. */}
+      <StoriesSelect
+        stories={row.stories}
+        basement={row.basement}
+        options={storiesOpts}
         disabled={off}
-        className={cellClass}
-        aria-label={unitFieldTooltip('stories')}
-        data-testid="pd-unit-stories"
+        onChange={(v) =>
+          onChange({ stories: v?.stories ?? null, basement: v?.basement ?? null })
+        }
+        testid="pd-unit-stories"
+        code
       />
       <span aria-hidden="true" />
-      {/* P — the cell is a letter, the menu is words. */}
+      {/* ★★★ fix-562 §A — P: the cell is the short answer, the menu is Bobby's
+          words. `parking_stalls` and its `#` column are GONE — the count lives
+          inside the answer (`2-car garage`). */}
       <ParkingKindSelect
-        value={row.parking_kind}
+        kind={row.parking_kind}
+        count={row.parking_count}
+        options={parkingOpts}
         disabled={off}
-        onChange={(v) => onChange('parking_kind', v)}
+        onChange={(v) =>
+          onChange({ parking_kind: v?.kind ?? null, parking_count: v?.count ?? null })
+        }
         testid="pd-unit-parking-kind"
         code
       />
       <span aria-hidden="true" />
-      {/* # */}
-      <StallsInput
-        value={stalls}
-        disabled={off}
-        compact
-        onChange={(raw) => {
-          dirtyRef.current = true;
-          setStalls(raw);
-        }}
-        onBlur={() => {
-          onChange('parking_stalls', parseStalls(stalls));
-          dirtyRef.current = false;
-        }}
-        testid="pd-unit-stalls"
-      />
-      <span aria-hidden="true" />
-      {/* RD */}
+      {/* RD — W/ PH · W/O PH · None */}
       <RoofDeckSelect
-        value={row.roof_deck}
+        deck={row.roof_deck}
+        penthouse={row.penthouse}
+        options={roofDeckOpts}
         disabled={off}
-        onChange={(v) => onChange('roof_deck', v)}
+        onChange={(v) =>
+          onChange({ roof_deck: v?.deck ?? null, penthouse: v?.penthouse ?? null })
+        }
         testid="pd-unit-roof-deck"
         code
       />

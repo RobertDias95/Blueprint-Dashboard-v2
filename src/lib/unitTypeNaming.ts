@@ -1,5 +1,27 @@
-import { isParkingKind } from './database.types';
 import type { UnitType } from './database.types';
+import { isParkingKind, type ParkingKind } from './unitVocabulary';
+
+/**
+ * ★★★ fix-562 §A — THE ONE PAIR `parseUnitTypes` VALIDATES TOGETHER.
+ *
+ * `garage` needs a count; `surface_none` takes none. Anything else is not
+ * recorded. Returned as an object so the parser stays one expression per unit.
+ *
+ * ★ A `surface_none` that somehow carries a count DROPS the count rather than
+ *   keeping a number the label cannot show — the stored row then says exactly
+ *   what the screen says.
+ */
+function readParking(
+  kind: unknown,
+  count: unknown,
+): { parking_kind: ParkingKind | null; parking_count: number | null } {
+  if (!isParkingKind(kind)) return { parking_kind: null, parking_count: null };
+  if (kind === 'surface_none') return { parking_kind: kind, parking_count: null };
+  const n =
+    typeof count === 'number' && Number.isInteger(count) && count >= 1 ? count : null;
+  if (n === null) return { parking_kind: null, parking_count: null };
+  return { parking_kind: 'garage', parking_count: n };
+}
 
 // fix-81: shared "next Type X" computation for unit-types editors. The
 // wizard's UnitTypesEditor and the Project Overview's UnitDimensions both
@@ -151,6 +173,10 @@ export function unitLabelOptions(
 // fix-22 → fix-206: canonical parse of the projects.unit_types JSONB array into
 // the typed UnitType[] shape. Supports both v1's {w,d} keys and the new
 // {width_ft,depth_ft} the editors write; defaults qty to 1 and stories to null.
+// ★ fix-562 §A: `parking_stalls` is NO LONGER NAMED HERE, which is what strips
+//   it from every row on the next edit — the same whitelist mechanism fix-486 §D
+//   used to retire `work_scope`. §B's migration removes the key in bulk; this
+//   makes sure nothing puts it back.
 // Shared by the Project Overview editor (ProjectDetailHeader) and the Library
 // matrix (buildLibraryRows) so both surfaces read + write the identical shape —
 // the whole point of fix-206 (one store, two editable views).
@@ -174,26 +200,26 @@ export function parseUnitTypes(raw: unknown): UnitType[] {
             : null,
       qty: typeof u.qty === 'number' && u.qty > 0 ? u.qty : 1,
       stories: typeof u.stories === 'number' && u.stories > 0 ? u.stories : null,
-      // ★★★ fix-402: the three unit-parking fields, read NULL-SAFELY.
+      // ★★★ fix-562 §A — THE THREE VOCABULARIES, READ AS PARTS.
       //
-      // ★★ EVERY ONE OF THESE COERCES TO null, NEVER TO A DEFAULT. An absent
-      // key, a wrong type, or a value outside the closed set all read as "not
-      // recorded" — which is what they are. The temptations to resist, all
-      // three of them fix-386's rule:
-      //   parking_kind  → NOT 'none'   ("nobody said" ≠ "no parking")
-      //   parking_stalls→ NOT 0        (0 is a recorded zero)
-      //   roof_deck     → NOT false    (false is a recorded no)
+      // ★★ EVERY HEAD COERCES TO null, NEVER TO A DEFAULT. An absent key, a
+      // wrong type, or a value outside the closed set all read as "not
+      // recorded" — which is what they are. fix-386's rule, and after §B's wipe
+      // it is the state of almost every row rather than a corner case.
       //
-      // ★ parking_stalls admits 0 deliberately (>= 0, unlike qty/stories which
-      // require > 0): a unit with a recorded zero stalls is a real answer.
-      parking_kind: isParkingKind(u.parking_kind) ? u.parking_kind : null,
-      parking_stalls:
-        typeof u.parking_stalls === 'number' &&
-        Number.isFinite(u.parking_stalls) &&
-        u.parking_stalls >= 0
-          ? u.parking_stalls
-          : null,
+      // ★★★ AND THE ONE PAIR THAT IS REFUSED TOGETHER: a `garage` with no
+      // `parking_count` has NO LABEL in Bobby's vocabulary, so admitting it
+      // would force a sixth display string that nothing can produce. Both parts
+      // drop to null together, which collapses the impossible state at the
+      // boundary instead of rendering it. See lib/unitVocabulary.
+      //
+      // ★ `basement` and `penthouse` are MODIFIERS and take no such care: a
+      // missing one beside a recorded head reads as the negative, because no
+      // vocabulary entry means "3 storeys, basement unknown".
+      ...readParking(u.parking_kind, u.parking_count),
       roof_deck: typeof u.roof_deck === 'boolean' ? u.roof_deck : null,
+      penthouse: typeof u.penthouse === 'boolean' ? u.penthouse : null,
+      basement: typeof u.basement === 'boolean' ? u.basement : null,
       // ★★★ fix-488 §B (P-150) — `size_sf`, THE UNIT'S TYPED FLOOR AREA.
       //
       // ★★★ THERE IS NO `width_ft * depth_ft` FALLBACK HERE AND THERE MUST NOT
@@ -204,8 +230,8 @@ export function parseUnitTypes(raw: unknown): UnitType[] {
       //     Bobby ruled it out in the sentence that asked for the field:
       //     *"It won't be W×D = unit size, but something we actually type in."*
       //
-      // ★ `> 0`, like `qty` and `stories` and unlike `parking_stalls`: a
-      //   zero-square-foot unit is not a recorded zero, it is a typo.
+      // ★ `> 0`, like `qty` and `stories`: a zero-square-foot unit is not a
+      //   recorded zero, it is a typo.
       size_sf:
         typeof u.size_sf === 'number' && Number.isFinite(u.size_sf) && u.size_sf > 0
           ? u.size_sf

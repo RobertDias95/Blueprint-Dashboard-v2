@@ -9,6 +9,15 @@ import { useUpsertJurisdiction } from '../../hooks/useUpsertJurisdiction';
 import { useDeleteJurisdiction } from '../../hooks/useDeleteJurisdiction';
 import { useSetAppConfigKey } from '../../hooks/useSetAppConfigKey';
 import { ZONE_OPTIONS_KEY, zoneOptions } from '../../lib/zoneOptions';
+import {
+  PARKING_OPTIONS_KEY,
+  ROOF_DECK_OPTIONS_KEY,
+  STORIES_OPTIONS_KEY,
+  isStorableVocabularyEntry,
+  parkingOptions,
+  roofDeckOptions,
+  storiesOptions,
+} from '../../lib/unitVocabulary';
 import { useIsTenantAdmin } from '../../hooks/useIsTenantAdmin';
 import { SkeletonRows } from '../Skeleton';
 import QueryError from '../QueryError';
@@ -119,6 +128,17 @@ export default function AdminProjectsTab() {
   // fix-262: cancel reasons are a SEPARATE vocabulary from hold reasons —
   // "builder pulled out" and "waiting on survey" answer different questions.
   const cancelReasons = readAppConfigStringArray(cfgQ.map, 'cancelReasonOptions');
+  // ★★★ fix-562 §A (P-268) — THE THREE UNIT VOCABULARIES, BESIDE THE ZONE
+  //     REGISTRY THEY ARE MODELLED ON.
+  //
+  // fix-232's rule: a dropdown's options are canonical in `app_config` and the
+  // control is dropdown-only. Parking, roof deck and stories were hard-coded in
+  // the code until this ticket — exactly the drift P-173 is about — and each
+  // falls back to its canonical list when the key has never been written, so a
+  // fresh tenant gets a working dropdown rather than an empty one.
+  const parking = parkingOptions(cfgQ.map);
+  const roofDeck = roofDeckOptions(cfgQ.map);
+  const stories = storiesOptions(cfgQ.map);
 
   return (
     <div className="space-y-6" data-testid="admin-projects-tab">
@@ -298,6 +318,117 @@ export default function AdminProjectsTab() {
           readOnly={!isAdmin}
           testIdPrefix="product-types-list"
         />
+      </Section>
+
+      {/* ═══════════════════════════════════════════════════════════════
+          ★★★ fix-562 §A (P-268) — THE THREE UNIT-MATRIX VOCABULARIES
+          ═══════════════════════════════════════════════════════════════
+
+          Bobby, 2026-09-14: *"the main thing we're trying to identify is …
+          how is parking driving that? Is it one-car, two-car, three, four, or
+          surface/none?"*
+
+          ★★★ AND THE ONE HONEST LIMIT, MARKED RATHER THAN HIDDEN. Parking and
+              Stories decode BY SHAPE, so `5-car garage` and `5+B` work with no
+              deploy. **Roof Deck does not** — its three labels map onto a fixed
+              (deck, penthouse) pair, so a renamed or invented entry has nowhere
+              to be stored. `isStorableVocabularyEntry` marks exactly those
+              pills `⚠`, because dropping an entry from a dropdown and saying
+              nothing is how a Settings screen starts lying about what it
+              controls. */}
+      <Section title="Unit Parking">
+        <PillListEditor
+          label="Unit Parking"
+          items={parking.map((o) => ({
+            key: o,
+            label: o,
+            badge: isStorableVocabularyEntry(PARKING_OPTIONS_KEY, o)
+              ? undefined
+              : '⚠ cannot be stored',
+          }))}
+          onAdd={(name) => {
+            if (parking.includes(name)) return;
+            setKey.mutate({ key: PARKING_OPTIONS_KEY, value: [...parking, name] });
+          }}
+          onRemove={(name) =>
+            setKey.mutate({
+              key: PARKING_OPTIONS_KEY,
+              value: parking.filter((o) => o !== name),
+            })
+          }
+          placeholder="Add parking option…"
+          emptyState="No parking options yet. Used by the unit matrix and the Library filter."
+          readOnly={!isAdmin}
+          testIdPrefix="unit-parking-list"
+        />
+        <div className="text-[10px] text-dim mt-1" data-testid="unit-parking-help">
+          Written as <code>N-car garage</code> or <code>Surface / None</code>.
+          Anything else cannot be stored against a unit.
+        </div>
+      </Section>
+
+      <Section title="Unit Roof Deck">
+        <PillListEditor
+          label="Unit Roof Deck"
+          items={roofDeck.map((o) => ({
+            key: o,
+            label: o,
+            badge: isStorableVocabularyEntry(ROOF_DECK_OPTIONS_KEY, o)
+              ? undefined
+              : '⚠ cannot be stored',
+          }))}
+          onAdd={(name) => {
+            if (roofDeck.includes(name)) return;
+            setKey.mutate({ key: ROOF_DECK_OPTIONS_KEY, value: [...roofDeck, name] });
+          }}
+          onRemove={(name) =>
+            setKey.mutate({
+              key: ROOF_DECK_OPTIONS_KEY,
+              value: roofDeck.filter((o) => o !== name),
+            })
+          }
+          placeholder="Add roof deck option…"
+          emptyState="No roof deck options yet. Used by the unit matrix and the Library filter."
+          readOnly={!isAdmin}
+          testIdPrefix="unit-roof-deck-list"
+        />
+        <div className="text-[10px] text-dim mt-1" data-testid="unit-roof-deck-help">
+          This list can be REORDERED, but only <code>W/ PH</code>,{' '}
+          <code>W/O PH</code> and <code>None</code> can be stored — each maps to
+          a fixed roof-deck / penthouse pair. A new wording would need a code
+          change.
+        </div>
+      </Section>
+
+      <Section title="Unit Stories">
+        <PillListEditor
+          label="Unit Stories"
+          items={stories.map((o) => ({
+            key: o,
+            label: o,
+            badge: isStorableVocabularyEntry(STORIES_OPTIONS_KEY, o)
+              ? undefined
+              : '⚠ cannot be stored',
+          }))}
+          onAdd={(name) => {
+            if (stories.includes(name)) return;
+            setKey.mutate({ key: STORIES_OPTIONS_KEY, value: [...stories, name] });
+          }}
+          onRemove={(name) =>
+            setKey.mutate({
+              key: STORIES_OPTIONS_KEY,
+              value: stories.filter((o) => o !== name),
+            })
+          }
+          placeholder="Add stories option…"
+          emptyState="No stories options yet. Used by the unit matrix and the Library."
+          readOnly={!isAdmin}
+          testIdPrefix="unit-stories-list"
+        />
+        <div className="text-[10px] text-dim mt-1" data-testid="unit-stories-help">
+          Written as a number, optionally <code>+B</code> for a basement —{' '}
+          <code>3</code> or <code>3+B</code>.
+        </div>
       </Section>
 
       <Section title="Project Tags">

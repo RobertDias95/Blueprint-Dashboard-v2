@@ -504,7 +504,7 @@ describe('fix-514 §H — the Library reads left-to-right like its filters', () 
     expect(l).not.toContain('library-unit-edit-');
   });
 
-  it('★★ the Unit tab reads width · depth · size · parking · stalls · roof deck', () => {
+  it('★★ the Unit tab reads width · depth · size · parking · roof deck · stories', () => {
     // ★★★ fix-519 §A (P-230) — THE ORDER IS DATA NOW, AND THAT IS THE FIX.
     //     This test used to scan the markup for `col="…"` because the order
     //     lived in the markup — in TWO copies of it, the `<thead>` here and
@@ -519,8 +519,10 @@ describe('fix-514 §H — the Library reads left-to-right like its filters', () 
       ['width', 'depth'],
       ['depth', 'size'],
       ['size', 'parking'],
-      ['parking', 'stalls'],
-      ['stalls', 'roofDeck'],
+      // ★ fix-562 §A: the `parking → stalls → roofDeck` pair became
+      //   `parking → roofDeck`; §H took `qty` off the table entirely.
+      ['parking', 'roofDeck'],
+      ['roofDeck', 'stories'],
     ] as const) {
       expect(idx(a), `${a} before ${b}`).toBeLessThan(idx(b));
     }

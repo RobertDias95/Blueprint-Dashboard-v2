@@ -117,6 +117,7 @@ export function LibraryChoiceCell({
   options,
   editable,
   testId,
+  allowClear = true,
   onCommit,
 }: {
   value: string | null;
@@ -124,6 +125,10 @@ export function LibraryChoiceCell({
   options: readonly string[];
   editable: boolean;
   testId: string;
+  /** ★★★ fix-562 §G — `projects.juris` is `NOT NULL`, so for that ONE field
+   *  clearing is not an answer and offering it would be a control that can only
+   *  fail. Defaulted to true so zone and alley are unchanged. */
+  allowClear?: boolean;
   onCommit: (next: string | null) => void;
 }) {
   if (!editable) return <ReadOnly text={value || null} />;
@@ -139,13 +144,181 @@ export function LibraryChoiceCell({
     >
       {/* ★ An empty option, because "not recorded" is a state a person needs to
           be able to get back to — the same reasoning fix-410 left on the Site
-          card's blank option. */}
-      <option value="">—</option>
+          card's blank option. ★ fix-562 §G: suppressed for a NOT NULL column. */}
+      {allowClear && <option value="">—</option>}
       {/* ★ The row's CURRENT value is offered even when the registry no longer
           lists it, or selecting the box would silently propose changing it.
           fix-406's lesson: removing a value from a union does not remove it
           from the rows that already hold it. */}
       {(value && !options.includes(value) ? [value, ...options] : options).map((o) => (
+        <option key={o} value={o}>
+          {o}
+        </option>
+      ))}
+    </select>
+  );
+}
+
+// ===========================================================================
+// ★★★ fix-562 §G (P-274) — THE REST OF THE LIBRARY BECOMES EDITABLE
+// ===========================================================================
+//
+// fix-532 §A offered a capability holder exactly four cells: lot width, lot
+// depth, unit width and unit depth. Everything else on the screen was read-only
+// — not because the server refused it, but because the screen never offered it.
+// These three cells close that, and every one of them is the SAME markup when
+// `editable` is false, so a cell does not move under a reader as they gain a
+// capability (fix-532 §A's rule).
+
+/**
+ * A whole-number field — `lot_size_sf` is the one this exists for, blank on
+ * **179 of 221 projects** (measured 2026-09-15) and the biggest hole in the
+ * Library.
+ *
+ * ★★★ IT WRITES ONLY WHAT A PERSON TYPES, AND THAT IS WORTH SAYING BECAUSE OF
+ *     fix-555. 39 projects hold a `lot_size_sf` that is NOT width × depth, and
+ *     fix-555 (P-261) is told to read those and change none of them. Making the
+ *     field editable does not change them either: nothing here derives, rounds
+ *     or reconciles — the `~` marker on the read-only cell stays the only place
+ *     a derived size is spoken about.
+ *
+ * ★ Blank commits `null`, which the RPC now writes (§G). Before this ticket a
+ *   null meant "leave unchanged" and clearing was impossible.
+ */
+export function LibraryIntegerCell({
+  value,
+  editable,
+  label,
+  max,
+  testId,
+  onCommit,
+}: {
+  value: number | null;
+  editable: boolean;
+  label: string;
+  /** Bounded before the server, fix-532 §A's rule. `lot_size_sf` is an
+   *  `integer` (P-198), so the ceiling is derived rather than picked. */
+  max: number;
+  testId: string;
+  onCommit: (next: number | null) => void;
+}) {
+  const shown = value == null ? null : String(value);
+  const [draft, setDraft] = useState<string | null>(null);
+
+  if (!editable) return <ReadOnly text={shown} />;
+
+  function commit() {
+    if (draft === null) return;
+    const t = draft.trim();
+    setDraft(null);
+    if (t === '') {
+      if (value == null) return;
+      return onCommit(null);
+    }
+    const n = Number(t);
+    if (!Number.isFinite(n) || !/^\d+$/.test(t) || n < 0 || n > max) {
+      pushToast(`${label}: enter a whole number between 0 and ${max}.`, 'error');
+      return;
+    }
+    if (n === value) return;
+    onCommit(n);
+  }
+
+  return (
+    <input
+      className={CELL_INPUT}
+      value={draft ?? shown ?? ''}
+      inputMode="numeric"
+      onChange={(e) => setDraft(e.target.value)}
+      onBlur={commit}
+      onKeyDown={(e) => {
+        if (e.key === 'Enter') {
+          e.currentTarget.blur();
+        } else if (e.key === 'Escape') {
+          setDraft(null);
+          e.currentTarget.blur();
+        }
+      }}
+      data-testid={testId}
+    />
+  );
+}
+
+/**
+ * A yes / no / not-recorded field — `is_corner_lot`.
+ *
+ * ★★ THREE STATES, NOT TWO (fix-122). `null` is *"nobody has answered"* and is
+ *    a different fact from a recorded No; the blank option is how a person gets
+ *    back to it after a mis-click, and it only works because §G taught the RPC
+ *    to write a null.
+ */
+export function LibraryTriStateCell({
+  value,
+  editable,
+  testId,
+  onCommit,
+}: {
+  value: boolean | null;
+  editable: boolean;
+  testId: string;
+  onCommit: (next: boolean | null) => void;
+}) {
+  const shown = value == null ? null : value ? 'Yes' : 'No';
+  if (!editable) return <ReadOnly text={shown} />;
+  return (
+    <select
+      className={CELL_INPUT}
+      value={value == null ? '' : value ? 'Yes' : 'No'}
+      onChange={(e) =>
+        onCommit(e.target.value === '' ? null : e.target.value === 'Yes')
+      }
+      data-testid={testId}
+    >
+      <option value="">—</option>
+      <option value="Yes">Yes</option>
+      <option value="No">No</option>
+    </select>
+  );
+}
+
+/**
+ * ★★★ A UNIT VOCABULARY CELL — parking, roof deck or stories, in the Library.
+ *
+ * Takes the COMPOSED label and the registry options and hands back the picked
+ * label; the caller decodes. ★ No free text and no clear-to-a-guess: the blank
+ * option is `—`, which is NOT RECORDED, and after §B's wipe that is what almost
+ * every unit holds.
+ */
+export function LibraryVocabularyCell({
+  value,
+  options,
+  editable,
+  testId,
+  onCommit,
+}: {
+  /** The composed label, or the NOT-RECORDED dash. */
+  value: string;
+  options: readonly string[];
+  editable: boolean;
+  testId: string;
+  onCommit: (label: string | null) => void;
+}) {
+  const recorded = value === '—' ? null : value;
+  if (!editable) return <ReadOnly text={recorded} />;
+  // ★ fix-415/fix-364's append rule: a stored answer the registry no longer
+  //   offers is shown at the bottom rather than dropped — a `<select>` whose
+  //   value matches no option renders BLANK and lies about the field.
+  const offered =
+    recorded && !options.includes(recorded) ? [...options, recorded] : options;
+  return (
+    <select
+      className={CELL_INPUT}
+      value={recorded ?? ''}
+      onChange={(e) => onCommit(e.target.value === '' ? null : e.target.value)}
+      data-testid={testId}
+    >
+      <option value="">—</option>
+      {offered.map((o) => (
         <option key={o} value={o}>
           {o}
         </option>
