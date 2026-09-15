@@ -27,8 +27,14 @@
 //   · a stored `"3+B"` makes the STORIES column sort as text, so `10` lands
 //     between `1` and `2` the moment anybody records a tall one, and `3+B`
 //     sorts away from `3`;
-//   · and *"every 3-storey unit"* becomes TWO filter values instead of one —
-//     fix-415's `NR` / `NR3` lesson in a different field.
+//   · and *"every 3-storey unit"* would become TWO filter values instead of
+//     one — fix-415's `NR` / `NR3` lesson in a different field.
+//
+// ★★ fix-571 §A NOTE: Bobby has since ruled that the FILTER should ask for one
+//    of the eight labels (`3` returns only `3`), which spends that second
+//    benefit deliberately. The FIRST one — the numeric sort — is why the parts
+//    are still stored separately, and it is untouched. A ruling changing does
+//    not make the reasoning behind the other half wrong.
 //
 // ★★ Parking gets the same benefit for free: `parking_kind` alone answers
 //    *"every garage unit"* and `parking_count` alone answers *"every 2-car"*,
@@ -391,6 +397,40 @@ export function matchRoofDeckOption(
 ): boolean {
   if (want === '') return true;
   const have = roofDeckLabel(deck, penthouse);
+  if (have === NOT_RECORDED) return false;
+  return norm(have) === norm(want);
+}
+
+/**
+ * ★★★ fix-571 §A (P-276) — STORIES FILTERS AS EIGHT VALUES, NOT AS A BASE
+ *     STOREY. THIS REVERSES fix-562's RULING, AND fix-562 FLAGGED IT.
+ *
+ * Bobby, 2026-09-15: *"i figured, in the unit stories, it would show 1, 1+b, 2,
+ * 2+B, etc."*
+ *
+ * fix-562 §A read the split storage as licence to ask ONE question — *"every
+ * 3-storey unit"* — and said in its own PR that Bobby could have them apart for
+ * two more options. He can, and this is it: picking `3` returns **only** `3`.
+ *
+ * ★★ SUPERSEDED, NOT MISTAKEN (fix-400's rule). The STORAGE decision that
+ *    ticket rests on is untouched and is what makes this a two-line change:
+ *    `stories` is still an int and `basement` still a bool, so the column still
+ *    SORTS numerically (`2`, `2+B`, `3`, `10`) while the FILTER asks for a
+ *    label. Had the label been stored, this ticket would have had to fix the
+ *    sort as well.
+ *
+ * ★★★ AND IT IS THE SAME FUNCTION SHAPE AS ITS TWO SIBLINGS ABOVE, which is
+ *     the point: three columns, three registries, one way of matching. A
+ *     vocabulary that is right on two of three is the half-applied treatment
+ *     fix-553 kept finding.
+ */
+export function matchStoriesOption(
+  stories: number | null | undefined,
+  basement: boolean | null | undefined,
+  want: string,
+): boolean {
+  if (want === '') return true;
+  const have = storiesLabel(stories, basement);
   if (have === NOT_RECORDED) return false;
   return norm(have) === norm(want);
 }

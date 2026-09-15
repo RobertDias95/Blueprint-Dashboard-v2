@@ -108,26 +108,28 @@ export interface LibraryUnitColumn {
 }
 
 /**
- * ★★★ THE ORDER IS fix-514 §H's (P-196), UNCHANGED — *"the table reads in the
- *     order the filter reads"*, and the UNIT filter box asks Width, Depth,
- *     Size, Parking, Stalls, Roof Deck, Stories in that order.
+ * ★★★ THE FILTERED RUN IS STILL fix-514 §H's (P-196) — *"the table reads in
+ *     the order the filter reads"*, and the UNIT filter box asks Width, Depth,
+ *     Size, Parking, Roof Deck, Stories in that order. (It asked `Stalls`
+ *     between Parking and Roof Deck until fix-562 §A removed the field, and
+ *     `Qty` sat after Stories until fix-562 §H removed the column.)
  *
- * ★ `Unit type` and `Qty` have no filter, so they sit either side of the
- *   filtered run: the type IDENTIFIES the row (like Address above it) and Qty
- *   is a count of it. That was fix-514 §H's reasoning and it survives.
+ * ★★★ fix-571 §C MOVED `Type` FROM THE FRONT TO THE BACK. Bobby: *"type should
+ *     be inbetween stories and jurisdiction."* It has no filter of its own, so
+ *     §H's rule never placed it — fix-514 put it first on the reasoning that a
+ *     type IDENTIFIES the row the way Address does, and Bobby has ruled the
+ *     other way: the left of the row is address then DIMENSIONS (fix-553 §C),
+ *     and a label is not a dimension.
  *
- * ★★ So this list is not a new ruling. It is the ruling that already shipped
- *    in the header, finally being the only place the order is written down.
+ * ★★ SUPERSEDED, NOT MISTAKEN (fix-400's rule) — fix-514's reasoning is quoted
+ *    above rather than deleted, because the next person to wonder why a label
+ *    sits among the parcel facts deserves to find the argument it replaced.
+ *
+ * ★★ And this list is still the ONLY place the order is written down: the
+ *    `<thead>` and the row's `<td>`s both render from it, so a move like this
+ *    one changes both or neither (fix-519 §A).
  */
 export const LIBRARY_UNIT_COLUMNS: readonly LibraryUnitColumn[] = [
-  {
-    col: 'unitLabel',
-    label: 'Type',
-    align: 'left',
-    sourceKey: null,
-    testId: 'label',
-    read: null,
-  },
   {
     col: 'width',
     label: 'Width',
@@ -198,6 +200,36 @@ export const LIBRARY_UNIT_COLUMNS: readonly LibraryUnitColumn[] = [
     //     the SORT (lib/libraryUnitRows) still reads the NUMBER, which is the
     //     whole reason the parts are stored separately rather than the label.
     read: (u) => ({ text: storiesLabel(u.stories ?? null, u.basement ?? null) }),
+  },
+  // ★★★ fix-571 §C (P-276) — `Type` IS LAST IN THE UNIT BLOCK NOW.
+  //
+  // Bobby, 2026-09-15: *"in the library, when on unit, type should be inbetween
+  // stories and jurisdiction in the table card below."*
+  //
+  // ★★★ THIS IS fix-553 §C's PRINCIPLE ONE COLUMN FURTHER, not a new
+  //     preference. That ticket moved `Juris` right because *the left of the
+  //     row should read address, then the dimensional data*. `Type` is a LABEL,
+  //     not a dimension — it names the thing the numbers describe — so it
+  //     belongs with the parcel facts that follow them rather than in front of
+  //     Width.
+  //
+  // ★★ AND IT MOVES BY ITSELF, WHICH IS THE WHOLE POINT OF THIS FILE. The
+  //    `<thead>` and `LibraryUnitRow`'s `<td>`s both render from this list
+  //    (fix-519 §A), so changing its position here changes both or neither.
+  //    Under the two hand-written lists this replaced, a move like this one is
+  //    exactly what produced P-230 — every value after the moved column
+  //    printing under somebody else's heading.
+  //
+  // ★ IT STILL SORTS. `unitLabel` keeps its `col` key, so `UNIT_SORTABLE_COLUMNS`
+  //   and `sortUnitRows`' name-bound arm are untouched — a sort that broke on a
+  //   column MOVE would be the position-bound reader fix-519 §A removed.
+  {
+    col: 'unitLabel',
+    label: 'Type',
+    align: 'left',
+    sourceKey: null,
+    testId: 'label',
+    read: null,
   },
   // ★★★ fix-562 §H (P-274) — `QTY` COMES OFF BOTH LIBRARY VIEWS. Bobby,
   //     2026-09-14: *"we'll take off quantity on the library for unit and site,

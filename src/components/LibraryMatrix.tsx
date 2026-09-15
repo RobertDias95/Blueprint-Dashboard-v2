@@ -87,6 +87,7 @@ import {
   matchingUnitRows,
   sortUnitRows,
   unitRowProjectCount,
+  unitRowUnitCount,
   type UnitSortState,
   type UnitSortableColumn,
 } from '../lib/libraryUnitRows';
@@ -474,6 +475,9 @@ function Body({ projects, permits, retiredSets }: BodyProps) {
     () => unitRowProjectCount(unitRows),
     [unitRows],
   );
+  // ★★★ fix-571 §B: the UNIT view's headline — `sum(qty)`, not `rows.length`.
+  //     See the count line below for the ruling and the 270 → 399 jump.
+  const unitCount = useMemo(() => unitRowUnitCount(unitRows), [unitRows]);
   // ★ fix-483 §A1: one band per row, keyed off the row's PROJECT — see
   //   `projectBands` for why this is not `index % 2`.
   const unitBands = useMemo(
@@ -925,32 +929,29 @@ function Body({ projects, permits, retiredSets }: BodyProps) {
               />
             </FieldLabel>
 
-            {/* fix-205: Stories tier — matches a project that has at least one
-                unit_type with the picked stories (4+ = 4 or more). Highlights
-                the matching unit rows in the expand, like the W/D filters.
-                fix-402 moved it under UNIT; its meaning is unchanged.
+            {/* ★★★ fix-571 §A (P-276) — EIGHT VALUES, FROM THE REGISTRY.
+                Bobby, 2026-09-15: *"i figured, in the unit stories, it would
+                show 1, 1+b, 2, 2+B, etc."*
 
-                ★★★ fix-562 §A — AND IT STAYS A NUMBER, WHICH IS A RULING.
-                    Picking `3` returns BOTH `3` and `3+B` units. That is the
-                    point of storing `stories` and `basement` as separate parts:
-                    *"every 3-storey unit"* is ONE question. Bobby can have them
-                    apart if he wants — it would be two more options here — and
-                    the PR says so rather than deciding it quietly. */}
+                ★★★ THIS REVERSES fix-562 §A, WHICH FLAGGED IT FOR CORRECTION IN
+                    ITS OWN PR. That ticket read the split storage as licence to
+                    ask one question — *"every 3-storey unit"* — and said the
+                    two-option alternative was Bobby's to call. He called it:
+                    picking `3` returns only `3`.
+
+                ★★★ AND IT IS THE SAME CONTROL AS PARKING AND ROOF DECK NOW.
+                    Those two already read `app_config` and offered every
+                    registry value (fix-562 §A); this one was the last
+                    hand-written vocabulary list on the screen. A treatment that
+                    is right on two of three columns is the half-applied shape
+                    fix-553 kept finding — `FilterSelect` is the third. */}
             <FieldLabel label="Stories">
-              <select
+              <FilterSelect
                 value={filters.stories}
-                onChange={(e) =>
-                  update('stories', e.target.value as LibraryFilters['stories'])
-                }
-                className={FIELD_CLASS}
-                data-testid="filter-stories"
-              >
-                <option value="">Any</option>
-                <option value="1">1</option>
-                <option value="2">2</option>
-                <option value="3">3</option>
-                <option value="4+">4+</option>
-              </select>
+                options={storiesPickOptions}
+                onChange={(v) => update('stories', v)}
+                testid="filter-stories"
+              />
             </FieldLabel>
 
             <FieldLabel label="Type">
@@ -1014,9 +1015,42 @@ function Body({ projects, permits, retiredSets }: BodyProps) {
               Measured on prod: 96 of 202 projects hold no `unit_types` at all,
               so switching to UNIT drops the project count from 202 to 103 while
               showing 235 rows. A bare number changing like that reads as a
-              filter that broke; naming both makes it read as what it is. */}
+              filter that broke; naming both makes it read as what it is.
+
+              ═══════════════════════════════════════════════════════════════
+              ★★★ fix-571 §B (P-276) — EACH VIEW LEADS WITH ITS OWN UNIT OF
+                  ACCOUNT, AND THE TWO DO NOT AGREE ON PURPOSE
+              ═══════════════════════════════════════════════════════════════
+
+              Bobby, 2026-09-15: *"when on the unit, we like seeing how many
+              total units are in the library, and when on site, we like seeing
+              how many projects are the total computing this number. the bigger
+              it feels, the more service it provides to the company."*
+
+              ★★★ DO NOT MAKE THE TWO VIEWS AGREE. The headline is whatever the
+                  view is a view OF — UNITS on the unit view, PROJECTS on the
+                  site view — and the second figure says what it was computed
+                  across. They are different subjects, not two attempts at one
+                  number, and an earlier reading of this ticket had them
+                  reconciled before Bobby corrected it.
+
+              ★★★ SO THE UNIT HEADLINE IS `sum(qty)`, NOT `rows.length`. A
+                  `unit_types` row is a TYPE with a quantity, so the old number
+                  counted the kinds of unit rather than the units. Measured on
+                  prod 2026-09-15: **270 rows carrying 399 units across 118
+                  projects**. The figure on screen jumps 270 → 399 the day this
+                  ships, with no data having moved.
+
+              ★★ BIGGER IS THE POINT, WITHIN HONEST. Bobby's reason is that the
+                 number is how the tool shows its reach — so it leads with the
+                 largest figure the data genuinely supports and never pads it.
+                 `sum(qty)` is a number somebody typed on all 270 rows; a count
+                 that double-counted or estimated would cost exactly the
+                 credibility the figure exists to earn. See
+                 `unitRowUnitCount` for the `qty ?? 1` rule and for why this
+                 reads a field fix-562 §H removed from the table. */}
           {filters.view === 'unit'
-            ? `${unitRows.length} unit${unitRows.length === 1 ? '' : 's'} across ${unitProjectCount} project${unitProjectCount === 1 ? '' : 's'}`
+            ? `${unitCount} unit${unitCount === 1 ? '' : 's'} across ${unitProjectCount} project${unitProjectCount === 1 ? '' : 's'}`
             : `${sorted.length} project${sorted.length === 1 ? '' : 's'}`}
           {/* ★★★ fix-524 §B — THE HIDE SAYS SO. The Library's population drops
               by the number of cancelled projects the moment this ships, and a
@@ -1973,8 +2007,12 @@ function LibraryUnitRow({
           one changes both, or neither.
           ★ `unitLabel` is the exception and is handled inline, because its
             text is RESOLVED against the project's product types (fix-209/212)
-            and it carries fix-449 §C's off-list mark. It stays FIRST in the
-            list either way, so its position is declared with the rest. */}
+            and it carries fix-449 §C's off-list mark.
+          ★★ fix-571 §C moved it from FIRST to LAST in the block, and nothing
+             here changed: its position is declared in the list with the rest,
+             so the header and this cell moved together. That is the property
+             fix-519 §A cost a ticket to get — under the two hand-written lists
+             it replaced, this move is precisely what produced P-230. */}
       {LIBRARY_UNIT_COLUMNS.map((c) =>
         c.read === null ? (
           <td

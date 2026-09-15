@@ -138,6 +138,48 @@ export function unitRowProjectCount(rows: readonly LibraryUnitRow[]): number {
 }
 
 /**
+ * ★★★ fix-571 §B (P-276) — HOW MANY UNITS, NOT HOW MANY UNIT TYPES.
+ *
+ * Bobby, 2026-09-15: *"when on the unit, we like seeing how many total units
+ * are in the library … the bigger it feels, the more service it provides to the
+ * company."*
+ *
+ * A `unit_types` row is a TYPE with a quantity, so `rows.length` counted the
+ * kinds of unit and not the units. Measured on prod 2026-09-15 (after
+ * fix-562's migration): **270 rows carrying 399 units across 118 projects**,
+ * with 102 of the 270 holding a qty above 1.
+ *
+ * ★★★ BIGGER IS THE POINT, WITHIN HONEST — and the second half is the
+ *     load-bearing one. The figure exists to show the tool's reach, so it leads
+ *     with the largest number the data genuinely supports; a count that
+ *     double-counted or invented would cost exactly the credibility it is there
+ *     to earn. `sum(qty)` is a number somebody typed on every one of those 270
+ *     rows. Nothing here estimates.
+ *
+ * ★★ A MISSING OR NULL `qty` COUNTS AS ONE, and that is not fix-386's rule
+ *    being broken — it is the rule not applying. `qty` has no "not recorded"
+ *    state to protect: a unit_types row IS at least one unit, which is why
+ *    `parseUnitTypes` has normalised an absent or zero qty to 1 since fix-22.
+ *    The `?? 1` here is defensive rather than decisive (every parsed row
+ *    already carries a number), and it is written out so a raw row from a
+ *    fixture or an un-parsed caller cannot silently contribute nothing.
+ *
+ * ⚠️ IT READS A FIELD THE LIBRARY NO LONGER SHOWS. fix-562 §H removed the QTY
+ *    column from both views by ruling — the field stays in `unit_types` and is
+ *    typed on Project Details → Units. So this count is correct AND
+ *    unverifiable from the table beneath it, which is worth knowing before
+ *    somebody "fixes" the discrepancy by making it `rows.length` again.
+ */
+export function unitRowUnitCount(rows: readonly LibraryUnitRow[]): number {
+  let total = 0;
+  for (const r of rows) {
+    const qty = r.unit.qty;
+    total += typeof qty === 'number' && qty > 0 ? qty : 1;
+  }
+  return total;
+}
+
+/**
  * ★★★ THE UNIT VIEW'S OWN SORT COLUMNS.
  *
  * Deliberately a SEPARATE union from `SORTABLE_COLUMNS`. The two views sort

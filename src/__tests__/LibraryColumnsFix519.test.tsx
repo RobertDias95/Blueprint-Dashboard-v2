@@ -297,20 +297,27 @@ describe('fix-519 §A (P-230) — every unit column reads its own key', () => {
     });
   });
 
-  it('★★ the order is fix-514 §H’s, which is the UNIT filter box’s', () => {
+  it('★★ the FILTERED RUN is fix-514 §H’s, and `Type` is last (fix-571 §C)', () => {
     // *"the table reads in the order the filter reads"* — width, depth, size,
-    // parking, stalls, roof deck, stories; with the type identifying the row
-    // and Qty (which has no filter) counting it at the end.
-    // ★ fix-520 §C: `Unit type` → `Type`. The ORDER, which is what this test
-    //   is about, is fix-514 §H's and is unchanged.
+    // parking, roof deck, stories. (`Stalls` sat between Parking and Roof Deck
+    // until fix-562 §A removed the field; `Qty` sat after Stories until
+    // fix-562 §H removed the column.)
+    //
+    // ★★★ fix-571 §C MOVED `Type` FROM FIRST TO LAST. Bobby, 2026-09-15:
+    //     *"type should be inbetween stories and jurisdiction."* It has no
+    //     filter of its own, so §H's rule never placed it — fix-514 put it
+    //     first because a type IDENTIFIES the row the way Address does, and
+    //     Bobby ruled the other way: the left of the row is address then
+    //     DIMENSIONS (fix-553 §C), and a label is not a dimension.
+    // ★ fix-520 §C: `Unit type` → `Type`.
     expect(LIBRARY_UNIT_COLUMN_LABELS).toEqual([
-      'Type',
       'Width',
       'Depth',
       'Size (sf)',
       'Parking',
       'Roof Deck',
       'Stories',
+      'Type',
     ]);
   });
 

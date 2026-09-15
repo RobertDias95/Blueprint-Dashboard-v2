@@ -6,7 +6,11 @@ import type {
 } from './database.types';
 import { effectiveStage } from './permitStage';
 import { parseUnitTypes } from './unitTypeNaming';
-import { matchParkingOption, matchRoofDeckOption } from './unitVocabulary';
+import {
+  matchParkingOption,
+  matchRoofDeckOption,
+  matchStoriesOption,
+} from './unitVocabulary';
 // ★ fix-486 §D: `isNoWorkUnit` was this module's last reader of `work_scope`,
 //   and it left with the default exclusion above. Nothing here reads the field.
 
@@ -330,26 +334,45 @@ export interface LibraryFilters {
   // ★ fix-410's finding is therefore only half-retired: *"a state you cannot
   //   filter for is a state you cannot audit"* — the null population is now
   //   visible in the column but no longer selectable. Recorded, not hidden.
-  /** fix-205: Stories tier filter on a project's unit_types. '' = no filter;
-   *  '1'/'2'/'3' = at least one unit_type has exactly that many stories;
-   *  '4+' = at least one has 4 or more. Like the unit width/depth filters it
-   *  acts on the unit_types rows (and highlights the matching ones); rows
-   *  whose units have no stories fall out when a tier is picked. */
-  stories: '' | '1' | '2' | '3' | '4+';
+  /**
+   * ★★★ fix-571 §A (P-276) — '' = Any, else one of `app_config.storiesOptions`
+   * verbatim (`3`, `3+B`, …). It was a TIER (`'1' | '2' | '3' | '4+'`) from
+   * fix-205 until here.
+   *
+   * Bobby, 2026-09-15: *"i figured, in the unit stories, it would show 1, 1+b,
+   * 2, 2+B, etc."* Picking `3` returns **only** `3`; `3+B` is its own answer.
+   *
+   * ★★★ THE `4+` TIER IS GONE WITH THE GROUPING, and that is a real loss worth
+   *     naming: it was the only option that matched an OPEN-ENDED range, so a
+   *     5-storey unit was findable without anybody adding `5` to the registry.
+   *     It is now findable by adding `5` in Settings — which is the trade
+   *     fix-232's rule makes everywhere, and the registry is shape-decoded so
+   *     that costs no deploy.
+   *
+   * ★★ A REGISTRY LABEL, NOT A UNION MEMBER — the same shape `parkingKind` and
+   *    `roofDeck` took in fix-562, for the same reason: an admin who adds a
+   *    ninth value in Settings gets a filter value for it in the same edit,
+   *    with no union to extend and no stored string that can outlive its type
+   *    (fix-406's render-time throw). An option that leaves the registry while
+   *    a filter still holds it simply matches nothing, and the control appends
+   *    it so the person can SEE what they are filtering by.
+   */
+  stories: string;
 }
 
-/** fix-205: does a unit-type's `stories` satisfy the picked tier? Empty tier
- *  matches everything; a picked tier requires a non-null stories that equals it
- *  ('1'–'3') or is ≥ 4 ('4+'). */
-export function matchStoriesTier(
-  stories: number | null | undefined,
-  tier: LibraryFilters['stories'],
-): boolean {
-  if (tier === '') return true;
-  if (stories == null) return false;
-  if (tier === '4+') return stories >= 4;
-  return stories === Number(tier);
-}
+// ★★★ fix-571 §A — `matchStoriesTier` IS GONE, replaced by
+//     `unitVocabulary.matchStoriesOption`.
+//
+// fix-205 wrote it here because `stories` was a bare number with a hand-written
+// tier list and had no vocabulary to belong to. It has one now, and the match
+// belongs beside `matchParkingOption` and `matchRoofDeckOption` — three
+// columns, three `app_config` registries, ONE way of matching. Leaving this one
+// behind in a different module with a different shape is exactly how the third
+// column stops getting the treatment the other two get.
+//
+// ★ Its tier arithmetic (`'4+'` → `>= 4`) is not re-homed anywhere: the
+//   grouping is what Bobby removed. See `LibraryFilters.stories` above for what
+//   that costs and how it is paid.
 
 /** fix-81: indices of unit_types on `row` that satisfy BOTH active unit
  * filters. Returns all indices when neither filter is active. Drives row
@@ -384,12 +407,11 @@ export function matchingUnitIndices(
       //     reading would return a project with a 1,700 sf unit and a garage on
       //     a different unit, and the reader would open it to find no such unit.
       matchTargetWithBuffer(u.size_sf, filters.unitsizeTarget, filters.unitsizeBuf) &&
-      // ★★★ fix-562 §A — THE STORIES FILTER STILL ASKS FOR A NUMBER, so
-      //     picking `3` returns BOTH `3` and `3+B`. That is the whole benefit
-      //     of storing the parts: "every 3-storey unit" is one question, not
-      //     two values to remember to tick. Flagged in the PR in case Bobby
-      //     wants them apart.
-      matchStoriesTier(u.stories, filters.stories) &&
+      // ★★★ fix-571 §A — AND NOW IT ASKS FOR ONE OF THE EIGHT LABELS. fix-562
+      //     read the split storage as licence to ask "every 3-storey unit" as
+      //     one question and flagged it for correction in its own PR; Bobby
+      //     corrected it. `3` returns only `3`.
+      matchStoriesOption(u.stories, u.basement, filters.stories) &&
       matchParkingOption(u.parking_kind, u.parking_count, filters.parkingKind) &&
       // ★ fix-483 §A2: fix-412's `matchWorkScope` conjunct left with its
       //   filter; fix-562 §A's `matchStallsTier` left with `parking_stalls`.
