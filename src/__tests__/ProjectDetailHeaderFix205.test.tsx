@@ -5,7 +5,6 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import type { ReactNode } from 'react';
 import { useAuthStore } from '../stores/authStore';
 import { queryKeys } from '../lib/queryKeys';
-import { UNIT_ROW_COLUMNS } from '../lib/unitRowLayout';
 
 // fix-205: Project Overview unit-types editor — W/D decimals (wider inputs +
 // step 0.5), per-row Stories, product-type Label dropdown (multi) / auto-label
@@ -354,41 +353,43 @@ describe('fix-209: narrower Qty + Stories inputs', () => {
   //   and Sty are the row's two NARROWEST columns, and both are narrower than
   //   W and D. That is the ruling ("single-digit, occasionally 2"); `w-7` was
   //   only ever how it was expressed.
-  it('Qty and Sty are still the narrowest columns (fix-209, via fix-412 grid)', () => {
-    const col = (k: string) =>
-      UNIT_ROW_COLUMNS.find((c) => c.key === k)!.width;
-    // ★★★ fix-562 §A — `Sty` IS NO LONGER A NUMBER BOX, so it is no longer
-    //     the same width as `Qty`. It is a dropdown over `1 · 1+B · … · 4+B`,
-    //     and `3+B` plus a chevron does not fit in 22px.
+  it('★★ every box is wide enough for what it holds (fix-209, via fix-572)', () => {
+    // ★★★ fix-572 §C — fix-209's RULING IS RETIRED, AND BY ITS OWN LOGIC.
+    //     "Narrow the counts" was never about counts; it was about not giving
+    //     a single digit as much room as `24.5`, on a row where every pixel
+    //     spent was taken from a neighbour. The form is a wrapping four-track
+    //     grid inside a 760px modal now — nothing is taken from a neighbour,
+    //     so there is nothing to ration.
     //
-    // ★★ fix-209's RULING SURVIVES INTACT and is what is asserted: the
-    //    single-digit counts must not be as wide as the dimension boxes. `Qty`
-    //    is still the narrowest data column on the row; `Sty` is now as wide as
-    //    W and D rather than narrower, which is a CONSEQUENCE of becoming a
-    //    dropdown rather than a reversal of "narrow the counts".
-    expect(col('qty')).toBeLessThan(col('stories'));
-    expect(col('qty')).toBeLessThan(col('width_ft'));
-    expect(col('qty')).toBe(
-      Math.min(
-        ...UNIT_ROW_COLUMNS.filter((c) => c.key !== 'remove').map((c) => c.width),
-      ),
-    );
-    // ...and the cells fill their column rather than carrying their own width.
+    // ★★★ AND THE OPPOSITE FAILURE IS THE ONE THAT SHIPPED. Rationing ran to
+    //     its end in fix-422: the Type dropdown reached 52px and rendered
+    //     `D…` for `Detached`. §C's answer is that every control gets a full
+    //     track and its own spelled-out label, which is what is asserted.
     setup({ product_types: ['Detached'], unit_types: NAMED_ROW });
-    expect(screen.getByTestId('pd-unit-qty').className).toContain('w-full');
-    expect(screen.getByTestId('pd-unit-stories').className).toContain('w-full');
+    for (const id of ['pd-unit-qty', 'pd-unit-stories', 'pd-unit-w', 'pd-unit-d']) {
+      expect(screen.getByTestId(id).className, id).toContain('w-full');
+    }
+    // ★ The four tracks are equal and none of them is a hand-set pixel width.
+    const grid = screen.getByTestId('pd-unit-qty').closest('[style*="grid-template-columns"]')
+      ?? screen.getByTestId('pd-unit-block').querySelector('[style*="grid-template-columns"]');
+    expect((grid as HTMLElement).style.gridTemplateColumns).toBe(
+      'repeat(4, minmax(0, 1fr))',
+    );
   });
 });
 
 describe('fix-205: "unnamed" fix on save (single product type)', () => {
   it('a blank-label row saved under a single product type persists that type as its label', async () => {
-    // A lone unlabeled row renders the COMPACT editor; editing a dimension
-    // saves the row, and writeTypes resolves the blank label to the type.
+    // ★ fix-572 §C: a lone unlabeled row used to render the COMPACT editor.
+    //   There is one form now — the labelled block — so this reads `pd-unit-w`
+    //   like every other dimension test. THE BEHAVIOUR UNDER TEST IS UNCHANGED:
+    //   editing a dimension saves the row, and `writeTypes` resolves the blank
+    //   label to the project's lone type.
     setup({
       product_types: ['Detached'],
       unit_types: [{ label: '', width_ft: null, depth_ft: null, qty: 1 }],
     });
-    const wInput = screen.getByTestId('pd-units-compact-w') as HTMLInputElement;
+    const wInput = screen.getByTestId('pd-unit-w') as HTMLInputElement;
     fireEvent.change(wInput, { target: { value: '96' } });
     fireEvent.blur(wInput);
     await waitFor(() => expect(updateMutateAsync).toHaveBeenCalledTimes(1));

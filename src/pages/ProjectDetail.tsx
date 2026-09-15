@@ -406,28 +406,20 @@ function ProjectDetailBody({
       setSearchParams(next, { replace: true });
     }
   }
-  /**
-   * ★★★ fix-517 §E — WHERE A PERMIT IS EDITED, NOW THAT `QuickEditPermitModal`
-   *     IS DELETED.
-   *
-   * Bobby, 2026-09-10: *"maybe that gets removed and then that just gets put
-   * back into project details."* The modal held Permit Type · ENT/DA/CA ·
-   * Permit Number · Sub-permit of · Structure Address · Portal URL, and
-   * fix-514's Permits tab already held all of those but two — the third time in
-   * one week that two editors were found writing one field set
-   * (P-207, P-221).
-   *
-   * ★★ IT GOES THROUGH THE URL, not through local state, so the destination is
-   *    linkable and `← Previous` behaves. `?data=permits&focus=<id>` reuses
-   *    fix-514 §C's deep link rather than inventing a second one — which is
-   *    what §E asks for in as many words.
-   */
-  function openPermitInProjectDetails(permitId: number) {
-    const next = new URLSearchParams(searchParams);
-    next.set(PARAM_DATA, 'permits');
-    next.set(PARAM_DATA_FOCUS, String(permitId));
-    setSearchParams(next);
-  }
+  // ★★★ fix-572 §A — `openPermitInProjectDetails` IS DELETED. It existed only
+  //     to serve the ✎↗ glyph above, and it was the ONLY thing in the app that
+  //     WROTE `?focus=`.
+  //
+  // ★★ THE READ SIDE STAYS, DELIBERATELY. `PARAM_DATA_FOCUS`,
+  //    `projectDataHref`'s optional third argument, `dataFocusPermitId` and the
+  //    Permits tab's scroll-and-ring are all still live: paste
+  //    `?data=permits&focus=<id>` and it still works. That is fix-514 §C's deep
+  //    link, and §A's own line — *"the destination survives and that is why
+  //    this is safe"* — is only true if it does.
+  //
+  // ⚠️ So the deep link is now reachable by URL and by nothing in the UI. Said
+  //    out loud because a reader who greps `focus` will otherwise conclude it
+  //    is dead and delete a working address.
   const [deleteOpen, setDeleteOpen] = useState(false);
   // fix-126: redesign-wizard state. When non-null the New Project wizard
   // mounts in redesign mode with this seed; Project Details is closed first
@@ -737,7 +729,6 @@ function ProjectDetailBody({
                 permits={lineagePermits}
                 redesignLabelByPermitId={redesignLabelByPermitId}
                 onSelect={setSelectedPermitId}
-                onEditPermit={openPermitInProjectDetails}
               />
               {/* ★★ fix-517 §A — THE REDESIGNS BAND, MOVED OUT OF THE RAIL.
                   It is the only surface that can rename or delete a redesign,
@@ -746,7 +737,6 @@ function ProjectDetailBody({
               </SnapshotFrame>
               <RedesignsSection
                 parentId={project.id}
-                onOpenPermits={() => setDataOpen('permits')}
               />
               {/* fix-277: the fix-276 CorrectionsPanel used to sit here. It made
                   the overview long without answering an overview-level question
@@ -1021,15 +1011,9 @@ function ProjectPageChrome({
 //   spawned. That is `useProjectRedesignsWithPermits`'s own sort (created_at,
 //   then id) and the numbering is the index within it — which is the same map
 //   the table's `↳ Redesign N` row line reads, so the two cannot disagree.
-function RedesignsSection({
-  parentId,
-  onOpenPermits,
-}: {
-  parentId: string;
-  /** Where "its permits are in the table above" sends someone who wants to
-   *  EDIT one — Project Details → Permits, the surface §E consolidated on. */
-  onOpenPermits: () => void;
-}) {
+// ★ fix-572 §A: `onOpenPermits` is gone from this chain — the band's link was
+//   its only consumer and the band is plain text now.
+function RedesignsSection({ parentId }: { parentId: string }) {
   const { data } = useProjectRedesignsWithPermits(parentId);
   // fix-193: per-redesign edit / delete targets (the redesign + its sidebar
   // "Redesign N" label). Null = no dialog open.
@@ -1065,7 +1049,6 @@ function RedesignsSection({
           key={r.project.id}
           redesign={r}
           label={`Redesign ${i + 1}`}
-          onOpenPermits={onOpenPermits}
           onEdit={(label) => setEditTarget({ project: r.project, label })}
           onDelete={(label) => setDeleteTarget({ project: r.project, label })}
         />
@@ -1132,13 +1115,11 @@ function redesignEmptyLine(reuses: boolean | null | undefined): string {
 function RedesignGroup({
   redesign,
   label,
-  onOpenPermits,
   onEdit,
   onDelete,
 }: {
   redesign: RedesignWithPermits;
   label: string;
-  onOpenPermits: () => void;
   onEdit: (label: string) => void;
   onDelete: (label: string) => void;
 }) {
@@ -1217,17 +1198,18 @@ function RedesignGroup({
         //     `SidebarRow`; every one of them is now a row in the PERMITS table
         //     above, tagged `↳ Redesign N`. A pane that listed them twice is
         //     precisely the redundancy §A is deleting.
-        <button
-          type="button"
-          onClick={onOpenPermits}
-          className="w-full text-left px-3 py-2 text-[10px] text-dim hover:text-de hover:bg-s2 transition"
+        // ★★★ fix-572 §A (P-277) — PLAIN TEXT, NOT A BUTTON. Bobby ruled this
+        //     link off with the ✎↗ glyph. The sentence it carried is the half
+        //     worth keeping: it says where the permits went (fix-517 §A), which
+        //     is a fact about the screen, not an invitation to navigate.
+        <div
+          className="px-3 py-2 text-[10px] text-dim"
           data-testid={`project-overview-redesign-permits-note-${redesign.project.id}`}
         >
           {redesign.permits.length === 1
             ? '1 permit, in the table above.'
-            : `${redesign.permits.length} permits, in the table above.`}{' '}
-          <span className="underline">Edit in Project Details →</span>
-        </button>
+            : `${redesign.permits.length} permits, in the table above.`}
+        </div>
       )}
     </div>
   );

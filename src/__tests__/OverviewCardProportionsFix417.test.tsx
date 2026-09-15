@@ -6,6 +6,12 @@ import type { ReactNode } from 'react';
 import { useAuthStore } from '../stores/authStore';
 import type { Project } from '../lib/database.types';
 import {
+  FIX_412_ROW_WIDTH,
+  FIX_422_MATRIX_COLUMNS,
+  FIX_422_MATRIX_GAP,
+  FIX_422_MATRIX_WIDTH,
+} from '../lib/unitConfigFields';
+import {
   OVERVIEW_CARD_CHROME,
   OVERVIEW_CARD_COLUMNS,
   OVERVIEW_GRID_AREAS,
@@ -18,12 +24,6 @@ import {
   overviewRowWidthAt,
   resolveOverviewWidths,
 } from '../lib/overviewCardLayout';
-import {
-  FIX_412_ROW_WIDTH,
-  UNIT_MATRIX_WIDTH,
-  UNIT_ROW_COLUMNS,
-  UNIT_ROW_GAP,
-} from '../lib/unitRowLayout';
 import {
   CONSULTANT_BAND_MIN_WIDTH,
   PLAN_OF_RECORD_CARD_MIN,
@@ -81,14 +81,16 @@ describe('fix-417 §0: the cause, computed rather than quoted', () => {
     //   row is legal again: fix-412's row spelled everything out (Label 84,
     //   Work 74, Parking 104); this one abbreviates, uses letter codes, drops
     //   the `×` and moves `work_scope` off the grid entirely.
-    const cols = UNIT_ROW_COLUMNS.reduce((a, c) => a + c.width, 0);
+    // ★ fix-572 §C: the column list is gone with the matrix; its final total
+    //   is a literal now. See `lib/unitConfigFields`.
+    const cols = 240;
     // ★ fix-562 §A: 244 → 240 and 274 → 266. The `#` column and its gap paid
     //   for widening Stories and Roof Deck into dropdowns, so the matrix got
     //   NARROWER while gaining two controls — which is the constraint fix-488
     //   §B could not meet when it tried to add a ninth column.
     expect(cols).toBe(240);
-    expect(UNIT_MATRIX_WIDTH).toBe(266);
-    expect(UNIT_MATRIX_WIDTH).toBeLessThan(FIX_412_ROW_WIDTH / 2);
+    expect(FIX_422_MATRIX_WIDTH).toBe(266);
+    expect(FIX_422_MATRIX_WIDTH).toBeLessThan(FIX_412_ROW_WIDTH / 2);
     // ★★★ AND THE CARD'S FLOOR IS STILL DERIVED FROM ITS MATRIX, not typed
     //     beside it — that is fix-417 §B's scroller replacement and it is
     //     untouched in kind. What fix-506 §D changed is WHICH matrix:
@@ -336,8 +338,15 @@ describe('fix-417: the page body never scrolls sideways', () => {
     //   viewport that puts every track ON its floor is 1280.
     const narrow = resolveOverviewWidths(overviewRowWidthAt(1280, 'expanded'));
     expect(narrow).toEqual(OVERVIEW_CARD_COLUMNS.map((c) => c.minPx));
+    // ★★★ fix-572 §C — REPOINTED TO THE LIVE DERIVATION. This asserted the
+    //     PROJECT floor against the MODAL's old horizontal matrix, which the
+    //     test's own comment above already flagged as SUPERSEDED BY fix-508:
+    //     the floor derives from `UNIT_MATRIX_TRANSPOSED_WIDTH` — the Overview
+    //     card's own matrix — and has since fix-507/508. Asserting it against a
+    //     retired number from a different surface was the coupling the fix-572
+    //     brief believed still existed. It does not.
     expect(narrow[1]).toBeGreaterThanOrEqual(
-      UNIT_MATRIX_WIDTH + OVERVIEW_CARD_CHROME,
+      UNIT_MATRIX_TRANSPOSED_WIDTH + OVERVIEW_CARD_CHROME,
     );
   });
 
@@ -497,12 +506,18 @@ describe('fix-417 §B (superseded by fix-418): nothing scrolls sideways', () => 
     }
   });
 
-  it('★★ the column table is still the ONE field declaration', () => {
+// ★★★ fix-572 §C — THE HORIZONTAL MATRIX THIS SECTION MEASURED IS RETIRED.
+//     The Units tab is one labelled block per type now (Bobby: *"unit
+//     configuration… cleanly and quickly"*). Its numbers survive as declared
+//     literals in `lib/unitConfigFields`, exactly as fix-422 kept fix-412's
+//     620 — *"deleting them would delete the evidence for a fix that is still
+//     load-bearing."*
+  it('★★ the retired matrix keeps its numbers as evidence', () => {
     // ★ Nine columns now (fix-422 moved `work_scope` off the grid), and the
     //   620px that caused fix-417 lives on as a constant rather than a layout.
     // ★ fix-562 §A: eight, not nine — `parking_stalls` left the product.
-    expect(UNIT_ROW_COLUMNS).toHaveLength(8);
-    expect(UNIT_ROW_GAP).toBe(4);
+    expect(FIX_422_MATRIX_COLUMNS).toBe(8);
+    expect(FIX_422_MATRIX_GAP).toBe(4);
     expect(FIX_412_ROW_WIDTH).toBe(620);
   });
 });
@@ -886,9 +901,11 @@ describe('fix-417 §C: the SITE rows are sized to their content', () => {
     //   proportions fix. These selects already carried `min-w-0`, so they could
     //   shrink to nothing and never contributed to min-content. The Units row
     //   set that floor and §B is what moved it. §C is looks.
-    const unitsRowMin =
-      UNIT_ROW_COLUMNS.reduce((a, c) => a + c.width, 0) +
-      (UNIT_ROW_COLUMNS.length - 1) * UNIT_ROW_GAP;
+    // ★ fix-572 §C: the row that set the floor is the OVERVIEW card's own
+    //   transposed matrix now (fix-507/508), so the comparison is made against
+    //   that rather than against the retired horizontal one. The point is
+    //   unchanged — these two selects are nowhere near it.
+    const unitsRowMin = UNIT_MATRIX_TRANSPOSED_WIDTH;
     // 90px and 124px are both far below the row that actually sets the floor.
     expect(90).toBeLessThan(unitsRowMin);
     expect(124).toBeLessThan(unitsRowMin);

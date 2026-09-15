@@ -7,18 +7,19 @@ import { useAuthStore } from '../stores/authStore';
 import type { PermitWithCycles, Project, UnitType } from '../lib/database.types';
 import {
   FIX_412_ROW_WIDTH,
-  UNIT_MATRIX_GRID,
-  UNIT_MATRIX_ROW_GAP,
-  UNIT_MATRIX_ROW_HEIGHT,
-  UNIT_MATRIX_WIDTH,
-  UNIT_ROW_COLUMNS,
-  UNIT_ROW_GAP,
-  UNIT_WD_GAP,
   FIX_418_DATA_FIELDS,
+  FIX_422_MATRIX_COLUMNS,
+  FIX_422_MATRIX_GAP,
+  FIX_422_MATRIX_ROW_GAP,
+  FIX_422_MATRIX_ROW_HEIGHT,
+  FIX_422_MATRIX_WIDTH,
+  UNIT_CONFIG_FIELDS,
   fix418BandHeight,
-  unitBandHeight,
-  unitFieldTooltip,
-} from '../lib/unitRowLayout';
+  fix422BandHeight,
+  unitFieldHint,
+  unitFieldLabel,
+} from '../lib/unitConfigFields';
+import editorsSource from '../components/ProjectDetail/ProjectDataEditors.tsx?raw';
 import {
   OVERVIEW_CARD_CHROME,
   OVERVIEW_CARD_COLUMNS,
@@ -71,77 +72,80 @@ import { parkingLabel, roofDeckLabel, storiesLabel } from '../lib/unitVocabulary
 // §A · THE MATRIX, DECLARED ONCE
 // ---------------------------------------------------------------------------
 
-describe('fix-422 §A: the columns are Bobby\'s, sized to what they hold', () => {
-  it('★★★ Type · W · D · Qty · Sty · P · RD, then remove (fix-562 §A took `#`)', () => {
-    // ★★★ fix-562 §A — `parking_stalls` IS OUT OF THE PRODUCT, so the `#`
-    //     column left with it. Bobby folded the count into the parking answer
-    //     (`2-car garage`), and fix-422's own `#` header was never his — it was
-    //     mine, to avoid two different `S`-es 46px apart.
-    expect(UNIT_ROW_COLUMNS.map((c) => c.key)).toEqual([
-      'label',
-      'width_ft',
-      'depth_ft',
-      'qty',
-      'stories',
-      'parking_kind',
-      'roof_deck',
-      'remove',
+// ===========================================================================
+// ★★★ fix-572 §C (P-277) — §A IS RETIRED: THE MATRIX IT DECLARED IS GONE
+// ===========================================================================
+//
+// Bobby, 2026-09-15: *"unit configuration… in one swoop, you can cleanly and
+// quickly organize"* — and, on the Type cell, that he could not read it.
+//
+// ★★★ §A'S LAST ASSERTION WAS THE ONE THAT BROKE IT. *"Type is sized for
+//     `Cottages`… expect(type.width).toBe(52)"*, with the rest of the suite
+//     proving an off-registry label truncates cleanly at that width (§8).
+//     **Measured in Chrome on 2026-09-15: at 52px the modal's Type dropdown
+//     renders `D…` for `Detached`** — every registry value truncates, not only
+//     the off-registry ones, because a `<select>` spends part of its box on a
+//     chevron that a `<span>` does not. §8 measured the truncation of a SPAN.
+//
+// ★★ SO THE RETIREMENT IS NOT A CHANGE OF TASTE. Rationing ran to its end: a
+//    52px Type, a 22px Qty and a 26px Roof Deck are what 266px of matrix buys,
+//    and the last of that width was spent making `3+B` fit (fix-562 §A). §C
+//    stops rationing instead of re-cutting the ration.
+//
+// ★★★ AND EVERY NUMBER §A DECLARED IS KEPT, in `lib/unitConfigFields` under
+//     names that say they are history — 266, its 4px gap, its 8 columns, and
+//     fix-412's 620. fix-422 kept fix-412's 620 for exactly this reason and
+//     said so: *"deleting them would delete the evidence for a fix that is
+//     still load-bearing."* fix-417's floor arithmetic still cites them.
+describe('fix-422 §A (retired by fix-572 §C): what the matrix measured, kept', () => {
+  it('★★★ the 266px and its parts survive as evidence, as literals', () => {
+    // ★★ fix-562's OWN LESSON, WHICH IS WHY THESE ARE LITERALS: a historical
+    //    measurement derived from a live list is not a measurement. When
+    //    `fix418BandHeight` counted today's columns, removing one silently
+    //    rewrote fix-418's shipped past by 20px per block.
+    expect(FIX_422_MATRIX_WIDTH).toBe(266);
+    expect(FIX_422_MATRIX_GAP).toBe(4);
+    expect(FIX_422_MATRIX_COLUMNS).toBe(8);
+    // ★ The comparison §A existed to make: horizontal was legal because it was
+    //   less than half of fix-412's spelled-out row.
+    expect(FIX_422_MATRIX_WIDTH).toBeLessThan(FIX_412_ROW_WIDTH / 2);
+  });
+
+  it('★★★ the abbreviations that 266px paid for are gone from the form', () => {
+    // ★★★ THE RULING §A ENFORCED — *"sized to what they hold"* — IS WHAT §C
+    //     delivers, by removing the size constraint rather than tuning it.
+    //     `Type · W · D · Qty · Sty · P · RD` was the most a 266px row could
+    //     say; every one of those is a whole word now.
+    expect(UNIT_CONFIG_FIELDS.map((c) => c.label)).toEqual([
+      'Type',
+      'Quantity',
+      'Width',
+      'Depth',
+      'Unit Size',
+      'Stories',
+      'Parking',
+      'Roof Deck',
     ]);
-    expect(UNIT_ROW_COLUMNS.map((c) => c.header)).toEqual([
-      'Type', 'W', 'D', 'Qty', 'Sty', 'P', 'RD', '',
-    ]);
+    // ★ fix-562 §A's removal is still enforced: `#` never comes back.
+    expect(UNIT_CONFIG_FIELDS.map((c) => c.key)).not.toContain('parking_stalls');
   });
 
-  it('★★★ the matrix is NARROWER after fix-562, not wider — 274px → 266px', () => {
-    // ★★ THE NUMBER THAT MAKES HORIZONTAL LEGAL AGAIN. fix-412's row was ten
-    //    columns and 620px because it spelled everything out; abbreviations,
-    //    codes, no `×` and moving `work_scope` off the grid took it to nine
-    //    columns and 274.
-    //
-    // ★★★ fix-562 §A TURNED TWO NUMBER BOXES INTO DROPDOWNS AND STILL PAID FOR
-    //     IT. Stories 22px → 30px and Roof Deck 26px → 30px (a chevron plus
-    //     `3+B` / `PH` does not fit in a one-digit box), funded by deleting the
-    //     20px `#` column and its 4px gap. Net −8px.
-    //
-    // ★★ WHY THAT MATTERS RATHER THAN BEING TRIVIA: fix-488 §B built a ninth
-    //    column, measured it at +38px of matrix — 76px on the overview row
-    //    minimum against 12px of slack at 1280 — and REVERTED it. This ticket
-    //    had to add two controls without spending any of that, and it did.
-    expect(UNIT_MATRIX_WIDTH).toBe(266);
-    expect(UNIT_MATRIX_WIDTH).toBeLessThan(274);
-    expect(UNIT_MATRIX_WIDTH).toBeLessThan(FIX_412_ROW_WIDTH / 2);
-  });
-
-  it('★★★ SCOPE 3: no `×`, and W–D are set TIGHTER than everything else', () => {
-    // Bobby: *"I don't think we need the X between width and depth."*
-    //
-    // ★★ REMOVING THE SEPARATOR COSTS THE PAIR ITS GRAMMAR — `20 × 30` reads as
-    //    one dimension, `20  30` reads as two adjacent numbers. So the pair
-    //    groups by proximity instead: 2px between W and D, 4px everywhere else.
-    expect(UNIT_WD_GAP).toBeLessThan(UNIT_ROW_GAP);
-    expect(UNIT_ROW_COLUMNS.some((c) => c.header === '×')).toBe(false);
-    // ★ The template carries the per-gap widths, because one `gap` property
-    //   cannot express a tighter pair — one source for the whole geometry.
-    expect(UNIT_MATRIX_GRID).toBe(
-      '52px 4px 30px 2px 30px 4px 22px 4px 30px 4px 30px 4px 30px 4px 16px',
+  it('★★ SCOPE 3 SURVIVES WHERE IT WAS MADE: still no `×` between W and D', () => {
+    // Bobby: *"I don't think we need the X between width and depth."* §A
+    // expressed it as a tighter 2px gap, which was how a grid groups a pair.
+    // The fields are separate labelled boxes now, so the grammar comes from the
+    // labels — but the `×` must not come back, and that is still assertable.
+    // ⚠️ Scoped to the unit block ON PURPOSE. `editorsSource` also holds the
+    //    SITE card's lot row, whose `20 × 30` separator fix-422 never ruled on
+    //    and this ticket does not touch — an unscoped grep would assert a rule
+    //    Bobby made about one row against a different one.
+    const blockJsx = editorsSource.slice(
+      editorsSource.indexOf('function UnitConfigBlock('),
+      editorsSource.indexOf('function AddUnitTypeButton('),
     );
-  });
-
-  it('★★ SCOPE 3: the freed width is BANKED, not spent on padding', () => {
-    // Bobby asked for it to stay available for a future column. A ninth data
-    // column at the widest current size still leaves the matrix under fix-412's.
-    const widest = Math.max(...UNIT_ROW_COLUMNS.map((c) => c.width));
-    expect(UNIT_MATRIX_WIDTH + widest + UNIT_ROW_GAP).toBeLessThan(
-      FIX_412_ROW_WIDTH,
-    );
-  });
-
-  it('★★ Type is sized for `Cottages`, the longest registry value Bobby named', () => {
-    const type = UNIT_ROW_COLUMNS.find((c) => c.key === 'label')!;
-    expect(type.width).toBe(52);
-    // ★ NOT sized for the 9 off-registry rows in prod ("SFR w/ Accessory Units"
-    //   at 22 characters). Those truncate — see §E.
-    expect(type.width).toBeLessThan(22 * 5);
+    expect(blockJsx.length).toBeGreaterThan(500);
+    expect(blockJsx).not.toContain('×</span>');
+    expect(UNIT_CONFIG_FIELDS.map((c) => c.label)).not.toContain('×');
   });
 });
 
@@ -149,6 +153,20 @@ describe('fix-422 §A: the columns are Bobby\'s, sized to what they hold', () =>
 // §B · HEIGHT — the thing the ticket is actually about
 // ---------------------------------------------------------------------------
 
+// ★★★ fix-572 §C — §B IS THE ONE SECTION THAT DOES **NOT** RETIRE, and a
+//     reader will assume the opposite, because §C's blocks look like the
+//     fix-418 stack §B was built to escape.
+//
+// ★★★ THE DIFFERENCE IS THE SURFACE, NOT THE SHAPE. §B's whole argument is
+//     that the OVERVIEW card's five cards are `alignItems: stretch`
+//     (fix-309 #55), so every pixel the units band spends is charged to
+//     Milestones, Team, Plan of Record and Builder/Owner, which is why the
+//     MARGINAL cost per type is the number that matters. §C's blocks are in a
+//     MODAL that shares its height with nothing and scrolls; the Overview card
+//     still renders fix-507/508's transposed matrix, untouched by this ticket.
+//
+// ★★ SO THESE NUMBERS STAY LIVE ASSERTIONS about the Overview, computed from
+//    literals in `lib/unitConfigFields` rather than from a list that can move.
 describe('fix-422 §B: the vertical cost per unit type', () => {
   it('★★★ SIX types now cost LESS than ONE type did under fix-418', () => {
     // ★★★ THE ACCEPTANCE CRITERION, AS ARITHMETIC. The brief asks that a
@@ -156,7 +174,7 @@ describe('fix-422 §B: the vertical cost per unit type', () => {
     //     heights — which jsdom cannot measure, because it has no layout
     //     engine. This is the honest form of the same claim, computed from the
     //     declared model both layouts render(ed) from.
-    expect(unitBandHeight(6)).toBe(130);
+    expect(fix422BandHeight(6)).toBe(130);
     // ★★★ fix-562 §A: 186 is fix-418's SHIPPED block and it must not move when
     //     today's column list does. `fix418BandHeight` used to derive its field
     //     count from `UNIT_ROW_COLUMNS`, so removing the `#` column rewrote
@@ -164,18 +182,18 @@ describe('fix-422 §B: the vertical cost per unit type', () => {
     //     counterfactualises. `FIX_418_DATA_FIELDS` is that pin.
     expect(FIX_418_DATA_FIELDS).toBe(8);
     expect(fix418BandHeight(1)).toBe(186);
-    expect(unitBandHeight(6)).toBeLessThan(fix418BandHeight(1));
+    expect(fix422BandHeight(6)).toBeLessThan(fix418BandHeight(1));
     // ★★ And the number Bobby saw: the one six-type project in prod.
     expect(fix418BandHeight(6)).toBe(1146);
-    expect(fix418BandHeight(6) - unitBandHeight(6)).toBeGreaterThan(1000);
+    expect(fix418BandHeight(6) - fix422BandHeight(6)).toBeGreaterThan(1000);
   });
 
   it('★★★ …and the cost per EXTRA type is one row, not one stack', () => {
     // ★ The five cards are `alignItems: stretch`, so this per-type figure is
     //   charged to Milestones, Team, Plan of Record and Builder/Owner too. That
     //   is why the marginal cost is the number that matters, not the total.
-    const marginal = unitBandHeight(3) - unitBandHeight(2);
-    expect(marginal).toBe(UNIT_MATRIX_ROW_HEIGHT + UNIT_MATRIX_ROW_GAP);
+    const marginal = fix422BandHeight(3) - fix422BandHeight(2);
+    expect(marginal).toBe(FIX_422_MATRIX_ROW_HEIGHT + FIX_422_MATRIX_ROW_GAP);
     expect(marginal).toBe(20);
     expect(fix418BandHeight(3) - fix418BandHeight(2)).toBeGreaterThan(
       marginal * 9,
@@ -226,10 +244,18 @@ describe('fix-422 §C: a cell that does not conflate two answers', () => {
   });
 
   it("★★ …and P's tooltip carries the new legend, including that distinction", () => {
-    const t = unitFieldTooltip('parking_kind');
+    // ★ fix-572 §C: `unitFieldTooltip` is `unitFieldHint` — the summary now
+    //   rides as the control's accessible name beside a VISIBLE word label,
+    //   rather than being the only place the meaning existed.
+    const t = unitFieldHint('parking_kind');
     expect(t).toContain('1-car garage');
     expect(t).toContain('Surface / None');
-    expect(t).toContain('— not recorded');
+    // ★★ fix-572 §C SHORTENS THE LEGEND, and says so rather than weakening
+    //    the assertion silently. The dash was a CELL GLYPH in a 26px matrix
+    //    column; the form renders `Not recorded` as a named option in the
+    //    dropdown itself, which is where fix-402's rule (a recorded `none`
+    //    is not the absence of an answer) is now visible without a hover.
+    expect(parkingLabel(null, null)).toBe('—');
     // ★★ fix-402's four kinds are nowhere in the legend any more.
     expect(t).not.toContain('B both');
   });
@@ -259,9 +285,12 @@ describe('fix-422 §C: a cell that does not conflate two answers', () => {
     //     was MINE rather than Bobby's ("Stalls could just be like S" would
     //     have put two different S-es 46px apart), and it leaves with the
     //     field it labelled.
-    expect(UNIT_ROW_COLUMNS.map((c) => c.key)).not.toContain('parking_stalls');
-    expect(UNIT_ROW_COLUMNS.map((c) => c.header)).not.toContain('#');
-    expect(() => unitFieldTooltip('parking_stalls')).toThrow();
+    expect(UNIT_CONFIG_FIELDS.map((c) => c.key)).not.toContain('parking_stalls');
+    expect(UNIT_CONFIG_FIELDS.map((c) => c.label)).not.toContain('#');
+    // ★ fix-572 §C: the thrower is `unitFieldHint`, and it still throws — a
+    //   silent `undefined` renders as an unlabelled box, which is the exact
+    //   defect this ticket is fixing.
+    expect(() => unitFieldHint('parking_stalls' as never)).toThrow();
   });
 });
 
@@ -385,14 +414,14 @@ describe('fix-422 §D: the five cards, re-shared against the real row', () => {
     // (i)  TIGHTEN — applied and spent. 274px is abbreviations, letter codes,
     //      no separator and `work_scope` off the grid. The eight data columns
     //      alone are 228px; there is no meaningful slack left.
-    const dataOnly = UNIT_ROW_COLUMNS.filter((c) => c.key !== 'remove').reduce(
-      (a, c) => a + c.width,
-      0,
-    );
+    // ★ fix-572 §C: the column list is retired, so the total it summed to is a
+    //   literal here — a historical measurement must not be a function of a
+    //   live list (fix-562 §A's lesson, and why 266 is a literal too).
+    const dataOnly = 224;
     // ★ fix-562 §A: 228 → 224. Seven data columns instead of eight, two of them
     //   widened for their new dropdowns — see §A's 274 → 266 note.
     expect(dataOnly).toBe(224);
-    expect(UNIT_MATRIX_WIDTH - dataOnly).toBeLessThan(50);
+    expect(FIX_422_MATRIX_WIDTH - dataOnly).toBeLessThan(50);
 
     // (ii) TAKE IT FROM PLAN OF RECORD — REFUSED, and here is why in numbers.
     //      Its floor must EXCEED Project's or Bobby's "widest box" ruling fails
@@ -774,89 +803,95 @@ describe('fix-422 §1 → fix-506 §B/§C/§D: the card\'s bands, re-cut', () =>
 // §2 · ONE HEADER, N ROWS
 // ---------------------------------------------------------------------------
 
-describe('fix-422 §2: one header row, one row per unit type', () => {
-  it('★★★ the header appears ONCE however many types there are', () => {
-    renderHeader({ unit_types: SIX_TYPES } as unknown as Partial<Project>);
-    expect(screen.getAllByTestId('pd-unit-header')).toHaveLength(1);
-    expect(screen.getAllByTestId('pd-unit-row')).toHaveLength(6);
-  });
-
-  it('★★★ N types produce exactly N rows, for every N in prod', () => {
+// ===========================================================================
+// ★★★ fix-572 §C — §2 IS RE-AIMED: ONE BLOCK PER TYPE, NO HEADER ROW
+// ===========================================================================
+//
+// ★★★ THE COUNTING RULE SURVIVES AND IS WHAT MATTERED. "N types produce
+//     exactly N rows" catches the thing a restack breaks — a project with six
+//     types rendering five editors, or one editor holding six types' values.
+//     It reads `pd-unit-block` now.
+//
+// ★★★ THE HEADER RULE IS SATISFIED STRUCTURALLY AND CANNOT BE ASSERTED THE
+//     OLD WAY. §2 pinned the header strip and every row to one
+//     `gridTemplateColumns` so a header could not sit over the wrong control.
+//     There is no header strip: each label is inside the same `<label>` as its
+//     control (UnitsRowFix412 §C asserts that directly). Keeping a template
+//     assertion here would be asserting the geometry of a layout nobody renders.
+//
+// ★★ AND §2'S SHARPEST FINDING IS CARRIED OVER VERBATIM: *"MERE PRESENCE
+//    PROVES NOTHING"* — fix-418's vertical stack also contained all eight
+//    controls. The property that separates the layouts is PARENTAGE, so this
+//    asserts each control's parentage in the new shape rather than its presence.
+describe('fix-422 §2 (re-aimed by fix-572 §C): one block per unit type', () => {
+  it('★★★ N types produce exactly N blocks, for every N in prod', () => {
     // prod: 1 type ×15 · 2 ×56 · 3 ×22 · 4 ×9 · 6 ×1.
     for (const n of [2, 3, 4, 6]) {
       const { unmount } = renderHeader({
         unit_types: SIX_TYPES.slice(0, n),
       } as unknown as Partial<Project>);
-      expect(screen.getAllByTestId('pd-unit-row')).toHaveLength(n);
-      expect(screen.getAllByTestId('pd-unit-header')).toHaveLength(1);
+      expect(screen.getAllByTestId('pd-unit-block')).toHaveLength(n);
       unmount();
     }
   });
 
-  it('★★★ the header and every row render from the SAME template', () => {
-    // ★★★ fix-412's ruling, which has now survived three reshapes: a header
-    //     cannot sit over the wrong control when they are the same grid column.
+  it('★★★ there is NO header strip left to drift against', () => {
     renderHeader({ unit_types: SIX_TYPES } as unknown as Partial<Project>);
-    expect(screen.getByTestId('pd-unit-header').style.gridTemplateColumns).toBe(
-      UNIT_MATRIX_GRID,
-    );
-    for (const r of screen.getAllByTestId('pd-unit-row')) {
-      expect(r.style.gridTemplateColumns).toBe(UNIT_MATRIX_GRID);
+    expect(screen.queryAllByTestId('pd-unit-header')).toHaveLength(0);
+    expect(screen.queryAllByTestId('pd-unit-row')).toHaveLength(0);
+    // ★ Every block carries every field, labelled in place — six types, six
+    //   complete forms, no shared strip that could describe the wrong one.
+    for (const b of screen.getAllByTestId('pd-unit-block')) {
+      for (const f of UNIT_CONFIG_FIELDS) {
+        expect(
+          within(b).getByTestId(`pd-unit-f-${f.key}-label`).textContent,
+          f.key,
+        ).toBe(f.label);
+      }
     }
   });
 
-  it("★★★ every control is a DIRECT grid child of the row — the definition of horizontal", () => {
-    // ★★★ MERE PRESENCE PROVES NOTHING. fix-418's vertical block ALSO contained
-    //     all eight controls; each just sat inside its own `UnitField` wrapper,
-    //     stacked. The first version of this test passed against pre-fix code
-    //     and was therefore worth nothing. What "on one row" actually means is
-    //     PARENTAGE: a direct child of a grid whose template is the matrix.
+  it('★★★ every control sits INSIDE its own labelled field — parentage, not presence', () => {
+    // ★★★ §2'S LESSON, RE-AIMED. The first version of §2's test passed against
+    //     pre-fix code because presence proves nothing. What *"every box is
+    //     readable"* means structurally is that each control is inside the
+    //     element that carries its word — not merely somewhere in the block.
     renderHeader();
-    const row = screen.getAllByTestId('pd-unit-row')[0];
-    expect(row.style.gridTemplateColumns).toBe(UNIT_MATRIX_GRID);
-    for (const t of ['pd-unit-w', 'pd-unit-d', 'pd-unit-qty', 'pd-unit-remove']) {
-      expect(within(row).getByTestId(t).parentElement).toBe(row);
+    const block = screen.getAllByTestId('pd-unit-block')[0];
+    const pairs: [string, string][] = [
+      ['label', 'pd-unit-label-select'],
+      ['qty', 'pd-unit-qty'],
+      ['width_ft', 'pd-unit-w'],
+      ['depth_ft', 'pd-unit-d'],
+      ['size_sf', 'pd-unit-size'],
+      ['stories', 'pd-unit-stories'],
+      ['parking_kind', 'pd-unit-parking-kind'],
+      ['roof_deck', 'pd-unit-roof-deck'],
+    ];
+    for (const [key, testid] of pairs) {
+      const field = within(block).getByTestId(`pd-unit-f-${key}`);
+      expect(within(field).getByTestId(testid), testid).toBeInTheDocument();
+      expect(within(field).getByTestId(`pd-unit-f-${key}-label`).textContent).toBe(
+        unitFieldLabel(key as never),
+      );
     }
-    // ★★★ fix-520 §B (P-226) — THE TYPE CELL HOLDS TWO THINGS NOW, so its
-    //     direct grid child is the pair rather than the select. Bobby:
-    //     *"How do I know which unit I am updating sqft on?"* — the type select
-    //     says `Detached` on every row of a two-Detached project, and the
-    //     ordinal beside it is what makes the row nameable.
-    //
-    // ★★ THIS IS NOT THE WRAPPER fix-422 §7 / fix-486 §D REMOVED. That one was
-    //    a PASS-THROUGH around the whole row, which swallowed the grid's height
-    //    distribution (fix-418's lesson). This is a CELL's contents: the
-    //    wrapper IS the grid child, it occupies exactly one track, and the
-    //    select carries `min-w-0 flex-1` so the column's measured width is
-    //    unchanged. Same shape fix-449 §C3 used for the off-list mark.
-    const typeCell = within(row).getByTestId('pd-unit-label-select').parentElement!;
-    expect(typeCell.parentElement).toBe(row);
-    expect(typeCell.getAttribute('data-unit-label')).toBeTruthy();
-    // ★ The three coded cells sit one level down, inside the glyph wrapper the
-    //   overlay pattern needs — so their WRAPPER is the direct grid child.
-    // ★ fix-562 §A: `pd-unit-stalls` is gone and `pd-unit-stories` joined them —
-    //   stories is a coded dropdown now, not a number box.
-    for (const t of ['pd-unit-parking-kind', 'pd-unit-stories', 'pd-unit-roof-deck']) {
-      const el = within(row).getByTestId(t);
-      expect(el.parentElement === row || el.parentElement!.parentElement === row).toBe(true);
-    }
+    // ★ fix-520 §B (P-226) SURVIVES, AT BLOCK SCOPE. Bobby: *"How do I know
+    //   which unit I am updating sqft on?"* The type select says `Detached` on
+    //   every block of a two-Detached project, so the block's own title carries
+    //   the ordinal — one name for the whole form rather than one per row.
+    expect(block.getAttribute('data-unit-label')).toBeTruthy();
+    // ★★ ...and the remove control is the BLOCK's, not a ninth field.
+    const remove = within(block).getByTestId('pd-unit-remove');
+    expect(remove.closest('[data-testid^="pd-unit-f-"]')).toBeNull();
   });
 
-  it('★★ the declared row height and the rendered class cannot drift', () => {
-    // ★ §B's arithmetic is only worth anything if the component renders it.
-    renderHeader();
-    expect(screen.getAllByTestId('pd-unit-w')[0].className).toContain(
-      `h-[${UNIT_MATRIX_ROW_HEIGHT}px]`,
-    );
-  });
-
-  it('★★★ + Add type and per-row remove still work', () => {
+  it('★★★ + Add type and per-block remove still work', () => {
     renderHeader();
     fireEvent.click(screen.getByTestId('pd-units-add'));
     expect(saves[0].unit_types).toHaveLength(3);
     saves.length = 0;
-    const rows = screen.getAllByTestId('pd-unit-row');
-    fireEvent.click(within(rows[0]).getByTestId('pd-unit-remove'));
+    const blocks = screen.getAllByTestId('pd-unit-block');
+    fireEvent.click(within(blocks[0]).getByTestId('pd-unit-remove'));
     expect(saves[0].unit_types.map((u) => u.label)).toEqual(['Remodel']);
   });
 });
@@ -865,42 +900,56 @@ describe('fix-422 §2: one header row, one row per unit type', () => {
 // §3 · TOOLTIPS — hover AND focus
 // ---------------------------------------------------------------------------
 
-describe('fix-422 §3: every header explains itself, by hover and by Tab', () => {
-  it('★★★ every header carries Scope 6\'s copy as a `title`', () => {
+// ===========================================================================
+// ★★★ fix-572 §C — §3 IS ANSWERED RATHER THAN RETIRED
+// ===========================================================================
+//
+// §3 existed because of a specific cost: *"With eight abbreviations — `P`,
+// `#`, `RD`, `Sty` — a mouse-only tooltip leaves the matrix unreadable"*. The
+// remedy was a focusable header button carrying the plain-language sentence, so
+// the meaning was one hover OR one Tab away.
+//
+// ★★★ §C REMOVES THE ABBREVIATIONS, WHICH REMOVES THE COST. Every field reads
+//     its whole word, visible, with no hover and no Tab. That is strictly more
+//     than §3 delivered — and the header BUTTON goes with the header strip.
+//
+// ★★ THE SENTENCES ARE KEPT ANYWAY, as each control's accessible name. An
+//    accessible name is worth having even when the visible label is a word, and
+//    §3's list of the ones Bobby named by name still has to be covered.
+describe('fix-422 §3 (answered by fix-572 §C): the meaning needs no hover', () => {
+  it('★★★ every field shows its whole word, with no header button left', () => {
     renderHeader();
-    for (const c of UNIT_ROW_COLUMNS) {
-      if (!c.header) continue;
-      const h = screen.getByTestId(`pd-unit-h-${c.key}`);
-      expect(h.getAttribute('title')).toBe(c.tooltip);
-      expect(h.textContent).toBe(c.header);
+    for (const c of UNIT_CONFIG_FIELDS) {
+      expect(screen.queryByTestId(`pd-unit-h-${c.key}`), c.key).toBeNull();
+      expect(
+        screen.getAllByTestId(`pd-unit-f-${c.key}-label`)[0].textContent,
+        c.key,
+      ).toBe(c.label);
     }
   });
 
-  it('★★★ …and it is REACHABLE BY KEYBOARD, not only by pointer', () => {
-    // ★★★ THE HALF THAT GETS FORGOTTEN. A `title` never fires for somebody
-    //     tabbing the form and never fires on a tablet. With eight
-    //     abbreviations — `P`, `#`, `RD`, `Sty` — a mouse-only tooltip leaves
-    //     the matrix unreadable to both, which is worse than the spelled-out
-    //     headers fix-412 shipped.
+  it('★★★ …and the sentence survives as the control’s accessible name', () => {
+    // ★★ THE HALF THAT WOULD OTHERWISE BE LOST. A visible `Parking` says which
+    //    field it is; it does not say that the answers run `1-car garage`
+    //    through `4-car garage`, or `Surface / None`. §3's copy is what says
+    //    that, so it moves onto the control rather than being deleted with the
+    //    header that used to carry it.
     renderHeader();
-    for (const c of UNIT_ROW_COLUMNS) {
-      if (!c.header) continue;
-      const h = screen.getByTestId(`pd-unit-h-${c.key}`);
-      // A <button> is in the natural tab order with no tabindex needed.
-      expect(h.tagName).toBe('BUTTON');
-      expect(h.getAttribute('type')).toBe('button');
-      expect(h.getAttribute('aria-label')).toContain(c.tooltip);
-      h.focus();
-      expect(document.activeElement).toBe(h);
-    }
+    const block = screen.getAllByTestId('pd-unit-block')[0];
+    expect(
+      within(block).getByTestId('pd-unit-label-select').getAttribute('aria-label'),
+    ).toBe(unitFieldHint('label'));
+    expect(within(block).getByTestId('pd-unit-qty').getAttribute('aria-label')).toBe(
+      unitFieldHint('qty'),
+    );
   });
 
   it('★★ the ones Bobby named by name are all covered', () => {
     // *"If someone hovered their cursor over QTY, or STY, or P, or S…"*
     // ★ fix-562 §A: the `S` he named was Stalls, which no longer exists; the
     //   other three still do, and `roof_deck` is held to the same bar.
-    for (const key of ['qty', 'stories', 'parking_kind', 'roof_deck']) {
-      expect(unitFieldTooltip(key).length).toBeGreaterThan(20);
+    for (const key of ['qty', 'stories', 'parking_kind', 'roof_deck'] as const) {
+      expect(unitFieldHint(key).length, key).toBeGreaterThan(20);
     }
   });
 });
@@ -909,7 +958,31 @@ describe('fix-422 §3: every header explains itself, by hover and by Tab', () =>
 // §4 · CELLS: CODES, WORDS, AND THE EM DASH
 // ---------------------------------------------------------------------------
 
-describe('fix-422 §4: the cell shows a code, the menu shows the words', () => {
+// ===========================================================================
+// ★★★ fix-572 §C — THE CELL SHOWS THE WORDS TOO, AND `CodedCell` IS DELETED
+// ===========================================================================
+//
+// §4's title is now half a sentence: the menu still shows the words, and so
+// does the closed control.
+//
+// ★★★ THE OVERLAY WAS ALWAYS A CONCESSION TO 26px. A native `<select>`'s
+//     closed face is its selected option's own text, so painting `2G` over it
+//     meant a real select at zero opacity underneath — the platform's keyboard,
+//     type-ahead and a11y tree kept, only the face ours. Sound, and unnecessary
+//     the moment the cell is not 26px. §C's fields are four equal tracks in a
+//     760px modal, so the option's own text fits and the control is just a
+//     control.
+//
+// ★★ ITS LAST CALLER WENT WITH IT. `code` was passed by the modal's unit row
+//    and nowhere else — the Overview card has printed the answers in full since
+//    fix-507/508 transposed the matrix, and the wizard never used it — so
+//    `CodedCell`, `OVERLAY_CLASS`, `shortParking` and `shortRoofDeck` are
+//    deleted rather than left as a shape a reader would believe was live.
+//
+// ★★★ AND WHAT §4 WAS REALLY ABOUT IS UNTOUCHED AND STILL ASSERTED BELOW: the
+//     MENU is Bobby's words, read from `app_config` and never a literal in the
+//     component; `none` is a recorded answer and only NULL is the dash.
+describe('fix-422 §4 (fix-572 §C): the words in the menu, and in the cell', () => {
   it('★★★ parking renders the short answer in the cell and Bobby\'s words in the menu', () => {
     renderHeader({
       unit_types: [
@@ -929,43 +1002,47 @@ describe('fix-422 §4: the cell shows a code, the menu shows the words', () => {
       '4-car garage',
       'Surface / None',
     ]);
-    // ★ The CELL is the short form. The select is the real control, laid over
-    //   it at zero opacity, so keyboard and the a11y tree are the platform's.
-    expect(sel.parentElement!.textContent).toContain('2G');
-    // ★★ …and the FULL answer is one hover away, which is fix-422's own rule
-    //    about abbreviations.
-    expect(sel.parentElement!.getAttribute('title')).toBe('2-car garage');
-    expect(sel.className).toContain('opacity-0');
+    // ★★★ THE CLOSED CONTROL SAYS THE WHOLE ANSWER. No short form, no hover
+    //     needed — fix-422's own rule about abbreviations, satisfied by not
+    //     abbreviating.
+    expect(sel.value).toBe('2-car garage');
+    expect(sel.className).not.toContain('opacity-0');
     expect(sel.getAttribute('aria-label')).toBe('Parking');
   });
 
   it('★★★ each recorded answer paints its own short form', () => {
     for (const [unitPatch, face] of [
-      [{ parking_kind: 'garage', parking_count: 1 }, '1G'],
-      [{ parking_kind: 'garage', parking_count: 4 }, '4G'],
-      [{ parking_kind: 'surface_none' }, 'S'],
+      // ★ fix-572 §C: the SHORT forms (`1G` / `4G` / `S`) are gone with the
+      //   26px cell. The answers themselves are what the control shows, which
+      //   is the vocabulary fix-562 §A gave it.
+      [{ parking_kind: 'garage', parking_count: 1 }, '1-car garage'],
+      [{ parking_kind: 'garage', parking_count: 4 }, '4-car garage'],
+      [{ parking_kind: 'surface_none' }, 'Surface / None'],
     ] as const) {
       const { unmount } = renderHeader({
         unit_types: [{ label: 'Attached', qty: 1, ...unitPatch }],
       } as unknown as Partial<Project>);
-      const cell = screen.getByTestId('pd-unit-parking-kind').parentElement!;
-      expect(cell.textContent).toContain(face);
+      const sel = screen.getByTestId('pd-unit-parking-kind') as HTMLSelectElement;
+      expect(sel.value).toBe(face);
       unmount();
     }
   });
 
   it('★★★ roof deck renders PH / RD / N / — with the words still in the menu', () => {
     for (const [unitPatch, face] of [
-      [{ roof_deck: true, penthouse: true }, 'PH'],
-      [{ roof_deck: true, penthouse: false }, 'RD'],
-      [{ roof_deck: false }, 'N'],
-      [{}, '—'],
+      // ★ fix-572 §C: `PH` / `RD` / `N` were the 26px faces. The control shows
+      //   the answer; NOT RECORDED is still the empty value, and the menu
+      //   still names it, which is the half fix-402's rule depends on.
+      [{ roof_deck: true, penthouse: true }, 'W/ PH'],
+      [{ roof_deck: true, penthouse: false }, 'W/O PH'],
+      [{ roof_deck: false }, 'None'],
+      [{}, ''],
     ] as const) {
       const { unmount } = renderHeader({
         unit_types: [{ label: 'Attached', qty: 1, ...unitPatch }],
       } as unknown as Partial<Project>);
       const sel = screen.getByTestId('pd-unit-roof-deck') as HTMLSelectElement;
-      expect(sel.parentElement!.textContent).toContain(face);
+      expect(sel.value).toBe(face);
       expect(Array.from(sel.options).map((o) => o.textContent)).toEqual([
         '— not recorded', 'W/ PH', 'W/O PH', 'None',
       ]);
@@ -981,7 +1058,7 @@ describe('fix-422 §4: the cell shows a code, the menu shows the words', () => {
     expect(Array.from(sel.options).map((o) => o.textContent)).toEqual([
       '— not recorded', '1', '1+B', '2', '2+B', '3', '3+B', '4', '4+B',
     ]);
-    expect(sel.parentElement!.textContent).toContain('3+B');
+    expect(sel.value).toBe('3+B');
   });
 
   it('★★★ an UNSET field renders an em dash, never an empty box', () => {
@@ -992,8 +1069,14 @@ describe('fix-422 §4: the cell shows a code, the menu shows the words', () => {
     renderHeader({
       unit_types: [{ label: 'Attached', qty: 1 }],
     } as unknown as Partial<Project>);
+    // ★★ fix-572 §C: the em dash is the MENU's first option rather than a
+    //    painted face, and the control sits on it — which is the same claim
+    //    (fix-386/fix-402: a blank says nothing, `— not recorded` says nobody
+    //    has answered) made where a person actually reads it.
     for (const t of ['pd-unit-parking-kind', 'pd-unit-roof-deck', 'pd-unit-stories']) {
-      expect(screen.getByTestId(t).parentElement!.textContent).toContain('—');
+      const sel = screen.getByTestId(t) as HTMLSelectElement;
+      expect(sel.value, t).toBe('');
+      expect(sel.options[sel.selectedIndex].textContent, t).toContain('—');
     }
     // The numeric cells say it with a placeholder, which is the same claim.
     for (const t of ['pd-unit-w', 'pd-unit-d']) {
@@ -1070,6 +1153,18 @@ describe('fix-422 §4: the cell shows a code, the menu shows the words', () => {
 // §8 · LONG LABELS
 // ---------------------------------------------------------------------------
 
+// ★★★ fix-572 §C — §8 SURVIVES, AND ITS SISTER MEASUREMENT IS WHAT KILLED
+//     §A. §8 proved a 22-character OFF-REGISTRY label truncates cleanly at a
+//     52px Type cell and keeps its full text on hover. True, and it measured a
+//     `<span>`. Measured in Chrome 2026-09-15, the `<select>` beside it rendered
+//     `D…` for `Detached` at the same width — a `<select>` spends part of its
+//     box on a chevron — so EVERY registry value truncated, not only the long
+//     off-registry ones.
+//
+// ★★ THE RULING IS KEPT WHERE IT IS STILL TRUE: a label longer than its field
+//    truncates with the full text on hover, because sizing the field for the
+//    worst case would tax every project that is not it. At 172px `Detached`
+//    fits and `SFR w/ Accessory Units` still does not.
 describe('fix-422 §8: an off-registry label truncates and stays readable', () => {
   it('★★★ a 22-character label truncates, with the full text on hover', () => {
     // ★ Sizing the Type column for the longest off-registry label would tax

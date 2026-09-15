@@ -8,7 +8,8 @@ import type { ReactNode } from 'react';
 import { useAuthStore } from '../stores/authStore';
 import { queryKeys } from '../lib/queryKeys';
 import migrationSql from '../../migrations/fix_412_existing_to_remodel.sql?raw';
-import { UNIT_MATRIX_GRID, UNIT_ROW_COLUMNS } from '../lib/unitRowLayout';
+import { UNIT_CONFIG_FIELDS } from '../lib/unitConfigFields';
+import editorsSource from '../components/ProjectDetail/ProjectDataEditors.tsx?raw';
 // ★★★ fix-486 §D (P-143) — `unitWorkScope` AND `libraryHelpers` ARE NO LONGER
 //     IMPORTED HERE. Both belonged to §B/§B4; see the retirement record below.
 import type { UnitType } from '../lib/database.types';
@@ -210,85 +211,130 @@ beforeEach(() => {
 // ★★ SO fix-412's REAL RULING SURVIVES ITS THIRD RESHAPE INTACT: the header and
 // every row render from ONE `grid-template-columns`, so a header cannot sit
 // over the wrong control. That is what this block asserts now.
-describe('fix-412 §C (third edition, fix-422): one template, header and rows', () => {
-  it('★★★ C-CORE: the header and every row render from the SAME template', () => {
-    // ★★★ THE DEFECT fix-412 EXISTED FOR, and the property that has survived
-    //     three layouts: two hand-kept lists drift, one template cannot.
-    // ★ fix-486: the vocabulary, not the claim. Two DIFFERENT labels is all
-    //   this needs; they just have to be labels the app still offers.
+// ===========================================================================
+// ★★★ fix-572 §C (P-277) — FOURTH EDITION, AND THE HEADER STRIP IS GONE
+// ===========================================================================
+//
+// Bobby, 2026-09-15: *"types should be at the top and then unit configuration
+// is the category that then nicely and cleanly organizes this info."*
+//
+// ★★★ fix-412's RULING IS NOW STRUCTURAL RATHER THAN ENFORCED. The defect it
+//     existed for was two hand-kept width lists that drifted four ways and put
+//     `Roof Deck` over a parking cell. fix-412 answered it by making the header
+//     strip and every row render from ONE `gridTemplateColumns`, and this suite
+//     pinned that string.
+//
+//     **There is no header strip now.** Each field is a `<label>` and its
+//     control inside one element, in one piece of JSX. A label cannot sit over
+//     the wrong control when it is not over a control at all — it is beside it,
+//     in the same box. So the template assertion is replaced by one that says
+//     the two can no longer be separate, which is a stronger form of the same
+//     rule and cannot be satisfied by a template that happens to match.
+//
+// ★★ AND THE THIRD EDITION'S NUMBERS ARE KEPT, not deleted: `FIX_412_ROW_WIDTH`
+//    (620) and `FIX_422_MATRIX_WIDTH` (266) live in `lib/unitConfigFields`
+//    because fix-417's floor arithmetic still cites them. fix-422 kept fix-412's
+//    620 for the same reason and said so.
+describe('fix-412 §C (fourth edition, fix-572): label and control, one element', () => {
+  it('★★★ C-CORE: the LABEL and the CONTROL are one JSX element', () => {
+    // ★★★ THE PROPERTY THAT HAS SURVIVED FOUR LAYOUTS: two lists drift, one
+    //     does not. The strongest version of it is not one template shared by
+    //     two elements — it is ONE element, which is what `ConfigField` is.
     setup(
       [unit({ label: 'Detached' }), unit({ label: 'Remodel' })],
       ['Detached', 'Remodel'],
     );
-    const header = screen.getByTestId('pd-unit-header');
-    expect(header.style.gridTemplateColumns).toBe(UNIT_MATRIX_GRID);
-    const rows = screen.getAllByTestId('pd-unit-row');
-    expect(rows).toHaveLength(2);
-    for (const r of rows) {
-      expect(r.style.gridTemplateColumns).toBe(UNIT_MATRIX_GRID);
+    const blocks = screen.getAllByTestId('pd-unit-block');
+    expect(blocks).toHaveLength(2);
+    for (const b of blocks) {
+      for (const f of UNIT_CONFIG_FIELDS) {
+        // The label element and the control live inside ONE wrapper keyed to
+        // the field, so there is no second list to drift against.
+        const field = b.querySelector(`[data-testid="pd-unit-f-${f.key}"]`);
+        expect(field, f.key).not.toBeNull();
+        expect(
+          field!.querySelector(`[data-testid="pd-unit-f-${f.key}-label"]`),
+          f.key,
+        ).not.toBeNull();
+      }
     }
+    // ★ And the header strip is GONE rather than merely unused — asserted on
+    //   the source, because a leftover strip would be the second list again.
+    expect(editorsSource).not.toContain('pd-unit-header');
+    expect(editorsSource).not.toContain('pd-unit-row');
   });
 
-  it('★★★ C3: the field order is still Bobby\'s, declared once', () => {
-    // ★ fix-422 Scope 7 took `work_scope` off the grid; fix-486 §D retired the
-    //   field outright. The assertion below is kept and is STRONGER than it
-    //   was — it used to mean "not a column", it now means "not a field" —
-    //   because it is the one that catches the column list growing it back.
-    //   Every other field is in the order Bobby gave, unchanged since fix-412.
-    const keys = UNIT_ROW_COLUMNS.map((c) => c.key).filter((k) => k !== 'remove');
+  it('★★★ C3: the field order is still the one Bobby gave, declared once', () => {
+    // ★★★ THE ORDER CHANGED BECAUSE BOBBY CHANGED IT, and the rule that it is
+    //     declared in exactly ONE place did not. fix-412's order was
+    //     `label · W · D · qty · stories · parking · roof deck`; §C gives
+    //     *"Type · Quantity · Width · Depth · Unit Size · Stories · Parking ·
+    //     Roof Deck"* — Quantity moves up beside Type, and Unit Size joins the
+    //     dimensions it is read against.
+    const keys = UNIT_CONFIG_FIELDS.map((c) => c.key);
     expect(keys).toEqual([
       'label',
+      'qty',
       'width_ft',
       'depth_ft',
-      'qty',
+      // ★ fix-514 §E's separate list folds in here; see `unitConfigFields`.
+      'size_sf',
       'stories',
       'parking_kind',
       // ★ fix-562 §A: `parking_stalls` left this list with the field.
       'roof_deck',
     ]);
-    expect(UNIT_ROW_COLUMNS.some((c) => c.key === 'work_scope')).toBe(false);
+    // ★ fix-486 §D retired `work_scope` outright. This is the assertion that
+    //   catches the field list growing it back, and it is unchanged.
+    expect(keys).not.toContain('work_scope');
+    // ★★ ...and `remove` is not a FIELD any more. It was a ninth column with an
+    //    empty header on the grid; it is the block's own × control now, which is
+    //    why every entry below can be required to carry a real label.
+    expect(keys).not.toContain('remove');
   });
 
-  it('★★ C1: the "Unit dimensions" heading is still there, its own tab', () => {
-    // ★★★ fix-412 §C1 asked that the editor keep a HEADING of its own rather
-    //     than becoming a nameless block of inputs — Bobby had to be able to
-    //     point at it. fix-506 §G gives it a whole tab, which is the same
-    //     guarantee at a larger size, and the heading is the tab's label.
+  it('★★ C1: the editor still has a HEADING of its own', () => {
+    // ★★★ fix-412 §C1 asked that the editor keep a heading rather than
+    //     becoming a nameless block of inputs — Bobby had to be able to point
+    //     at it. fix-506 §G gave it a whole tab; §C now splits that tab in two
+    //     and names BOTH halves, which is the same guarantee twice over.
     setup([unit()]);
     expect(screen.getByTestId('project-data-tab-units').textContent).toBe('Units');
-    expect(screen.getByTestId('project-data-body').textContent).toContain(
-      'Unit dimensions',
-    );
+    const body = screen.getByTestId('project-data-body');
+    expect(body.textContent).toContain('Types');
+    expect(body.textContent).toContain('Unit configuration');
   });
 
-  it('★★★ C5 IS REVERSED BY BOBBY, and the reasoning goes with it', () => {
-    // fix-411 §3 wrote "RD" because the cell was 52px. fix-412 C5 restored
-    // "Roof Deck" because reclaiming the gutter had bought the row 42px and the
-    // constraint had expired. Bobby has now asked for the abbreviation back —
-    // *"Roof deck could be RD"* — for a 26px cell.
+  it('★★★ C5: the words are back, and this time nothing can take them again', () => {
+    // fix-411 §3 wrote "RD" at a 52px cell; fix-412 §C5 restored "Roof Deck"
+    // when the row bought 42px back; fix-422 abbreviated again at 26px. Three
+    // editions, one argument, and the argument was always a WIDTH.
     //
-    // ★★★ NOT A REGRESSION TO fix-411's PROBLEM. What made bare "Deck" bad was
-    // that it was ambiguous with nothing to disambiguate it. Every header here
-    // carries a plain-language summary reachable by hover AND by Tab, so the
-    // header is short and the meaning is one keystroke away — which is more
-    // than either previous edition offered.
-    const rd = UNIT_ROW_COLUMNS.find((c) => c.key === 'roof_deck')!;
-    expect(rd.header).toBe('RD');
-    // ★ fix-562 §A widened the sentence: the cell is `PH` / `RD` / `N` now, so
-    //   the tooltip carries what those letters cost. fix-411's ruling is
-    //   satisfied more completely, not less.
-    expect(rd.tooltip).toContain('Whether this type has a roof deck');
-    expect(UNIT_ROW_COLUMNS.map((c) => c.header)).not.toContain('Deck');
+    // ★★★ §C ENDS IT: *"Nothing in this block is abbreviated."* The fields are
+    //     four equal tracks in a 760px modal, so no field can be squeezed to the
+    //     point where a word does not fit — the condition that produced every
+    //     previous swing simply cannot arise.
+    expect(UNIT_CONFIG_FIELDS.map((c) => c.label)).toEqual([
+      'Type',
+      'Quantity',
+      'Width',
+      'Depth',
+      'Unit Size',
+      'Stories',
+      'Parking',
+      'Roof Deck',
+    ]);
+    // ★ fix-411's original finding stays enforced: a bare "Deck" is ambiguous.
+    expect(UNIT_CONFIG_FIELDS.map((c) => c.label)).not.toContain('Deck');
   });
 
-  it('★★★ every column that edits a field has a header AND a summary', () => {
-    for (const c of UNIT_ROW_COLUMNS) {
-      if (c.key === 'remove') {
-        expect(c.header).toBe('');
-        continue;
-      }
-      expect(c.header.length).toBeGreaterThan(0);
-      expect(c.tooltip.length).toBeGreaterThan(20);
+  it('★★★ every field has a visible label AND a plain-language summary', () => {
+    // ★ fix-422 put the summaries on a focusable header because the headers were
+    //   letters. They stay now that the headers are words, because an accessible
+    //   name is worth having either way — and §C requires the visible label.
+    for (const c of UNIT_CONFIG_FIELDS) {
+      expect(c.label.length, c.key).toBeGreaterThan(0);
+      expect(c.hint.length, c.key).toBeGreaterThan(20);
     }
   });
 });
@@ -366,12 +412,18 @@ describe('fix-412 §B (surviving): the unit row, after work_scope', () => {
       // ★ fix-562 §A: `pd-unit-stalls` left this list with the field.
       'pd-unit-roof-deck',
       'pd-unit-label-select',
+      // ★ fix-572 §C folded fix-514 §E's separate list in as a field, so it
+      //   joins the set that must never come back disabled.
+      'pd-unit-size',
     ]) {
       expect(screen.getByTestId(testid)).not.toBeDisabled();
     }
     // ★ And the control itself is absent, not merely inert.
     expect(screen.queryByTestId('pd-unit-work-scope')).toBeNull();
-    expect(screen.getByTestId('pd-unit-row').dataset.noWork).toBeUndefined();
+    // ★ fix-572 §C: the flag rode on `pd-unit-row`, which the restack removed.
+    //   The assertion is kept on the element that replaced it — dropping it
+    //   would retire the falsifiable half of fix-486's retirement.
+    expect(screen.getByTestId('pd-unit-block').dataset.noWork).toBeUndefined();
   });
 });
 

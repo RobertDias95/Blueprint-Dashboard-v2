@@ -1,4 +1,4 @@
-import { Fragment, useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { unitLabelParts } from '../../lib/unitLabels';
 import type { CSSProperties } from 'react';
 import { OverviewSection } from './OverviewCard';
@@ -11,12 +11,15 @@ import {
   roundLotForStorage,
 } from '../../lib/lotDimensions';
 import { VENDOR_SEND_LEAD_DAYS, vendorTargetSend } from '../../lib/vendorReport';
+// ★★★ fix-572 §C — `lib/unitRowLayout` IS RETIRED. It declared a fixed-width
+//     GRID for a matrix this tab no longer renders; the new form is one
+//     labelled block per type. See lib/unitConfigFields for why the split the
+//     brief called "the whole risk" had already happened.
 import {
-  UNIT_MATRIX_GRID,
-  UNIT_ROW_COLUMNS,
-  unitFieldTooltip,
-  type UnitRowColumn,
-} from '../../lib/unitRowLayout';
+  unitFieldHint,
+  unitFieldLabel,
+  type UnitConfigField,
+} from '../../lib/unitConfigFields';
 import {
   ParkingKindSelect,
   RoofDeckSelect,
@@ -28,12 +31,13 @@ import {
   roofDeckOptions,
   storiesOptions,
 } from '../../lib/unitVocabulary';
-import { unitLabelNeedsType } from '../../lib/unitTypeVocabulary';
+import { unitLabelNeedsType as isPlaceholderUnitLabel } from '../../lib/unitTypeVocabulary';
 import { useUpdateProject } from '../../hooks/useUpdateProject';
+import { useSavedFlash } from '../../hooks/useSavedFlash';
 import {
   nextUnitTypeLabel,
-  parseUnitTypes,
   OTHER_UNIT_LABEL,
+  parseUnitTypes,
   isOffListUnitLabel,
   productTypeRegistry,
   resolveUnitLabel,
@@ -1318,202 +1322,23 @@ function SiteLotSizeRow({
 // ===========================================================================
 // ★★★ fix-514 §E (P-215) — A UNIT'S SQUARE FOOTAGE BECOMES EDITABLE
 // ===========================================================================
-//
-// Bobby, 2026-09-10: *"we need the ability to edit the square footage of a
-// unit."* His screenshot: Unit 1 = 20 × 35, Unit 2 = 20 × 32.5, and
-// **`Size (sf)` reads `—` on both.**
-//
-// ★★★ THE DASH IS CORRECT, AND THIS IS NOT A DERIVATION. `unit_types[].size_sf`
-//     is TYPED ([[P-150-unit-size-typed-and-searchable]]) — `—` means nobody
-//     has typed it, and until now there was nowhere to. **A unit's footprint is
-//     not its bounding box**: 20 × 35 is the rectangle it fits inside, not its
-//     floor area, and [[P-161-lot-shape-is-implied-by-its-dimensions-not-labelled]]
-//     reopened on 2026-09-09 when two lots recorded as "regular" turned out to
-//     hold MORE area than their own box. Computing this would put the same
-//     wrong number on 235 unit rows at once.
-//
-// ★★★ AND IT IS NOT A NINTH MATRIX COLUMN, WHICH IS THE PART WORTH READING.
-//     fix-488 §B built it as one, MEASURED it and reverted: `UNIT_ROW_COLUMNS`
-//     drives `UNIT_MATRIX_GRID` **and** `overviewCardLayout`'s PROJECT card
-//     floor, so a ninth column takes the matrix 274px → 312px and the overview
-//     row minimum with it — 736px needed against 710 available at 1280, i.e. a
-//     horizontal scrollbar on the Overview, the exact defect fix-417 exists to
-//     prevent. That measurement is still true, so the editor lives BELOW the
-//     matrix instead: this modal is 760px wide and owes the Overview nothing.
-//
-// ★ SAME WRITE PATH AS WIDTH AND DEPTH — `useUpdateProject` with a whole
-//   `unit_types` array, through `resolveUnitTypesForSave`. One more field, not
-//   a second mechanism, which is §E's own instruction.
-
-/** One unit type's typed floor area. */
-export function UnitSizeEditor({ project }: { project: Project }) {
-  // ★★★ fix-549 §B: the same server answer the write path asks. A field that
-  //     will be refused must not accept typing first.
-  const mayWrite549 = useMayWriteProject(project.id);
-  const updateMutation = useUpdateProject();
-  const occMissing = !project.updated_at;
-  const locked = occMissing || !mayWrite549;
-  const types = parseUnitTypes(project.unit_types);
-  // ★★★ fix-520 §B: computed from the PARSED rows, in stored order — the same
-  //     input the dimensions editor and the Overview matrix label from, so the
-  //     three cannot number a unit differently.
-  const labels = unitLabelParts(types);
-  const productTypes = Array.isArray(project.product_types)
-    ? project.product_types.filter(
-        (t): t is string => typeof t === 'string' && t.trim().length > 0,
-      )
-    : [];
-
-  async function writeTypes(next: UnitType[]) {
-    if (!project.updated_at) return;
-    await updateMutation
-      .mutateAsync({
-        projectId: project.id,
-        expectedUpdatedAt: project.updated_at,
-        patch: { unit_types: resolveUnitTypesForSave(next, productTypes) },
-        fieldLabel: 'Unit Size',
-      })
-      .catch(() => {
-        /* hook's onError already pushed the user-visible message */
-      });
-  }
-
-  if (types.length === 0) {
-    return (
-      <p className="text-[10px] text-dim italic" data-testid="pd-unit-size-empty">
-        Add a type above to record its square footage.
-      </p>
-    );
-  }
-
-  return (
-    <div className="flex flex-col gap-1" data-testid="pd-unit-size-editor">
-      {types.map((t, idx) => (
-        <UnitSizeRow
-          key={`${t.label}-${idx}`}
-          // ★★★ fix-520 §B (P-226): the SAME label the dimensions rows above
-          //     and the Overview matrix use. Bobby's question — *"How do I
-          //     know which unit I am updating sqft on?"* — has one answer only
-          //     if all three surfaces give it.
-          unitLabel={labels[idx]}
-          row={t}
-          disabled={locked}
-          onCommit={(size) => {
-            if (size === (t.size_sf ?? null)) return;
-            void writeTypes(types.map((u, i) => (i === idx ? { ...u, size_sf: size } : u)));
-          }}
-        />
-      ))}
-      {/* ★ The sentence that stops the next person adding the derivation. */}
-      <p className="text-[9px] text-dim italic mt-0.5">
-        Typed, never computed — a unit&rsquo;s floor area is not its width × depth.
-      </p>
-    </div>
-  );
-}
-
-function UnitSizeRow({
-  row,
-  unitLabel,
-  disabled,
-  onCommit,
-}: {
-  row: UnitType;
-  /** ★ fix-520 §B: `Detached 2` — the type AND its per-type ordinal, split so
-   *  the ordinal never truncates. */
-  unitLabel: { type: string; ordinal: number; full: string };
-  disabled: boolean;
-  onCommit: (size: number | null) => void;
-}) {
-  const stored = row.size_sf != null ? String(row.size_sf) : '';
-  const [draft, setDraft] = useState(stored);
-  const dirtyRef = useRef(false);
-  // ★ The fix-73/98 dirty-flag pattern: follow the row unless somebody is
-  //   mid-edit.
-  useEffect(() => {
-    if (dirtyRef.current) return;
-    setDraft(row.size_sf != null ? String(row.size_sf) : '');
-  }, [row.size_sf]);
-
-  return (
-    <div className="flex items-baseline gap-1.5">
-      {/* ★★★ fix-520 §B (P-226) — WHICH UNIT THIS ROW IS. It read
-          `row.label || 'Unit'`, so a project with two Detached units had two
-          rows both reading `Detached` and no way to tell which square footage
-          belonged to which. The ordinal is `flex-none` for the same reason it
-          is in the Overview matrix: it is the half that identifies the row, so
-          it is the half that must survive a narrow card. */}
-      <span
-        className="text-[9px] text-dim min-w-[64px] flex items-baseline gap-[0.2em]"
-        title={unitLabel.full}
-        data-unit-label={unitLabel.full}
-      >
-        <span className="truncate min-w-0">{unitLabel.type}</span>
-        <span className="flex-none">{unitLabel.ordinal}</span>
-      </span>
-      <input
-        type="number"
-        min={0}
-        step={1}
-        value={draft}
-        placeholder="—"
-        onChange={(e) => {
-          dirtyRef.current = true;
-          setDraft(e.target.value);
-        }}
-        onBlur={() => {
-          const t = draft.trim();
-          const n = t === '' ? null : Math.round(Number(t));
-          // ★ Blank CLEARS — "not recorded" is a real answer and is what every
-          //   one of the 235 prod rows says today. Zero and negatives clear too,
-          //   matching the lot-size box one section up.
-          const next = n !== null && Number.isFinite(n) && n > 0 ? n : null;
-          setDraft(next != null ? String(next) : '');
-          onCommit(next);
-          dirtyRef.current = false;
-        }}
-        disabled={disabled}
-        className="w-16 text-[10px] font-semibold text-text border-0 border-b outline-none bg-transparent px-0 py-0.5 text-center disabled:opacity-50"
-        style={{ borderBottomColor: 'var(--color-border)' }}
-        // ★ fix-520 §B: the testid names the ROW, not just its type — two
-        //   `pd-unit-size-Detached` boxes were indistinguishable to a test for
-        //   exactly the reason they were indistinguishable to a person.
-        data-testid={`pd-unit-size-${unitLabel.full}`}
-      />
-      <span className="text-[9px] text-dim">sf</span>
-    </div>
-  );
-}
-
-// ===========================================================================
-// ★★★ fix-514 §F (P-216) — PROJECT TAGS BECOME EDITABLE
+// ★★★ fix-572 §C — `UnitSizeEditor` AND `UnitSizeRow` ARE DELETED
 // ===========================================================================
 //
-// Bobby, 2026-09-10: *"we need the ability to edit tags inside of project
-// details as well."* They were read-only chips here since fix-488 §A, written
-// only by the wizard.
+// fix-514 §E gave `unit_types[].size_sf` a list of its own, BELOW the matrix,
+// for one reason and it was arithmetic: a ninth matrix column cost 38px of
+// matrix, 76px of OVERVIEW row minimum, and broke fix-423 §D's guarantee that
+// both wrapped lines fit at 1280 (fix-488 §B built it, measured it, reverted).
 //
-// ★★★ TAGS ARE A VOCABULARY, SO THIS READS THE REGISTRY — never a free-text
-//     box. Standing rule [[a-vocabulary-dropdown-reads-its-registry]], and the
-//     registry is `app_config.projectTagOptions`, the same key the wizard's
-//     Step 1 picker and Settings → Admin → Projects already read.
+// ★★★ EVERY NUMBER IN THAT ARGUMENT IS ABOUT THE OVERVIEW ROW, and this editor
+//     is inside a 760px modal that owes the overview row nothing. So the field
+//     folds into each unit's block beside the two dimensions it is read
+//     against, and a second list asking about one unit from a different place
+//     stops existing — which is the shape §C is removing everywhere.
 //
-// ★★★ AND THAT IS WHAT KEEPS [[P-163-project-tag-excludes-schematic-construction-admin-and-acquisitions]]
-//     TRUE WITHOUT RESTATING IT. P-163 ruled Schematic, Construction Admin and
-//     Acquisitions OUT of the tag set; a free-text box — or a hard-coded list —
-//     would put all three straight back the first time somebody typed them.
-//     Reading the registry means the ruling is enforced where it was made.
-//     ★ VERIFIED ON PROD 2026-09-10: `projectTagOptions` holds seven values —
-//       ECA · SIP · TRAO · LBA · Short Plat · Through Lot · Trolley Lines — and
-//       none of the three is among them. [[P-173-a-dropdown-offers-more-than-settings-holds]]
-//       asks whether the registry holds the right things; it is NOT resolved
-//       here, and the read is reported in the fix-514 PR rather than acted on.
-//
-// ★★ SAME WRITE PATH AS §E — `useUpdateProject` with a whole array, which is
-//    why the two are one section apart rather than one ticket apart.
-// ★ A STORED TAG NO LONGER IN THE REGISTRY STILL RENDERS, and is still
-//   removable. Pruning the option list must never strand historical data —
-//   fix-93's rule for product types, applied to the tag next door.
+// ⚠️ THE OVERVIEW MATRIX STILL DOES NOT SHOW UNIT SIZE. fix-488's ruling is
+//    unchanged on the surface it was made about; this is a scoped exception,
+//    not a reversal.
 
 export function ProjectTagsEditor({ project }: { project: Project }) {
   // ★★★ fix-549 §B: the same server answer the write path asks. A field that
@@ -1610,696 +1435,569 @@ export function UnitDimensions({ project }: { project: Project }) {
   const occMissing = !project.updated_at;
   const locked = occMissing || !mayWrite549;
   const types = parseUnitTypes(project.unit_types);
-  // fix-205: the project's product types drive the per-row Label (auto when
-  // there's exactly one type; a dropdown when several).
   const productTypes = Array.isArray(project.product_types)
     ? project.product_types.filter(
         (t): t is string => typeof t === 'string' && t.trim().length > 0,
       )
     : [];
 
-  // fix-99: OCC auto-recovery moved into useUpdateProject's mutationFn
-  // (silent first attempt → refetch → retry once on stale-token OCC,
-  // toast only on a real concurrent edit). writeTypes is back to a
-  // single mutateAsync call. The trailing .catch swallows any error
-  // (the hook's onError already surfaced the right toast) so the
-  // `void writeTypes(...)` callers below don't trip an
-  // unhandled-promise-rejection — same pattern as DateCell.tryCommit.
-  async function writeTypes(next: UnitType[]) {
-    if (!project.updated_at) return;
-    // fix-205/206: resolve "unnamed" rows on save — a blank label + a single
-    // product type persists as that type. Shared helper so a Library save and a
-    // Project Overview save produce identical rows.
-    const resolved = resolveUnitTypesForSave(next, productTypes);
-    await updateMutation
-      .mutateAsync({
-        projectId: project.id,
-        expectedUpdatedAt: project.updated_at,
-        patch: { unit_types: resolved },
-        fieldLabel: 'Unit Dimensions',
-      })
-      .catch(() => {
-        /* hook's onError already pushed the user-visible message */
-      });
-  }
-
-  // Compact mode: empty or single unnamed entry
-  const isCompact =
-    types.length <= 1 && (types.length === 0 || !types[0]?.label);
-  if (isCompact) {
-    return (
-      <UnitDimensionsCompact
-        current={types[0]}
-        disabled={locked}
-        onSet={(field, val) => {
-          const base = types[0] ?? { label: '', width_ft: null, depth_ft: null, qty: 1 };
-          const next: UnitType = { ...base, [field]: val };
-          void writeTypes([next]);
-        }}
-        onExpand={() => {
-          // fix-81: route through nextUnitTypeLabel so the seed letters
-          // come from the same pool that + Add uses downstream.
-          const first: UnitType =
-            types.length === 0
-              ? {
-                  label: nextUnitTypeLabel([]),
-                  width_ft: null,
-                  depth_ft: null,
-                  qty: 1,
-                  stories: null,
-                }
-              : { ...types[0], label: types[0].label || nextUnitTypeLabel([]) };
-          const second: UnitType = {
-            label: nextUnitTypeLabel([first.label]),
-            width_ft: null,
-            depth_ft: null,
-            qty: 1,
-            stories: null,
-          };
-          void writeTypes([first, second]);
-        }}
-      />
-    );
-  }
-
-  return (
-    <UnitDimensionsExpanded
-      types={types}
-      productTypes={productTypes}
-      disabled={locked}
-      // ★★★ fix-562 §A — A PATCH, NOT A (field, value) PAIR. Parking is two
-      //     stored parts of ONE answer (`parking_kind` + `parking_count`), and
-      //     so are roof deck and stories; a one-field-at-a-time callback would
-      //     have to fire twice and could land half an answer if the second
-      //     write lost a race. One patch, one write.
-      onUpdate={(idx, patch) => {
-        const next = types.map((t, i) => (i === idx ? { ...t, ...patch } : t));
-        void writeTypes(next);
-      }}
-      onRemove={(idx) => {
-        const next = types.filter((_, i) => i !== idx);
-        void writeTypes(next);
-      }}
-      onAdd={() => {
-        const next = [
-          ...types,
-          {
-            label: nextUnitTypeLabel(types.map((t) => t.label)),
-            width_ft: null,
-            depth_ft: null,
-            qty: 1,
-            stories: null,
-          },
-        ];
-        void writeTypes(next);
-      }}
-    />
-  );
-}
-
-function UnitDimensionsCompact({
-  current,
-  disabled,
-  onSet,
-  onExpand,
-}: {
-  current: UnitType | undefined;
-  disabled: boolean;
-  onSet: (field: 'width_ft' | 'depth_ft', val: number) => void;
-  onExpand: () => void;
-}) {
-  const [w, setW] = useState<string>(
-    current?.width_ft != null ? String(current.width_ft) : '',
-  );
-  const [d, setD] = useState<string>(
-    current?.depth_ft != null ? String(current.depth_ft) : '',
-  );
-  // fix-98: mirror fix-73's DateCell pattern. useState(prop) anchors to
-  // the first render's value; without re-syncing, an OCC rollback or any
-  // subsequent prop refresh leaves these inputs showing stale typed
-  // values. Sync the local state from the prop on every change EXCEPT
-  // while the user has a live unsaved edit (dirty=true). The dirty flag
-  // clears on blur after the parent's writeTypes resolves the new value
-  // through the prop, so the next prop refresh flows through.
-  const dirtyRef = useRef(false);
-  useEffect(() => {
-    if (dirtyRef.current) return;
-    setW(current?.width_ft != null ? String(current.width_ft) : '');
-    setD(current?.depth_ft != null ? String(current.depth_ft) : '');
-  }, [current?.width_ft, current?.depth_ft]);
-  return (
-    <div className="flex flex-col gap-1">
-      <div className="flex items-center gap-1">
-        <input
-          type="number"
-          min={0}
-          value={w}
-          placeholder="W"
-          onChange={(e) => {
-            dirtyRef.current = true;
-            setW(e.target.value);
-          }}
-          onBlur={() => {
-            onSet('width_ft', Number(w) || 0);
-            dirtyRef.current = false;
-          }}
-          disabled={disabled}
-          className="w-9 text-[10px] font-semibold text-text border-0 border-b outline-none bg-transparent text-center disabled:opacity-50"
-          style={{ borderBottomColor: 'var(--color-border)' }}
-          data-testid="pd-units-compact-w"
-        />
-        <span className="text-[9px] text-dim">×</span>
-        <input
-          type="number"
-          min={0}
-          value={d}
-          placeholder="D"
-          onChange={(e) => {
-            dirtyRef.current = true;
-            setD(e.target.value);
-          }}
-          onBlur={() => {
-            onSet('depth_ft', Number(d) || 0);
-            dirtyRef.current = false;
-          }}
-          disabled={disabled}
-          className="w-9 text-[10px] font-semibold text-text border-0 border-b outline-none bg-transparent text-center disabled:opacity-50"
-          style={{ borderBottomColor: 'var(--color-border)' }}
-          data-testid="pd-units-compact-d"
-        />
-        <span className="text-[9px] text-dim">ft</span>
-      </div>
-      <button
-        type="button"
-        onClick={onExpand}
-        disabled={disabled}
-        className="text-[9px] px-1.5 py-0.5 rounded border border-dashed bg-transparent text-dim self-start cursor-pointer disabled:opacity-50"
-        style={{ borderColor: 'var(--color-border)' }}
-        data-testid="pd-units-expand"
-      >
-        + different sizes
-      </button>
-    </div>
-  );
-}
-
-function UnitDimensionsExpanded({
-  types,
-  productTypes,
-  disabled,
-  onUpdate,
-  onRemove,
-  onAdd,
-}: {
-  types: UnitType[];
-  productTypes: string[];
-  disabled: boolean;
-  /** ★ fix-562 §A: a PARTIAL UNIT, because the three vocabularies each store
-   *  two parts that must move together. */
-  onUpdate: (idx: number, patch: Partial<UnitType>) => void;
-  onRemove: (idx: number) => void;
-  onAdd: () => void;
-}) {
-  // ★★ fix-449 §C: the CANONICAL product-type registry, read ONCE here rather
-  //    than per row. "Off list" has to mean "the app offers this nowhere" — a
-  //    project whose own product_types are [Detached] would otherwise mark a
-  //    unit labelled Attached as off-list, and Attached is a real type.
-  //
-  // ★ fix-486 (P-143) re-worded this with the new vocabulary rather than
-  //   leaving the old one in the explanation. The example IS the rule here, so
-  //   an example in a vocabulary the app no longer offers reads as a live case.
-  // ★★★ fix-562 §A — THE THREE VOCABULARIES, READ ONCE FOR THE WHOLE MATRIX.
+  // ★★★ fix-572 §C — THE THREE VOCABULARIES, READ ONCE FOR THE WHOLE BLOCK.
   //     fix-232's rule: the options are canonical in `app_config` and the
-  //     control is dropdown-only. Read here rather than per row for the same
-  //     reason `registryTypes` is (fix-449 §C) — one answer for one table.
+  //     control is dropdown-only. fix-562 made them registries; fix-571 made
+  //     the Library filters read them. Nothing here hand-writes a list.
   const cfgMap = useAppConfig().map;
   const registryTypes = productTypeRegistry(cfgMap);
   const parkingOpts = parkingOptions(cfgMap);
   const roofDeckOpts = roofDeckOptions(cfgMap);
   const storiesOpts = storiesOptions(cfgMap);
 
-  // ★★★ fix-422 SCOPE 2 — A MATRIX: ONE HEADER ROW, ONE ROW PER UNIT TYPE.
+  /**
+   * ★★★ fix-572 §D — IT RETURNS WHETHER THE WRITE LANDED.
+   *
+   * It used to `.catch(() => {})` and return nothing, which was right while
+   * nothing downstream cared: the hook's `onError` had already pushed the
+   * toast, and the `void` callers must not trip an unhandled rejection. Now a
+   * field has to know, because a confirmation fired regardless of the result is
+   * worse than no confirmation at all (§D).
+   */
+  async function writeTypes(next: UnitType[]): Promise<boolean> {
+    if (!project.updated_at) return false;
+    // fix-205/206: resolve "unnamed" rows on save — a blank label + a single
+    // product type persists as that type. Shared helper so a Library save and a
+    // Project Overview save produce identical rows.
+    const resolved = resolveUnitTypesForSave(next, productTypes);
+    try {
+      await updateMutation.mutateAsync({
+        projectId: project.id,
+        expectedUpdatedAt: project.updated_at,
+        patch: { unit_types: resolved },
+        fieldLabel: 'Unit Dimensions',
+      });
+      return true;
+    } catch {
+      // ★ The hook's onError already surfaced the right toast. What is new is
+      //   that `false` travels back, so the field stays silent.
+      return false;
+    }
+  }
+
+  // ═══════════════════════════════════════════════════════════════════════
+  // ★★★ fix-572 §C — ONE LABELLED BLOCK PER TYPE, AND NO COMPACT MODE
+  // ═══════════════════════════════════════════════════════════════════════
   //
-  // Bobby, 2026-08-27: *"When you have more than two different unit dimensions,
-  // the page gets way too vertically long, and it stretches out milestones,
-  // team, design plan of record, builder/owner… go back to horizontal."*
+  // Bobby: *"in one swoop, you can cleanly and quickly organize the unit
+  // configuration."*
   //
-  // ★★★ WHY fix-418's VERTICAL FORM HAD TO GO, IN ONE SENTENCE: it solved a
-  // WIDTH problem by spending HEIGHT, and height is not this card's to spend.
-  // The five cards are `alignItems: stretch` (fix-309 #55), so every unit type
-  // added ~64px to Milestones, Team, Plan of Record and Builder/Owner as well.
-  // At the six-type project in prod that is ~380px of blank space in four
-  // cards. A matrix costs ~14px a type and nothing to anybody else.
+  // ★★★ THE COMPACT / EXPANDED SPLIT IS GONE. A project with no named types
+  //     rendered a different, smaller editor with its own two inputs and a
+  //     `+ different sizes` button — a second shape for one job, which is what
+  //     made "where do I type this" a question at all. There is one shape now:
+  //     a block per type, and `+ Add type` in TYPES above is the only way to
+  //     get another.
   //
-  // ★★ THE HEADER IS DECLARED ONCE AND SO IS EVERY ROW — fix-412's ruling,
-  // which never stopped being right. Both render from `UNIT_MATRIX_GRID`, so a
-  // header cannot sit over the wrong control; that was the defect fix-412 was
-  // raised for and it is structurally impossible here.
-  // ★★★ fix-520 §B (P-226): computed HERE, from the same `types` array the
-  //     rows render from — not passed in. `UnitSizeEditor` and the Overview
-  //     matrix each do the same with their own copy of the array, so the three
-  //     surfaces agree because they all ask ONE function, not because somebody
-  //     kept three call sites in step.
-  const dimensionLabels = unitLabelParts(types);
+  // ★ An empty list says so rather than rendering nothing, and points at the
+  //   control that fixes it.
   return (
-    <div className="flex flex-col gap-1" data-testid="pd-unit-matrix">
-      <div
-        className="grid items-center"
-        style={{ gridTemplateColumns: UNIT_MATRIX_GRID }}
-        data-testid="pd-unit-header"
-      >
-        {UNIT_ROW_COLUMNS.map((c, i) => (
-          <Fragment key={c.key}>
-            {c.header ? (
-              <UnitHeaderCell column={c} />
-            ) : (
-              <span aria-hidden="true" />
-            )}
-            {i < UNIT_ROW_COLUMNS.length - 1 && <span aria-hidden="true" />}
-          </Fragment>
-        ))}
-      </div>
-      {types.map((ut, i) => (
-        <UnitRow
-          registryTypes={registryTypes}
-          parkingOpts={parkingOpts}
-          roofDeckOpts={roofDeckOpts}
-          storiesOpts={storiesOpts}
-          key={i}
-          // ★★★ fix-520 §B (P-226): which of this project's Detached units
-          //     this row is. The TYPE is already in the select beside it, so
-          //     the row only needs the ordinal — but it comes from the shared
-          //     labeller, not from `i + 1`, because the count is PER TYPE.
-          unitOrdinal={dimensionLabels[i]?.ordinal ?? i + 1}
-          unitLabel={dimensionLabels[i]?.full ?? ''}
-          row={ut}
-          productTypes={productTypes}
-          disabled={disabled}
-          onChange={(patch) => onUpdate(i, patch)}
-          onRemove={() => onRemove(i)}
-        />
-      ))}
-      <button
-        type="button"
-        onClick={onAdd}
-        disabled={disabled}
-        className="text-[9px] px-1.5 py-0.5 rounded border border-dashed bg-transparent text-dim self-start mt-0.5 cursor-pointer disabled:opacity-50"
-        style={{ borderColor: 'var(--color-border)' }}
-        data-testid="pd-units-add"
-      >
-        + Add type
-      </button>
+    <div className="flex flex-col gap-2" data-testid="pd-unit-config">
+      {types.length === 0 ? (
+        <p className="text-[10px] italic text-dim" data-testid="pd-unit-config-empty">
+          {/* ★ fix-520 §C: `Type` is the word, so this says *types* rather
+              than *unit types* — one word for one thing. */}
+          No types yet — add one under Types above.
+        </p>
+      ) : (
+        types.map((ut, i) => (
+          <UnitConfigBlock
+            key={i}
+            row={ut}
+            index={i}
+            disabled={locked}
+            productTypes={productTypes}
+            registryTypes={registryTypes}
+            parkingOpts={parkingOpts}
+            roofDeckOpts={roofDeckOpts}
+            storiesOpts={storiesOpts}
+            unitLabel={unitLabelParts(types)[i]?.full ?? ''}
+            unitOrdinal={unitLabelParts(types)[i]?.ordinal ?? i + 1}
+            onChange={(patch) =>
+              writeTypes(types.map((t, k) => (k === i ? { ...t, ...patch } : t)))
+            }
+            onRemove={() => void writeTypes(types.filter((_, k) => k !== i))}
+          />
+        ))
+      )}
     </div>
   );
 }
 
-/**
- * ★★★ fix-422 SCOPE 6 — ONE HEADER CELL, REACHABLE BY HOVER **AND** BY TAB.
- *
- * Bobby: *"If someone hovered their cursor over QTY, or STY, or P, or S,
- * there'd be a summary of what that is."*
- *
- * ★★★ A `title` ALONE WOULD HAVE BEEN A MOUSE-ONLY ANSWER, and this row is now
- * eight abbreviations — `P`, `#`, `RD`, `Sty` mean nothing on their own. A
- * tooltip that only fires on hover leaves the entire matrix unreadable to
- * anybody tabbing the form and to anybody on a tablet, which is a worse state
- * than the spelled-out headers fix-412 shipped.
- *
- * ★★ SO THE HEADER IS A `<button>`: focusable in the natural tab order, with
- * `title` for the pointer and `aria-describedby`-grade text as its accessible
- * description for everything else. `type="button"` because it is inside a form
- * region and must never submit; it does nothing on click by design — the
- * affordance IS the description.
- */
-function UnitHeaderCell({ column }: { column: UnitRowColumn }) {
+/** ★★★ fix-572 §D — the acknowledgement. One word, on the field, gone in a
+ *  moment. Declared once so eight controls cannot say it eight ways. */
+function SavedTick({ saved, testid }: { saved: boolean; testid: string }) {
   return (
-    <button
-      type="button"
-      title={column.tooltip}
-      aria-label={`${column.header}: ${column.tooltip}`}
-      className="text-[8px] font-extrabold uppercase tracking-wide text-dim text-center truncate bg-transparent border-0 p-0 cursor-help focus:outline-none focus-visible:ring-1 focus-visible:ring-de rounded"
-      data-testid={`pd-unit-h-${column.key}`}
-      data-tooltip={column.tooltip}
+    <span
+      className="text-[8px] font-bold uppercase tracking-wide transition-opacity"
+      style={{
+        color: 'var(--color-ap)',
+        opacity: saved ? 1 : 0,
+      }}
+      // ★★ `aria-live="polite"` rather than an alert: a save is worth hearing
+      //    about, and worth hearing about AFTER whatever the person is doing.
+      aria-live="polite"
+      data-saved={saved ? 'true' : 'false'}
+      data-testid={testid}
     >
-      {column.header}
-    </button>
+      {saved ? 'Saved' : ''}
+    </span>
   );
 }
 
-function UnitRow({
+/** ★ One field: its label above, its control below, its acknowledgement beside
+ *  the label. ONE declaration, so every field on this block reads identically —
+ *  the property fix-412's single grid string was protecting, now structural. */
+function ConfigField({
+  fieldKey,
+  saved,
+  children,
+}: {
+  fieldKey: UnitConfigField['key'];
+  saved: boolean;
+  children: React.ReactNode;
+}) {
+  // ★★★ THE TESTID IS DERIVED FROM THE KEY, NOT PASSED IN. A hand-passed one
+  //     is a second list beside `UNIT_CONFIG_FIELDS`, and a second list is what
+  //     fix-412 exists about — the first draft of this component already had
+  //     `pd-unit-f-width` sitting against a field keyed `width_ft`.
+  const testid = `pd-unit-f-${fieldKey}`;
+  return (
+    <label className="flex flex-col gap-0.5 min-w-0" data-testid={testid}>
+      <span className="flex items-center gap-1">
+        <span
+          className="text-[8px] font-bold uppercase tracking-wide whitespace-nowrap"
+          style={{ color: 'var(--color-dim)' }}
+          data-testid={`${testid}-label`}
+        >
+          {unitFieldLabel(fieldKey)}
+        </span>
+        <SavedTick saved={saved} testid={`${testid}-saved`} />
+      </span>
+      {children}
+    </label>
+  );
+}
+
+function UnitConfigBlock({
   row,
+  index,
+  disabled,
   productTypes,
   registryTypes,
   parkingOpts,
   roofDeckOpts,
   storiesOpts,
-  unitOrdinal,
   unitLabel,
-  disabled,
+  unitOrdinal,
   onChange,
   onRemove,
 }: {
   row: UnitType;
+  index: number;
+  disabled: boolean;
   productTypes: string[];
-  /** ★ fix-449 §C: the canonical registry, for the off-list mark. */
   registryTypes: string[];
-  /** ★ fix-562 §A: the three unit vocabularies, read once by the matrix. */
   parkingOpts: readonly string[];
   roofDeckOpts: readonly string[];
   storiesOpts: readonly string[];
-  /** ★★★ fix-520 §B (P-226): this unit's position AMONG ITS OWN TYPE — the `2`
-   *  in `Detached 2`. Not the row index: two Detached and one Attached reads
-   *  `Detached 1 · Detached 2 · Attached 1`. */
-  unitOrdinal: number;
-  /** The one-piece form, for the title and the testid. */
   unitLabel: string;
-  disabled: boolean;
-  onChange: (patch: Partial<UnitType>) => void;
+  unitOrdinal: number;
+  /** ★ Resolves TRUE when the write landed — see `writeTypes`. */
+  onChange: (patch: Partial<UnitType>) => Promise<boolean>;
   onRemove: () => void;
 }) {
-  const [label, setLabel] = useState(row.label);
+  const [qty, setQty] = useState(String(row.qty || 1));
   const [w, setW] = useState(row.width_ft != null ? String(row.width_ft) : '');
   const [d, setD] = useState(row.depth_ft != null ? String(row.depth_ft) : '');
-  const [qty, setQty] = useState(String(row.qty || 1));
-  // ★★★ fix-562 §A — NO BUFFERED STATE FOR STORIES OR STALLS ANY MORE. Stories
-  //     is a dropdown (a pick IS the commit, so there is nothing to leave) and
-  //     the stall count is gone from the product. `qty` keeps its buffer
-  //     because it is still a typed number.
-  //
-  // ★ That also closes the deps gap fix-402 left and fix-412 named: this effect
-  //   used to seed `stalls` in its body while omitting `row.parking_stalls`
-  //   from its dependency list. The field it was about no longer exists.
-  // fix-98: dirty-flag prop sync (fix-73 pattern). UnitRow is keyed by array
-  // index in the parent, so React reuses the same instance across re-renders
-  // when the underlying row data changes (after a save). The dirty flag
-  // preserves the user's live edit; cleared on blur so the next prop arrival
-  // flows through.
+  const [size, setSize] = useState(row.size_sf != null ? String(row.size_sf) : '');
+  // fix-98: dirty-flag prop sync (fix-73 pattern) — the block is keyed by array
+  // index, so React reuses the instance when the row data changes after a save.
   const dirtyRef = useRef(false);
   useEffect(() => {
     if (dirtyRef.current) return;
-    setLabel(row.label);
+    setQty(String(row.qty || 1));
     setW(row.width_ft != null ? String(row.width_ft) : '');
     setD(row.depth_ft != null ? String(row.depth_ft) : '');
-    setQty(String(row.qty || 1));
-    // ★ fix-488 §B: no `size_sf` state here — the column was measured and
-    //   reverted (see the note where the input would have been).
-  }, [row.label, row.width_ft, row.depth_ft, row.qty]);
+    setSize(row.size_sf != null ? String(row.size_sf) : '');
+  }, [row.qty, row.width_ft, row.depth_ft, row.size_sf]);
 
-  // ★ fix-422: the matrix cell. 9px, centred, one baseline for every column so
-  //   a number and a letter code sit on the same line.
-  const cellClass =
-    'w-full h-[16px] text-[9px] font-semibold text-text text-center border border-border rounded bg-bg px-0 outline-none focus:border-de focus:ring-1 focus:ring-de disabled:opacity-40 [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none';
+  // ★★★ fix-572 §D: one flash per FIELD, so two saves in a row on two fields
+  //     acknowledge separately rather than one stealing the other's tick.
+  const flashes = {
+    label: useSavedFlash(),
+    qty: useSavedFlash(),
+    width_ft: useSavedFlash(),
+    depth_ft: useSavedFlash(),
+    size_sf: useSavedFlash(),
+    stories: useSavedFlash(),
+    parking_kind: useSavedFlash(),
+    roof_deck: useSavedFlash(),
+  } as const;
 
-  // fix-205 → fix-209 → fix-212 → fix-232: the label is DROPDOWN-ONLY and
-  // product-type-driven. With no product types the stored label renders
-  // READ-ONLY rather than blanked.
+  /**
+   * ★★★ Commit, then acknowledge ONLY on success. Every control goes through
+   *  this — there is no second path that could confirm optimistically.
+   *
+   * ★★★ AND A BLUR THAT CHANGED NOTHING WRITES NOTHING. §D asks for *"one
+   *     acknowledgement per completed save, not a toast per keystroke"*, and
+   *     every one of these controls commits on blur — so without this guard,
+   *     TABBING THROUGH THE FORM would fire eight RPCs and leave a row of ticks
+   *     behind, which is the noise §D names as its own failure mode.
+   *
+   * ★★ It also stops eight no-op writes bumping `updated_at`, which is what
+   *    fix-341 traced "modified by someone else" false alarms to.
+   */
+  async function commit(key: UnitConfigField['key'], patch: Partial<UnitType>) {
+    const unchanged = (Object.keys(patch) as (keyof UnitType)[]).every(
+      (k) => (row[k] ?? null) === (patch[k] ?? null),
+    );
+    if (unchanged) return;
+    const ok = await onChange(patch);
+    if (ok) flashes[key].markSaved();
+  }
+
   const hasProductTypes = productTypes.length >= 1;
-  const selectValue = resolveUnitLabel(label, productTypes);
+  const selectValue = resolveUnitLabel(row.label, productTypes);
   const offListLabel = isOffListUnitLabel(selectValue, registryTypes);
-  // ★★★ fix-486 §C (P-143) — "NEEDS A TYPE" IS NOT THE SAME AS "OFF-LIST".
-  //
-  // Eleven prod rows carry the wizard's seed letters (`Type A`…`Type D`) — the
-  // intake habit is to add rows first and name them later, so those labels were
-  // never a type, they are a question nobody answered. The remap deliberately
-  // left them (a rule that guessed would have declared eleven unanswered rows
-  // answered), and this is how the row says so.
-  //
-  // ★★ THE TWO MARKS ARE DIFFERENT STATES AND MUST STAY DIFFERENT. An off-list
-  //    label is a word somebody CHOSE; telling that person they had failed to
-  //    answer would be wrong, and telling somebody staring at `Type C` that
-  //    their deliberate choice is merely "not in the list" is wrong the other
-  //    way. Same slot, same size, different word.
-  const needsType = unitLabelNeedsType(selectValue);
-  // ★★★ fix-486 §D (P-143) — THREE THINGS LEFT THIS ROW WITH `work_scope`.
-  //
-  //   fix-412 §B5  a confirmed No-work unit greyed out its drawn detail
-  //   fix-418 §B   the control appeared only on a `Remodel` label
-  //   fix-422 §7   it rendered as a chip under the row, not a matrix cell
-  //
-  // ★★★ ALL THREE WERE ABOUT A QUESTION THE TYPE NOW ANSWERS. Bobby,
-  //     2026-09-03: *one way to say remodel — the type.* fix-418's own gate is
-  //     the tell: the control only ever showed on a row already LABELLED
-  //     Remodel, which is to say it asked whether a remodel was a remodel.
-  //
-  // ★★ AND NOTHING WAS LOST. Measured on prod 2026-09-03: 245 unit rows, 95
-  //    carrying the key at all, **zero non-null**. The suppression fix-412 §B5
-  //    built therefore never suppressed anything — it fires on
-  //    `work_scope === 'none'`, and no row has ever held it.
-  const off = disabled;
+  const needsType = isPlaceholderUnitLabel(row.label);
 
-  // ★★★ fix-486 §D — THE `pd-unit-row-group` WRAPPER GOES WITH THE CHIP.
-  //
-  // fix-422 Scope 7 added it so the Work chip could sit UNDER its own row and
-  // still be associated with it. There is no chip, so the wrapper wrapped one
-  // element — and fix-418's lesson is that a pass-through div is not free: a
-  // wrapper between a flex parent and its children swallows the height
-  // distribution the parent is trying to do. The row is the units band's own
-  // child again, exactly as it was before Scope 7.
+  // ★★★ fix-572 §C — EVERY BOX READABLE. `w-full` inside a wrapping flex row
+  //     rather than fix-422's fixed 22–30px cells: the Type dropdown rendered
+  //     `D…` at 52px, which is the complaint this section exists to answer.
+  const box =
+    'w-full bg-bg border border-border rounded px-1.5 py-1 text-[11px] text-text ' +
+    'outline-none focus:border-de focus:ring-1 focus:ring-de disabled:opacity-40';
+
   return (
     <div
-      className="grid items-center"
-      style={{ gridTemplateColumns: UNIT_MATRIX_GRID }}
-      data-testid="pd-unit-row"
+      className="border rounded px-2 py-2"
+      style={{ borderColor: 'var(--color-border)', background: 'var(--color-s2)' }}
+      data-testid="pd-unit-block"
+      data-unit-label={unitLabel}
     >
-      {/* Type — and, since fix-520 §B, WHICH ONE OF THEM THIS IS.
-          ★★★ Bobby: *"How do I know which unit I am updating sqft on?"* The
-              select says `Detached` on every row of a two-Detached project;
-              the ordinal beside it is what makes this row nameable, and it is
-              the same number the size rows below and the Overview matrix
-              print. It is OUTSIDE the select on purpose — it is not a value
-              anybody can choose. */}
-      <span
-        className="flex items-center gap-1 min-w-0"
-        title={unitLabel}
-        data-unit-label={unitLabel}
-      >
-      {hasProductTypes ? (
-        <select
-          value={selectValue}
-          onChange={(e) => {
-            const v = e.target.value;
-            // ★★★ fix-449 §C1: an off-list label is a DELIBERATE act.
-            if (v === OTHER_UNIT_LABEL) {
-              const typed = window.prompt('Type label', label);
-              if (typed === null) return;
-              const next = typed.trim();
-              dirtyRef.current = true;
-              setLabel(next);
-              onChange({ label: next });
-              dirtyRef.current = false;
-              return;
-            }
-            dirtyRef.current = true;
-            setLabel(v);
-            onChange({ label: v });
-            dirtyRef.current = false;
-          }}
+      <div className="flex items-center justify-between mb-1.5">
+        <span
+          className="text-[9px] font-bold uppercase tracking-wide"
+          style={{ color: 'var(--color-muted)' }}
+          data-testid={`pd-unit-block-title-${index}`}
+        >
+          {unitLabel || `Unit ${unitOrdinal}`}
+        </span>
+        <button
+          type="button"
+          onClick={onRemove}
           disabled={disabled}
-          // ★ SCOPE 8: a label longer than the column truncates, and the FULL
-          //   text is on hover. 9 of 235 prod rows are off-registry free text
-          //   — "SFR w/ Accessory Units" is 22 characters — and sizing the
-          //   column for those nine would tax every other project.
-          title={label || undefined}
-          // ★ fix-520 §B: `min-w-0 flex-1` — the select takes the cell minus
-          //   the ordinal, and is the half that truncates.
-          className={`${cellClass} text-left px-0.5 truncate min-w-0 flex-1`}
-          data-testid="pd-unit-label-select"
+          className="bg-transparent border-0 text-dim cursor-pointer text-[12px] leading-none p-0 disabled:opacity-50"
+          title="Remove type"
+          data-testid="pd-unit-remove"
         >
-          <option value="">Pick type…</option>
-          {/* ★★★ fix-449 §C1: the stored value is IN the list when it is
-              off-list, so this control shows what it holds rather than
-              blanking it or substituting the project's lone type. */}
-          {unitLabelOptions(productTypes, selectValue).map((t) => (
-            <option key={t} value={t}>
-              {t}
-            </option>
-          ))}
-          <option value={OTHER_UNIT_LABEL}>Other…</option>
-        </select>
-      ) : (
-        <span
-          className={`${cellClass} text-left px-0.5 truncate min-w-0 flex-1 leading-[16px] ${label ? '' : 'text-dim'}`}
-          title={
-            label
-              ? `${label} — add a type to change`
-              : 'Add a type to label units'
-          }
-          data-testid="pd-unit-label-readonly"
-        >
-          {label || NOT_RECORDED}
-        </span>
-      )}
-        {/* ★ `flex-none`, like the ordinal on every other surface: the TYPE is
-            the half that runs out of room, and the number is the half that
-            has to survive it. */}
-        <span
-          className="flex-none text-[10px] font-bold text-dim"
-          data-testid={`pd-unit-ordinal-${unitOrdinal}`}
-        >
-          {unitOrdinal}
-        </span>
-      </span>
-      {/* ★★ fix-449 §C3: the mark rides in the SPACER that already sits
-          between Type and W — so it costs the matrix no width at all. The
-          column keeps fix-422's measured size. */}
-      <span aria-hidden={offListLabel || needsType ? undefined : 'true'}>
-        {needsType ? (
-          <span
-            className="text-[8px] px-1 rounded font-bold uppercase"
-            style={{ background: 'var(--color-co-bg)', color: 'var(--color-co)' }}
-            title="Needs a type — this is the wizard's placeholder, not a type. Pick one from the list."
-            data-testid="pd-unit-label-needs-type"
-          >
-            ?
-          </span>
-        ) : (
-          offListLabel && (
-            <span
-              className="text-[8px] px-1 rounded font-bold uppercase"
-              style={{ background: 'var(--color-s2)', color: 'var(--color-muted)' }}
-              title="Not in the product-type list — kept exactly as stored"
-              data-testid="pd-unit-label-offlist"
-            >
-              !
-            </span>
-          )
-        )}
-      </span>
-      {/* W */}
-      <input
-        type="number"
-        min={0}
-        step="0.5"
-        value={w}
-        placeholder={NOT_RECORDED}
-        onChange={(e) => {
-          dirtyRef.current = true;
-          setW(e.target.value);
-        }}
-        onBlur={() => {
-          onChange({ width_ft: w === '' ? null : Number(w) || 0 });
-          dirtyRef.current = false;
-        }}
-        disabled={off}
-        className={cellClass}
-        aria-label={unitFieldTooltip('width_ft')}
-        data-testid="pd-unit-w"
-      />
-      {/* ★ SCOPE 3: the tighter W–D gap. No `×`, so the pair has to group by
-          proximity instead. */}
-      <span aria-hidden="true" />
-      {/* D */}
-      <input
-        type="number"
-        min={0}
-        step="0.5"
-        value={d}
-        placeholder={NOT_RECORDED}
-        onChange={(e) => {
-          dirtyRef.current = true;
-          setD(e.target.value);
-        }}
-        onBlur={() => {
-          onChange({ depth_ft: d === '' ? null : Number(d) || 0 });
-          dirtyRef.current = false;
-        }}
-        disabled={off}
-        className={cellClass}
-        aria-label={unitFieldTooltip('depth_ft')}
-        data-testid="pd-unit-d"
-      />
-      <span aria-hidden="true" />
-      {/* ★★★ fix-488 §B — THE UNIT SIZE INPUT IS **NOT** HERE, AND THE
-          NUMBER IS WHY.
+          ×
+        </button>
+      </div>
 
-          It was built as a ninth column, measured, and reverted: the matrix
-          goes 274px → 312px, which is 76px on the overview row minimum, and
-          fix-423 §D's guarantee is that below the wrap point BOTH LINES FIT AT
-          1280. They would not — the wider line needs 736px against 710
-          available, i.e. a horizontal scrollbar on the overview, the exact
-          defect fix-417 exists to prevent. The two-line layout has 12px of
-          slack and the smallest honest cell plus its gap is 30px.
-
-          ★★ THE FIELD ITSELF SHIPPED. `unit_types[].size_sf` is typed in the
-             Library's unit table and in the wizard's unit editor, and searched
-             by the Library's Unit Size ± filter — which is what Bobby asked
-             for: *"something we actually type in… so we can search for units
-             that fit that criteria."* What is missing is only this DISPLAY.
-             See lib/unitRowLayout for the full arithmetic and the fix-488 PR
-             for the options put to him. */}
-      {/* Qty */}
-      <input
-        type="number"
-        min={1}
-        value={qty}
-        placeholder={NOT_RECORDED}
-        onChange={(e) => {
-          dirtyRef.current = true;
-          setQty(e.target.value);
-        }}
-        onBlur={() => {
-          onChange({ qty: Number(qty) || 1 });
-          dirtyRef.current = false;
-        }}
-        disabled={off}
-        className={cellClass}
-        aria-label={unitFieldTooltip('qty')}
-        data-testid="pd-unit-qty"
-      />
-      <span aria-hidden="true" />
-      {/* ★★★ fix-562 §A — Sty IS A DROPDOWN NOW: 1 · 1+B · 2 · 2+B · … The
-          basement half has no honest text form, and a free-text box is what let
-          `0` and half-typed values reach the parser. */}
-      <StoriesSelect
-        stories={row.stories}
-        basement={row.basement}
-        options={storiesOpts}
-        disabled={off}
-        onChange={(v) =>
-          onChange({ stories: v?.stories ?? null, basement: v?.basement ?? null })
-        }
-        testid="pd-unit-stories"
-        code
-      />
-      <span aria-hidden="true" />
-      {/* ★★★ fix-562 §A — P: the cell is the short answer, the menu is Bobby's
-          words. `parking_stalls` and its `#` column are GONE — the count lives
-          inside the answer (`2-car garage`). */}
-      <ParkingKindSelect
-        kind={row.parking_kind}
-        count={row.parking_count}
-        options={parkingOpts}
-        disabled={off}
-        onChange={(v) =>
-          onChange({ parking_kind: v?.kind ?? null, parking_count: v?.count ?? null })
-        }
-        testid="pd-unit-parking-kind"
-        code
-      />
-      <span aria-hidden="true" />
-      {/* RD — W/ PH · W/O PH · None */}
-      <RoofDeckSelect
-        deck={row.roof_deck}
-        penthouse={row.penthouse}
-        options={roofDeckOpts}
-        disabled={off}
-        onChange={(v) =>
-          onChange({ roof_deck: v?.deck ?? null, penthouse: v?.penthouse ?? null })
-        }
-        testid="pd-unit-roof-deck"
-        code
-      />
-      <span aria-hidden="true" />
-      <button
-        type="button"
-        onClick={onRemove}
-        disabled={disabled}
-        className="bg-transparent border-0 text-dim cursor-pointer text-[12px] leading-none p-0 disabled:opacity-50"
-        title="Remove type"
-        data-testid="pd-unit-remove"
+      {/* ★ A wrapping grid rather than a fixed track list: at 760px the eight
+          fields sit two rows deep, and at any narrower width they reflow
+          instead of clipping. fix-417's lesson, applied where it belongs. */}
+      <div
+        className="grid gap-x-2 gap-y-1.5"
+        style={{ gridTemplateColumns: 'repeat(4, minmax(0, 1fr))' }}
       >
-        ×
-      </button>
+        <ConfigField fieldKey="label" saved={flashes.label.saved}>
+          {hasProductTypes ? (
+            <span className="flex items-center gap-1 min-w-0">
+              <select
+                value={selectValue}
+                disabled={disabled}
+                onChange={(e) => {
+                  const v = e.target.value;
+                  // ★★★ fix-449 §C1 SURVIVES THE RESTACK: an off-list label is a
+                  //     DELIBERATE act, so `Other…` asks for the word rather
+                  //     than letting one be typed into the picker by accident.
+                  if (v === OTHER_UNIT_LABEL) {
+                    const typed = window.prompt('Type label', row.label || '');
+                    if (typed === null) return;
+                    void commit('label', { label: typed.trim() });
+                    return;
+                  }
+                  void commit('label', { label: v });
+                }}
+                // ★★ fix-422 §8's RULING SURVIVES THE WIDER FIELD. Its own
+                //    worst case — `SFR w/ Accessory Units`, 22 characters — is
+                //    still longer than any track this form gives Type, so a
+                //    long label must truncate and keep its full text on hover.
+                //    What changed is that a REGISTRY value no longer does:
+                //    measured in Chrome, `Detached` rendered `D…` at fix-422's
+                //    52px and renders in full at 172.
+                className={`${box} min-w-0 flex-1 truncate`}
+                title={row.label || undefined}
+                aria-label={unitFieldHint('label')}
+                data-testid="pd-unit-label-select"
+              >
+                <option value="">Pick type…</option>
+                {/* ★★★ fix-449 §C1: the stored value is IN the list when it is
+                    off-list, so this control shows what it holds rather than
+                    blanking it or substituting the project's lone type. */}
+                {unitLabelOptions(productTypes, selectValue).map((t) => (
+                  <option key={t} value={t}>
+                    {t}
+                  </option>
+                ))}
+                <option value={OTHER_UNIT_LABEL}>Other…</option>
+              </select>
+              {needsType ? (
+                <span
+                  className="text-[8px] px-1 rounded font-bold uppercase flex-none"
+                  style={{ background: 'var(--color-co-bg)', color: 'var(--color-co)' }}
+                  title="Needs a type — this is the wizard's placeholder, not a type. Pick one from the list."
+                  data-testid="pd-unit-label-needs-type"
+                >
+                  ?
+                </span>
+              ) : (
+                offListLabel && (
+                  <span
+                    className="text-[8px] px-1 rounded font-bold uppercase flex-none"
+                    style={{ background: 'var(--color-s2)', color: 'var(--color-muted)' }}
+                    title="Not in the product-type list — kept exactly as stored"
+                    data-testid="pd-unit-label-offlist"
+                  >
+                    !
+                  </span>
+                )
+              )}
+            </span>
+          ) : (
+            /* fix-232: with no product types the stored label is READ-ONLY
+               rather than blanked — it shows what it holds. */
+            <span
+              className="text-[11px] text-text px-1.5 py-1 truncate"
+              title={selectValue || undefined}
+              data-testid="pd-unit-label-readonly"
+            >
+              {selectValue || NOT_RECORDED}
+            </span>
+          )}
+        </ConfigField>
+
+        <ConfigField fieldKey="qty" saved={flashes.qty.saved}>
+          {/* ⚠️ fix-562 §H removed QTY from BOTH Library views on the
+              understanding that this is where it is typed. 102 of 270 unit rows
+              carry a qty above 1; breaking this makes them uneditable. */}
+          <input
+            type="number"
+            min={1}
+            value={qty}
+            placeholder={NOT_RECORDED}
+            onChange={(e) => {
+              dirtyRef.current = true;
+              setQty(e.target.value);
+            }}
+            onBlur={() => {
+              dirtyRef.current = false;
+              void commit('qty', { qty: Number(qty) || 1 });
+            }}
+            disabled={disabled}
+            className={box}
+            aria-label={unitFieldHint('qty')}
+            data-testid="pd-unit-qty"
+          />
+        </ConfigField>
+
+        <ConfigField fieldKey="width_ft" saved={flashes.width_ft.saved}>
+          <input
+            type="number"
+            step="0.5"
+            value={w}
+            placeholder={NOT_RECORDED}
+            onChange={(e) => {
+              dirtyRef.current = true;
+              setW(e.target.value);
+            }}
+            onBlur={() => {
+              dirtyRef.current = false;
+              void commit('width_ft', { width_ft: w === '' ? null : Number(w) || 0 });
+            }}
+            disabled={disabled}
+            className={box}
+            aria-label={unitFieldHint('width_ft')}
+            data-testid="pd-unit-w"
+          />
+        </ConfigField>
+
+        <ConfigField fieldKey="depth_ft" saved={flashes.depth_ft.saved}>
+          <input
+            type="number"
+            step="0.5"
+            value={d}
+            placeholder={NOT_RECORDED}
+            onChange={(e) => {
+              dirtyRef.current = true;
+              setD(e.target.value);
+            }}
+            onBlur={() => {
+              dirtyRef.current = false;
+              void commit('depth_ft', { depth_ft: d === '' ? null : Number(d) || 0 });
+            }}
+            disabled={disabled}
+            className={box}
+            aria-label={unitFieldHint('depth_ft')}
+            data-testid="pd-unit-d"
+          />
+        </ConfigField>
+
+        <ConfigField fieldKey="size_sf" saved={flashes.size_sf.saved}>
+          {/* ★★★ fix-572 §C — UNIT SIZE FOLDS IN, retiring the separate list.
+              It writes `unit_types[].size_sf`, the same field the Library's
+              unit table types and its ± filter searches (fix-488 §B). ★ Never
+              computed from width × depth: that product is a FOOTPRINT and this
+              is a FLOOR AREA across `stories`. */}
+          <input
+            type="number"
+            min={1}
+            value={size}
+            placeholder={NOT_RECORDED}
+            onChange={(e) => {
+              dirtyRef.current = true;
+              setSize(e.target.value);
+            }}
+            onBlur={() => {
+              dirtyRef.current = false;
+              const n = size.trim() === '' ? null : Math.round(Number(size));
+              void commit('size_sf', {
+                size_sf: n != null && Number.isFinite(n) && n > 0 ? n : null,
+              });
+            }}
+            disabled={disabled}
+            className={box}
+            aria-label={unitFieldHint('size_sf')}
+            data-testid="pd-unit-size"
+          />
+        </ConfigField>
+
+        <ConfigField fieldKey="stories" saved={flashes.stories.saved}>
+          <StoriesSelect
+            stories={row.stories}
+            basement={row.basement}
+            options={storiesOpts}
+            disabled={disabled}
+            fill
+            onChange={(v) =>
+              void commit('stories', {
+                stories: v?.stories ?? null,
+                basement: v?.basement ?? null,
+              })
+            }
+            testid="pd-unit-stories"
+          />
+        </ConfigField>
+
+        <ConfigField
+          fieldKey="parking_kind"
+          saved={flashes.parking_kind.saved}
+        >
+          <ParkingKindSelect
+            kind={row.parking_kind}
+            count={row.parking_count}
+            options={parkingOpts}
+            disabled={disabled}
+            fill
+            onChange={(v) =>
+              void commit('parking_kind', {
+                parking_kind: v?.kind ?? null,
+                parking_count: v?.count ?? null,
+              })
+            }
+            testid="pd-unit-parking-kind"
+          />
+        </ConfigField>
+
+        <ConfigField
+          fieldKey="roof_deck"
+          saved={flashes.roof_deck.saved}
+        >
+          <RoofDeckSelect
+            deck={row.roof_deck}
+            penthouse={row.penthouse}
+            options={roofDeckOpts}
+            disabled={disabled}
+            fill
+            onChange={(v) =>
+              void commit('roof_deck', {
+                roof_deck: v?.deck ?? null,
+                penthouse: v?.penthouse ?? null,
+              })
+            }
+            testid="pd-unit-roof-deck"
+          />
+        </ConfigField>
+      </div>
     </div>
+  );
+}
+
+// ===========================================================================
+// ★★★ fix-572 §C — `+ Add type` LIVES IN **TYPES**, NOT IN THE BLOCKS
+// ===========================================================================
+//
+// Bobby: *"types should be at the top and then unit configuration is the
+// category that then nicely and cleanly organizes this info."* Adding a type is
+// a TYPES action; the blocks below are where you configure the ones that exist.
+//
+// ★ It seeds through `nextUnitTypeLabel`, the same pool the wizard uses, so the
+//   team's intake habit (Type A, B, C…) keeps working and a deleted letter is
+//   reused rather than skipped (fix-81).
+export function AddUnitTypeButton({ project }: { project: Project }) {
+  const mayWrite = useMayWriteProject(project.id);
+  const updateMutation = useUpdateProject();
+  const locked = !project.updated_at || !mayWrite;
+  const types = parseUnitTypes(project.unit_types);
+
+  return (
+    <button
+      type="button"
+      disabled={locked}
+      onClick={() => {
+        if (!project.updated_at) return;
+        void updateMutation
+          .mutateAsync({
+            projectId: project.id,
+            expectedUpdatedAt: project.updated_at,
+            patch: {
+              unit_types: [
+                ...types,
+                {
+                  label: nextUnitTypeLabel(types.map((t) => t.label)),
+                  width_ft: null,
+                  depth_ft: null,
+                  qty: 1,
+                  size_sf: null,
+                  stories: null,
+                  basement: null,
+                  parking_kind: null,
+                  parking_count: null,
+                  roof_deck: null,
+                  penthouse: null,
+                },
+              ],
+            },
+            fieldLabel: 'Unit Dimensions',
+          })
+          .catch(() => {
+            /* the hook's onError already surfaced the message */
+          });
+      }}
+      className="text-[9px] px-1.5 py-0.5 rounded border border-dashed bg-transparent text-dim self-start cursor-pointer disabled:opacity-50"
+      style={{ borderColor: 'var(--color-border)' }}
+      data-testid="pd-units-add"
+    >
+      + Add type
+    </button>
   );
 }

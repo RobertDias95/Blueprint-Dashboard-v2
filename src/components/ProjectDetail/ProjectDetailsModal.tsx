@@ -4,9 +4,9 @@ import type { ReactNode } from 'react';
 import {
   DDPhaseEditor,
   KeyDatesSection,
+  AddUnitTypeButton,
   SiteEditor,
   UnitDimensions,
-  UnitSizeEditor,
 } from './ProjectDataEditors';
 import ReuseEditor from './ReuseEditor';
 import ReuseRedesignDdEditor from './ReuseRedesignDdEditor';
@@ -19,6 +19,7 @@ import { formatUsDate } from '../../lib/dateUtils';
 import {
   PROJECT_DATA_TABS,
   type ProjectDataTab,
+  PROJECT_DATA_MODAL_HEIGHT,
 } from '../../lib/projectDataTabs';
 import {
   PROJECT_DETAILS_SEARCH,
@@ -163,9 +164,21 @@ export default function ProjectDetailsModal({
       data-testid="project-data-modal"
       data-tab={tab}
     >
+      {/* ★★★ fix-572 §B (P-277) — A HEIGHT, NOT A MAX-HEIGHT.
+          `max-h-[90vh]` let the box collapse to its content, so a short tab
+          shrank it and Units stretched it. The height is now fixed and MEASURED
+          — see `PROJECT_DATA_MODAL_HEIGHT` for all nine tabs in pixels and why
+          the tallest was the wrong target.
+          ★ `overflow-hidden flex flex-col` is unchanged, and so is the body's
+            `flex-1 overflow-y-auto`: the header, tabs and footer stay put and
+            only the body scrolls. */}
       <div
-        className="rounded-lg shadow-xl w-[760px] max-h-[90vh] overflow-hidden flex flex-col"
-        style={{ background: 'var(--color-surface)' }}
+        className="rounded-lg shadow-xl w-[760px] overflow-hidden flex flex-col"
+        style={{
+          background: 'var(--color-surface)',
+          height: PROJECT_DATA_MODAL_HEIGHT,
+        }}
+        data-testid="project-data-shell"
       >
         <header
           className="px-4 py-2 border-b flex items-center justify-between"
@@ -278,43 +291,58 @@ export default function ProjectDetailsModal({
             <DatesTab project={project} bp={bp} permits={permits} />
           )}
           {tab === 'units' && (
-            <TabPanel
-              caption="Every field here saves as you leave it."
-            >
-              {/* ★ fix-412 §C1's guarantee: this editor keeps a HEADING of its
-                  own rather than being a nameless block of inputs — Bobby has
-                  to be able to point at it. The tab label is one half; this is
-                  the other, and it is the same words the retired
-                  `OverviewSection title="Unit dimensions"` carried. */}
-              <p
-                className="text-[9px] font-bold uppercase tracking-wide"
-                style={{ color: 'var(--color-dim)' }}
-              >
-                Unit dimensions
-              </p>
-              <UnitDimensions project={project} />
-              {/* ★★★ fix-514 §E (P-215) — THE TYPED SQUARE FOOTAGE, below the
-                  matrix rather than inside it. `UNIT_ROW_COLUMNS` drives the
-                  PROJECT card's floor on the Overview, so a ninth column there
-                  costs 76px of overview row minimum — fix-488 §B measured it
-                  and reverted. This modal is 760px and owes that nothing. */}
-              <div className="border-t pt-2" style={{ borderTopColor: 'var(--color-border)' }}>
+            <TabPanel caption="Every field here saves as you leave it — each one says so.">
+              {/* ═══════════════════════════════════════════════════════════
+                  ★★★ fix-572 §C (P-277) — TYPES, THEN UNIT CONFIGURATION
+                  ═══════════════════════════════════════════════════════════
+
+                  Bobby, 2026-09-15: *"types should be at the top and then unit
+                  configuration is the category that then nicely and cleanly
+                  organizes this info… so in one swoop, you can cleanly and
+                  quickly organize the unit configuration."*
+
+                  ★★ TWO SECTIONS, IN HIS ORDER. `Unit count` moves up here with
+                     the type chips because it is a PROJECT-level number — one
+                     count for the whole project — and it was sitting under a
+                     list of per-unit blocks as though it belonged to them. */}
+              <section data-testid="pd-units-types">
                 <p
                   className="text-[9px] font-bold uppercase tracking-wide"
                   style={{ color: 'var(--color-dim)' }}
                 >
-                  Unit size (sf)
+                  Types
                 </p>
-                <UnitSizeEditor project={project} />
-              </div>
-              {/* ★★★ fix-514 §A: the unit COUNT and the product types, which
-                  Project Settings owned and this tab could only display. */}
-              <div className="border-t pt-2" style={{ borderTopColor: 'var(--color-border)' }}>
                 <UnitCountAndProductTypes
                   project={project}
                   productTypeOptions={ctl.productTypeOptions}
                 />
-              </div>
+                <div className="mt-1.5">
+                  <AddUnitTypeButton project={project} />
+                </div>
+              </section>
+
+              <section
+                className="border-t pt-2"
+                style={{ borderTopColor: 'var(--color-border)' }}
+                data-testid="pd-units-configuration"
+              >
+                {/* ★ fix-412 §C1's guarantee survives the restack: this editor
+                    keeps a HEADING of its own rather than being a nameless
+                    block of inputs — Bobby has to be able to point at it. */}
+                <p
+                  className="text-[9px] font-bold uppercase tracking-wide"
+                  style={{ color: 'var(--color-dim)' }}
+                >
+                  Unit configuration
+                </p>
+                {/* ★★★ `Unit size (sf)` NO LONGER HAS A LIST OF ITS OWN. fix-514
+                    §E put it below the matrix because a ninth matrix column
+                    cost 76px of OVERVIEW row minimum (fix-488 §B measured it and
+                    reverted) — arithmetic about a surface this modal is not.
+                    It is a field in each block now, beside the two dimensions it
+                    is read against. The Overview matrix still does not show it. */}
+                <UnitDimensions project={project} />
+              </section>
             </TabPanel>
           )}
           {/* ★★★ fix-514 §A0 — THE PERMITS TAB. The one part of the leftover

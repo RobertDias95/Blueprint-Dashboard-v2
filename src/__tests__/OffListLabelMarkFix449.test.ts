@@ -1,10 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
-import {
-  UNIT_MATRIX_GRID,
-  UNIT_ROW_COLUMNS,
-} from '../lib/unitRowLayout';
+import { UNIT_CONFIG_FIELDS } from '../lib/unitConfigFields';
 import { isOffListUnitLabel } from '../lib/unitTypeNaming';
 import {
   isWizardPlaceholderLabel,
@@ -124,63 +121,56 @@ describe('fix-449 §C3: the mark costs the matrix no width', () => {
     'utf8',
   );
 
-  it('★★★ no column was added to UNIT_ROW_COLUMNS', () => {
-    // ★★★ The grid is DERIVED from this list (widths + baked-in gaps), and
-    //     `overviewCardLayout` derives the PROJECT card's floor from the grid.
-    //     A new track would have widened the card — fix-422's measured
-    //     geometry — so the mark rides in the SPACER that already sat between
-    //     Type and W.
-    expect(UNIT_ROW_COLUMNS.map((c) => c.key)).toEqual([
-      'label',
-      'width_ft',
-      'depth_ft',
-      'qty',
-      'stories',
-      'parking_kind',
-      // ★ fix-562 §A: `parking_stalls` left this list with the field.
-      'roof_deck',
-      'remove',
-    ]);
+// ★★★ fix-572 §C — THE HORIZONTAL MATRIX THIS SECTION MEASURED IS RETIRED.
+//     The Units tab is one labelled block per type now (Bobby: *"unit
+//     configuration… cleanly and quickly"*). Its numbers survive as declared
+//     literals in `lib/unitConfigFields`, exactly as fix-422 kept fix-412's
+//     620 — *"deleting them would delete the evidence for a fix that is still
+//     load-bearing."*
+  it('★★ the off-list mark still costs the form no field of its own', () => {
+    // ★★★ fix-449 §C3's ruling survives the restack: the `⚠` rides BESIDE the
+    //     type control inside its own field, not as a ninth field. What is gone
+    //     is the fixed-width grid the original argument was about — a mark in a
+    //     wrapping block costs no track because there are no tracks.
+    expect(UNIT_CONFIG_FIELDS.map((c) => c.key)).not.toContain('offlist');
+    expect(UNIT_CONFIG_FIELDS).toHaveLength(8);
   });
 
-  it('★★★ the grid template is unchanged by this ticket', () => {
-    // Recomputed from the columns: if the mark had cost a track, this string
-    // would have grown and the assertion below would fail with it.
-    const expected = UNIT_ROW_COLUMNS.map((c, i) =>
-      i === UNIT_ROW_COLUMNS.length - 1 ? `${c.width}px` : `${c.width}px`,
-    );
-    // Every column width still appears, in order, in the template.
-    let cursor = 0;
-    for (const w of expected) {
-      const at = UNIT_MATRIX_GRID.indexOf(w, cursor);
-      expect(at, w).toBeGreaterThanOrEqual(0);
-      cursor = at + w.length;
-    }
-  });
-
-  it('★★ the mark renders INSIDE the existing spacer, not a new cell', () => {
-    // The spacer was `<span aria-hidden="true" />`; it now carries the mark and
-    // drops aria-hidden only when there is one to announce.
+  it('★★ the mark rides BESIDE the type control, not in a field of its own', () => {
+    // ★★★ fix-572 §C — THE SPACER IS GONE BECAUSE THE GRID IS. fix-449 put
+    //     the mark inside an existing `<span aria-hidden="true" />` so the
+    //     matrix reserved no new track for it, and dropped `aria-hidden` only
+    //     when there was something to announce. There are no tracks now: the
+    //     Type control and its mark are one flex pair inside the `label`
+    //     field, so the mark costs nothing by construction rather than by
+    //     arithmetic.
     //
-    // ★ fix-486 added a SECOND mark in the same slot ("needs a type"), which is
-    //   why the condition is a disjunction. Still one span, still no new track.
+    // ★ THE ANNOUNCEMENT SURVIVES THE SPACER, which is the half that mattered
+    //   — each mark carries its own `title`, so what it means is readable on
+    //   hover instead of hidden behind an aria-hidden flip.
     expect(header).toContain('pd-unit-label-offlist');
     expect(header).toContain('pd-unit-label-needs-type');
-    expect(header).toMatch(
-      /aria-hidden=\{offListLabel \|\| needsType \? undefined : 'true'\}/,
+    expect(header).toContain(
+      'title="Not in the product-type list — kept exactly as stored"',
     );
+    expect(header).toContain("title=\"Needs a type — this is the wizard's placeholder");
   });
 
-  it('★★★ fix-486: the two marks are EXCLUSIVE — a row never draws both', () => {
-    // ★★★ Same slot, and the slot is one glyph wide. If both branches could
-    //     render, the Type column would grow and fix-422's measured geometry
-    //     would move — the exact cost §C3 exists to prevent. The ternary is
-    //     what makes it structural rather than incidental.
+  it('★★★ fix-486: the two marks are EXCLUSIVE — a type never draws both', () => {
+    // ★★★ THE RULING IS UNCHANGED, ONLY ITS REASON IS. §C3 made the branches
+    //     exclusive because the slot was one glyph wide and a second mark
+    //     would have grown the Type column, moving fix-422's measured
+    //     geometry. That geometry is retired — but two marks saying different
+    //     things about the same value at once is a CONTRADICTION, not just a
+    //     width, and that reason outlives the matrix.
     const slot = header.slice(
-      header.indexOf('aria-hidden={offListLabel || needsType'),
-      header.indexOf('pd-unit-label-offlist'),
+      header.indexOf('{needsType ? ('),
+      header.indexOf('pd-unit-label-readonly'),
     );
     expect(slot).toContain('{needsType ? (');
-    expect(slot).toContain(') : (');
+    expect(slot).toContain('offListLabel && (');
+    expect(slot.indexOf('pd-unit-label-needs-type')).toBeLessThan(
+      slot.indexOf('pd-unit-label-offlist'),
+    );
   });
 });

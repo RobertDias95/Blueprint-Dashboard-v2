@@ -163,14 +163,12 @@ interface Props {
   onSelect?: (permitId: number) => void;
   /** ★ fix-517 §E — the row's hover edit affordance. Opens Project Details →
    *  Permits, focused on this permit. */
-  onEditPermit?: (permitId: number) => void;
 }
 
 export default function ScheduleHealthTable({
   permits,
   redesignLabelByPermitId,
   onSelect,
-  onEditPermit,
 }: Props) {
   // fix-31: swap the placeholder "tasks" column for a reviewer rollup
   // chip backed by permit_cycle_reviewers. The hook returns every
@@ -490,7 +488,6 @@ export default function ScheduleHealthTable({
               model={m}
               activeHold={activeHold}
               onSelect={onSelect}
-              onEditPermit={onEditPermit}
             />
           ))}
         </tbody>
@@ -523,12 +520,10 @@ function Row({
   model,
   activeHold,
   onSelect,
-  onEditPermit,
 }: {
   model: PermitRowModel;
   activeHold: boolean;
   onSelect?: (permitId: number) => void;
-  onEditPermit?: (permitId: number) => void;
 }) {
   const {
     permit,
@@ -607,39 +602,28 @@ function Row({
             )}
             <LandUsePhaseBadge permit={permit} />
           </div>
-          {/* ★★★ fix-517 §E — THE EDIT AFFORDANCE, AND IT OPENS PROJECT
-              DETAILS. `QuickEditPermitModal` is DELETED: it and fix-514's
-              Permits tab edited the same six fields, which was the third
-              instance of that shape in one week (P-207, P-221). */}
-          {onEditPermit && (
-            <button
-              type="button"
-              onClick={(e) => {
-                e.stopPropagation();
-                onEditPermit(permit.id);
-              }}
-              className="flex-shrink-0 opacity-0 group-hover:opacity-100 focus:opacity-100 text-[11px] leading-none px-1 py-0.5 rounded border transition"
-              style={{
-                borderColor: 'var(--color-border)',
-                background: 'var(--color-surface)',
-                color: 'var(--color-dim)',
-              }}
-              title="Edit in Project Details"
-              aria-label={`Edit ${typeLabel} in Project Details`}
-              data-testid={`schedule-health-edit-${permit.id}`}
-            >
-              {/* ★★★ fix-519 §D (P-232) — THE GLYPH CARRIES THE NAVIGATION.
-                  fix-517 §E moved permit editing into Project Details and this
-                  control does the right thing — but a bare ✎ is the universal
-                  sign for EDIT IN PLACE, and Bobby still had to ask whether the
-                  rule had been broken. **When a ruling changes what a control
-                  does, the control's SIGN changes with it, or the ruling reads
-                  as broken.** The behaviour is untouched; only the promise is.
-                  ★ `✎↗` rather than a different icon: the pencil still says
-                    "this is where you edit", and the arrow says "not here". */}
-              ✎<span className="text-[9px] align-super" aria-hidden="true">↗</span>
-            </button>
-          )}
+          {/* ═══════════════════════════════════════════════════════════
+              ★★★ fix-572 §A (P-277) — THE ✎↗ HOVER GLYPH IS REMOVED
+              ═══════════════════════════════════════════════════════════
+
+              Bobby ruled it off by popup on 2026-09-15, together with the
+              redesign band's link.
+
+              ★★ WHAT WENT AND WHAT DID NOT. The affordance went; the
+                 DESTINATION did not. Project Details still opens from the
+                 header control and from `?data=permits` in the URL, and the
+                 Permits tab still focuses and rings a permit when `&focus=<id>`
+                 is present — fix-514 §C's deep link is untouched.
+
+              ⚠️ WHAT IS LOST, STATED SO IT IS A TRADE AND NOT AN ACCIDENT: the
+                 jump straight to THAT permit. Opening Project Details from the
+                 header lands on Site data, and finding the row is now a click
+                 on the Permits tab plus a scan. Nothing else.
+
+              ★ fix-519 §D's ruling — *"when a ruling changes what a control
+                does, the control's SIGN changes with it"* — is not reversed by
+                this. It was right about the glyph while the glyph existed; the
+                control is simply gone. */}
         </div>
       </td>
       {/* ★★★ 2. Permit Number — §B's new column, and it has THREE states.

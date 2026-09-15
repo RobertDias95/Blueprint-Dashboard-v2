@@ -13,6 +13,7 @@ import matrixSource from '../components/LibraryMatrix.tsx?raw';
 //     there, in the file that now holds it.
 import headerSource from '../components/ProjectDetail/ProjectDataEditors.tsx?raw';
 import attachmentsSource from '../components/ProjectDetail/ChatAttachments.tsx?raw';
+import overviewBoxesSource from '../components/ProjectDetail/ProjectOverviewBoxes.tsx?raw';
 import {
   formatLotFeet,
   formatLotPair,
@@ -20,7 +21,7 @@ import {
 } from '../lib/lotDimensions';
 import { sortLibraryRows, type LibraryRow } from '../lib/libraryHelpers';
 import { reuseContextLine } from '../components/wizard/reuseSourceHelpers';
-import { UNIT_ROW_COLUMNS } from '../lib/unitRowLayout';
+import { UNIT_CONFIG_FIELDS, unitFieldLabel } from '../lib/unitConfigFields';
 
 /** ★★ COMMENT-STRIPPED SOURCE. Every one of these files now EXPLAINS the thing
  *  this suite asserts is absent — "it read `n.toFixed(2)`", "there WAS an
@@ -372,19 +373,36 @@ describe('fix-411 §3 (P-053): the Units table header reads RD', () => {
   // reachable on hover AND on keyboard focus, so the header is two glyphs and
   // the meaning is one Tab away. That is strictly more than "Roof Deck" in full
   // offered, because the full words never explained anything either.
-  it('★★★ the header is "RD" again (fix-422), and it now carries its own meaning', () => {
-    const roofCol = UNIT_ROW_COLUMNS.find((c) => c.key === 'roof_deck')!;
-    expect(roofCol.header).toBe('RD');
+  it('★★★ the abbreviation is gone from every header, and the ruling holds', () => {
+    // ★★★ fix-572 §C — fix-411's RULING IS SATISFIED OUTRIGHT NOW, AND THE
+    //     "RD" HEADER IT ARGUED WITH NO LONGER EXISTS ON ANY SURFACE.
+    //
+    //     The three editions were all the same fight over one number: fix-411
+    //     shortened "Roof Deck" to "RD" at a 52px column; fix-412 restored the
+    //     words when the row bought 42px back; fix-422 abbreviated again at
+    //     26px. Every one of those is a WIDTH, and neither surviving surface
+    //     has that width any more — fix-507/508 TRANSPOSED the Overview
+    //     matrix (a row label reads left-to-right across the card), and
+    //     fix-572 §C replaced the modal's matrix with labelled blocks.
+    //
+    // ★★ SO BOTH LIVE SURFACES SAY THE WORDS, asserted here rather than
+    //    assumed, because "the constraint expired" is a claim about two files.
+    expect(unitFieldLabel('roof_deck')).toBe('Roof Deck');
+    expect(overviewBoxesSource).toContain("label: 'Roof deck'");
+
     // ★ The ambiguity fix-411 removed stays removed: no bare "Deck" anywhere.
-    expect(UNIT_ROW_COLUMNS.map((c) => c.header)).not.toContain('Deck');
-    // ★★ THE CURE FOR THE ABBREVIATION, asserted rather than assumed. Without
-    //    this, "RD" is fix-411's problem with fewer letters.
+    expect(UNIT_CONFIG_FIELDS.map((c) => c.label)).not.toContain('Deck');
+
+    // ★★ AND THE CURE FOR THE ABBREVIATION OUTLIVES IT. `RD` is still the
+    //    CELL glyph (`UnitParkingInputs.roofDeckCell`, PH / RD / N), which is
+    //    fix-422's opacity problem in miniature — so the plain-language
+    //    sentence that explains it is still required. Without this, "RD" is
+    //    fix-411's problem with fewer letters.
     // ★ fix-562 §A widened the sentence — the cell is `PH` / `RD` / `N` now,
-    //   so the tooltip has to say what those letters mean. fix-411's rule is
-    //   satisfied MORE completely, not less: the meaning is still one hover or
-    //   one Tab away, and there is more of it.
-    expect(roofCol.tooltip).toContain('Whether this type has a roof deck');
-    expect(roofCol.tooltip).toContain('roof deck');
+    //   so it has to say what those letters mean.
+    const roofCol = UNIT_CONFIG_FIELDS.find((c) => c.key === 'roof_deck')!;
+    expect(roofCol.hint).toContain('Whether this type has a roof deck');
+    expect(roofCol.hint).toContain('penthouse');
   });
 
   it('★★ no bare "Deck" label is left anywhere in that file', () => {

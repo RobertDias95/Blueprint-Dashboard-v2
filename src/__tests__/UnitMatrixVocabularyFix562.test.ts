@@ -34,7 +34,7 @@ import {
   type LibraryUnitRow,
 } from '../lib/libraryUnitRows';
 import { LIBRARY_UNIT_COLUMNS } from '../lib/libraryUnitColumns';
-import { UNIT_ROW_COLUMNS } from '../lib/unitRowLayout';
+import { UNIT_CONFIG_FIELDS } from '../lib/unitConfigFields';
 import {
   UNIT_FILTER_KEYS,
   SITE_FILTER_KEYS,
@@ -369,7 +369,7 @@ const SRC = [
   'src/lib/libraryHelpers.ts',
   'src/lib/libraryUnitColumns.ts',
   'src/lib/libraryUnitRows.ts',
-  'src/lib/unitRowLayout.ts',
+  'src/lib/unitConfigFields.ts',
   'src/lib/surfaceFilterPrefs.ts',
   'src/components/LibraryMatrix.tsx',
   'src/components/shared/UnitParkingInputs.tsx',
@@ -441,7 +441,7 @@ describe('fix-562 §A: STALLS / UNIT appears nowhere', () => {
     expect(UNIT_SORTABLE_COLUMNS as readonly string[]).not.toContain('stalls');
     expect(UNIT_FILTER_KEYS as readonly string[]).not.toContain('stalls');
     expect(SITE_FILTER_KEYS as readonly string[]).not.toContain('stalls');
-    expect(UNIT_ROW_COLUMNS.map((c) => c.key)).not.toContain('parking_stalls');
+    expect(UNIT_CONFIG_FIELDS.map((c) => c.key)).not.toContain('parking_stalls');
   });
 
   it('★★ `lib/unitParking` is deleted, not left as scenery', () => {

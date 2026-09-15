@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
-import { render, screen, fireEvent } from '@testing-library/react';
+import { render, screen } from '@testing-library/react';
 import { MemoryRouter, Route, Routes } from 'react-router-dom';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { useAuthStore } from '../stores/authStore';
@@ -81,23 +81,15 @@ vi.mock('../components/ProjectDetail/ProjectDetailHeader', () => ({
 // ★ The table records what it was handed AND offers an edit control per row, so
 //   the save target is assertable without mounting the whole modal.
 vi.mock('../components/ProjectDetail/ScheduleHealthTable', () => ({
-  default: ({
-    permits,
-    onEditPermit,
-  }: {
-    permits: { id: number; type: string }[];
-    onEditPermit: (id: number) => void;
-  }) => (
+  // ★ fix-572 §A removed the table's ✎↗ and with it the `onEditPermit` prop,
+  //   so the stub records only what it was HANDED. The save target is asserted
+  //   through the deep link the ✎↗ used to write, which is still read.
+  default: ({ permits }: { permits: { id: number; type: string }[] }) => (
     <div data-testid="stub-permits-table" data-permit-ids={permits.map((p) => p.id).join(',')}>
       {permits.map((p) => (
-        <button
-          key={p.id}
-          type="button"
-          data-testid={`edit-permit-${p.type}`}
-          onClick={() => onEditPermit(p.id)}
-        >
+        <span key={p.id} data-testid={`permit-row-${p.type}`}>
           {p.type}
-        </button>
+        </span>
       ))}
     </div>
   ),
@@ -206,12 +198,22 @@ describe('fix-556 §B — the redesign renders the original’s permits, through
   });
 
   it('★★★ editing the ULS targets the ORIGINAL’s permit ID — not an address, not a copy', () => {
-    // ★★★ THE ASSERTION THE TICKET TURNS ON. These are the original's rows, so
-    //     the id the editor opens on must be the original's ULS id. If §B ever
-    //     becomes a copy, this is the test that fails.
-    renderPage(REDESIGN);
-    fireEvent.click(screen.getByTestId('edit-permit-ULS'));
+    // ★★★ THE ASSERTION THE TICKET TURNS ON, AND IT IS UNCHANGED. These are
+    //     the original's rows, so the id the editor opens on must be the
+    //     original's ULS id. If §B ever becomes a copy, this is the test that
+    //     fails.
+    //
+    // ★★ fix-572 §A CHANGED HOW IT IS DRIVEN, NOT WHAT IT CLAIMS. The click used
+    //    to come from the table's ✎↗, which Bobby ruled off; the parameter that
+    //    glyph wrote (`?data=permits&focus=<id>`) is still READ, so the same
+    //    claim is made through the address instead of through the button.
+    renderPage(REDESIGN, `?data=permits&focus=${ULS_ID}`);
     expect(refs.editedPermitIds).toContain(ULS_ID);
+    // ★ …and the id really is the ORIGINAL's, not one minted for the redesign.
+    expect(ORIGINAL_PERMITS.map((p) => p.id)).toContain(ULS_ID);
+    expect(
+      screen.getByTestId('stub-permits-table').getAttribute('data-permit-ids'),
+    ).toContain(String(ULS_ID));
   });
 
   it('★★★ `?permit=<the original’s ULS>` resolves — fix-421’s quick-edit trap, closed', () => {
