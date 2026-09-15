@@ -233,10 +233,13 @@ describe('fix-403 §2: Previous goes back where you came from', () => {
     });
   });
 
-  it('★★★ from the Pipeline, back to the Pipeline', () => {
+  // ★ fix-554 §B: the page is called Projects now. The ORIGIN KEY is still
+  //   `PREVIOUS_ORIGINS.pipeline` — it is a router-state value, not a word
+  //   anybody reads, and §C keeps keys at their current spelling.
+  it('★★★ from the landing page, back to the landing page', () => {
     expect(previousTarget({ from: PREVIOUS_ORIGINS.pipeline })).toEqual({
       to: '/dashboard',
-      label: '← Pipeline',
+      label: '← Projects',
     });
   });
 
@@ -285,7 +288,7 @@ describe('fix-403 §2: Previous goes back where you came from', () => {
     expect(librarySource).toContain('<OriginLink');
     expect(addrGroupSource).toContain('<OriginLink');
     expect(previousTarget({ from: PREVIOUS_ORIGINS.library }).label).toBe('← Library');
-    expect(previousTarget({ from: PREVIOUS_ORIGINS.pipeline }).label).toBe('← Pipeline');
+    expect(previousTarget({ from: PREVIOUS_ORIGINS.pipeline }).label).toBe('← Projects');
   });
 
   it('★★ the chrome renders the resolved target, not a hardcoded /projects', () => {

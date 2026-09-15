@@ -408,11 +408,14 @@ describe('fix-313 #64: the tool is Blueprint Bridge', () => {
 // ---------------------------------------------------------------------------
 
 describe('fix-313 #63/#65: only the landing page is renamed', () => {
-  it('the ribbon calls the landing page Pipeline, on the unchanged route', () => {
+  // ★★★ fix-554 §B (P-262) — the label is 'Projects' now. fix-313's RULING is
+  //     what this test is really about and it is UNCHANGED: the landing page is
+  //     renamed and the ROUTE is not. This is the second rename on one path.
+  it('the ribbon calls the landing page Projects, on the unchanged route', () => {
     const pipeline = RIBBON_ENTRIES.find(
       (e) => e.kind === 'link' && e.link.to === '/dashboard',
     );
-    expect(pipeline!.kind === 'link' && pipeline!.link.label).toBe('Pipeline');
+    expect(pipeline!.kind === 'link' && pipeline!.link.label).toBe('Projects');
     // ★ Route unchanged — the fix-310 discipline. A rename is a label.
     expect(routerSrc).toContain("path: 'dashboard'");
   });

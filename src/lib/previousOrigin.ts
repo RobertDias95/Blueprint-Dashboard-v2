@@ -173,7 +173,10 @@ export function clearPaneScroll(): void {
 // the ribbon, applied to the same problem in a different place.
 const PAGE_LABELS: ReadonlyArray<{ match: RegExp; label: string }> = [
   // — the daily destinations —
-  { match: /^\/dashboard(?:\?|$)/, label: 'Pipeline' },
+  // ★ fix-554 §B: was 'Pipeline'. This list takes its name FROM THE RIBBON
+  //   (see the header above), so it moves with `ribbonNav`'s label — this is
+  //   the "← Pipeline" button in the permit view's top-left.
+  { match: /^\/dashboard(?:\?|$)/, label: 'Projects' },
   { match: /^\/draw-schedule(?:\?|$)/, label: 'Draw Schedule' },
   // ★ The board's three tabs read as three pages, because that is what they are
   //   to the person clicking. `?tab=tasks` and `/notifications` are separate

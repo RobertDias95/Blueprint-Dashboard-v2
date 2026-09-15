@@ -114,7 +114,7 @@ describe('<Chrome /> fix-313 the Blueprint Bridge shell', () => {
     // ★ fix-345 §4, the FIFTH: SharePoint moved up under Reports, so the tier
     // below the rule is the two administrative entries again.
     expect(ribbonLabels()).toEqual([
-      'Pipeline',
+      'Projects',
       'Draw Schedule',
       'My Board',
       // ★★★ fix-483 §C (P-138), the EIGHTH reorder: Agenda LEFT this tier for
@@ -269,7 +269,7 @@ describe('<Chrome /> fix-313 the Blueprint Bridge shell', () => {
     // document site from almost the whole company. The entry type carries no
     // adminOnly flag at all, so it cannot acquire one by accident.
     expect(ribbonLabels()).toEqual([
-      'Pipeline',
+      'Projects',
       'Draw Schedule',
       'My Board',
       // ★★★ fix-462: AGENDA IS DELIBERATELY ABSENT HERE, and this is the
@@ -304,11 +304,13 @@ describe('<Chrome /> fix-313 the Blueprint Bridge shell', () => {
     expect(screen.queryByTestId('ribbon-link-/my-tasks')).toBeNull();
   });
 
-  // ★ fix-313 #63: the landing page is Pipeline. The ROUTE is unchanged.
-  it('★ the landing entry reads Pipeline and still points at /dashboard', () => {
+  // ★ fix-313 #63: the landing page is renamed; the ROUTE is unchanged.
+  // ★★★ fix-554 §B: and renamed again, Pipeline → Projects. Same rule, second
+  //     application — `/dashboard` has survived both.
+  it('★ the landing entry reads Projects and still points at /dashboard', () => {
     renderIt();
     const pipeline = screen.getByTestId('ribbon-link-/dashboard');
-    expect(pipeline.textContent).toMatch(/Pipeline/);
+    expect(pipeline.textContent).toMatch(/Projects/);
     expect(ribbonLabels()).not.toContain('Dashboard');
   });
 
