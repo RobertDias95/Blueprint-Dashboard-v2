@@ -47,7 +47,8 @@ const LIBRARY_NS = 'library.filters';
  *  and match nothing forever. */
 const VIEWS = ['site', 'unit'] as const;
 const CORNERS = ['', 'Yes', 'No'] as const;
-const STORIES = ['', '1', '2', '3', '4+'] as const;
+// ★ fix-571 §A: the `STORIES` tier list left with `matchStoriesTier` — the
+//   vocabulary is `app_config.storiesOptions` now.
 
 export function loadLibraryFilters(
   userId: string | null | undefined,
@@ -88,7 +89,17 @@ export function loadLibraryFilters(
       productTypes: strArray(o.productTypes),
       juris: str(o.juris),
       isCornerLot: oneOf(o.isCornerLot, CORNERS, ''),
-      stories: oneOf(o.stories, STORIES, ''),
+      // ★★★ fix-571 §A: `stories` JOINS ITS TWO SIBLINGS AS A PLAIN STRING.
+      //     It was `oneOf(o.stories, STORIES, '')` while the tier list lived in
+      //     the code; the vocabulary is `app_config.storiesOptions` now, which
+      //     this module is synchronous and pre-auth and cannot read.
+      //
+      // ★★ Safe for the reason given below for the other two: matching is label
+      //    equality, not a `switch`, so a stored `4+` from a pre-fix-571 blob
+      //    matches no unit rather than throwing — and the control APPENDS it,
+      //    so the person sees `4+` selected and can clear it instead of reading
+      //    a blank select that claims "Any".
+      stories: str(o.stories),
       // ★★★ fix-562 §A — THESE TWO ARE REGISTRY LABELS NOW, SO THEY DECODE AS
       //     STRINGS. fix-402 validated them against a closed union here, which
       //     was right while the vocabulary lived in the code; it lives in

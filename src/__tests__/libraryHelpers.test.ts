@@ -4,7 +4,6 @@ import {
   extractTags,
   filterLibraryRows,
   matchingUnitIndices,
-  matchStoriesTier,
   matchTargetWithBuffer,
   pickBpForProject,
   isSortableColumn,
@@ -14,6 +13,7 @@ import {
   type LibraryFilters,
   type LibraryRow,
 } from '../lib/libraryHelpers';
+import { matchStoriesOption } from '../lib/unitVocabulary';
 import type { PermitWithCycles, Project } from '../lib/database.types';
 
 // Q6.3.a: helper tests for the Library matrix. matchRange semantics are
@@ -451,12 +451,16 @@ describe('fix-205: stories filter', () => {
       numLots: null,
       tags: [],
       stage: 'de',
+      // ★ fix-571 §A: `basement` joins the fixture, because the STORIES filter
+      //   now asks for a composed label (`3` vs `3+B`) and a fixture that never
+      //   sets the modifier could not tell the two apart.
       unitTypes: stories.map((s, i) => ({
         label: `Type ${i}`,
         width_ft: null,
         depth_ft: null,
         qty: 1,
         stories: s,
+        basement: false,
       })),
       isCornerLot: null,
       isRegularShape: null,
@@ -464,44 +468,67 @@ describe('fix-205: stories filter', () => {
     };
   }
 
-  describe('matchStoriesTier', () => {
+  // =========================================================================
+  // ★★★ fix-571 §A (P-276) — THE TIER IS GONE; THE COLUMN FILTERS BY VALUE
+  // =========================================================================
+  //
+  // Bobby, 2026-09-15: *"i figured, in the unit stories, it would show 1, 1+b,
+  // 2, 2+B, etc."* `matchStoriesTier` is replaced by
+  // `unitVocabulary.matchStoriesOption`, which is the same shape as its two
+  // siblings — three columns, three registries, one way of matching.
+  //
+  // ★★ WHAT THE TIER COULD DO AND THIS CANNOT, said rather than dropped: `4+`
+  //    matched an OPEN-ENDED range, so a 5-storey unit was findable without
+  //    anybody adding `5` to the registry. It is findable by adding `5` in
+  //    Settings now — the trade fix-232's rule makes everywhere, and the
+  //    registry is shape-decoded so it costs no deploy (asserted in the
+  //    fix-571 suite).
+  describe('matchStoriesOption', () => {
     it("'' matches anything (incl. null)", () => {
-      expect(matchStoriesTier(null, '')).toBe(true);
-      expect(matchStoriesTier(3, '')).toBe(true);
+      expect(matchStoriesOption(null, null, '')).toBe(true);
+      expect(matchStoriesOption(3, false, '')).toBe(true);
     });
-    it('exact tiers 1–3 require an equal, non-null stories', () => {
-      expect(matchStoriesTier(2, '2')).toBe(true);
-      expect(matchStoriesTier(3, '2')).toBe(false);
-      expect(matchStoriesTier(null, '2')).toBe(false);
+    it('a picked value requires an equal, non-null storey count', () => {
+      expect(matchStoriesOption(2, false, '2')).toBe(true);
+      expect(matchStoriesOption(3, false, '2')).toBe(false);
+      expect(matchStoriesOption(null, null, '2')).toBe(false);
     });
-    it("'4+' matches 4 or more", () => {
-      expect(matchStoriesTier(4, '4+')).toBe(true);
-      expect(matchStoriesTier(6, '4+')).toBe(true);
-      expect(matchStoriesTier(3, '4+')).toBe(false);
+    it('★★★ `3` does NOT match `3+B` — the whole ruling, in one line', () => {
+      expect(matchStoriesOption(3, false, '3')).toBe(true);
+      expect(matchStoriesOption(3, true, '3')).toBe(false);
+      expect(matchStoriesOption(3, true, '3+B')).toBe(true);
+      expect(matchStoriesOption(3, false, '3+B')).toBe(false);
+    });
+    it('★ there is no `4+` any more — an open-ended tier is not a value', () => {
+      expect(matchStoriesOption(6, false, '4+')).toBe(false);
+      expect(matchStoriesOption(4, false, '4')).toBe(true);
     });
   });
 
-  it('filters projects to those with a unit at the picked stories tier', () => {
+  it('filters projects to those with a unit at the picked stories value', () => {
     const rows = [mkRow('a', [2, 3]), mkRow('b', [1]), mkRow('c', [4])];
     expect(
       filterLibraryRows(rows, { ...EMPTY_FILTERS, stories: '3' }).map((r) => r.projectId),
     ).toEqual(['a']);
     expect(
-      filterLibraryRows(rows, { ...EMPTY_FILTERS, stories: '4+' }).map((r) => r.projectId),
+      filterLibraryRows(rows, { ...EMPTY_FILTERS, stories: '4' }).map((r) => r.projectId),
     ).toEqual(['c']);
+    // ★ A registry value nothing is stored as returns nothing — it does not
+    //   throw, which is the difference from a stored SORT column (fix-406).
+    expect(filterLibraryRows(rows, { ...EMPTY_FILTERS, stories: '4+' })).toEqual([]);
   });
 
-  it('a project whose units have no stories drops out when a tier is picked', () => {
+  it('a project whose units have no stories drops out when a value is picked', () => {
     const rows = [mkRow('a', [null, null])];
     expect(filterLibraryRows(rows, { ...EMPTY_FILTERS, stories: '2' })).toHaveLength(0);
     // …but stays under "Any".
     expect(filterLibraryRows(rows, { ...EMPTY_FILTERS, stories: '' })).toHaveLength(1);
   });
 
-  it('matchingUnitIndices highlights only the units at the tier', () => {
+  it('matchingUnitIndices returns only the units at the picked value', () => {
     const row = mkRow('a', [2, 4, 4]);
-    expect(matchingUnitIndices(row, { ...EMPTY_FILTERS, stories: '4+' })).toEqual([1, 2]);
-    // No tier → all indices.
+    expect(matchingUnitIndices(row, { ...EMPTY_FILTERS, stories: '4' })).toEqual([1, 2]);
+    // No value → all indices.
     expect(matchingUnitIndices(row, EMPTY_FILTERS)).toEqual([0, 1, 2]);
   });
 });

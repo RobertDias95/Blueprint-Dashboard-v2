@@ -577,10 +577,13 @@ describe('<LibraryMatrix />', () => {
       expect(cell.textContent).not.toMatch(/unnamed/i);
     });
 
-    it('Stories filter = 4+ narrows to projects with a 4+-story unit; the UNIT view highlights it', () => {
+    it('Stories filter = 4 narrows to projects with a 4-story unit; the UNIT view shows only it', () => {
+      // ★★★ fix-571 §A: the tier `4+` is gone — the filter offers the eight
+      //     `app_config.storiesOptions` values and `4` is one of them. The
+      //     claim this test makes is unchanged; only the option name is.
       renderIt();
       fireEvent.change(screen.getByTestId('filter-stories'), {
-        target: { value: '4+' },
+        target: { value: '4' },
       });
       // Project a has the 4-story unit (a-3); b's SFR is 3, c has no units.
       expect(screen.getByTestId('library-row-a')).toBeInTheDocument();

@@ -73,7 +73,7 @@ describe('fix-403 §1: the Library round-trips its whole filter shape', () => {
       unitwTarget: 20, unitwBuf: 1, unitdTarget: 42, unitdBuf: 3, unitsizeTarget: null, unitsizeBuf: 100,
       zone: 'NR3', alley: 'Yes', productTypes: ['Townhouse', 'Cottages'],
       juris: 'Seattle',
-      isCornerLot: 'Yes', stories: '3',
+      isCornerLot: 'Yes', stories: '3+B',
       parkingKind: '2-car garage', roofDeck: 'W/ PH',
     };
     saveLibraryFilters(USER, full);
@@ -90,7 +90,7 @@ describe('fix-403 §1: the Library round-trips its whole filter shape', () => {
       view: 'site' as const,
       zone: 'kept',
       parkingKind: 'carport', // retired / never existed
-      stories: '9',
+      stories: '4+', // a tier that existed until fix-571
       isCornerLot: 'Maybe',
     });
     const out = loadLibraryFilters(USER, LIB_DEFAULT)!;
@@ -98,7 +98,6 @@ describe('fix-403 §1: the Library round-trips its whole filter shape', () => {
     //   so a field that still exists carries the claim — which is unchanged:
     //   one bad key costs THAT field, not the panel.
     expect(out.zone).toBe('kept');
-    expect(out.stories).toBe('');
     expect(out.isCornerLot).toBe('');
 
     // ★★★ fix-562 §A — `parkingKind` DELIBERATELY DOES **NOT** FALL BACK, and
@@ -115,6 +114,14 @@ describe('fix-403 §1: the Library round-trips its whole filter shape', () => {
     //    person can SEE what they are filtering by and clear it, rather than
     //    reading a blank select that claims "Any".
     expect(out.parkingKind).toBe('carport');
+    // ★★★ fix-571 §A — `stories` JOINED THEM, and the same reasoning applies:
+    //     it was `oneOf(o.stories, STORIES, '')` while the tier list lived in
+    //     the code, and the vocabulary is `app_config.storiesOptions` now.
+    //     A blob written before fix-571 restores its `4+` verbatim, matches no
+    //     unit, and is SHOWN in the control (the FilterSelect appends an
+    //     off-registry value) so the person can see it and clear it — rather
+    //     than reading a blank select that claims "Any".
+    expect(out.stories).toBe('4+');
   });
 
   it('★★ a buffer keeps the panel DEFAULT when unreadable, never 0', () => {

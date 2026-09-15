@@ -38,7 +38,6 @@ import { UNIT_ROW_COLUMNS } from '../lib/unitRowLayout';
 import {
   UNIT_FILTER_KEYS,
   SITE_FILTER_KEYS,
-  matchStoriesTier,
   matchingUnitIndices,
   type LibraryFilters,
   type LibraryRow,
@@ -223,11 +222,26 @@ describe('fix-562 §A: the parts are stored, and THIS is why', () => {
     ).toEqual(['2-car garage', '10-car garage', 'Surface / None', NOT_RECORDED]);
   });
 
-  it('★★★ FILTERING BY 3 RETURNS BOTH `3` AND `3+B`', () => {
-    // ★★★ THE OTHER HALF OF THE SAME DECISION: *"every 3-storey unit"* is ONE
-    //     question. Stated in the PR in case Bobby wants them separately — it
-    //     would be two more options on the Stories filter and nothing else.
-    expect(matchStoriesTier(3, '3')).toBe(true);
+  it('★★★ SUPERSEDED BY fix-571 §A: filtering by 3 returns ONLY `3`', () => {
+    // ★★★ THIS ASSERTION USED TO READ `[0, 1]`, AND fix-562 FLAGGED IT.
+    //
+    //     It said: *"every 3-storey unit is ONE question — stated in the PR in
+    //     case Bobby wants them separately; it would be two more options on the
+    //     Stories filter and nothing else."* He wanted them separately
+    //     (2026-09-15: *"i figured, in the unit stories, it would show 1, 1+b,
+    //     2, 2+B, etc."*), and it was two more options and nothing else.
+    //
+    // ★★ SUPERSEDED, NOT MISTAKEN (fix-400's rule). The old expectation is
+    //    quoted above rather than deleted, so the reversal is a decision on the
+    //    record and not a test that quietly changed sign.
+    //
+    // ★★★ AND THE SECTION THIS TEST LIVES IN IS UNTOUCHED, WHICH IS THE POINT.
+    //     *"The parts are stored, and THIS is why"* rested on TWO benefits;
+    //     Bobby has spent the second one. The FIRST — the numeric sort, asserted
+    //     directly above — is why `stories` is still an int and `basement`
+    //     still a bool, and it is what made fix-571 a two-line change instead
+    //     of a re-storage. A ruling changing does not make the reasoning behind
+    //     the other half wrong.
     const row = {
       projectId: 'p',
       unitTypes: [
@@ -236,8 +250,8 @@ describe('fix-562 §A: the parts are stored, and THIS is why', () => {
         unit({ stories: 2, basement: false }),
       ],
     } as unknown as LibraryRow;
-    const filters = { ...BASE, stories: '3' as const };
-    expect(matchingUnitIndices(row, filters)).toEqual([0, 1]);
+    expect(matchingUnitIndices(row, { ...BASE, stories: '3' })).toEqual([0]);
+    expect(matchingUnitIndices(row, { ...BASE, stories: '3+B' })).toEqual([1]);
   });
 
   it('★★ every member of UNIT_SORTABLE_COLUMNS still sorts without throwing', () => {
