@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { readFileSync, readdirSync, statSync } from 'node:fs';
+import { readFileSync, readdirSync } from 'node:fs';
 import { resolve, join } from 'node:path';
 
 // ===========================================================================
@@ -240,9 +240,15 @@ describe('fix-547 §C — the census runs on a rule, not on memory', () => {
   it('★★ …and no src/ file resurrects one either', () => {
     const offenders: string[] = [];
     const walk = (d: string) => {
-      for (const e of readdirSync(d)) {
+      // ★★ fix-550: `withFileTypes` rather than a `statSync` per entry — one
+      //    syscall instead of two for every file under src/. This walk is
+      //    I/O-bound and grows with the repo; under full-suite parallelism it
+      //    had started tipping past vitest's 5s default. Same traversal, same
+      //    assertion — only the syscall count changed.
+      for (const ent of readdirSync(d, { withFileTypes: true })) {
+        const e = ent.name;
         const full = join(d, e);
-        if (statSync(full).isDirectory()) walk(full);
+        if (ent.isDirectory()) walk(full);
         else if (/\.tsx?$/.test(e) && !/Fix547|Fix545|Fix498/.test(e)) {
           const body = readFileSync(full, 'utf8')
             .split(/\r?\n/)

@@ -299,7 +299,14 @@ describe('<ProjectDetail /> fix-217 permit deep-link', () => {
         screen.getByTestId('stub-permit-detail-v2').getAttribute('data-permit-id'),
       ).toBe('2');
       // And the detail pane was scrolled into view.
-      expect(scrollSpy).toHaveBeenCalled();
+      // ★★ AMENDED BY fix-550 §B, RULING UNCHANGED. fix-217's rule is *"the
+      //    deep-linked permit's pane is brought into view"*, and it still is —
+      //    by the better mechanism. fix-550 made every selection scroll, and
+      //    it scrolls the PANEL (`pd-right-pillbox`, the one `overflow-y-auto`
+      //    element on a fixed-viewport shell) rather than asking the browser to
+      //    find a scrollable ancestor. So the deep link no longer reaches
+      //    `scrollIntoView`; the panel is at the top either way.
+      expect(screen.getByTestId('pd-right-pillbox').scrollTop).toBe(0);
     } finally {
       (Element.prototype as { scrollIntoView?: unknown }).scrollIntoView = orig;
     }
@@ -345,7 +352,14 @@ describe('<ProjectDetail /> fix-218 deep-link after async permit load', () => {
     expect(
       screen.getByTestId('stub-permit-detail-v2').getAttribute('data-permit-id'),
     ).toBe('2');
-    expect(scrollSpy).toHaveBeenCalled();
+    // ★★ AMENDED BY fix-550 §B, RULING UNCHANGED. fix-217's rule is *"the
+    //    deep-linked permit's pane is brought into view"*, and it still is —
+    //    by the better mechanism. fix-550 made every selection scroll, and
+    //    it scrolls the PANEL (`pd-right-pillbox`, the one `overflow-y-auto`
+    //    element on a fixed-viewport shell) rather than asking the browser to
+    //    find a scrollable ancestor. So the deep link no longer reaches
+    //    `scrollIntoView`; the panel is at the top either way.
+    expect(screen.getByTestId('pd-right-pillbox').scrollTop).toBe(0);
   });
 
   it('a manual "← Back to overview" after a deep-link is not re-forced (applied once)', () => {
@@ -435,7 +449,14 @@ describe('<ProjectDetail /> fix-219 type-robust permit deep-link', () => {
     expect(
       screen.getByTestId('stub-permit-detail-v2').getAttribute('data-permit-id'),
     ).toBe('223');
-    expect(scrollSpy).toHaveBeenCalled();
+    // ★★ AMENDED BY fix-550 §B, RULING UNCHANGED. fix-217's rule is *"the
+    //    deep-linked permit's pane is brought into view"*, and it still is —
+    //    by the better mechanism. fix-550 made every selection scroll, and
+    //    it scrolls the PANEL (`pd-right-pillbox`, the one `overflow-y-auto`
+    //    element on a fixed-viewport shell) rather than asking the browser to
+    //    find a scrollable ancestor. So the deep link no longer reaches
+    //    `scrollIntoView`; the panel is at the top either way.
+    expect(screen.getByTestId('pd-right-pillbox').scrollTop).toBe(0);
   });
 });
 

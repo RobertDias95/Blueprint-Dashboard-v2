@@ -356,6 +356,12 @@ function HeaderStrip({
   const updateMutation = useUpdatePermit();
   const occMissing = !permit.updated_at;
   const [statusDraft, setStatusDraft] = useState(permit.status ?? '');
+  // ★★ fix-550 §A: TRIMMED, not just `?? null`. There are 0 empty-string
+  //    `portal_url` values on prod today (99 null · 587 real, measured
+  //    2026-09-14) — but nothing stops the scraper writing one, and an empty
+  //    href renders an anchor that navigates to the current page. The guard
+  //    costs one call and removes the whole class.
+  const portalUrl = (permit.portal_url ?? '').trim() || null;
 
   async function commitField<K extends keyof Permit>(
     field: K,
@@ -462,18 +468,57 @@ function HeaderStrip({
           {NOT_TRACKED_LABEL}
         </span>
       )}
-      {permit.num && (
-        <span
-          className="text-[10px] font-mono px-2 py-1 rounded border"
-          style={{
-            color: 'var(--color-muted)',
-            borderColor: 'var(--color-border)',
-            background: 'var(--color-s2)',
-          }}
-        >
-          {permit.num}
-        </span>
-      )}
+      {/* ★★★ fix-550 §A (P-256 §1) — THE NUMBER IS THE WAY OUT TO THE PORTAL.
+          Bobby's screenshot is `26 108972 BS`, which has had a `portal_url` in
+          its row the whole time — this badge just never used it, so the one
+          place somebody reads a permit in full was the one place the number
+          was inert.
+
+          ★★★ THE URL IS READ, NEVER CONSTRUCTED. Measured prod 2026-09-14:
+              686 permits · 660 with a number · **587 with a portal_url** · 73
+              with a number and no URL (Seattle 66 · Phoenix 4 · Scottsdale 2 ·
+              Kirkland 1). Jurisdictions differ, and a constructed Seattle URL
+              that 404s is worse than plain text.
+
+          ★★ THE 73 RENDER EXACTLY AS THEY DO NOW — same number, same weight, no
+             anchor, no "N/A". A link that goes nowhere teaches people to stop
+             clicking the ones that work.
+
+          ★ The shape is `ScheduleHealthTable`'s, which has linked this same
+            number since fix-65: `text-de`, a trailing ↗, `title` on both
+            branches. One vocabulary for "this opens the portal", not a second. */}
+      {permit.num &&
+        (portalUrl ? (
+          <a
+            href={portalUrl}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="text-[10px] font-mono px-2 py-1 rounded border hover:underline"
+            style={{
+              color: 'var(--color-de)',
+              borderColor: 'var(--color-border)',
+              background: 'var(--color-s2)',
+            }}
+            title="Open city portal"
+            aria-label={`Open ${permit.num} in city portal (new tab)`}
+            data-testid="pd-v2-portal-link"
+          >
+            {permit.num} ↗
+          </a>
+        ) : (
+          <span
+            className="text-[10px] font-mono px-2 py-1 rounded border"
+            style={{
+              color: 'var(--color-muted)',
+              borderColor: 'var(--color-border)',
+              background: 'var(--color-s2)',
+            }}
+            title="No portal URL on file"
+            data-testid="pd-v2-num"
+          >
+            {permit.num}
+          </span>
+        ))}
       {/* fix-159: pending-portal-change chip — surfaces when the scraper's
           manual-edit guard has been blocking a known portal status change. */}
       <PendingScrapeChip extras={permit.extras} permitId={permit.id} />
