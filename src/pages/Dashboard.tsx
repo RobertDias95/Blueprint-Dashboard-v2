@@ -7,7 +7,6 @@ import { useNumberEntrySweep } from '../hooks/useNumberEntrySweep';
 import { useCityChaseSweep } from '../hooks/useCityChaseSweep';
 import {
   bucketPermits,
-  hideIssuedAtAddress,
   type BucketInput,
 } from '../lib/permitStage';
 import { cardUrgency } from '../lib/urgencyHelpers';
@@ -556,8 +555,34 @@ export default function Dashboard() {
       }
     }
 
-    const hide = hideIssuedAtAddress(filteredInputs, projectIdToAddress);
-    const visible = filteredInputs.filter((b) => !hide.has(b.permit.id));
+    // ═══════════════════════════════════════════════════════════════════
+    // ★★★ fix-552 §A (P-258) — THE BOARD KEEPS WHAT IT ISSUED
+    // ═══════════════════════════════════════════════════════════════════
+    //
+    // `hideIssuedAtAddress` stood here and removed every card at an address
+    // once ALL of its permits were issued — v1's rule, carried since
+    // index.html:2602. A finished project simply left the board.
+    //
+    // ★★★ IT WAS THE ONE PLACE THE BOARD DECIDED THIS, which is why the
+    //     change is one line: the buckets, the counts, fix-383's distribution
+    //     and every filter already worked on the full set and had the issued
+    //     cards taken away from them at the end.
+    //
+    // ★★★ MEASURED ON PROD 2026-09-15, by the board's OWN rule (every permit
+    //     at the address reading `effectiveStage === 'is'`): **81 projects,
+    //     196 permits** come back. Not the 76 a status list would give —
+    //     `TERMINAL_ISSUED_STATUSES` counts `Approved` and `Conceptually
+    //     Approved`, and a sub-permit short-circuits to `is` (fix-194). The
+    //     board's definition was already written; this ticket did not get to
+    //     invent a second one.
+    //
+    // ★★ AND NOTHING IS ARCHIVED TO MAKE THIS WORK. `projects.archived` is
+    //    false on all 221 rows and is NOT what removed them — this line was.
+    //
+    // ★ The Issued column has been collapsed-by-default and per-user
+    //   remembered since fix-324b (register #68), so 81-and-growing does not
+    //   crowd the four live columns and no second view-state store was added.
+    const visible = filteredInputs;
 
     // =====================================================================
     // ★★★ fix-525 §C (P-242 + P-179) — THE PIPELINE READS THE **DERIVATION**,
@@ -1450,9 +1475,46 @@ function SubBucketGroups({
         urgency: u,
       });
     }
-    // Red → Yellow → OK; within same urgency, alpha by address.
+    // ═══════════════════════════════════════════════════════════════════
+    // ★★★ fix-552 §A — THE ISSUED COLUMN READS NEWEST-ISSUED-FIRST
+    // ═══════════════════════════════════════════════════════════════════
+    //
+    // Every other column is triage: Red → Yellow → OK, then alpha. **Issued is
+    // not triage.** Nothing in it is urgent — it is finished work — so urgency
+    // ranks it into one flat band and alphabetical order then buries last
+    // week's completion behind `10004 116th Ave NE`. Bobby asked for newest
+    // first, and it is the only ordering that answers the question this column
+    // is actually asked: *what have we finished lately?*
+    //
+    // ★★★ THE TIEBREAK, AND THE MEASUREMENT BEHIND IT: a group sorts on its
+    //     LATEST `actual_issue`. Measured prod 2026-09-15 — of the 81 fully
+    //     issued projects, **every one has at least one permit carrying a
+    //     date**, so **0 need the tiebreak today** (3 of their 196 permits lack
+    //     one, but never all of a project's). It exists for the case the data
+    //     can reach and today does not: a project issued by terminal STATUS
+    //     with no date at all. Those sort LAST, then alphabetically — never
+    //     interleaved among dated rows, where they would look like the oldest
+    //     completions rather than the undated ones.
     const urgRank = { red: 0, yellow: 1, ok: 2 } as const;
+    /** The group's newest issue date, or null when no permit carries one. */
+    const latestIssue = (e: { permits: Permit[] }): string | null => {
+      let out: string | null = null;
+      for (const p of e.permits) {
+        const d = p.actual_issue;
+        if (d && (out === null || d > out)) out = d;
+      }
+      return out;
+    };
     entries.sort((a, b) => {
+      if (stage === 'is') {
+        const da = latestIssue(a);
+        const db = latestIssue(b);
+        // ★ Undated last, in both directions, so the branch is total.
+        if (da === null && db !== null) return 1;
+        if (db === null && da !== null) return -1;
+        if (da !== null && db !== null && da !== db) return db.localeCompare(da);
+        return a.address.localeCompare(b.address);
+      }
       const ra = urgRank[a.urgency];
       const rb = urgRank[b.urgency];
       if (ra !== rb) return ra - rb;
