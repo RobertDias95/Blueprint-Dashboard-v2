@@ -141,6 +141,29 @@ export default function TaskCard({
           )}
         </div>
 
+        {/* ★★★ fix-559 §C (P-218 + P-257) — THE TASK'S NOTE, WHERE THE TASK IS.
+            27 notes have sat in `permit_tasks.notes` unreadable since fix-294
+            froze the column; this is the first surface that renders them.
+
+            ★★ ABSENT WHEN EMPTY. 1,783 of 1,810 tasks have no note — a "Notes"
+               label or a zero on every card would be a worse product than the
+               one this replaces. No note, no row, no height.
+            ★ `whitespace-pre-wrap` because one of the 27 is multi-line and ends
+              in a `S:\...` path. **Not linkified** — that is P-149, still queued.
+            ★ Clamped to three lines with the full text in `title`: a card is a
+              scanning surface, and the whole note is one click away in the
+              detail panel. */}
+        {(task.notes ?? '').trim() !== '' && (
+          <div
+            className="text-[10px] leading-snug mt-1 whitespace-pre-wrap line-clamp-3"
+            style={{ color: 'var(--color-muted)' }}
+            title={task.notes ?? undefined}
+            data-testid={`mytasks-note-${task.id}`}
+          >
+            {task.notes}
+          </div>
+        )}
+
         <div className="flex items-center gap-1.5 flex-wrap mt-0.5">
           {project && (
             <OriginLink

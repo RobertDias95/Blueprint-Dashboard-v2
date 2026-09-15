@@ -102,9 +102,8 @@ vi.mock('../components/ProjectDetail/ScheduleHealthTable', () => ({
     </div>
   ),
 }));
-vi.mock('../components/ProjectDetail/NotesPanel', () => ({
-  default: () => <div data-testid="stub-notes-panel" />,
-}));
+// ★ fix-559 §A: the NotesPanel mock went with the component. The permit/project
+//   notes surface no longer exists — a task carries its own note now.
 vi.mock('../components/ProjectDetail/ProjectDetailsModal', () => ({
   default: ({ initialFocusPermitId }: { initialFocusPermitId: number | null }) => {
     if (initialFocusPermitId != null) refs.editedPermitIds.push(initialFocusPermitId);

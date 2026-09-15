@@ -56,7 +56,6 @@ import {
 import CoAssigneeEditor from '../CoAssigneeEditor';
 import TargetSubmitBenchmarkNote from './TargetSubmitBenchmarkNote';
 import PrimaryAssigneeEditor from '../PrimaryAssigneeEditor';
-import NotesPanel from './NotesPanel';
 import TaskDateField from '../TaskDateField';
 import {
   nextCheckboxStatus,
@@ -325,10 +324,17 @@ export default function PermitDetailV2({ permit, project }: Props) {
             (c) => c.cycle_index >= 1 && c.corr_issued && !c.resubmitted,
           )}
           />
-          {/* fix-notes-1 / fix-notes-6: this permit's running notes log, now
-              directly under the task columns (was below the whole grid). Same
-              panel as the Project Overview holistic log, scoped by permit_id. */}
-          <NotesPanel projectId={permit.project_id} permitId={permit.id} />
+          {/* ★★★ fix-559 §A (P-218) — THE PERMIT'S RUNNING NOTES LOG IS GONE.
+              Bobby: *"remove the permit level note, we only need a tasks level
+              note. all permit and project level notes either live in the task
+              or can be managed in the chat."*
+              ★★ THIS WAS THE THIRD MOUNT, and the brief only knew of two — it
+                 asked for it to be named if it existed. It did: the permit
+                 detail carried the same `NotesPanel` as Project Overview and
+                 the My Tasks panel, scoped by `permit_id`.
+              ★ Every one of the 107 rows it rendered is already in the General
+                channel (fix-542, verified 107 of 107), so nothing it showed has
+                become unreachable — it moved one tab across. */}
         </div>
         <Sidebar
           permit={permit}
@@ -2701,6 +2707,42 @@ function TaskItem({
           </button>
         )}
       </div>
+      {/* ═════════════════════════════════════════════════════════
+          ★★★ fix-559 §C — THE TASK'S NOTE, ON THE ROW THE TASK IS ON
+          ═════════════════════════════════════════════════════════
+
+          This is the screen P-257 was about: *"when you are in the actual permit
+          view, there's no way to display those notes."* Now there is.
+
+          ★★ ABSENT WHEN EMPTY — 1,783 of 1,810 tasks have no note, so the row is
+             byte-for-byte what it was for all of them. No label, no zero count,
+             no extra height.
+          ★ Newlines preserved (`whitespace-pre-wrap`); one of the 27 is
+            multi-line and ends in a `S:` path. Not linkified — that is P-149.
+          ★ A read-only line here: the writer is the task detail panel, so there
+            is ONE writer and this cannot become a second way to edit the same
+            column from two shapes. */}
+      {(task.notes ?? '').trim() !== '' && (
+        <div
+          className="flex items-start gap-2 text-[10px] leading-snug"
+          style={{ paddingLeft: 16 }}
+          data-testid={`task-note-${task.id}`}
+        >
+          <span
+            className="font-bold uppercase tracking-wide flex-shrink-0"
+            style={{ color: 'var(--color-dim)' }}
+          >
+            Note
+          </span>
+          <span
+            className="whitespace-pre-wrap"
+            style={{ color: 'var(--color-muted)' }}
+            data-testid={`task-note-text-${task.id}`}
+          >
+            {task.notes}
+          </span>
+        </div>
+      )}
       {addingSub && !isSubtask && (
         <div className="flex items-center gap-2" style={{ paddingLeft: 16 }}>
           <input

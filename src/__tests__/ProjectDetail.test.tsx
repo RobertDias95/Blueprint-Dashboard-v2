@@ -137,9 +137,8 @@ vi.mock('../components/ProjectDetail/ScheduleHealthTable', () => ({
   default: () => <div data-testid="stub-schedule-health-table" />,
 }));
 
-vi.mock('../components/ProjectDetail/NotesPanel', () => ({
-  default: () => <div data-testid="stub-notes-panel" />,
-}));
+// ★ fix-559 §A: the NotesPanel mock went with the component. The permit/project
+//   notes surface no longer exists — a task carries its own note now.
 
 vi.mock('../components/ProjectDetail/ProjectSettingsModal', () => ({
   default: () => null,
@@ -599,13 +598,23 @@ describe('<ProjectDetail /> fix-277 Corrections section removed from the overvie
   // Phase and Project. ★ fix-309 #54 moves it back out: #55 makes that row one
   // equal-height band, so the hole is gone, and Notes reads better as one long
   // vertical bar under Schedule health. It is a direct child of this pane again.
-  it('notes IS a direct child of the overview pane, at the bottom', () => {
+  // ★★★ AMENDED BY fix-559 §A — THE NOTES CARD IS GONE FROM THIS PANE.
+  //     Bobby: *"remove the permit level note, we only need a tasks level note.
+  //     all permit and project level notes either live in the task or can be
+  //     managed in the chat."* fix-309 #54 had placed it at the bottom and that
+  //     was right while it existed; the surface itself is now ruled away.
+  //
+  // ★★ WHAT #54 ACTUALLY RULED SURVIVES AND IS STILL ASSERTED: Schedule health
+  //    sits DIRECTLY after the header, with nothing wedged between them. That
+  //    was the defect #54 fixed (fix-285 had put Notes in the header grid), and
+  //    it is what the second test still checks.
+  it('the notes card is gone from the overview pane (fix-559 §A)', () => {
     renderAt();
     const overview = screen.getByTestId('project-overview-pane');
-    expect(within(overview).getByTestId('stub-notes-panel')).toBeInTheDocument();
+    expect(within(overview).queryByTestId('stub-notes-panel')).toBeNull();
   });
 
-  it('schedule health sits directly after the header, then Notes below it', () => {
+  it('schedule health sits directly after the header', () => {
     renderAt();
     const overview = screen.getByTestId('project-overview-pane');
     const order = Array.from(overview.querySelectorAll('[data-testid]')).map((el) =>
@@ -613,12 +622,7 @@ describe('<ProjectDetail /> fix-277 Corrections section removed from the overvie
     );
     const header = order.indexOf('stub-project-header');
     const health = order.indexOf('stub-schedule-health-table');
-    const notes = order.indexOf('stub-notes-panel');
     expect(header).toBeGreaterThanOrEqual(0);
     expect(health).toBe(header + 1);
-    // ★ #54: BOTTOM. Not between the header and Schedule health, and not
-    // anywhere above it — after it, as the last thing on the overview.
-    expect(notes).toBe(health + 1);
-    expect(notes).toBe(order.length - 1);
   });
 });

@@ -79,9 +79,8 @@ vi.mock('../components/ProjectDetail/ProjectDetailHeader', () => ({
 vi.mock('../components/ProjectDetail/ScheduleHealthTable', () => ({
   default: () => <div data-testid="stub-schedule-health-table" />,
 }));
-vi.mock('../components/ProjectDetail/NotesPanel', () => ({
-  default: () => <div data-testid="stub-notes-panel" />,
-}));
+// ★ fix-559 §A: the NotesPanel mock went with the component. The permit/project
+//   notes surface no longer exists — a task carries its own note now.
 vi.mock('../components/ProjectDetail/ProjectDetailsModal', () => ({ default: () => null }));
 vi.mock('../components/ProjectDetail/DeleteProjectDialog', () => ({ default: () => null }));
 vi.mock('../components/ProjectDetail/DeleteRedesignDialog', () => ({

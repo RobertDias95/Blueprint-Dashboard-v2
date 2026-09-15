@@ -101,7 +101,6 @@ vi.mock('../hooks/useProjectConsultants', () => ({
 
 
 import ProjectDetailHeader from '../components/ProjectDetail/ProjectDetailHeader';
-import NotesPanel from '../components/ProjectDetail/NotesPanel';
 
 /** A project with every Site column populated — the fields §1 of the brief
  *  lists, with the values the mockup shows. */
@@ -354,20 +353,18 @@ const CARDS: Array<[string, string]> = [
 // health. It is still an OverviewCard and fix-290's contract still binds it —
 // it just is not reachable from renderHeader() any more, so it is rendered
 // standalone below rather than dropped from the suite.
-const NOTES_CARD: [string, string] = ['notes-panel', 'Notes'];
+// ★ fix-559 §A: `NOTES_CARD` went with the card it named.
 
-function renderNotes() {
-  const qc = new QueryClient({
-    defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
-  });
-  return render(
-    <QueryClientProvider client={qc}>
-      <MemoryRouter>
-        <NotesPanel projectId={PROJECT.id} variant="card" />
-      </MemoryRouter>
-    </QueryClientProvider>,
-  );
-}
+// ★★ AMENDED BY fix-559 §A, RULING UNCHANGED. `renderNotes` mounted the
+//    project Notes CARD, which Bobby has since ruled away: *"remove the permit
+//    level note, we only need a tasks level note."* The card is gone, so the
+//    two assertions below drop their Notes leg.
+//
+// ★★★ WHAT fix-290 ACTUALLY RULED IS UNTOUCHED AND STILL ASSERTED: *"every
+//     card wears the same banner"*, and the banner-first ordering. Those hold
+//     across every card that still exists — one fewer card does not weaken
+//     either claim, and the shared `OverviewCard` that makes them true is
+//     exactly as it was.
 
 describe('fix-290 every card wears the same banner', () => {
   it.each(CARDS)('%s has a banner reading "%s"', (testId, title) => {
@@ -390,20 +387,13 @@ describe('fix-290 every card wears the same banner', () => {
       expect(b.tagName).toBe(first.tagName);
     }
 
-    // ...and Notes, now that it lives elsewhere, matches the same markup.
-    renderNotes();
-    const notesBanner = within(screen.getByTestId(NOTES_CARD[0])).getAllByTestId(
-      'overview-card-banner',
-    )[0];
-    expect(notesBanner).toHaveTextContent(NOTES_CARD[1]);
-    expect(notesBanner.className).toBe(first.className);
-    expect(notesBanner.tagName).toBe(first.tagName);
+    // ★ fix-559 §A: the Notes card is gone; the rule above still holds over
+    //   every card that remains.
   });
 
   it('puts the banner first inside its card, above the content', () => {
     renderHeader();
-    renderNotes();
-    for (const [testId] of [...CARDS, NOTES_CARD]) {
+    for (const [testId] of CARDS) {
       const card = screen.getByTestId(testId);
       const banner = within(card).getAllByTestId('overview-card-banner')[0];
       expect(card.firstElementChild).toBe(banner);

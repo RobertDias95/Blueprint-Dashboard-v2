@@ -69,7 +69,8 @@ vi.mock('../hooks/useProjectConsultants', () => ({
   useSetConsultantFirm: () => ({ mutate: vi.fn(), isPending: false }),
 }));
 
-vi.mock('../components/ProjectDetail/NotesPanel', () => ({ default: () => null }));
+// ★ fix-559 §A: the NotesPanel mock went with the component. The permit/project
+//   notes surface no longer exists — a task carries its own note now.
 vi.mock('../components/ProjectDetail/ProjectSettingsModal', () => ({ default: () => null }));
 vi.mock('../components/ProjectDetail/DeleteProjectDialog', () => ({ default: () => null }));
 vi.mock('../components/ProjectDetail/QuickEditPermitModal', () => ({ default: () => null }));

@@ -24,7 +24,6 @@ import { SkeletonRows } from '../components/Skeleton';
 import QueryError from '../components/QueryError';
 import ProjectDetailHeader from '../components/ProjectDetail/ProjectDetailHeader';
 import ScheduleHealthTable from '../components/ProjectDetail/ScheduleHealthTable';
-import NotesPanel from '../components/ProjectDetail/NotesPanel';
 import PermitDetailV2 from '../components/ProjectDetail/PermitDetailV2';
 // ★ fix-506 §G (P-140): the tabbed modal that replaces the overview's inline
 //   editors. Project Settings stays for Address / Jurisdiction / permits /
@@ -757,13 +756,14 @@ function ProjectDetailBody({
                   report in the Reporting hub, which reads across every project
                   instead of one. Re-mount this here only if the ask changes back
                   to per-project browsing. */}
-              {/* ★ fix-309 #54: Notes is back under Schedule health, as one
-                  long vertical bar. fix-285 had moved it into the header grid
-                  to fill the space under DD Phase; fix-309 #55 makes that row
-                  a single equal-height band, so there is no longer a hole for
-                  Notes to fill and it returns to where it reads best. Same
-                  panel, same hook, same data — only the position changed. */}
-              <NotesPanel projectId={project.id} variant="card" />
+              {/* ★★★ fix-559 §A (P-218) — THE PROJECT'S NOTES CARD IS GONE.
+                  fix-309 #54 put it here and it read well; Bobby has since
+                  ruled the surface itself away: *"all permit and project level
+                  notes either live in the task or can be managed in the chat."*
+                  ★ All 107 rows are already in the General channel (fix-542,
+                    verified 107 of 107), which is the "chat" half of that
+                    sentence — so this card's content is one tab away, not
+                    lost. The task half is §C. */}
             </div>
           ) : (
             // Permit selected → per-permit widgets stack inside the
