@@ -167,10 +167,29 @@ export default function QuarterLayoutEditor({ das, dms, ents = [], readOnly = fa
   // A dirty draft is NOT clobbered by a background refetch.
   const prevQuarterRef = useRef<string | null>(null);
   const prevDataUpdatedAtRef = useRef<number>(0);
+  // ★ TRUTHY, not `!== null`: a caller (or a test double) handing back a hook
+  //   shape without the field would otherwise read `undefined !== null` as
+  //   TRUE and silently null the OCC fingerprint on a real saved layout.
+  const inherited = Boolean(layoutQ.inheritedFrom);
   function adoptServer(rows: DrawScheduleQuarterLayoutRow[]) {
     setDraft(rows.map(toDraftRow));
     setSnapshotSig(rowsSig(rows));
-    setLoadedFingerprint(layoutFingerprint(rows));
+    // ═══════════════════════════════════════════════════════════════
+    // ★★★ fix-578 §A — AN INHERITED LAYOUT HAS NO BASELINE **HERE**
+    // ═══════════════════════════════════════════════════════════════
+    //
+    // `layoutFingerprint` is `max(updated_at)` over the loaded rows, and
+    // `bp_replace_quarter_layout` compares it against `max(updated_at)` FOR THE
+    // TARGET QUARTER. When the rows were inherited those two describe different
+    // quarters: the target is empty (server reads NULL) while the donor carries
+    // a real timestamp, so every save of an inherited quarter would raise
+    // `40001 (conflict)` and **the layout could never be created at all.**
+    //
+    // ★★ `null` IS THE HONEST BASELINE, not a way around the check: there is no
+    //    prior version of THIS quarter to collide with. The RPC skips the
+    //    comparison on null and still takes its advisory lock, so two people
+    //    creating the same quarter at once are still serialised.
+    setLoadedFingerprint(inherited ? null : layoutFingerprint(rows));
   }
   useEffect(() => {
     const quarterChanged = prevQuarterRef.current !== quarter;
@@ -420,6 +439,38 @@ export default function QuarterLayoutEditor({ das, dms, ents = [], readOnly = fa
         />
       ) : (
         <>
+          {/* ═════════════════════════════════════════════════
+              ★★★ fix-578 §A — SAY WHICH LAYOUT THIS IS BEFORE ANYBODY DRAGS IT
+              ═════════════════════════════════════════════════
+
+              ★★★ THIS IS THE COST §A ACCEPTED, PAID. Inheriting on read makes
+                  "no layout" and "a layout somebody saved" look identical in
+                  the rows — so the one surface that can EDIT them has to
+                  distinguish, or somebody reorders what they think is 2027-Q3's
+                  layout and cannot tell they have just created one.
+
+              ★★ AND IT NAMES THE DONOR. *"Inherited"* alone invites the next
+                 question; naming the quarter answers it, and makes a wrong
+                 donor visible rather than merely suspected. */}
+          {layoutQ.inheritedFrom && (
+            <div
+              className="text-[11px] rounded-md border px-2.5 py-1.5"
+              style={{
+                borderColor: 'var(--color-border)',
+                background: 'var(--color-s2)',
+                color: 'var(--color-muted)',
+              }}
+              data-testid="ql-inherited-banner"
+            >
+              <span className="font-bold text-text">{quarter}</span> has no saved
+              layout of its own — it is showing{' '}
+              <span className="font-bold text-text">{layoutQ.inheritedFrom}</span>
+              &rsquo;s, and will keep following it.{' '}
+              {dirty
+                ? 'Saving writes a layout for ' + quarter + ' alone; earlier quarters are untouched.'
+                : 'Rearranging here creates one for ' + quarter + ' alone.'}
+            </div>
+          )}
           {/* Manager-group preview strip (mirrors the grid's header spans). */}
           <div
             className="flex gap-1 text-[10px] font-display"

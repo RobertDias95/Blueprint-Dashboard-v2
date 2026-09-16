@@ -253,7 +253,13 @@ describe('fix-401 §4: a team move lands in the table consumers read', () => {
     // Measured on prod 2026-08-25, the two tables disagreed about Erick:
     // the layout said 'Derry', dm_da_groups said 'Jade'.
     expect(quarterLayoutHookSource).toContain("from('draw_schedule_quarter_layout')");
-    expect(quarterLayoutHookSource).not.toContain('dm_da_groups');
+    // ★★★ fix-578: STRIPPED HERE TOO, and for the reason the note below already
+    //     gives. `useQuarterLayout`'s header now explains WHY a quarter with no
+    //     layout falls back to `dm_da_groups` and drops a manager whose DAs have
+    //     all left — so the raw file names the table while the QUERY still does
+    //     not touch it. The ruling is about what the hook READS, and stripping
+    //     is what keeps the assertion about that rather than about prose.
+    expect(stripComments(quarterLayoutHookSource)).not.toContain('dm_da_groups');
     // ★ Comment-stripped: the header ABOVE explains this very trap and names
     //   the table to do it. Asserting on the raw file would match the
     //   explanation — the same trap fix-387/390/397 all hit.
