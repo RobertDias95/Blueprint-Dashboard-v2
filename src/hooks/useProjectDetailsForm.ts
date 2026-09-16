@@ -8,6 +8,7 @@ import { isCurrentMember } from '../lib/roster';
 import { seedExpectedIssue, seedTargetSubmit } from '../lib/permitSeedingDefaults';
 import { pushToast } from '../stores/toastStore';
 import { projectValuesEqual } from './useProjectFieldCommit';
+import { droppedPatchKeys, droppedPatchMessage } from '../lib/savedPatchAudit';
 import {
   type ProjectDraftSink,
 } from './useProjectDraft';
@@ -516,7 +517,61 @@ export function useProjectDetailsForm(
       //     `project` refresh is free to rebuild. Without this the new
       //     dirty-guard above would see the just-saved edits as unsaved for
       //     ever and never take the server's fresh OCC tokens.
+      //
+      // ★ It happens on BOTH paths below: the permits half of this save landed
+      //   in the same transaction either way, so its rows carry stale OCC
+      //   tokens until the rebase runs. A dropped project column must not hold
+      //   the permits hostage.
       setState((s) => ({ ...s, baseline: s.form }));
+
+      // ═══════════════════════════════════════════════════════════════════
+      // ★★★ fix-588 §2a (P-288) — A SAVE THAT CHANGED NOTHING DOES NOT SAY
+      //     IT SAVED
+      // ═══════════════════════════════════════════════════════════════════
+      //
+      // THE REPORT: Bobby added the HVL tag here, pressed Save, read *"Project
+      // details saved."* and lost the edit. Instrumented at all five hops, the
+      // draft was correct the whole way down — `bp_update_project_with_permits`
+      // discarded `project_tags` because the column is not in its `CASE WHEN
+      // v_patch ? 'col'` list, and `updated_at` bumped anyway. **Nothing in the
+      // app could tell the difference between that and a real save**, which is
+      // why four tag options sat unused since 2026-09-10.
+      //
+      // ★★★ THE TEST IS THE ROW, NOT THE PATCH. `projectAfter` is the columns
+      //     this patch tried to set, read back after the write; a column is
+      //     reported only when the stored value is neither what we sent nor
+      //     anything other than what was already there. See
+      //     `lib/savedPatchAudit.ts` — including why a normalising server stays
+      //     quiet, and why an unverifiable save says nothing at all.
+      //
+      // ⚠️ THE DROPPED EDIT STAYS IN THE DRAFT. Clearing it would throw away
+      //    the one copy of the value that still exists, and the toast would be
+      //    telling somebody about work they can no longer see. The other keys
+      //    empty as usual — they are in the database now.
+      const dropped = droppedPatchKeys(
+        projectPatch,
+        project as unknown as Record<string, unknown>,
+        result.projectAfter,
+      );
+      if (dropped.length > 0) {
+        setDraft((d) => {
+          const kept: Partial<Project> = {};
+          for (const key of dropped) {
+            if (key in d) {
+              (kept as Record<string, unknown>)[key] =
+                (d as Record<string, unknown>)[key];
+            }
+          }
+          return kept;
+        });
+        // ★ `error`, not `warn`: something the person asked for did not happen.
+        pushToast(droppedPatchMessage(dropped) ?? 'Some fields did not save.', 'error');
+        // ★★ FALSE, so the modal stays open on the edit that did not land. The
+        //    permits and the columns that DID save are already committed — this
+        //    return value is about whether the save did what was asked.
+        return false;
+      }
+
       // ★★★ fix-575 §A — AND THE DRAFT EMPTIES, which is the same rebase for
       //     the scalar half. The row those values came from is now the row in
       //     the database, so keeping them buffered would hold the modal dirty
@@ -531,7 +586,7 @@ export function useProjectDetailsForm(
     } finally {
       setSaving(false);
     }
-  }, [form, draft, project.id, project.updated_at, bpPermit, updateProjectWithPermits]);
+  }, [form, draft, project, bpPermit, updateProjectWithPermits]);
 
   return {
     form,
