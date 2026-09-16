@@ -71,6 +71,11 @@ export function useUpsertIntakeRecord() {
   const queryClient = useQueryClient();
   const tenantId = useAuthStore((s) => s.activeTenantId) ?? '';
   return useMutation<IntakeRecord, Error, UpsertIntakeInput>({
+    // ★ fix-579 §B: fix-511 §C's line, which these two never got. Report 729
+    //   arrived with no RPC name at all, so a reader had to infer the write
+    //   from the message — exactly the cost fix-511 §C measured at four
+    //   database queries per row.
+    meta: { write: 'bp_upsert_intake_records_row' },
     mutationFn: async (input) => {
       if (input.op === 'insert') {
         const id = await nextId();
@@ -111,7 +116,21 @@ export function useUpsertIntakeRecord() {
       if (error) throw error;
       const row = (data as Row[])[0];
       if (!row) throw new Error('Update returned no row');
-      if (row.conflict) throw new OCCConflictError(0, 'Intake');
+      if (row.conflict) {
+        // ★★★ fix-579 §B (P-283) — THE SAME TREATMENT, NOT THE SAME CLAIM.
+        //
+        //     Report 729 is *"Intake changed since you loaded it"* on the same
+        //     page as the time-block refusals, on a different write
+        //     (`is_placeholder`). **Whether it shares a cause is unknown**, and
+        //     nothing here assumes it does — the point of instrumenting both is
+        //     that the next occurrence of EITHER becomes comparable with the
+        //     other, which is impossible while neither records its numbers.
+        throw new OCCConflictError(0, 'Intake', {
+          rowId: input.record.id,
+          expected: input.record.updated_at,
+          actual: row.updated_at ?? null,
+        });
+      }
       return { ...input.record, ...input.patch, updated_at: row.updated_at };
     },
     onSuccess: (result) => {
