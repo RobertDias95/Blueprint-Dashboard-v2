@@ -4,6 +4,7 @@ import { MemoryRouter } from 'react-router-dom';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import type { ReactNode } from 'react';
 import { useAuthStore } from '../stores/authStore';
+import { commitViaSave } from '../test/bufferedSave';
 import type { PermitWithCycles, Project } from '../lib/database.types';
 import indexHtml from '../../index.html?raw';
 // ★ fix-335 §2: the wordmark moved from the ribbon to the header, so proving it
@@ -211,6 +212,7 @@ beforeEach(() => {
   ddMutateAsync.mockReset();
   ddMutateAsync.mockResolvedValue({ overlapKind: null });
   permitsMutateAsync.mockReset();
+  permitsMutateAsync.mockResolvedValue({});
   permitsMutateAsync.mockResolvedValue({ conflict: false });
   projectMutateAsync.mockReset();
   projectMutateAsync.mockResolvedValue({});
@@ -322,14 +324,18 @@ describe('fix-320 #1: the Milestones card reads in ONE date format', () => {
 
   it('the closing-date write path still sends ISO', async () => {
     renderHeader();
+    // ★★★ fix-575 §A — THE ISO CONTRACT IS THE RULING AND IT IS UNCHANGED.
+    //     The field buffers to the modal's Save now, so the answer is read off
+    //     the multi-column patch rather than a blur-time write. What fix-320
+    //     pins — that the WRITE PATH carries ISO while the card DISPLAYS a
+    //     formatted date — is exactly as true: the draft holds the column's
+    //     real type, so nothing re-formats it on the way through.
     const input = screen.getByTestId('project-overview-closing') as HTMLInputElement;
-    fireEvent.change(input, { target: { value: '2026-06-26' } });
-    fireEvent.blur(input);
-    await waitFor(() => expect(projectMutateAsync).toHaveBeenCalled());
-    const arg = projectMutateAsync.mock.calls[0][0] as {
-      patch: Record<string, unknown>;
-    };
-    expect(arg.patch.closing_date).toBe('2026-06-26');
+    const patch = await commitViaSave(permitsMutateAsync, () => {
+      fireEvent.change(input, { target: { value: '2026-06-26' } });
+      fireEvent.blur(input);
+    });
+    expect(patch.closing_date).toBe('2026-06-26');
   });
 
   // The inputs themselves must keep holding ISO — that is the contract with the

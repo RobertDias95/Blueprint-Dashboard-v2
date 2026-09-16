@@ -7,6 +7,10 @@ import { useAppConfig, readAppConfigStringArray } from './useAppConfig';
 import { isCurrentMember } from '../lib/roster';
 import { seedExpectedIssue, seedTargetSubmit } from '../lib/permitSeedingDefaults';
 import { pushToast } from '../stores/toastStore';
+import { projectValuesEqual } from './useProjectFieldCommit';
+import {
+  type ProjectDraftSink,
+} from './useProjectDraft';
 import {
   initProjectDetailsForm,
   projectDetailsFormIsDirty,
@@ -42,6 +46,23 @@ import type { PermitWithCycles, Project } from '../lib/database.types';
 
 export interface ProjectDetailsFormController {
   form: ProjectDetailsFormState;
+  /**
+   * ★★★ fix-575 §A — THE BUFFERED SCALAR EDITS, as real column values.
+   *
+   * A `Partial<Project>` rather than a form-shaped object, so `save()` spreads
+   * it straight into the RPC's jsonb patch: no second parse, and no second
+   * place for a date or a number to be formatted differently from how it is
+   * stored.
+   */
+  draft: Partial<Project>;
+  /** The project WITH the draft overlaid — what every editor renders from, so
+   *  a buffered edit is visible without a single control changing. */
+  projectView: Project;
+  /** The sink handed to `useProjectFieldCommit` through context. */
+  draftSink: ProjectDraftSink;
+  /** ★ fix-575 §B: throw the buffered edits away. Nothing was written, so
+   *  nothing is undone. */
+  cancel: () => void;
   /** ★ §B: true when anything in the ATOMIC form differs from what loaded. */
   dirty: boolean;
   saving: boolean;
@@ -110,6 +131,77 @@ export function useProjectDetailsForm(
   const { form, baseline } = state;
   const [saving, setSaving] = useState(false);
 
+  // ════════════════════════════════════════════════════════════════════
+  // ★★★ fix-575 §A (P-227) — THE 23 SCALARS BUFFER HERE
+  // ════════════════════════════════════════════════════════════════════
+  //
+  // ★★ SEPARATE FROM `form`, NOT FOLDED INTO IT, and that is deliberate.
+  //    `form.projectFields` is a FORM shape — every member a string, because it
+  //    fed `<input value>`. The 23 buffered columns keep their real types
+  //    (`boolean`, `number | null`, `string[] | null`), because they are read
+  //    back by the same controls that read the live row and written by one
+  //    multi-column RPC. Coercing them through a string shape would put a
+  //    parse on both ends of a value that never needed one.
+  //
+  // ★ `form.projectFields` and `setProj` are now UNUSED by any caller — they
+  //   have been since fix-520 §A emptied the project patch. Left in place: they
+  //   are the atomic form's own shape, and deleting them is a separate cleanup
+  //   with its own blast radius.
+  const [draft, setDraft] = useState<Partial<Project>>({});
+
+  /**
+   * ★★★ A DRAFT ENTRY THAT MATCHES THE STORED ROW IS DROPPED, NOT KEPT.
+   *
+   *     Typing a value and typing it back must leave the modal CLEAN — that is
+   *     what a person means by "I didn't change anything", and fix-514 §B's
+   *     dirty flag has always been a comparison against what loaded rather than
+   *     a touched-flag for exactly this reason.
+   *
+   * ★★★ AND IT IS LOAD-BEARING, NOT POLITE. fix-519 §B makes the rebuild
+   *     effect refuse to run while dirty. A draft entry that can never clear
+   *     would freeze that rebuild FOR EVER and strand the modal on stale permit
+   *     OCC tokens — the precise failure fix-520 §A's comment warned about when
+   *     it narrowed the flag. This is the line that makes widening it safe.
+   *
+   * ★★ `projectValuesEqual` rather than `===`, from fix-575a: `project_tags`
+   *    and `product_types` are arrays, and a reference check would hold them
+   *    dirty for ever — which is that same freeze, arriving by a different door.
+   */
+  const draftSink = useMemo<ProjectDraftSink>(
+    () => ({
+      setDraft: (field, value) =>
+        setDraft((d) => {
+          const stored = project[field] ?? null;
+          const next = { ...d, [field]: value };
+          if (projectValuesEqual(value ?? null, stored)) delete next[field];
+          return next;
+        }),
+    }),
+    [project],
+  );
+
+  /** ★ fix-575 §B — Cancel. Nothing was written, so nothing is undone. */
+  const cancel = useCallback(() => setDraft({}), []);
+
+  /**
+   * ★★★ THE READ HALF, IN ONE LINE. Every editor takes a `project` object and
+   *     reads its value off it; handing them the row with the draft overlaid
+   *     makes a buffered edit visible WITHOUT touching a single control.
+   *
+   * ⚠️ `updated_at` IS NEVER IN THE DRAFT — only the 23 editable columns reach
+   *    `setDraft` — so the OCC token on this object is the live one. That is
+   *    what keeps `save()` correct while the rebuild is frozen.
+   */
+  const projectView = useMemo<Project>(
+    () => (Object.keys(draft).length === 0 ? project : { ...project, ...draft }),
+    [project, draft],
+  );
+
+  /** ★ fix-575 §A: declared ABOVE the rebuild effect because the effect reads
+   *  it — a `const` used before its own line is a TDZ crash at runtime that
+   *  `tsc` does not flag inside a closure. */
+  const draftIsDirty = Object.keys(draft).length > 0;
+
   /** ★ Every setter writes through `setState` DIRECTLY rather than through a
    *  `setForm` wrapper. A `useCallback` wrapper is not a React setter, so
    *  `react-hooks/exhaustive-deps` wants it in six dependency arrays — six
@@ -144,15 +236,40 @@ export function useProjectDetailsForm(
       // ★ `currentSd` is derived from `project` on every render rather than
       //   held in this form, so the Schematic Designer select still shows its
       //   new value the moment the reassign lands. The guard costs it nothing.
-      projectDetailsFormIsDirty(s.baseline, s.form)
+      projectDetailsFormIsDirty(s.baseline, s.form) || draftIsDirty
         ? s
         : { form: next, baseline: next },
     );
-  }, [project, permits, saving]);
+    // ★★★ fix-575 §A — `draftIsDirty` JOINS fix-519 §B's GUARD, which is the
+    //     whole reason the buffer is safe beside the immediate writers. A
+    //     cascading control (the SD reassign, a hold, a DD date) invalidates
+    //     `projects` and changes this prop's identity; without the draft in
+    //     this condition the rebuild would fire and the buffered scalars would
+    //     be silently thrown away — the exact defect fix-519 §B was written for,
+    //     reintroduced through a new door.
+    //
+    // ★★ AND IT CLEARS: `draftSink` drops any entry equal to the stored value,
+    //    and `save()`/`cancel()` empty the map outright. A flag that could not
+    //    clear would freeze this rebuild permanently — see the sink above.
+  }, [project, permits, saving, draftIsDirty]);
 
+  /**
+   * ★★★ fix-575 §A — DIRTY MEANS "SOMETHING IN THIS MODAL IS UNSAVED" AGAIN.
+   *
+   *     fix-520 §A narrowed this to permits alone, and its reasoning was right
+   *     for the model it described: *"there is no such thing as an unsaved
+   *     address — by the time the box loses focus it is in the database or it
+   *     was refused."* §A makes that false again for the 23 scalars ON PURPOSE,
+   *     which is the ticket.
+   *
+   * ★★ WHAT fix-520 §A WAS ACTUALLY PROTECTING is untouched and is the reason
+   *    this is safe rather than a revert: a scalar that reads dirty FOR EVER
+   *    freezes fix-519 §B's rebuild. The draft clears on save, on cancel, and on
+   *    typing a value back to what is stored — three exits, asserted.
+   */
   const dirty = useMemo(
-    () => projectDetailsFormIsDirty(baseline, form),
-    [baseline, form],
+    () => draftIsDirty || projectDetailsFormIsDirty(baseline, form),
+    [draftIsDirty, baseline, form],
   );
 
   // --- rosters -------------------------------------------------------------
@@ -290,7 +407,24 @@ export function useProjectDetailsForm(
       //    the project UPDATE on an empty patch (`IF v_patch <> '{}'`), and it
       //    still takes the project's OCC token because STEP 0 needs it to lock
       //    the row before touching its permits.
-      const projectPatch: Record<string, unknown> = {};
+      // ★★★ fix-575 §A — THE PATCH IS THE DRAFT, AND NOTHING ELSE.
+      //
+      //     fix-520 §A emptied this object and its reasoning still holds
+      //     word for word: restating every project scalar here would write the
+      //     form's last-rebuild snapshot over whatever has been typed since.
+      //     **The draft is not a snapshot** — it holds ONLY the columns somebody
+      //     actually edited in this sitting, so there is nothing in it to
+      //     revert. A field nobody touched is not in the patch at all.
+      //
+      // ★★ ONE RPC, MANY COLUMNS. `bp_update_project_fields` takes a jsonb
+      //    patch and already skips the UPDATE on an empty one (`IF v_patch <>
+      //    '{}'`), so a permits-only save is byte-identical to today's.
+      //
+      // ⚠️ THE OCC TOKEN IS `project.updated_at`, THE LIVE PROP — not a value
+      //    carried in the draft, and not the form's copy. That is what lets the
+      //    rebuild stay frozen behind fix-519 §B's guard without this save going
+      //    stale, and it was already true before this ticket.
+      const projectPatch: Record<string, unknown> = { ...draft };
 
       const seedAnchors = {
         // ★ fix-520 §A: off the LIVE project. The form no longer owns the GO
@@ -383,6 +517,12 @@ export function useProjectDetailsForm(
       //     dirty-guard above would see the just-saved edits as unsaved for
       //     ever and never take the server's fresh OCC tokens.
       setState((s) => ({ ...s, baseline: s.form }));
+      // ★★★ fix-575 §A — AND THE DRAFT EMPTIES, which is the same rebase for
+      //     the scalar half. The row those values came from is now the row in
+      //     the database, so keeping them buffered would hold the modal dirty
+      //     against itself — and fix-519 §B's guard would never let the rebuild
+      //     take the server's fresh permit OCC tokens.
+      setDraft({});
       pushToast('Project details saved.', 'success');
       return true;
     } catch {
@@ -391,10 +531,14 @@ export function useProjectDetailsForm(
     } finally {
       setSaving(false);
     }
-  }, [form, project.id, project.updated_at, bpPermit, updateProjectWithPermits]);
+  }, [form, draft, project.id, project.updated_at, bpPermit, updateProjectWithPermits]);
 
   return {
     form,
+    draft,
+    projectView,
+    draftSink,
+    cancel,
     dirty,
     saving,
     set,

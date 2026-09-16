@@ -1,9 +1,10 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { fireEvent, render, screen } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import type { ReactNode } from 'react';
 import { useAuthStore } from '../stores/authStore';
+import { commitViaSave } from '../test/bufferedSave';
 import type { PermitWithCycles, Project } from '../lib/database.types';
 
 // fix-148: Closing date moved from the Project Site cell into the DD Phase
@@ -14,6 +15,7 @@ const T = 'test-tenant-uuid';
 const NOW = '2026-05-15T12:00:00Z';
 
 const updateMutateAsync = vi.hoisted(() => vi.fn());
+const permitsMutateAsync = vi.hoisted(() => vi.fn(() => Promise.resolve({})));
 vi.mock('../hooks/useUpdateProject', () => ({
   useUpdateProject: () => ({ mutateAsync: updateMutateAsync, isPending: false }),
 }));
@@ -27,8 +29,13 @@ vi.mock('../hooks/useSetBpDdDates', () => ({
 vi.mock('../hooks/useResolveDaOverlap', () => ({
   useResolveDaOverlap: () => ({ mutateAsync: vi.fn(), isPending: false }),
 }));
+// ★ fix-575 §A: Closing buffers to the modal's Save now, so this mock has to
+//   be observable rather than inert.
 vi.mock('../hooks/useUpdateProjectWithPermits', () => ({
-  useUpdateProjectWithPermits: () => ({ mutateAsync: vi.fn(), isPending: false }),
+  useUpdateProjectWithPermits: () => ({
+    mutateAsync: permitsMutateAsync,
+    isPending: false,
+  }),
 }));
 vi.mock('../hooks/useDrawSchedule', () => ({
   useDrawSchedule: () => ({ data: [], isLoading: false }),
@@ -171,6 +178,7 @@ function renderHeader(project: Project, permits: PermitWithCycles[]) {
 
 beforeEach(() => {
   updateMutateAsync.mockReset();
+  permitsMutateAsync.mockClear();
   updateMutateAsync.mockResolvedValue({});
   useAuthStore.setState({
     activeTenantId: T,
@@ -189,16 +197,19 @@ describe('fix-148: Closing date moved to DD Phase', () => {
     expect(screen.queryByTestId('pd-site-closing')).toBeNull();
   });
 
-  it('editing Closing commits closing_date via useUpdateProject', async () => {
+  it('editing Closing buffers closing_date, and Save writes it', async () => {
+    // ★★★ fix-575 §A — fix-148's RULING IS THE COLUMN, NOT THE TIMING. It moved
+    //     Closing out of the crowded Project Site cell into DD Phase and pinned
+    //     that the row writes `projects.closing_date`. It still does; it now
+    //     reaches the database through the modal's Save, as one multi-column
+    //     patch, which is the ticket.
     renderHeader(projectFixture(), [bpFixture()]);
     const input = screen.getByTestId('project-overview-closing') as HTMLInputElement;
-    fireEvent.change(input, { target: { value: '2026-09-30' } });
-    fireEvent.blur(input);
-    await waitFor(() => expect(updateMutateAsync).toHaveBeenCalledTimes(1));
-    expect(updateMutateAsync.mock.calls[0][0].patch).toEqual({
-      closing_date: '2026-09-30',
+    const patch = await commitViaSave(permitsMutateAsync, () => {
+      fireEvent.change(input, { target: { value: '2026-09-30' } });
+      fireEvent.blur(input);
     });
-    expect(updateMutateAsync.mock.calls[0][0].fieldLabel).toBe('Closing Date');
+    expect(patch).toEqual({ closing_date: '2026-09-30' });
   });
 
   it('renders Closing in all three DD Phase states', () => {

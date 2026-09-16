@@ -30,6 +30,9 @@ import {
   type ProjectDetailsFormController,
 } from '../../hooks/useProjectDetailsForm';
 import { useReassignProjectSd } from '../../hooks/useProjectSdHandoffs';
+import { ProjectDraftContext } from '../../hooks/useProjectDraft';
+import { SAVE_MODEL_CLEAN, SAVE_MODEL_DIRTY } from '../../lib/saveModel';
+import SavesNowMark from '../shared/SavesNowMark';
 import {
   BuilderOwnerFields,
   GoDateField,
@@ -142,6 +145,11 @@ export default function ProjectDetailsModal({
   }
 
   return (
+    // ★★★ fix-575 §A — EVERY `useProjectFieldCommit` UNDER HERE BUFFERS.
+    //     The sink is what turns the one commit function fix-575a unified
+    //     into a draft writer; outside this provider it still writes on blur,
+    //     which is what keeps these editors usable on any other surface.
+    <ProjectDraftContext.Provider value={ctl.draftSink}>
     <div
       className="fixed inset-0 z-50 flex items-center justify-center"
       style={{ background: 'rgba(0,0,0,0.45)' }}
@@ -245,9 +253,12 @@ export default function ProjectDetailsModal({
 
           <button
             type="button"
-            onClick={onClose}
+            onClick={() => {
+              if (ctl.dirty) ctl.cancel();
+              onClose();
+            }}
             className="text-dim hover:text-text text-[14px] leading-none"
-            title={ctl.dirty ? 'Close without saving' : 'Close'}
+            title={ctl.dirty ? 'Discard changes and close' : 'Close'}
             data-testid="project-data-close"
           >
             ✕
@@ -286,9 +297,9 @@ export default function ProjectDetailsModal({
         </nav>
 
         <div className="flex-1 overflow-y-auto px-4 py-3" data-testid="project-data-body">
-          {tab === 'site' && <SiteTab project={project} ctl={ctl} />}
+          {tab === 'site' && <SiteTab project={ctl.projectView} ctl={ctl} />}
           {tab === 'dates' && (
-            <DatesTab project={project} bp={bp} permits={permits} />
+            <DatesTab project={ctl.projectView} bp={bp} permits={permits} />
           )}
           {tab === 'units' && (
             <TabPanel caption="Every field here saves as you leave it — each one says so.">
@@ -313,7 +324,7 @@ export default function ProjectDetailsModal({
                   Types
                 </p>
                 <UnitCountAndProductTypes
-                  project={project}
+                  project={ctl.projectView}
                   productTypeOptions={ctl.productTypeOptions}
                 />
                 <div className="mt-1.5">
@@ -330,10 +341,14 @@ export default function ProjectDetailsModal({
                     keeps a HEADING of its own rather than being a nameless
                     block of inputs — Bobby has to be able to point at it. */}
                 <p
-                  className="text-[9px] font-bold uppercase tracking-wide"
+                  className="text-[9px] font-bold uppercase tracking-wide flex items-baseline gap-1.5"
                   style={{ color: 'var(--color-dim)' }}
                 >
                   Unit configuration
+                  {/* ★ fix-575 §C: `writeTypes` rebuilds the whole
+                      `unit_types` JSONB through a whitelist — a different
+                      model from a scalar column, and not buffered. */}
+                  <SavesNowMark testid="saves-now-units" />
                 </p>
                 {/* ★★★ `Unit size (sf)` NO LONGER HAS A LIST OF ITS OWN. fix-514
                     §E put it below the matrix because a ninth matrix column
@@ -355,10 +370,10 @@ export default function ProjectDetailsModal({
           )}
           {tab === 'builder' && (
             <TabPanel caption="Every field here saves as you leave it. The builder themself is picked on the overview and edited in Settings → Builders & Owners.">
-              <BuilderOwnerFields project={project} />
+              <BuilderOwnerFields project={ctl.projectView} />
             </TabPanel>
           )}
-          {tab === 'team' && <TeamTab project={project} bp={bp} ctl={ctl} canReassignSd={canReassignSd} onReassignSd={(n) => reassignSd.mutate({ projectId: project.id, toSd: n })} sdPending={reassignSd.isPending} />}
+          {tab === 'team' && <TeamTab project={ctl.projectView} bp={bp} ctl={ctl} canReassignSd={canReassignSd} onReassignSd={(n) => reassignSd.mutate({ projectId: project.id, toSd: n })} sdPending={reassignSd.isPending} />}
           {tab === 'consultants' && (
             <TabPanel caption="Every field here saves as you leave it, through the same RPCs the overview band uses.">
               {/* ★★★ fix-508 §F2/§I — `manage` IS WHAT MAKES THIS TAB'S OWN
@@ -366,13 +381,18 @@ export default function ProjectDetailsModal({
                   are chosen here; the firm picker was on the OVERVIEW instead,
                   and the add control existed only while a fixed slot was
                   empty. One prop, one component, both fixed. */}
+              {/* ★ fix-575 §C: five RPCs on `project_consultants`, none of
+                  them a project column. */}
+              <div className="flex justify-end pb-1">
+                <SavesNowMark testid="saves-now-consultants" />
+              </div>
               <ConsultantBand projectId={project.id} bp={bp} manage />
             </TabPanel>
           )}
           {tab === 'plan' && <PlanTab projectId={project.id} />}
           {tab === 'actions' && (
             <ActionsTab
-              project={project}
+              project={ctl.projectView}
               allProjects={allProjects}
               onSpawnRedesign={onSpawnRedesign}
               onReassignDa={onReassignDa}
@@ -399,7 +419,18 @@ export default function ProjectDetailsModal({
           style={{ borderTopColor: 'var(--color-border)' }}
         >
           <span className="text-[9.5px]" style={{ color: 'var(--color-muted)' }}>
-            {/* ★★★ fix-520 §A (P-227) — THE FOOTER SAYS SOMETHING TRUE NOW.
+            {/* ★★★ fix-575 §C (P-227) — THE SENTENCE NAMES ITS OWN BOUNDARY.
+                fix-520 §A's ruling is applied here, not overridden: the sin
+                it named is the FALSE BLANKET PROMISE, and a promise that
+                says where it stops is not blanket. The words live in
+                `lib/saveModel` beside the marker they point at, so the
+                footer and the controls cannot come to disagree — which is
+                exactly how this modal's Units caption contradicted its own
+                tab for a year.
+
+                The superseded note, kept because its reasoning is why the
+                sentence is worded this way:
+                ★★★ fix-520 §A — THE FOOTER SAYS SOMETHING TRUE NOW.
                 It read *"Per-field tabs save as you leave each box"*, which
                 described ONE tab of nine and sat under all of them. **A
                 blanket promise that holds for one tab in nine is worse than no
@@ -407,10 +438,35 @@ export default function ProjectDetailsModal({
                 Every field on this modal saves on leaving it EXCEPT a permit
                 row, so that is exactly what it says, and the dirty state it
                 reports can only ever be a permit. */}
-            {ctl.dirty
-              ? 'Unsaved permit rows — Save to write them.'
-              : 'Fields save as you leave them. Permit rows save with the button.'}
+            {ctl.dirty ? SAVE_MODEL_DIRTY : SAVE_MODEL_CLEAN}
           </span>
+          {/* ═══════════════════════════════════════════════
+              ★★★ fix-575 §B (P-227) — CANCEL APPEARS BESIDE SAVE
+              ═══════════════════════════════════════════════
+
+              Bobby, three times: *"if i dont make any changes, it should be
+              an exit button, if i do make a change, then the options would
+              be save and cancel."*
+
+              ★★ ONE FLAG FOR THE WHOLE MODAL — fix-514 §B, unchanged. A
+                 per-tab flag would show `Exit` while an unsaved edit sits on
+                 the tab you are not looking at. */}
+          {ctl.dirty && (
+            <button
+              type="button"
+              onClick={ctl.cancel}
+              disabled={ctl.saving}
+              className="text-[11px] font-bold px-3 py-1.5 rounded border disabled:opacity-50"
+              style={{
+                borderColor: 'var(--color-border)',
+                background: 'var(--color-surface)',
+                color: 'var(--color-muted)',
+              }}
+              data-testid="project-data-cancel"
+            >
+              Cancel
+            </button>
+          )}
           <button
             type="button"
             onClick={ctl.dirty ? () => void saveAndClose() : onClose}
@@ -429,6 +485,7 @@ export default function ProjectDetailsModal({
         </footer>
       </div>
     </div>
+    </ProjectDraftContext.Provider>
   );
 }
 
@@ -469,6 +526,11 @@ function SiteTab({
       </div>
       {/* ★ P-141: the Reuse-of picker the overview's Reuse row points at. */}
       <div className="border-t pt-2" style={{ borderTopColor: 'var(--color-border)' }}>
+        {/* ★ fix-575 §C: applying a source overwrites `product_types` AND
+            `unit_types` together, behind its own confirm(). */}
+        <div className="flex justify-end pb-1">
+          <SavesNowMark testid="saves-now-reuse" />
+        </div>
         <ReuseEditor project={project} allProjects={[]} />
       </div>
     </TabPanel>
@@ -504,6 +566,10 @@ function DatesTab({
           <KeyDatesSection project={project} />
         // ★ fix-145's branch, kept: a reuse-redesign has no BP but DOES carry a
         //   draw_schedule lane, so the inline lane editor is the right control.
+          {/* ★ fix-575 §C: writes the `draw_schedule` lane. */}
+          <div className="flex justify-end">
+            <SavesNowMark testid="saves-now-reuse-dd" />
+          </div>
           <ReuseRedesignDdEditor project={project} />
         </>
       ) : (
@@ -673,6 +739,11 @@ function ActionsTab({
 }) {
   return (
     <TabPanel caption="Every field here saves as you leave it. The actions below take effect immediately or open their own confirmation.">
+      {/* ★ fix-575 §C: `project_holds` plus a task sweep — the side effect
+          cannot be buffered at all. */}
+      <div className="flex justify-end">
+        <SavesNowMark testid="saves-now-hold" />
+      </div>
       <ProjectHoldPanel projectId={project.id} />
       {/* ★★★ fix-514 §A: Archived and Backfilled, the last two fields Project
           Settings owned. They stay QUIET and away from the board — fix-386's

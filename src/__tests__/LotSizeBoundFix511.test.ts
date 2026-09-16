@@ -128,9 +128,18 @@ describe('fix-511 §C1 — all three write paths use it', () => {
     expect(code(src)).toContain('parseLotSizeSf(');
   });
 
-  it('★★★ …and the modal does not write `lot_size_sf` at all any more', () => {
+  it('★★★ …and the modal never PARSES `lot_size_sf` itself', () => {
+    // ★★★ fix-520 §A emptied the modal's project patch, and this asserted the
+    //     empty literal. fix-575 §A refills it from the DRAFT — but the ruling
+    //     fix-511 §C made is about WHERE THE BOUND IS ENFORCED, not about
+    //     whether the column travels: `parseLotSizeSf` runs in `LotSizeEditor`
+    //     on blur, once, for all three write paths.
+    //
+    // ★★ SO THE PATCH CARRIES WHAT THE EDITOR ALREADY BOUNDED, and the modal
+    //    still has no parse of its own — which is the half that could regress.
     const c = code(modalSrc);
-    expect(c).toContain('const projectPatch: Record<string, unknown> = {};');
+    expect(c).toContain('const projectPatch: Record<string, unknown> = { ...draft };');
+    expect(c).not.toContain('parseLotSizeSf');
     expect(c).not.toContain('lot_size_sf');
   });
 

@@ -4,6 +4,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { MemoryRouter } from 'react-router-dom';
 import type { ReactNode } from 'react';
 import { useAuthStore } from '../stores/authStore';
+import { commitViaSave } from '../test/bufferedSave';
 import type { PermitWithCycles, Project } from '../lib/database.types';
 import { initProjectDetailsForm, projectDetailsFormIsDirty } from '../lib/projectDetailsForm';
 
@@ -86,6 +87,7 @@ import ProjectDetailsModal from '../components/ProjectDetail/ProjectDetailsModal
 import modalSrc from '../components/ProjectDetail/ProjectDetailsModal.tsx?raw';
 import formSrc from '../components/ProjectDetail/ProjectDetailsForm.tsx?raw';
 import controllerSrc from '../hooks/useProjectDetailsForm.ts?raw';
+import saveModelSrc from '../lib/saveModel.ts?raw';
 
 function project(over: Partial<Project> = {}): Project {
   return {
@@ -187,29 +189,61 @@ beforeEach(() => {
 // The fields that moved
 // ---------------------------------------------------------------------------
 
-describe('fix-520 §A — every project field commits when you leave it', () => {
+// ═══════════════════════════════════════════════════════════════════════════
+// ★★★ SUPERSEDED BY fix-575 §A (P-227) — BOBBY ASKED THREE TIMES, AND THE
+//     ANSWER CHANGED. NOT MISTAKEN: fix-520 §A WAS RIGHT ABOUT ITS OWN DEFECT.
+// ═══════════════════════════════════════════════════════════════════════════
+//
+// fix-520 §A found a modal with THREE save models and a caption that lied about
+// which one you were looking at, and collapsed it to one: every field commits
+// on blur. **That diagnosis is untouched.** What it could not fix is what Bobby
+// kept reporting afterwards — *"the save button doesnt appear when making a
+// change"* — because under a pure blur model there is nothing for a Save button
+// to do, so the footer could only ever say `Exit`.
+//
+// ★★★ SO THE 23 SCALARS BUFFER AGAIN, AND THE CASCADING WRITERS DO NOT. The
+//     rulings below are re-pointed, not deleted, and each one keeps the value
+//     it was always about — `units: 9` is still a NUMBER, a blank address still
+//     does not overwrite a real one, an unchanged field still writes nothing.
+//     Only the moment the database hears about it moved.
+//
+// ★★ AND fix-520 §A's DEEPEST POINT IS THE ONE fix-575 §C HAD TO ANSWER: *"a
+//    blanket promise that holds for one tab in nine is worse than no promise."*
+//    The sin it names is the FALSE BLANKET PROMISE, not the mixed model — so
+//    the footer now states its own boundary and every control outside that
+//    boundary carries a `saves now` marker. See `lib/saveModel`.
+describe('fix-520 §A → fix-575 §A — a project field buffers, and Save writes it', () => {
   it('★★★ a text field writes ONE column on blur, without the Save button', async () => {
     renderTab('site');
     const box = screen.getByTestId('psm-address') as HTMLInputElement;
     fireEvent.change(box, { target: { value: '5627 44th Ave NW' } });
     // ★ Not on keystroke — a per-keystroke commit would write "5627 44th Ave N"
-    //   on the way past, which is why this is buffered.
+    //   on the way past.
     expect(updateProjectMutate).not.toHaveBeenCalled();
     fireEvent.blur(box);
-    await waitFor(() => expect(updateProjectMutate).toHaveBeenCalledTimes(1));
-    expect(updateProjectMutate.mock.calls[0][0]).toMatchObject({
+    // ★★★ fix-575 §A — AND NOT ON BLUR EITHER. The edit is buffered; nothing
+    //     reaches the database until Save. This is the assertion the whole
+    //     ticket turns on, so it is made explicitly rather than implied.
+    expect(updateProjectMutate).not.toHaveBeenCalled();
+    const patch = await commitViaSave(atomicSave, () => {});
+    expect(patch).toEqual({ address: '5627 44th Ave NW' });
+    // ★★ THE OCC TOKEN IS THE LIVE PROJECT'S, not one carried in the draft —
+    //    the form freezes its rebuild while dirty, so a buffered token would go
+    //    stale exactly when it matters.
+    expect(atomicSave.mock.calls[0][0]).toMatchObject({
       projectId: 'p-520',
-      expectedUpdatedAt: NOW,
-      patch: { address: '5627 44th Ave NW' },
+      projectExpectedUpdatedAt: NOW,
     });
-    expect(atomicSave).not.toHaveBeenCalled();
   });
 
   it('★★★ a select commits on CHANGE — choosing is leaving', async () => {
     renderTab('team');
-    fireEvent.change(screen.getByTestId('psm-dm'), { target: { value: 'Otto' } });
-    await waitFor(() => expect(updateProjectMutate).toHaveBeenCalledTimes(1));
-    expect(updateProjectMutate.mock.calls[0][0].patch).toEqual({ design_manager: 'Otto' });
+    const patch = await commitViaSave(atomicSave, () =>
+      fireEvent.change(screen.getByTestId('psm-dm'), { target: { value: 'Otto' } }),
+    );
+    // ★ "Choosing is leaving" still holds — a select needs no blur to register
+    //   the edit; what changed is that registering it means buffering it.
+    expect(patch).toEqual({ design_manager: 'Otto' });
   });
 
   it('★★★ THE UNITS TAB — the two fields that made its caption a lie', async () => {
@@ -217,11 +251,13 @@ describe('fix-520 §A — every project field commits when you leave it', () => 
     //     reading *"there is no Save button"*. This is the tab Cam will live in.
     renderTab('units');
     const box = screen.getByTestId('psm-units') as HTMLInputElement;
-    fireEvent.change(box, { target: { value: '9' } });
-    fireEvent.blur(box);
-    await waitFor(() => expect(updateProjectMutate).toHaveBeenCalledTimes(1));
-    expect(updateProjectMutate.mock.calls[0][0].patch).toEqual({ units: 9 });
-    expect(atomicSave).not.toHaveBeenCalled();
+    const patch = await commitViaSave(atomicSave, () => {
+      fireEvent.change(box, { target: { value: '9' } });
+      fireEvent.blur(box);
+    });
+    // ★ A NUMBER, not the string the input produced — unchanged by the buffer,
+    //   because the draft holds the column's real type.
+    expect(patch).toEqual({ units: 9 });
   });
 
   it('★★★ BP Design Associate writes the PERMIT, not the project', async () => {
@@ -244,9 +280,13 @@ describe('fix-520 §A — every project field commits when you leave it', () => 
   it('★★ a checkbox commits on tick, and `null` stays "not recorded" until it does', async () => {
     renderTab('actions');
     expect((screen.getByTestId('psm-is-backfill') as HTMLInputElement).checked).toBe(false);
-    fireEvent.click(screen.getByTestId('psm-is-backfill'));
-    await waitFor(() => expect(updateProjectMutate).toHaveBeenCalledTimes(1));
-    expect(updateProjectMutate.mock.calls[0][0].patch).toEqual({ is_backfill: true });
+    const patch = await commitViaSave(atomicSave, () =>
+      fireEvent.click(screen.getByTestId('psm-is-backfill')),
+    );
+    // ★★ AND THE KEY IS ONLY THERE BECAUSE SOMEBODY TICKED IT — fix-386's rule,
+    //    which the buffer preserves BY CONSTRUCTION: the draft is not a
+    //    snapshot, so an untouched column is absent from the patch entirely.
+    expect(patch).toEqual({ is_backfill: true });
   });
 
   it('★★ an unchanged value writes NOTHING', async () => {
@@ -328,10 +368,24 @@ describe('fix-520 §A — the model, and the one exception', () => {
     //     one tab in nine is worse than no promise**: it is what teaches
     //     somebody their edit is safe.
     expect(modalSrc).not.toContain('Per-field tabs save as you leave each box.');
-    expect(modalSrc).toContain(
+    // ★★★ fix-575 §C — AND THE REPLACEMENT NAMES ITS OWN BOUNDARY, which is
+    //     this ruling applied rather than overridden. fix-520 §A's own sentence
+    //     became untrue the moment the 23 scalars buffered, so it is gone too;
+    //     what stands in its place points at the `saves now` marker each
+    //     immediate control carries.
+    expect(modalSrc).not.toContain(
       'Fields save as you leave them. Permit rows save with the button.',
     );
-    expect(modalSrc).toContain('Unsaved permit rows — Save to write them.');
+    expect(modalSrc).toContain('SAVE_MODEL_CLEAN');
+    expect(modalSrc).toContain('SAVE_MODEL_DIRTY');
+    // ★★ ONE DEFINITION, not a literal in the JSX — nine copies of a sentence
+    //    is how this modal's Units caption came to contradict its own tab.
+    expect(saveModelSrc).toContain(
+      'Changes wait for Save. Controls marked “saves now” write immediately.',
+    );
+    expect(saveModelSrc).toContain(
+      'Unsaved changes — Save to write them, or Cancel to discard.',
+    );
   });
 
   it('★★★ the atomic save writes PERMITS AND NOTHING ELSE', () => {
@@ -342,7 +396,13 @@ describe('fix-520 §A — the model, and the one exception', () => {
     const code = controllerSrc
       .replace(/\/\*[\s\S]*?\*\//g, '')
       .replace(/^\s*\/\/.*$/gm, '');
-    expect(code).toContain('const projectPatch: Record<string, unknown> = {};');
+    // ★★★ fix-575 §A — THE PATCH IS THE DRAFT, AND THE REGRESSION THIS TEST
+    //     PREVENTS IS STILL PREVENTED. What it forbids is a patch built by
+    //     RESTATING the form's snapshot: that would revert nine fields to
+    //     whatever the modal last loaded in order to save one permit row.
+    //     `{ ...draft }` cannot do that — a column enters the draft only when
+    //     somebody edits that control, so an untouched field is absent.
+    expect(code).toContain('const projectPatch: Record<string, unknown> = { ...draft };');
     // ★ Anchored to the patch's own indentation, NOT a bare substring: a
     //   loose `address:` matches `struct_address:` on a permit row, which is a
     //   different field on a different table. The "must not appear" grep that

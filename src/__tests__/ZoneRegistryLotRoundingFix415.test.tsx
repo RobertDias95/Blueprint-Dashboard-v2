@@ -1,9 +1,10 @@
 import { MemoryRouter } from 'react-router-dom';
 import { describe, it, expect, beforeEach, vi } from 'vitest';
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { fireEvent, render, screen } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import type { ReactNode } from 'react';
 import { useAuthStore } from '../stores/authStore';
+import { commitViaSave } from '../test/bufferedSave';
 import { queryKeys } from '../lib/queryKeys';
 import zoneMigrationSql from '../../migrations/fix_415_zone_registry_and_remap.sql?raw';
 import lotMigrationSql from '../../migrations/fix_415_round_lot_dimensions.sql?raw';
@@ -358,9 +359,17 @@ describe('fix-415 §C: the section says what it holds', () => {
 const T = 'test-tenant-uuid';
 const TOKEN = '2026-05-15T12:00:00Z';
 const updateMutateAsync = vi.hoisted(() => vi.fn());
+// ★ fix-575 §A: the SITE scalars buffer and land here, via the modal's Save.
+const permitsMutateAsync = vi.hoisted(() => vi.fn(() => Promise.resolve({})));
 
 vi.mock('../hooks/useUpdateProject', () => ({
   useUpdateProject: () => ({ mutateAsync: updateMutateAsync, isPending: false }),
+}));
+vi.mock('../hooks/useUpdateProjectWithPermits', () => ({
+  useUpdateProjectWithPermits: () => ({
+    mutateAsync: permitsMutateAsync,
+    isPending: false,
+  }),
 }));
 vi.mock('../hooks/useBuilderSearch', () => ({
   useBuilderSearch: () => ({ data: [], isLoading: false }),
@@ -449,6 +458,7 @@ function setupSite(over: Record<string, unknown> = {}) {
 
 beforeEach(() => {
   updateMutateAsync.mockReset();
+  permitsMutateAsync.mockClear();
   updateMutateAsync.mockResolvedValue({ id: 'p-test', updated_at: TOKEN });
   useAuthStore.setState({
     activeTenantId: T,
@@ -457,26 +467,28 @@ beforeEach(() => {
 });
 
 describe('fix-415: the SITE card — the direct-table write path', () => {
-  it('★★★ ROUND TRIP: type 100.47, blur, and 100 is what gets written', () => {
+  it('★★★ ROUND TRIP: type 100.47, blur, and 100 is what gets written', async () => {
+    // ★★★ fix-575 §A — THE ROUNDING IS THE RULING AND IT IS UNCHANGED. What
+    //     moved is WHERE the answer is read: the field buffers to the modal's
+    //     Save, so `100` is asserted on the patch that reaches the RPC rather
+    //     than on a blur-time write.
     setupSite();
     const w = screen.getByTestId('pd-site-lot-w') as HTMLInputElement;
     fireEvent.change(w, { target: { value: '100.47' } });
-    // ★ Still 100.47 in the box — rounding happens on COMMIT, not keystroke.
+    // ★★ STILL 100.47 IN THE BOX — rounding happens on COMMIT, not on keystroke,
+    //    and a buffer is exactly where somebody might normalise early and make
+    //    the box fight the typist.
     expect(w.value).toBe('100.47');
-    fireEvent.blur(w);
-    return waitFor(() => {
-      expect(updateMutateAsync).toHaveBeenCalledTimes(1);
-      expect(updateMutateAsync.mock.calls[0][0].patch.lot_width).toBe(100);
-    });
+    const patch = await commitViaSave(permitsMutateAsync, () => fireEvent.blur(w));
+    expect(patch.lot_width).toBe(100);
   });
 
   it('★★★ 120.5 rounds UP to 121', () => {
     setupSite();
     const d = screen.getByTestId('pd-site-lot-d') as HTMLInputElement;
     fireEvent.change(d, { target: { value: '120.5' } });
-    fireEvent.blur(d);
-    return waitFor(() => {
-      expect(updateMutateAsync.mock.calls[0][0].patch.lot_depth).toBe(121);
+    return commitViaSave(permitsMutateAsync, () => fireEvent.blur(d)).then((patch) => {
+      expect(patch.lot_depth).toBe(121);
     });
   });
 
@@ -484,9 +496,10 @@ describe('fix-415: the SITE card — the direct-table write path', () => {
     setupSite({ lot_width: 40 });
     const w = screen.getByTestId('pd-site-lot-w') as HTMLInputElement;
     fireEvent.change(w, { target: { value: '' } });
-    fireEvent.blur(w);
-    return waitFor(() => {
-      expect(updateMutateAsync.mock.calls[0][0].patch.lot_width).toBeNull();
+    return commitViaSave(permitsMutateAsync, () => fireEvent.blur(w)).then((patch) => {
+      // ★ NULL, never 0 — "nobody measured it" and "it is zero feet wide" are
+      //   different facts, and the buffer preserves the column's real type.
+      expect(patch.lot_width).toBeNull();
     });
   });
 
@@ -502,17 +515,24 @@ describe('fix-415: the SITE card — the direct-table write path', () => {
 
   it('★★★ picking a zone commits it; picking blank commits NULL', async () => {
     setupSite();
-    const zone = screen.getByTestId('pd-site-zone');
-    fireEvent.change(zone, { target: { value: 'LR1' } });
-    await waitFor(() => expect(updateMutateAsync).toHaveBeenCalledTimes(1));
-    expect(updateMutateAsync.mock.calls[0][0].patch.zone).toBe('LR1');
+    const picked = await commitViaSave(permitsMutateAsync, () =>
+      fireEvent.change(screen.getByTestId('pd-site-zone'), {
+        target: { value: 'LR1' },
+      }),
+    );
+    expect(picked.zone).toBe('LR1');
 
-    updateMutateAsync.mockClear();
-    fireEvent.change(screen.getByTestId('pd-site-zone'), { target: { value: '' } });
-    await waitFor(() => expect(updateMutateAsync).toHaveBeenCalledTimes(1));
+    // ★★★ fix-575 §A: after a successful Save the draft EMPTIES and the modal
+    //     reads clean again, so the second edit is a fresh buffered change
+    //     rather than an accumulation — which is what makes this two
+    //     assertions and not one.
+    permitsMutateAsync.mockClear();
+    const cleared = await commitViaSave(permitsMutateAsync, () =>
+      fireEvent.change(screen.getByTestId('pd-site-zone'), { target: { value: '' } }),
+    );
     // ★ Five projects on prod legitimately have no zone. Blank is how they say
     //   so — it is not a 22nd zone, and it must reach the column as NULL.
-    expect(updateMutateAsync.mock.calls[0][0].patch.zone).toBeNull();
+    expect(cleared.zone).toBeNull();
   });
 
   it('★★ a stored zone an admin has RETIRED still renders, marked', () => {

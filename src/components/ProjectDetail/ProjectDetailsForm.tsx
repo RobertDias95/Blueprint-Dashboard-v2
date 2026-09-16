@@ -4,6 +4,7 @@ import type { ReactNode } from 'react';
 // when you leave it, through the path the site/lot/date/unit editors already
 // used. The Permits tab is the one exception and says so on screen.
 import { useProjectFieldCommit } from '../../hooks/useProjectFieldCommit';
+import SavesNowMark from '../shared/SavesNowMark';
 import { useUpdatePermit } from '../../hooks/useUpdatePermit';
 import type { PermitWithCycles, Project } from '../../lib/database.types';
 import type { ProjectDetailsFormController } from '../../hooks/useProjectDetailsForm';
@@ -45,20 +46,26 @@ const inputStyle = {
 function Field({
   label,
   full,
+  savesNow,
   children,
 }: {
   label: string;
   full?: boolean;
+  /** ★★★ fix-575 §C: this control writes IMMEDIATELY rather than waiting for
+   *  the modal's Save — see `lib/saveModel`. Only two fields on this form set
+   *  it, and neither writes a project column at all. */
+  savesNow?: boolean;
   children: ReactNode;
 }) {
   return (
     <div className={`flex flex-col gap-1 ${full ? 'col-span-2' : ''}`}>
       {label ? (
         <span
-          className="text-[9px] font-bold uppercase tracking-wide"
+          className="text-[9px] font-bold uppercase tracking-wide flex items-baseline gap-1.5"
           style={{ color: 'var(--color-dim)' }}
         >
           {label}
+          {savesNow && <SavesNowMark testid={`saves-now-${label}`} />}
         </span>
       ) : null}
       {children}
@@ -522,7 +529,7 @@ export function InternalTeamFields({
              `bpRole.da` was mapped onto a permit upsert inside a project save.
              One field pretending to be a project field is what made a
              six-control tab need two write models. */}
-      <Field label="BP Design Associate">
+      <Field label="BP Design Associate" savesNow>
         <SelectInput
           value={bp?.da ?? ''}
           onChange={(v) => {
@@ -579,7 +586,7 @@ export function InternalTeamFields({
               so the tab has one rule and this control simply does more work
               under it — which is why the hint below says what it moves rather
               than when it saves. */}
-      <Field label="Schematic Designer">
+      <Field label="Schematic Designer" savesNow>
         <SelectInput
           value={currentSd}
           onChange={(v) => {

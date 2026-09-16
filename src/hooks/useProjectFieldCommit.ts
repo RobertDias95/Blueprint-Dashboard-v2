@@ -1,6 +1,7 @@
 import { useCallback } from 'react';
 import { useUpdateProject } from './useUpdateProject';
 import { useMayWriteProject } from './useMayWriteProject';
+import { useProjectDraftSink } from './useProjectDraft';
 import type { Project } from '../lib/database.types';
 
 // ===========================================================================
@@ -111,7 +112,7 @@ export interface ProjectFieldCommit {
 // ⚠️ ORDER-SENSITIVE ON PURPOSE. `['ECA','SIP']` and `['SIP','ECA']` are
 //    different values: the stored order is what the chips render in, so a
 //    reorder is a real edit and must not be swallowed as a no-op.
-function projectValuesEqual(a: unknown, b: unknown): boolean {
+export function projectValuesEqual(a: unknown, b: unknown): boolean {
   if (Array.isArray(a) && Array.isArray(b)) {
     return a.length === b.length && a.every((v, i) => v === b[i]);
   }
@@ -129,6 +130,8 @@ export function useProjectFieldCommit(project: Project): ProjectFieldCommit {
   //    read **no**, which renders read-only rather than accepting typing the
   //    server will refuse.
   const mayWrite = useMayWriteProject(project.id);
+  // ★ fix-575 §A: null unless a host is buffering. See `useProjectDraft`.
+  const draftSink = useProjectDraftSink();
   const occMissing = !project.updated_at || !mayWrite;
   const projectId = project.id;
   const updatedAt = project.updated_at;
@@ -144,6 +147,30 @@ export function useProjectFieldCommit(project: Project): ProjectFieldCommit {
       // ★ `?? null` on the original: an ABSENT column and a null are the same
       //   fact, and only one of them survives a round-trip.
       if (projectValuesEqual(next, original ?? null)) return;
+
+      // ═══════════════════════════════════════════════════════════════════
+      // ★★★ fix-575 §A (P-227) — IF SOMEBODY UPSTREAM IS BUFFERING, FILE IT
+      // ═══════════════════════════════════════════════════════════════════
+      //
+      // ★★★ THIS IS THE ENTIRE WRITE HALF OF THE TICKET, and it is four lines
+      //     because fix-575a spent a whole ticket making it four lines. Before
+      //     that, this same change had to be made in four places — and two of
+      //     them had already drifted.
+      //
+      // ★★ THE NO-OP GUARD RUNS FIRST, ON PURPOSE. `original` is read from the
+      //    DRAFT-OVERLAID project (the modal hands editors `{...project,
+      //    ...draft}`), so re-picking a value you already typed is correctly a
+      //    no-op, and typing back to the stored value correctly un-dirties that
+      //    field — the host drops a draft entry that matches the row.
+      //
+      // ★ `fieldLabel` is deliberately NOT carried into the draft. It exists to
+      //   name ONE field in an OCC toast; a buffered save writes many columns
+      //   at once and is labelled as a whole ("Project Details").
+      if (draftSink) {
+        draftSink.setDraft(field, next);
+        return;
+      }
+
       try {
         await updateMutation.mutateAsync({
           projectId,
@@ -192,7 +219,7 @@ export function useProjectFieldCommit(project: Project): ProjectFieldCommit {
         //    yet and an unused return value is a claim nobody is checking.
       }
     },
-    [projectId, updatedAt, updateMutation],
+    [projectId, updatedAt, updateMutation, draftSink],
   );
 
   return { commit, occMissing, mayWrite, saving: updateMutation.isPending };
