@@ -154,3 +154,79 @@ export function applyDeletedBlock(
 ): void {
   patchList(queryClient, tenantId, (rows) => rows.filter((r) => r.id !== blockId));
 }
+
+// ===========================================================================
+// ★★★ fix-581 (P-283 — CLOSED) — THE OTHER HALF OF fix-442
+// ===========================================================================
+//
+// fix-442 made the cache CORRECT at the moment a write returns. It did not make
+// anything READ from it. Every token this app posts for a time block is copied
+// out of the cache at the moment an interaction STARTS and posted when it ENDS:
+//
+//     npPopup.block.updated_at            the edit popup   (React state)
+//     pendingNpWarning.expectedUpdatedAt  the overlap prompt
+//     pendingOverlap.expectedUpdatedAt    the force prompt
+//     c.expectedUpdatedAt                 each listed conflict
+//
+// A `setQueryData` correction can never reach a value that has already been
+// copied into component state. **So fix-442 fixed the writing half of a
+// two-halved bug and P-283 is the reading half**, which is why four weeks of
+// hunting for an external writer found nothing: there is no other writer. The
+// panel is posting its own superseded stamp.
+//
+// ---------------------------------------------------------------------------
+// ★★★ THE INSTRUMENT SETTLED IT — three occurrences, 2026-09-16 16:23 UTC
+// ---------------------------------------------------------------------------
+//
+//   733  Miles  np_…e7y0  expected 16:23:12.950  actual 16:23:14.187  Δ 1,237ms
+//   734  Miles  np_…e7y0  expected 16:23:14.187  actual 16:23:16.898  Δ 2,711ms
+//   735  Dave   np_…cvxq  expected 16:23:39.377  actual 16:23:44.833  Δ 5,456ms
+//
+// ★★ 734's `expected` IS 733's `actual` — the panel advanced once, off the
+//    refusal's own return value, and was refused again.
+// ★★★ AND 735's `expected` IS THAT BLOCK'S `created_at`, TO THE MICROSECOND.
+//     Dave's popup held the stamp from the instant the block was created while
+//     the row was written again 5.4 s later — and the row is four weeks wide
+//     today, so what advanced it was a RESIZE. **A snapshot cannot be corrected
+//     by the writer that superseded it, and the two writers are different.**
+//
+// ---------------------------------------------------------------------------
+// ★★★ WHY THIS IS A CACHE READ AND NOT fix-580's `useRef`
+// ---------------------------------------------------------------------------
+//
+// fix-580 solved the same shape for team tasks with a ref advanced in the
+// component that owns the panel. That works when ONE writer touches the row.
+// Here four do — upsert, resize, delete and rename — and 735 is precisely the
+// case where the writer that moved the stamp is not the writer that gets
+// refused. A per-component ref could not have seen the resize.
+//
+// ★★★ SO THE TOKEN IS READ FROM THE ONE PLACE ALL FOUR ALREADY WRITE TO. Every
+//     `applyResizedBlock` / `applyUpsertedBlock` call is now an advance for
+//     every other writer, for free, and there is no new state to keep in step.
+//
+// ⚠️ THIS IS NOT "SEND WHATEVER THE SERVER LAST SAID" — that would delete the
+//    guard. The cache is THIS CLIENT'S view, advanced only by writes THIS
+//    CLIENT made and by refetches it has actually received. A second person's
+//    write does not appear in it until this client refetches, so a genuine
+//    two-client collision is still refused. §B's both-directions test asserts
+//    exactly that, and it is the assertion that stops this fix becoming a
+//    silent clobber.
+
+/**
+ * The freshest `updated_at` this client has observed for a block.
+ *
+ * ★ `fallback` is what the caller was holding — used when the list is not
+ *   cached at all (a fresh tab that has written before it has read). Preferring
+ *   the cache is always at least as fresh as the snapshot, never staler.
+ */
+export function currentBlockToken(
+  queryClient: QueryClient,
+  tenantId: string,
+  blockId: string,
+  fallback: string | null,
+): string | null {
+  const rows = queryClient.getQueryData<DaTimeBlock[]>(
+    queryKeys.daTimeBlocks(tenantId),
+  );
+  return rows?.find((r) => r.id === blockId)?.updated_at ?? fallback;
+}

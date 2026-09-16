@@ -586,36 +586,21 @@ export default function NewProjectWizard({ open, onClose, initialState }: Props)
         p.type === BUILDING_PERMIT ? backfillDdEnd ?? undefined : undefined,
     }));
 
-    // ════════════════════════════════════════════════════════════════════
-    // ★★★ fix-566 (P-270) — THE BRIDGE, AND IT DELETES ITSELF
-    // ════════════════════════════════════════════════════════════════════
+    // ★★★ fix-581 §D — fix-566's BRIDGE IS GONE. It retried a refused redesign
+    //     with a ` [Redesign N]` suffix to cover the window between fix-566
+    //     merging and its migration being applied. **The migration was applied
+    //     2026-09-16** — verified on prod rather than assumed:
+    //     `projects_address_key` no longer exists,
+    //     `projects_address_unique_non_redesign` does,
+    //     `bp_project_id_for_address` exists, the pre-check is redesign-aware,
+    //     and **0 of 227 addresses still carry a suffix while 21 redesigns share
+    //     their original's** (227 projects, 206 distinct). A 21st redesign has
+    //     been created since, with no suffix — so the first call now succeeds
+    //     and the retry was unreachable.
     //
-    // ⚠️⚠️ THE CLIENT SHIPS BEFORE THE MIGRATION AND THIS WOULD OTHERWISE BREAK
-    //       "Spawn Redesign" IN THE GAP. The wizard now seeds the parent's
-    //       address verbatim, and `bp_create_project_with_permits` refuses ANY
-    //       existing address in a pre-check that runs BEFORE the constraint is
-    //       reached — so until Cowork applies fix-566, every redesign would come
-    //       back `conflict: true` and land on *"This address already exists in
-    //       the system"*, which is the exact dead end this ticket removes.
-    //
-    // ★★ THE REPO HAS BEEN BITTEN BY THIS ORDERING BEFORE: fix-574's Edge
-    //    Function sat merged-but-undeployed for four days and 12 × 404. Merging
-    //    is not applying, and the approval shelf currently holds a dozen files.
-    //
-    // ★★★ SO: ONE RETRY, WITH THE OLD SUFFIX, ONLY WHEN THE SERVER STILL
-    //     REFUSES. The moment the partial index and the redesign-aware pre-check
-    //     are applied, the first call succeeds and this branch never runs again
-    //     — it is dead code the day the migration lands, and a test asserts it
-    //     is reached only on a refusal.
-    //
-    // ★ N comes from the matches the duplicate check already computed — the
-    //   same count `makeRedesignWizardState` used to take as a parameter — so
-    //   there is no new query and no resurrected hook.
-    const redesignSiblingCount = isRedesign
-      ? duplicate.matches.filter(
-          (m) => m.project.redesign_of_project_id === state.redesign_of_project_id,
-        ).length
-      : 0;
+    // ★ Removed here rather than in its own ticket because this is the next PR
+    //   to open this file. A self-deleting bridge that nobody deletes is just a
+    //   second write path waiting to be rediscovered.
 
     try {
       const payload = {
@@ -638,16 +623,7 @@ export default function NewProjectWizard({ open, onClose, initialState }: Props)
               }
             : undefined,
       };
-      let result = await create.mutateAsync(payload);
-
-      // ★★★ fix-566: the bridge. See the block above — one retry, only for a
-      //     redesign, only on a refusal, only while the old constraint stands.
-      if (result.conflict && isRedesign) {
-        result = await create.mutateAsync({
-          ...payload,
-          address: `${payload.address} [Redesign ${redesignSiblingCount + 1}]`,
-        });
-      }
+      const result = await create.mutateAsync(payload);
 
       if (result.conflict) {
         setConflictExistingId(result.project_id);
