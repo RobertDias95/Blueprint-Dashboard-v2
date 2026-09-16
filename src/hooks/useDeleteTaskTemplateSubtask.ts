@@ -1,7 +1,7 @@
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '../lib/supabase';
 import { queryKeys } from '../lib/queryKeys';
-import { OCCConflictError, isOCCConflict } from '../lib/occ';
+import { OCCConflictError, isOCCConflict, occToken } from '../lib/occ';
 import { pushToast } from '../stores/toastStore';
 import { useAuthStore } from '../stores/authStore';
 
@@ -20,7 +20,7 @@ export function useDeleteTaskTemplateSubtask() {
     mutationFn: async ({ id, updated_at }) => {
       const { data, error } = await supabase.rpc(
         'bp_delete_task_template_subtask_row',
-        { p_id: id, p_expected_updated_at: updated_at },
+        { p_id: id, p_expected_updated_at: occToken(updated_at) },
       );
       if (error) throw error;
       const row = (data as Row[])[0];

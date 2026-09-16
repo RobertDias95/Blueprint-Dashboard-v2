@@ -1,7 +1,7 @@
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '../lib/supabase';
 import { queryKeys } from '../lib/queryKeys';
-import { OCCConflictError, isOCCConflict } from '../lib/occ';
+import { OCCConflictError, isOCCConflict, occToken } from '../lib/occ';
 import { pushToast } from '../stores/toastStore';
 import { useAuthStore } from '../stores/authStore';
 import type { TeamMember } from '../lib/database.types';
@@ -53,7 +53,7 @@ export function useUpsertTeamMember() {
         const { data, error } = await supabase.rpc('bp_upsert_team_member_row', {
           p_id: null,
           p_data: payload,
-          p_expected_updated_at: null,
+          p_expected_updated_at: occToken( null),
         });
         if (error) throw error;
         const row = (data as Row[])[0];
@@ -76,7 +76,7 @@ export function useUpsertTeamMember() {
       const { data, error } = await supabase.rpc('bp_upsert_team_member_row', {
         p_id: input.member.id,
         p_data: payload,
-        p_expected_updated_at: input.member.updated_at,
+        p_expected_updated_at: occToken(input.member.updated_at),
       });
       if (error) throw error;
       const row = (data as Row[])[0];

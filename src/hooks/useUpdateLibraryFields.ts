@@ -1,6 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '../lib/supabase';
 import { queryKeys } from '../lib/queryKeys';
+import { occToken } from '../lib/occ';
 import { pushToast } from '../stores/toastStore';
 import { useAuthStore } from '../stores/authStore';
 import { mayEditLibrary } from '../lib/workDataNames';
@@ -194,7 +195,7 @@ export function useUpdateLibraryFields() {
       }
       const { data, error } = await supabase.rpc('bp_update_library_fields', {
         p_project_id: input.projectId,
-        p_expected_updated_at: expected,
+        p_expected_updated_at: occToken(expected),
         p_patch,
       });
       if (error) {

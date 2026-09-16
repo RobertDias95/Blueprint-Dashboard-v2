@@ -1,7 +1,7 @@
 import { useMutation, useQueryClient, type QueryClient } from '@tanstack/react-query';
 import { supabase } from '../lib/supabase';
 import { queryKeys } from '../lib/queryKeys';
-import { OCCConflictError, isOCCConflict } from '../lib/occ';
+import { OCCConflictError, isOCCConflict, occToken } from '../lib/occ';
 import {
   ProjectWriteDeniedError,
   isDeniedResponse,
@@ -109,7 +109,7 @@ async function tryUpdateProject(
   const rpc = await supabase.rpc('bp_update_project_fields', {
     p_project_id: projectId,
     p_patch: patch,
-    p_expected_updated_at: expectedUpdatedAt,
+    p_expected_updated_at: occToken(expectedUpdatedAt),
   });
 
   if (rpc.error && isDeniedResponse(rpc.error)) {

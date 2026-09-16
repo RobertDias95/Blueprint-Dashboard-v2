@@ -1,7 +1,7 @@
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '../lib/supabase';
 import { queryKeys } from '../lib/queryKeys';
-import { OCCConflictError, isOCCConflict } from '../lib/occ';
+import { OCCConflictError, isOCCConflict, occToken } from '../lib/occ';
 import { pushToast } from '../stores/toastStore';
 
 // fix-145: edit a reuse-redesign's draw_schedule lane (DA / dates / status)
@@ -38,7 +38,7 @@ export function useUpdateRedesignDdPhase() {
         p_dd_start: input.dd_start,
         p_dd_end: input.dd_end,
         p_status: input.status,
-        p_expected_updated_at: input.expectedUpdatedAt,
+        p_expected_updated_at: occToken(input.expectedUpdatedAt),
       });
       if (error) throw error;
       const row = (data as RpcRow[] | null)?.[0];

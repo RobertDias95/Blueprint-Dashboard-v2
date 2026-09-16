@@ -549,7 +549,11 @@ describe('fix-442 §A5 — the guard, the RPCs and the sentence are untouched', 
 
   it('★★ the RPC names and their arguments are unchanged', () => {
     expect(code(resizeSrc)).toContain('bp_resize_da_time_block');
-    expect(code(resizeSrc)).toContain('p_expected_updated_at: input.expectedUpdatedAt');
+    // ★ fix-580: the token is normalised at the boundary now — the ARGUMENT
+    //   and its source are unchanged, which is what this guard is about.
+    expect(code(resizeSrc)).toContain(
+      'p_expected_updated_at: occToken(input.expectedUpdatedAt)',
+    );
     expect(code(upsertSrc)).toContain('bp_upsert_da_time_block_row');
     expect(code(deleteSrc)).toContain('bp_delete_da_time_block_row');
   });

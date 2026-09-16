@@ -11,7 +11,7 @@ import { waitingOnOptions } from '../lib/waitingOn';
 //   `task.agenda === true` here would be a second definition of one question.
 import { isAgendaItem, taskContextLine } from '../lib/taskSource';
 import TaskProvenance from './TaskProvenance';
-import { useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useUpsertTask, useSetTaskAssignees } from "../hooks/useTaskTree";
 import { useUpsertTeamTask } from "../hooks/useTeamTasks";
 import { useDmDaGroups } from "../hooks/useDmDaGroups";
@@ -154,6 +154,17 @@ export default function TaskDetailEditor({
   // ★★ BOTH KINDS OF TASK. `permit_tasks.notes` and `team_tasks.notes` both
   //    exist and both writers already accepted the field, so nothing here is a
   //    new write path — see §C's note in `patch()`.
+  // ★★★ fix-580 §A: the team-task OCC token, advanced on every successful save
+  //     so a burst of single-field commits does not conflict with itself. Seeded
+  //     from the row and re-seeded whenever the query hands back a newer stamp
+  //     — `task.updated_at` is `undefined` until the fix-580 migration adds it
+  //     to `bp_list_tasks`, and `useUpsertTeamTask` fetches the stamp itself in
+  //     that window.
+  const teamTokenRef = useRef<string | null>(task.updated_at ?? null);
+  useEffect(() => {
+    teamTokenRef.current = task.updated_at ?? null;
+  }, [task.id, task.updated_at]);
+
   const [notesDraft, setNotesDraft] = useState(task.notes ?? '');
   // ★ Re-seed when the panel moves to another task: this component stays
   //   mounted and swaps `task`, so a stale draft would leak one task's note
@@ -182,31 +193,79 @@ export default function TaskDetailEditor({
     //    branch is here rather than a second editor, because a second editor is
     //    how two panels start disagreeing about what a task is.
     if (task.permit_id === null) {
-      upsertTeam.mutate({
-        op: 'update',
-        id: task.id,
-        // ★ The team writer is OCC-guarded, but `bp_list_tasks` does not carry
-        //   `updated_at` (adding it would change the row shape for every permit
-        //   task too). The status path uses the dedicated single-column RPC;
-        //   this path re-sends the row it is editing, so an empty token is a
-        //   deliberate last-write-wins on a panel only one person has open.
-        updated_at: '',
-        patch: {
-          text: (p.text as string | undefined) ?? task.text,
-          discipline: (p.discipline as 'arch' | 'ent' | undefined) ?? task.discipline,
-          start_date: 'startDate' in p ? (p.startDate as string | null) : task.start_date,
-          target_date: 'targetDate' in p ? (p.targetDate as string | null) : task.target_date,
-          assigned_to: 'assignedTo' in p ? (p.assignedTo as string | null) : task.assigned_to,
-          completion_status: (p.status as string | undefined) ?? task.status,
-          priority: (p.priority as boolean | undefined) ?? task.priority,
-          // ★★★ fix-559 §C: a TEAM task gets a note too. `team_tasks` has its
-          //     own `notes` column and `TeamTaskPatch` already carried the
-          //     field — so "a note belongs to a task" is true for BOTH kinds of
-          //     task, not just the permit ones. Re-sent like every other field
-          //     on this writer, because `p_data` is a whole-patch overwrite.
-          notes: 'notes' in p ? (p.notes as string | null) : task.notes ?? null,
+      // ═══════════════════════════════════════════════════════════════════
+      // ★★★ fix-580 §A (P-285) — THIS IS THE LINE THAT LOST BRITTANI'S EDIT
+      // ═══════════════════════════════════════════════════════════════════
+      //
+      // It read `updated_at: ''`, with a comment calling the empty token "a
+      // deliberate last-write-wins on a panel only one person has open". The
+      // INTENT was sound. The MECHANISM never existed: `''` is not a permissive
+      // token to PostgREST, it is a `timestamptz` cast that fails **before the
+      // function body runs** — `invalid input syntax for type timestamp with
+      // time zone: ""`, prod rows 731 and 732, nine seconds apart, nothing
+      // saved either time.
+      //
+      // ★★ SO THE PANEL CARRIES A REAL TOKEN NOW. `bp_list_tasks` emits
+      //    `updated_at` after the fix-580 migration; `useUpsertTeamTask` reads
+      //    the row's stamp directly until it does, so this works either way.
+      //
+      // ★★★ AND THE TOKEN ADVANCES ON EVERY SAVE. Each field on this panel
+      //     commits separately, and the query invalidation that would refresh
+      //     `task` lands AFTER the next click — so a second edit inside the
+      //     same second would post the stamp the first one just replaced and be
+      //     refused. The ref is what keeps a burst of single-field commits from
+      //     conflicting with itself (fix-341's "your own write from two seconds
+      //     ago", made impossible rather than re-worded).
+      const startDate =
+        'startDate' in p ? (p.startDate as string | null) : task.start_date;
+      const targetDate =
+        'targetDate' in p ? (p.targetDate as string | null) : task.target_date;
+      const assignedTo =
+        'assignedTo' in p ? (p.assignedTo as string | null) : task.assigned_to ?? null;
+      const notes = 'notes' in p ? (p.notes as string | null) : task.notes ?? null;
+      upsertTeam.mutate(
+        {
+          op: 'update',
+          id: task.id,
+          updated_at: teamTokenRef.current,
+          patch: {
+            text: (p.text as string | undefined) ?? task.text,
+            discipline: (p.discipline as 'arch' | 'ent' | undefined) ?? task.discipline,
+            start_date: startDate,
+            target_date: targetDate,
+            assigned_to: assignedTo,
+            completion_status: (p.status as string | undefined) ?? task.status,
+            priority: (p.priority as boolean | undefined) ?? task.priority,
+            // ★★★ fix-559 §C: a TEAM task gets a note too. `team_tasks` has its
+            //     own `notes` column and `TeamTaskPatch` already carried the
+            //     field — so "a note belongs to a task" is true for BOTH kinds
+            //     of task, not just the permit ones.
+            notes,
+            // ★★★ fix-580 §B — NULL MEANS CLEAR, AND IT HAS TO SAY SO.
+            //
+            // The migration stops `bp_upsert_team_task` NULLing a column just
+            // because the patch did not mention it (`due_date`, `ref_project_id`
+            // and `ref_permit_id` were being wiped on every edit from here —
+            // this panel never sends them). The price of that coalesce is that
+            // `null` alone stops meaning "clear", so the four fields this panel
+            // CAN empty say it explicitly — the same three-state contract
+            // `bp_upsert_permit_task` has used since fix-138-a, which is why
+            // the permit branch below already passes `clearNotes`/`clearDueDate`.
+            //
+            // ★ Sent alongside the values, not instead of them, so the write is
+            //   correct whether or not the migration has been applied yet.
+            clear_start_date: startDate === null,
+            clear_target_date: targetDate === null,
+            clear_assigned_to: assignedTo === null,
+            clear_notes: notes === null,
+          },
         },
-      });
+        {
+          onSuccess: (row) => {
+            teamTokenRef.current = row.updated_at;
+          },
+        },
+      );
       return;
     }
     upsert.mutate({

@@ -285,6 +285,10 @@ describe('fix-532 §B (P-246) — the stale token was the caller’s', () => {
     // ★ Built in rather than retrofitted: the Library's cells have the same
     //   several-in-flight shape the units editor has.
     expect(hook()).toContain('queryClient.getQueryData<Project[]>(queryKeys.projects(tenantId))');
-    expect(hook()).toContain('p_expected_updated_at: expected');
+    // ★ fix-580 wraps every OCC token in `occToken` at the boundary — `""` is
+    //   not a timestamptz and PostgREST refuses the whole call. The assertion
+    //   is still "the token comes from the cached row", which is fix-532's
+    //   ruling; only the spelling on the wire moved.
+    expect(hook()).toContain('p_expected_updated_at: occToken(expected)');
   });
 });

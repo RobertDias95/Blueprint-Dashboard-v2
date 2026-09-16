@@ -1,7 +1,7 @@
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '../lib/supabase';
 import { queryKeys } from '../lib/queryKeys';
-import { OCCConflictError, isOCCConflict } from '../lib/occ';
+import { OCCConflictError, isOCCConflict, occToken } from '../lib/occ';
 import { pushToast } from '../stores/toastStore';
 import { useAuthStore } from '../stores/authStore';
 import type { DmDaGroupRow } from '../lib/database.types';
@@ -33,7 +33,7 @@ export function useUpsertDmDaGroup() {
       const { data, error } = await supabase.rpc('bp_upsert_dm_da_group_row', {
         p_id: isInsert ? null : input.row.id,
         p_data: payload,
-        p_expected_updated_at: isInsert ? null : input.row.updated_at,
+        p_expected_updated_at: occToken(isInsert ? null : input.row.updated_at),
       });
       if (error) throw error;
       const row = (data as Row[])[0];

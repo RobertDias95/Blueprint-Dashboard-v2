@@ -1180,6 +1180,14 @@ export interface TaskNode {
   priority?: boolean;
   /** fix-138-a: free-form notes. */
   notes?: string | null;
+  /** ★★★ fix-580 §A: the row's OCC token.
+   *
+   *  `bp_list_tasks` did not carry it, which is why `TaskDetailEditor` posted
+   *  the literal `''` that PostgREST refused as a `timestamptz` — prod rows
+   *  731/732. Optional because the migration that adds it to the RPC is on the
+   *  approval shelf; `useUpsertTeamTask` reads the stamp itself until it lands,
+   *  so nothing depends on this being present. */
+  updated_at?: string | null;
   /** fix-155: true for lifecycle auto-tasks (scraper-/sweep-generated). The
    *  team verifies these; they are never auto-completed. Drives the BOT badge
    *  and the BOT filter in My Tasks. Absent (treated as false) on older wire

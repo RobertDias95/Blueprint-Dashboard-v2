@@ -1,7 +1,7 @@
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '../lib/supabase';
 import { queryKeys } from '../lib/queryKeys';
-import { OCCConflictError, isOCCConflict } from '../lib/occ';
+import { OCCConflictError, isOCCConflict, occToken } from '../lib/occ';
 import { pushToast } from '../stores/toastStore';
 import { useAuthStore } from '../stores/authStore';
 
@@ -45,7 +45,7 @@ export function useUpdateTeamMemberQuarters() {
           p_id: input.memberId,
           p_active_start: input.activeStart,
           p_active_end: input.activeEnd,
-          p_expected_updated_at: input.expectedUpdatedAt,
+          p_expected_updated_at: occToken(input.expectedUpdatedAt),
         },
       );
       if (error) throw error;

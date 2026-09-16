@@ -1,7 +1,7 @@
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '../lib/supabase';
 import { queryKeys } from '../lib/queryKeys';
-import { OCCConflictError, isOCCConflict } from '../lib/occ';
+import { OCCConflictError, isOCCConflict, occToken } from '../lib/occ';
 import { pushToast } from '../stores/toastStore';
 import { useAuthStore } from '../stores/authStore';
 import type { IntakeRecord } from '../lib/database.types';
@@ -110,7 +110,7 @@ export function useUpsertIntakeRecord() {
         {
           p_id: input.record.id,
           p_data: payload,
-          p_expected_updated_at: input.record.updated_at,
+          p_expected_updated_at: occToken(input.record.updated_at),
         },
       );
       if (error) throw error;

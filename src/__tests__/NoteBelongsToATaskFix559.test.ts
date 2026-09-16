@@ -190,7 +190,14 @@ describe('fix-559 §C — the column gets a reader and a writer, with no RPC cha
 
   it('★★★ a TEAM task gets one too — `team_tasks.notes` exists and is carried', () => {
     const src = code(read('components/TaskDetailEditor.tsx'));
-    expect(src).toContain("notes: 'notes' in p ? (p.notes as string | null) : task.notes ?? null");
+    // ★ fix-580 §B hoisted the value into a local so the write can also state
+    //   `clear_notes` — the RULING is unchanged and asserted in both halves:
+    //   the team patch still carries `notes`, and it still resolves to the
+    //   edited value or the task's own, never to undefined.
+    expect(src).toContain(
+      "const notes = 'notes' in p ? (p.notes as string | null) : task.notes ?? null",
+    );
+    expect(src).toMatch(/patch: \{[\s\S]*?\n\s+notes,\n/);
   });
 
   it('★★★ THREE readers, so the column is no longer write-only', () => {

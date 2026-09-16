@@ -354,7 +354,11 @@ describe('fix-514 §D — remove goes through an RPC, and nothing is hard-delete
 
   it('★★ it keeps the same OCC contract as every other consultant write', () => {
     expect(consultantMigration).toContain('v_actual IS DISTINCT FROM p_expected_updated_at');
-    expect(code(consultantHookSrc)).toContain('p_expected_updated_at: input.expectedUpdatedAt');
+    // ★ fix-580: same argument, same source, wrapped in `occToken` so an
+    //   empty string can never reach the timestamptz cast.
+    expect(code(consultantHookSrc)).toContain(
+      'p_expected_updated_at: occToken(input.expectedUpdatedAt)',
+    );
   });
 });
 

@@ -1,6 +1,7 @@
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '../lib/supabase';
 import { queryKeys } from '../lib/queryKeys';
+import { occToken } from '../lib/occ';
 import { pushToast } from '../stores/toastStore';
 import { useAuthStore } from '../stores/authStore';
 
@@ -35,8 +36,8 @@ export function useSwapIntakeDates() {
       const { data, error } = await supabase.rpc('bp_swap_intake_dates', {
         p_id_a: idA,
         p_id_b: idB,
-        p_expected_a: expectedA,
-        p_expected_b: expectedB,
+        p_expected_a: occToken(expectedA),
+        p_expected_b: occToken(expectedB),
       });
       if (error) throw error;
       const row = (data as Row[])[0];

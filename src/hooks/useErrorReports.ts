@@ -102,6 +102,47 @@ export function useErrorGroups(statuses: ErrorGroupStatus[]) {
   });
 }
 
+// ===========================================================================
+// ★★★ fix-580 §D (P-285) — THE BADGE COUNTS WHAT THE LIST SHOWS
+// ===========================================================================
+//
+// Bobby, 2026-09-16: *"error triage shows 1 but has 3 items in it."*
+//
+// `bp_new_error_count` counted signatures whose latest status is `new`. The
+// page's Active tab lists `new`, `queued` AND `in_progress`. Two predicates,
+// one number, and they disagree in whichever direction the queue happens to
+// sit — measured on prod the morning of the ruling: **badge 0, list 1**, the
+// one group being rows 731/732, moved to `queued` and therefore invisible to
+// the badge while sitting at the top of the page it opens.
+//
+// ★★★ SO THE TWO NOW SHARE ONE LIST. The brief named `('new','queued')`; this
+//     counts `in_progress` as well, because the RULING is that the badge counts
+//     what the list shows and the list shows three. **That is not a guess about
+//     which is safer — `in_progress` has never been used: 0 of 378
+//     `error_reports` rows have ever held it**, so no number moves either way
+//     today, and this is the version that cannot drift back apart tomorrow.
+//
+// ⚠️ QUEUED ROWS STAY VISIBLE. They are unfixed. Hiding them is what made the
+//    count look wrong in the first place.
+//
+// ⚠️ AND IT COUNTS DISTINCT FINGERPRINTS, NOT ROWS — `bp_new_error_count`
+//    already did, and the migration keeps the `GROUP BY fingerprint`. The list
+//    groups by signature, so two rows of one signature are ONE item on screen
+//    and must be one on the badge. *A count is only a fact with its predicate.*
+
+/** The statuses the nav badge counts.
+ *
+ *  ★★★ THE MIRROR OF `bp_new_error_count`'s `HAVING` CLAUSE. The server holds
+ *  the real predicate — there is no live database in CI — so this constant is
+ *  what the Errors page's Active tab is built from and what the mirror test in
+ *  `EmptyStringTimestampFix580.test.ts` asserts against the migration's text.
+ *  Change one and the test names the other. */
+export const BADGE_ERROR_STATUSES: ErrorGroupStatus[] = [
+  'new',
+  'queued',
+  'in_progress',
+];
+
 /** Cheap count for the nav badge. Polled every 30s in addition to the
  *  realtime invalidation on the error_reports prefix. */
 export function useNewErrorCount() {
@@ -115,6 +156,8 @@ export function useNewErrorCount() {
       // ★ C3: the badge counts what the page lists. Two functions, one flag,
       //   one default — a badge counting a different set from the page it
       //   opens is the disagreement fix-432 spent a ticket removing.
+      // ★★★ fix-580 §D: …and the STATUS half of "the same set" is now true too.
+      //   The flag was never the whole of it.
       const { data, error } = await supabase.rpc('bp_new_error_count', {
         p_include_scraper: false,
       });

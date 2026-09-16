@@ -1,6 +1,7 @@
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '../lib/supabase';
 import { queryKeys } from '../lib/queryKeys';
+import { occToken } from '../lib/occ';
 import { pushToast } from '../stores/toastStore';
 import { useAuthStore } from '../stores/authStore';
 import type { Permit, PermitWithCycles, Project } from '../lib/database.types';
@@ -97,9 +98,19 @@ export function useUpdateProjectWithPermits() {
         'bp_update_project_with_permits',
         {
           p_project_id: input.projectId,
-          p_project_expected_updated_at: input.projectExpectedUpdatedAt,
+          p_project_expected_updated_at: occToken(input.projectExpectedUpdatedAt),
           p_project_patch: input.projectPatch,
-          p_permit_upserts: input.permitUpserts,
+          // ★★★ fix-580 §A — THE 46th OCC SURFACE, AND THE ONLY ONE THAT IS NOT
+          //     AN ARGUMENT. Each element of this array carries its own
+          //     `expected_updated_at`, which the function reads as
+          //     `(v_elem->>'expected_updated_at')::timestamptz` — the SAME cast
+          //     that refused rows 731/732, just reached through jsonb instead of
+          //     through PostgREST's argument coercion. Grepping for
+          //     `p_expected_updated_at` would never have found it.
+          p_permit_upserts: input.permitUpserts.map((u) => ({
+            ...u,
+            expected_updated_at: occToken(u.expected_updated_at) ?? undefined,
+          })),
           p_permit_deletes: input.permitDeletes,
         },
       );

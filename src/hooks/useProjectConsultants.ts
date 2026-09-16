@@ -1,6 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '../lib/supabase';
 import { queryKeys } from '../lib/queryKeys';
+import { occToken } from '../lib/occ';
 import { pushToast } from '../stores/toastStore';
 import { useAuthStore } from '../stores/authStore';
 import type {
@@ -207,7 +208,7 @@ export function useRemoveProjectConsultant(projectId: string | null | undefined)
     }) => {
       const { data, error } = await supabase.rpc('bp_remove_project_consultant', {
         p_consultant_id: input.consultantId,
-        p_expected_updated_at: input.expectedUpdatedAt,
+        p_expected_updated_at: occToken(input.expectedUpdatedAt),
       });
       if (error) throw error;
       const row = firstRow<ConsultantRemoveResult>(data);
@@ -256,7 +257,7 @@ export function useSetConsultantStatus(projectId: string | null | undefined) {
       const { data, error } = await supabase.rpc('bp_set_consultant_status', {
         p_consultant_id: input.consultantId,
         p_status: input.status,
-        p_expected_updated_at: input.expectedUpdatedAt,
+        p_expected_updated_at: occToken(input.expectedUpdatedAt),
       });
       if (error) throw error;
       const row = firstRow<ConsultantWriteResult>(data);
@@ -294,7 +295,7 @@ export function useSetConsultantDate(projectId: string | null | undefined) {
         p_consultant_id: input.consultantId,
         p_field: input.field,
         p_value: input.value,
-        p_expected_updated_at: input.expectedUpdatedAt,
+        p_expected_updated_at: occToken(input.expectedUpdatedAt),
       });
       if (error) throw error;
       return firstRow<ConsultantWriteResult>(data);
@@ -316,7 +317,7 @@ export function useSetConsultantPhase(projectId: string | null | undefined) {
       const { data, error } = await supabase.rpc('bp_set_consultant_phase', {
         p_consultant_id: input.consultantId,
         p_phase: input.phase,
-        p_expected_updated_at: input.expectedUpdatedAt,
+        p_expected_updated_at: occToken(input.expectedUpdatedAt),
       });
       if (error) throw error;
       return firstRow<ConsultantWriteResult>(data);
@@ -346,7 +347,7 @@ export function useSetConsultantFirm(projectId: string | null | undefined) {
       const { data, error } = await supabase.rpc('bp_set_consultant_firm', {
         p_consultant_id: input.consultantId,
         p_firm_id: input.firmId,
-        p_expected_updated_at: input.expectedUpdatedAt,
+        p_expected_updated_at: occToken(input.expectedUpdatedAt),
         p_clear_rounds: input.clearRounds ?? false,
       });
       if (error) throw error;

@@ -1,0 +1,505 @@
+-- ===========================================================================
+-- fix-580 (P-285) — AN EMPTY STRING IS NOT A TIMESTAMP
+-- ===========================================================================
+--
+-- ⚠️⚠️ **NOT APPLIED.** Written for Cowork. Every statement below is commented
+--       out and a test (fix-450) keeps it that way.
+--
+-- MEASURED ON PROD 2026-09-16 (eibnmwthkcuumyclyxoe). Every count, every
+-- function body and every verdict below is the output of a real run there.
+-- **No rows are moved by this file: it replaces FUNCTION BODIES only.**
+--
+-- ---------------------------------------------------------------------------
+-- ★★★ WHAT HAPPENED
+-- ---------------------------------------------------------------------------
+--
+-- error_reports 731 and 732 — brittani@blueprintcap.com, url:/board,
+-- kind:mutation, 2026-09-16 00:53:00 and 00:53:09 UTC. Nine seconds apart: a
+-- RETRY, not two edits. Both:
+--
+--   invalid input syntax for type timestamp with time zone: ""
+--
+-- ★★★ ZERO team_tasks ROWS WERE CREATED OR UPDATED AFTER 2026-09-15 17:11 UTC.
+--     Her work never landed. This is data loss by refusal, not a cosmetic
+--     console error.
+--
+-- ★★★ THE TYPE NAME IS THE DISCRIMINATOR. An empty string cast to `date` raises
+--     *"invalid input syntax for type DATE"*. Only a cast to `timestamptz`
+--     raises what we got. Every `timestamptz` argument on all 45 `bp_*`
+--     functions that take one is an OCC guard — enumerated on prod, not
+--     assumed, and there are FIVE argument names, not three:
+--     `p_expected_updated_at`, `p_expected_a`, `p_expected_b`,
+--     `p_anchor_expected_updated_at`, `p_project_expected_updated_at`. So the
+--     client posted `""` as the token and PostgREST failed the cast BEFORE the
+--     function body ran. No guard inside a function can catch this.
+--
+-- ★★★ AND THE SOURCE IS A LITERAL, NOT A LOST VALUE. `TaskDetailEditor`'s
+--     team-task branch shipped a hard-coded empty `updated_at`. The `fields`
+--     list on both rows is exactly that object's eight keys, in order; the only
+--     other caller sends four different ones. **The UPDATE branch of
+--     `bp_upsert_team_task` has therefore never succeeded once** — 4 team tasks
+--     exist on prod, and the only two ever updated went to `Resolved`, which is
+--     `bp_set_team_task_status`, a different RPC with no OCC guard at all.
+--
+-- ---------------------------------------------------------------------------
+-- ★★★ §B — THE PARTIAL PATCH, MEASURED BEFORE IT WAS CHANGED
+-- ---------------------------------------------------------------------------
+--
+-- The UPDATE branch assigned NINE columns unconditionally, with no coalesce:
+--
+--   text, notes, assigned_to, discipline, start_date, due_date, target_date,
+--   ref_project_id, ref_permit_id
+--
+-- …while completion_status, priority, sort_order and agenda DID coalesce. That
+-- is only safe if every caller sends every one of those keys on every edit.
+--
+-- ★★★ IT DOES NOT. The one update caller sends eight keys and omits `due_date`,
+--     `ref_project_id` and `ref_permit_id`, so each of the three was being set
+--     to NULL on every edit. Nothing has been lost yet, and that is luck twice
+--     over: the branch has never run, and all four prod `team_tasks` rows hold
+--     NULL in all three columns. The shape was wrong before it was reachable.
+--
+-- ★ AND `discipline` WAS THE QUIETER ONE: absent, it defaulted to `'ent'`
+--   rather than to the stored value, so a caller that omitted the field would
+--   silently move an `arch` team task into the other lane.
+--
+-- ⚠️ THE COALESCE IS NOT FREE. It turns *"clear this date"* into a no-op, so
+--    the seven clearable columns take an explicit `clear_*` flag — the same
+--    three-state contract `bp_upsert_permit_task` has used since fix-138-a
+--    (`p_clear_due_date` / `p_clear_assigned_to`). The flags ride in `p_data`
+--    rather than as new arguments: a longer arg list on CREATE OR REPLACE makes
+--    an OVERLOAD, and an ambiguous overload is how fix-438 broke PostgREST.
+--
+-- ⚠️ `text` IS LEFT ALONE. It cannot be lost — the function RAISES on an empty
+--    one rather than storing it — so it is not a data-loss column, and adding a
+--    clear flag for it would be inventing a way to break a task.
+--
+-- ---------------------------------------------------------------------------
+-- ★★★ §C — THE THIRD TIME AN UNGUARDED jsonb CAST HAS REACHED PRODUCTION
+-- ---------------------------------------------------------------------------
+--
+-- Inside `bp_upsert_team_task` the TEXT fields were guarded with
+-- nullif(btrim(coalesce(...))) and the typed ones were not. An empty string in
+-- `start_date` raises *"invalid input syntax for type date"*. That is NOT what
+-- 731/732 hit, so this is defence in depth, not the cause.
+--
+-- ⚠️ A `COALESCE` AROUND THE CAST DOES NOT GUARD IT — the cast runs first, so
+--    `COALESCE((p_data->>'done')::boolean, false)` still raises on `""`. Eight
+--    sibling functions had exactly that shape and are fixed here by anchor.
+--
+-- ---------------------------------------------------------------------------
+-- ★★★ §D — THE BADGE AND THE LIST
+-- ---------------------------------------------------------------------------
+--
+-- Bobby, 2026-09-16: *"error triage shows 1 but has 3 items in it."*
+--
+-- `bp_new_error_count` counted signatures whose latest status is `new`; the
+-- page's Active tab lists `new`, `queued` and `in_progress`. Measured the
+-- morning of the ruling: **badge 0, list 1** — the one group being 731/732,
+-- queued and therefore invisible to the badge while sitting at the top of the
+-- page it opens.
+--
+-- ★★★ THE BRIEF NAMED ('new','queued'); THIS COUNTS `in_progress` TOO, because
+--     the RULING is that the badge counts what the list shows. It is not a
+--     guess about which is safer: `in_progress` has never been used — **0 of
+--     378 error_reports rows have ever held it** — so no number moves either
+--     way today, and this is the version that cannot drift apart again.
+--
+-- ★ IT STILL COUNTS DISTINCT FINGERPRINTS, NOT ROWS. The `GROUP BY fingerprint`
+--   is untouched; two rows of one signature are one item on screen and one on
+--   the badge.
+--
+-- ---------------------------------------------------------------------------
+-- ⚠️ ORDER AND SAFETY
+-- ---------------------------------------------------------------------------
+--
+-- * §A, §B and §D are independent; §C must not run before §B. (§C would rewrite
+--   the old body and §B would then overwrite it — harmless, but the NOTICE
+--   count would mislead.) Apply in the order written.
+-- * NO DATA IS TOUCHED. No INSERT, UPDATE, DELETE, DROP or ALTER anywhere in
+--   this file — so there is no trigger to suppress and nothing to back up.
+-- * §A changes a function's OUTPUT SHAPE (one new key on every task). The
+--   client treats it as optional and works either side of this file.
+-- * After applying, run scripts/sql/on_conflict_census.sql — fix-547 rule 3:
+--   a function body replaced by anchor. 42P10 and 42703 must both be 0.
+--
+-- ===========================================================================
+-- THE STATEMENTS
+-- ===========================================================================
+
+-- ---------------------------------------------------------------------------
+-- §A — bp_list_tasks CARRIES `updated_at`
+--
+-- Re-emitted from the LIVE pg_get_functiondef with ONE key added to each of the
+-- two branches. Everything else is byte-for-byte what is running now.
+--
+-- ★ This is what stops the client having to invent a token. Until it is
+--   applied, `useUpsertTeamTask` reads the row's stamp directly; afterwards the
+--   extra round trip stops happening because the caller always has one.
+-- ---------------------------------------------------------------------------
+--
+-- CREATE OR REPLACE FUNCTION public.bp_list_tasks()
+--  RETURNS jsonb
+--  LANGUAGE plpgsql
+--  STABLE SECURITY DEFINER
+--  SET search_path TO 'public', 'pg_temp'
+-- AS $function$
+-- DECLARE
+--   v_tenants uuid[] := public.auth_tenant_ids();
+--   v_result  jsonb;
+-- BEGIN
+--   SELECT COALESCE(
+--            jsonb_agg(obj ORDER BY project_address, permit_id, sort_order, created_at),
+--            '[]'::jsonb
+--          )
+--     INTO v_result
+--   FROM (
+--     SELECT
+--       pr.address AS project_address,
+--       t.permit_id,
+--       t.sort_order,
+--       t.created_at,
+--       jsonb_build_object(
+--         'id',              t.id,
+--         'permit_id',       t.permit_id,
+--         'project_id',      p.project_id,
+--         'project_address', pr.address,
+--         'permit_type',     p.type,
+--         'permit_da',       p.da,
+--         'parent_task_id',  t.parent_task_id,
+--         'discipline',      COALESCE(t.discipline, 'ent'),
+--         'bucket',          t.bucket,
+--         'text',            t.text,
+--         'status',          t.completion_status,
+--         'start_date',      t.start_date,
+--         'target_date',     t.target_date,
+--         'due_date',        t.due_date,
+--         'done_at',         t.done_at,
+--         'created_at',      t.created_at,
+--         'updated_at',      t.updated_at,
+--         'sort_order',      t.sort_order,
+--         'assigned_to',     t.assigned_to,
+--         'waiting_on',      t.waiting_on,
+--         'priority',        COALESCE(t.priority, false),
+--         'notes',           t.notes,
+--         'is_auto_generated', COALESCE(t.is_auto_generated, false),
+--         'auto_event',      t.auto_event,
+--         'auto_closed_reason', t.auto_closed_reason,
+--         'primary_assignee',
+--           CASE WHEN COALESCE(t.discipline, 'ent') = 'arch'
+--                THEN p.da ELSE p.ent_lead END,
+--         'co_assignees', public.bp_task_co_assignees(t.id),
+--         'source',          'permit'
+--       ) AS obj
+--     FROM public.permit_tasks t
+--     JOIN public.permits  p  ON p.id = t.permit_id
+--     JOIN public.projects pr ON pr.id = p.project_id
+--     WHERE t.tenant_id = ANY (v_tenants)
+--
+--     UNION ALL
+--
+--     SELECT
+--       NULL::text    AS project_address,
+--       NULL::integer AS permit_id,
+--       tt.sort_order,
+--       tt.created_at,
+--       jsonb_build_object(
+--         'id',              tt.id,
+--         'permit_id',       NULL,
+--         'project_id',      NULL,
+--         'project_address', NULL,
+--         'permit_type',     NULL,
+--         'permit_da',       NULL,
+--         'parent_task_id',  NULL,
+--         'discipline',      tt.discipline,
+--         'bucket',          CASE WHEN tt.discipline = 'arch' THEN 'de' ELSE 'pm' END,
+--         'text',            tt.text,
+--         'status',          tt.completion_status,
+--         'start_date',      tt.start_date,
+--         'target_date',     tt.target_date,
+--         'due_date',        tt.due_date,
+--         'done_at',         tt.done_at,
+--         'created_at',      tt.created_at,
+--         'updated_at',      tt.updated_at,
+--         'sort_order',      tt.sort_order,
+--         'assigned_to',     tt.assigned_to,
+--         'waiting_on',      NULL,
+--         'priority',        COALESCE(tt.priority, false),
+--         'notes',           tt.notes,
+--         'is_auto_generated', false,
+--         'auto_event',      NULL,
+--         'auto_closed_reason', NULL,
+--         'primary_assignee', NULL,
+--         'co_assignees',    '[]'::jsonb,
+--         'source',          'team',
+--         'agenda',          tt.agenda
+--       ) AS obj
+--     FROM public.team_tasks tt
+--     WHERE tt.tenant_id = ANY (v_tenants)
+--   ) rows;
+--
+--   RETURN COALESCE(v_result, '[]'::jsonb);
+-- END;
+-- $function$;
+
+-- ---------------------------------------------------------------------------
+-- §B — bp_upsert_team_task stops wiping what it was not told about, and every
+--      cast on a p_data key is guarded (§C's rule, applied here first).
+-- ---------------------------------------------------------------------------
+--
+-- CREATE OR REPLACE FUNCTION public.bp_upsert_team_task(p_id uuid, p_data jsonb, p_expected_updated_at timestamp with time zone)
+--  RETURNS TABLE(out_id uuid, updated_at timestamp with time zone, conflict boolean)
+--  LANGUAGE plpgsql
+--  SET search_path TO 'public', 'pg_temp'
+-- AS $function$
+-- DECLARE
+--   v_actual timestamptz;
+--   v_text   text := btrim(coalesce(p_data->>'text', ''));
+--   -- Every typed read is guarded: an empty string cast to date, boolean,
+--   -- integer or uuid RAISES, and wrapping the cast in COALESCE does not help
+--   -- because the cast runs first.
+--   v_disc    text    := nullif(btrim(coalesce(p_data->>'discipline','')),'');
+--   v_notes   text    := nullif(btrim(coalesce(p_data->>'notes','')),'');
+--   v_assign  text    := nullif(btrim(coalesce(p_data->>'assigned_to','')),'');
+--   v_status  text    := nullif(btrim(coalesce(p_data->>'completion_status','')),'');
+--   v_start   date    := (nullif(btrim(coalesce(p_data->>'start_date','')),''))::date;
+--   v_due     date    := (nullif(btrim(coalesce(p_data->>'due_date','')),''))::date;
+--   v_target  date    := (nullif(btrim(coalesce(p_data->>'target_date','')),''))::date;
+--   v_prio    boolean := (nullif(btrim(coalesce(p_data->>'priority','')),''))::boolean;
+--   v_sort    integer := (nullif(btrim(coalesce(p_data->>'sort_order','')),''))::integer;
+--   v_agenda  boolean := (nullif(btrim(coalesce(p_data->>'agenda','')),''))::boolean;
+--   v_msg     uuid    := (nullif(btrim(coalesce(p_data->>'source_message_id','')),''))::uuid;
+--   v_refproj uuid    := (nullif(btrim(coalesce(p_data->>'ref_project_id','')),''))::uuid;
+--   v_refpid  integer := (nullif(btrim(coalesce(p_data->>'ref_permit_id','')),''))::integer;
+--   -- The explicit clears. A value SETS, absence LEAVES ALONE, and the flag is
+--   -- the only way to reach NULL — bp_upsert_permit_task's contract since
+--   -- fix-138-a, carried as p_data keys so the signature does not change.
+--   v_c_notes   boolean := coalesce((nullif(btrim(coalesce(p_data->>'clear_notes','')),''))::boolean, false);
+--   v_c_assign  boolean := coalesce((nullif(btrim(coalesce(p_data->>'clear_assigned_to','')),''))::boolean, false);
+--   v_c_start   boolean := coalesce((nullif(btrim(coalesce(p_data->>'clear_start_date','')),''))::boolean, false);
+--   v_c_due     boolean := coalesce((nullif(btrim(coalesce(p_data->>'clear_due_date','')),''))::boolean, false);
+--   v_c_target  boolean := coalesce((nullif(btrim(coalesce(p_data->>'clear_target_date','')),''))::boolean, false);
+--   v_c_refproj boolean := coalesce((nullif(btrim(coalesce(p_data->>'clear_ref_project_id','')),''))::boolean, false);
+--   v_c_refpid  boolean := coalesce((nullif(btrim(coalesce(p_data->>'clear_ref_permit_id','')),''))::boolean, false);
+-- BEGIN
+--   IF v_text = '' THEN
+--     RAISE EXCEPTION 'a task needs a description';
+--   END IF;
+--   -- An absent discipline is no longer 'ent' on an UPDATE — see the SET list.
+--   -- It is still 'ent' on an INSERT, which is what fix-460 established.
+--   IF v_disc IS NOT NULL AND v_disc NOT IN ('arch', 'ent') THEN
+--     RAISE EXCEPTION 'discipline must be arch or ent';
+--   END IF;
+--
+--   IF p_id IS NULL THEN
+--     INSERT INTO public.team_tasks (
+--       text, notes, assigned_to, discipline,
+--       start_date, due_date, target_date,
+--       completion_status, priority, sort_order,
+--       source_message_id, ref_project_id, ref_permit_id, agenda)
+--     VALUES (
+--       v_text, v_notes, v_assign, coalesce(v_disc, 'ent'),
+--       v_start, v_due, v_target,
+--       coalesce(v_status, 'Open'), coalesce(v_prio, false), coalesce(v_sort, 0),
+--       v_msg, v_refproj, v_refpid, coalesce(v_agenda, false))
+--     RETURNING team_tasks.id, team_tasks.updated_at INTO out_id, updated_at;
+--     conflict := false;
+--     RETURN NEXT; RETURN;
+--   END IF;
+--
+--   UPDATE public.team_tasks tt SET
+--     text              = v_text,
+--     notes             = CASE WHEN v_c_notes   THEN NULL ELSE coalesce(v_notes,   tt.notes)          END,
+--     assigned_to       = CASE WHEN v_c_assign  THEN NULL ELSE coalesce(v_assign,  tt.assigned_to)    END,
+--     discipline        = coalesce(v_disc, tt.discipline),
+--     start_date        = CASE WHEN v_c_start   THEN NULL ELSE coalesce(v_start,   tt.start_date)     END,
+--     due_date          = CASE WHEN v_c_due     THEN NULL ELSE coalesce(v_due,     tt.due_date)       END,
+--     target_date       = CASE WHEN v_c_target  THEN NULL ELSE coalesce(v_target,  tt.target_date)    END,
+--     ref_project_id    = CASE WHEN v_c_refproj THEN NULL ELSE coalesce(v_refproj, tt.ref_project_id) END,
+--     ref_permit_id     = CASE WHEN v_c_refpid  THEN NULL ELSE coalesce(v_refpid,  tt.ref_permit_id)  END,
+--     completion_status = coalesce(v_status, tt.completion_status),
+--     priority          = coalesce(v_prio,   tt.priority),
+--     sort_order        = coalesce(v_sort,   tt.sort_order),
+--     agenda            = coalesce(v_agenda, tt.agenda)
+--   WHERE tt.id = p_id
+--     AND tt.updated_at = p_expected_updated_at
+--   RETURNING tt.id, tt.updated_at INTO out_id, updated_at;
+--
+--   IF FOUND THEN
+--     conflict := false;
+--     RETURN NEXT; RETURN;
+--   END IF;
+--
+--   SELECT tt.updated_at INTO v_actual FROM public.team_tasks tt WHERE tt.id = p_id;
+--   out_id := p_id; updated_at := v_actual; conflict := true;
+--   RETURN NEXT;
+-- END;
+-- $function$;
+
+-- ---------------------------------------------------------------------------
+-- §C — THE SIBLING SWEEP, BY ANCHOR
+--
+-- Eight more functions cast a p_data key with no NULLIF. The block below reads
+-- each LIVE definition, substitutes the guard and RAISES if no anchor matched —
+-- fix-540's rule: an anchor needs a hit assertion, because a replacement that
+-- silently matches nothing looks exactly like a success.
+--
+-- The seventeen (function, key, type) pairs it fixes:
+--
+--   bp_upsert_draw_schedule_row          manually_placed          boolean
+--   bp_upsert_draw_schedule_row          manual_status            boolean
+--   bp_upsert_intake_records_row         is_placeholder           boolean
+--   bp_upsert_permit_cycle_row           permit_id                integer
+--   bp_upsert_permit_task_row            permit_id                integer
+--   bp_upsert_permit_task_row            done                     boolean
+--   bp_upsert_permit_task_row            city_acceptance_check    boolean
+--   bp_upsert_permit_task_row            is_auto_generated        boolean
+--   bp_upsert_permit_task_row            is_jurisdiction_specific boolean
+--   bp_upsert_permit_task_row            sort_order               integer
+--   bp_upsert_project_document_row       project_id               uuid
+--   bp_upsert_quarter_layout_row         position                 int
+--   bp_upsert_task_template_row          sort_order               integer
+--   bp_upsert_task_template_subtask_row  template_id              uuid
+--   bp_upsert_task_template_subtask_row  sort_order               integer
+--   bp_upsert_team_member_row            active                   boolean
+--   bp_upsert_team_member_row            former                   boolean
+--
+-- ⚠️ bp_upsert_da_time_block_row IS DELIBERATELY ABSENT. Its only typed cast is
+--    already guarded, and P-283 is open on that function with fix-579's
+--    instrumentation waiting for a clean occurrence. Nothing here touches it.
+--
+-- ★ EVERY ONE OF THE SEVENTEEN ANCHORS WAS COUNTED AGAINST THE LIVE BODIES
+--   BEFORE THIS WAS WRITTEN — 1 or 2 occurrences each, 0 misses — and the
+--   substitution was then folded over those bodies and re-scanned: after §B and
+--   §C together, ZERO `bp_upsert_*` functions hold an unguarded cast on a
+--   p_data key. Both checks ran read-only on prod; nothing was executed.
+-- ---------------------------------------------------------------------------
+--
+-- DO $mig$
+-- DECLARE
+--   v_fn   text;
+--   v_src  text;
+--   v_new  text;
+--   v_hits int := 0;
+--   v_i    int;
+--   v_jobs text[][] := ARRAY[
+--     ['bp_upsert_draw_schedule_row',        'manually_placed',          'boolean'],
+--     ['bp_upsert_draw_schedule_row',        'manual_status',            'boolean'],
+--     ['bp_upsert_intake_records_row',       'is_placeholder',           'boolean'],
+--     ['bp_upsert_permit_cycle_row',         'permit_id',                'integer'],
+--     ['bp_upsert_permit_task_row',          'permit_id',                'integer'],
+--     ['bp_upsert_permit_task_row',          'done',                     'boolean'],
+--     ['bp_upsert_permit_task_row',          'city_acceptance_check',    'boolean'],
+--     ['bp_upsert_permit_task_row',          'is_auto_generated',        'boolean'],
+--     ['bp_upsert_permit_task_row',          'is_jurisdiction_specific', 'boolean'],
+--     ['bp_upsert_permit_task_row',          'sort_order',               'integer'],
+--     ['bp_upsert_project_document_row',     'project_id',               'uuid'],
+--     ['bp_upsert_quarter_layout_row',       'position',                 'int'],
+--     ['bp_upsert_task_template_row',        'sort_order',               'integer'],
+--     ['bp_upsert_task_template_subtask_row','template_id',              'uuid'],
+--     ['bp_upsert_task_template_subtask_row','sort_order',               'integer'],
+--     ['bp_upsert_team_member_row',          'active',                   'boolean'],
+--     ['bp_upsert_team_member_row',          'former',                   'boolean']
+--   ];
+-- BEGIN
+--   FOR v_fn IN
+--     SELECT DISTINCT v_jobs[i][1] FROM generate_subscripts(v_jobs, 1) i ORDER BY 1
+--   LOOP
+--     SELECT pg_get_functiondef(p.oid) INTO v_src
+--       FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
+--      WHERE n.nspname = 'public' AND p.proname = v_fn;
+--     IF v_src IS NULL THEN
+--       RAISE EXCEPTION 'fix-580 C: % not found', v_fn;
+--     END IF;
+--     v_new := v_src;
+--     FOR v_i IN 1 .. array_length(v_jobs, 1) LOOP
+--       CONTINUE WHEN v_jobs[v_i][1] <> v_fn;
+--       v_new := replace(
+--         v_new,
+--         '(p_data->>' || quote_literal(v_jobs[v_i][2]) || ')::' || v_jobs[v_i][3],
+--         '(nullif(btrim(coalesce(p_data->>' || quote_literal(v_jobs[v_i][2])
+--           || ', '''')), ''''))::' || v_jobs[v_i][3]);
+--     END LOOP;
+--     IF v_new = v_src THEN
+--       RAISE EXCEPTION 'fix-580 C: no anchor matched in % — the live body has moved', v_fn;
+--     END IF;
+--     EXECUTE v_new;
+--     v_hits := v_hits + 1;
+--   END LOOP;
+--   RAISE NOTICE 'fix-580 C: % functions rewritten (expected 8)', v_hits;
+--   IF v_hits <> 8 THEN
+--     RAISE EXCEPTION 'fix-580 C: expected 8 functions, rewrote %', v_hits;
+--   END IF;
+-- END
+-- $mig$;
+
+-- ---------------------------------------------------------------------------
+-- §D — the badge counts what the list shows.
+--
+-- One clause changes: the HAVING goes from `= 'new'` to
+-- `= ANY (ARRAY['new','queued','in_progress'])`. The GROUP BY stays, so it is
+-- still DISTINCT FINGERPRINTS, not rows.
+-- ---------------------------------------------------------------------------
+--
+-- CREATE OR REPLACE FUNCTION public.bp_new_error_count(p_include_scraper boolean DEFAULT false)
+--  RETURNS integer
+--  LANGUAGE sql
+--  STABLE SECURITY DEFINER
+--  SET search_path TO 'public', 'pg_temp'
+-- AS $function$
+--   SELECT COUNT(*)::int FROM (
+--     SELECT fingerprint
+--     FROM public.error_reports
+--     WHERE tenant_id = ANY(auth_tenant_ids())
+--       AND (p_include_scraper OR source <> 'scraper')
+--     GROUP BY fingerprint
+--     HAVING (array_agg(status ORDER BY created_at DESC, id DESC))[1]
+--            = ANY (ARRAY['new','queued','in_progress'])
+--   ) x;
+-- $function$;
+
+-- ===========================================================================
+-- VERIFY — after applying, all six must hold
+-- ===========================================================================
+--
+-- -- 1. bp_list_tasks emits updated_at on BOTH sources (with_stamp = total)
+-- SELECT obj->>'source' AS source,
+--        count(*) FILTER (WHERE obj ? 'updated_at') AS with_stamp,
+--        count(*) AS total
+--   FROM (SELECT jsonb_array_elements(public.bp_list_tasks()) obj) s
+--  GROUP BY 1;
+--
+-- -- 2. a partial patch no longer wipes the columns it did not mention.
+-- --    Run inside a transaction and ROLLBACK — fix-153's pattern. Give a row a
+-- --    due_date, send the eight-key patch the panel sends, and confirm
+-- --    due_date / ref_project_id / ref_permit_id survive while target_date
+-- --    changed.
+--
+-- -- 3. an empty string in a date is stored as NULL rather than raising
+-- --    SELECT * FROM public.bp_upsert_team_task(
+-- --      NULL, '{"text":"probe","start_date":""}'::jsonb, NULL);
+--
+-- -- 4. no bp_upsert_* function casts a p_data key without a guard. Expect 0 rows.
+-- --
+-- -- ⚠️ BOTH OPERATORS ARE CASE-INSENSITIVE ON PURPOSE. The live bodies mix
+-- --    `NULLIF` and `nullif`, and the case-SENSITIVE version of this query
+-- --    reports eleven guarded lines as unguarded — including every
+-- --    `NULLIF(p_data->>'dd_start','')::date` in bp_upsert_draw_schedule_row.
+-- --    It was written that way first and the false positives are what caught it.
+-- SELECT p.proname, count(*)
+--   FROM pg_proc p
+--   JOIN pg_namespace n ON n.oid = p.pronamespace,
+--        LATERAL unnest(string_to_array(pg_get_functiondef(p.oid), chr(10))) ln
+--  WHERE n.nspname = 'public'
+--    AND p.proname LIKE 'bp\_upsert\_%'
+--    AND ln ~* '->>[^)]*\)::(date|integer|int|bigint|boolean|uuid|numeric|timestamptz)'
+--    AND ln !~* 'nullif'
+--  GROUP BY 1;
+--
+-- -- 5. the badge and the Active tab return the same number of items
+-- SELECT public.bp_new_error_count(false) AS badge,
+--        (SELECT count(*) FROM public.bp_list_error_groups(
+--           ARRAY['new','queued','in_progress'], false)) AS list;
+--
+-- -- 6. run the ON CONFLICT census (fix-547 rule 3: function bodies replaced by
+-- --    anchor): scripts/sql/on_conflict_census.sql — 42P10 and 42703 must be 0.

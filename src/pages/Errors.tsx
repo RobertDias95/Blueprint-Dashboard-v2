@@ -4,6 +4,7 @@ import {
   useUpdateErrorGroupStatus,
   type ErrorGroup,
   type ErrorGroupStatus,
+  BADGE_ERROR_STATUSES,
 } from '../hooks/useErrorReports';
 import { pushToast } from '../stores/toastStore';
 import MissedScrapeTriageEntry from '../components/MissedScrapeTriageEntry';
@@ -18,10 +19,17 @@ import MissedScrapeTriageEntry from '../components/MissedScrapeTriageEntry';
 
 type Tab = 'active' | 'resolved' | 'all';
 
+const CLOSED_STATUSES: ErrorGroupStatus[] = ['resolved', 'dismissed'];
+
+// ★★★ fix-580 §D: Active is BADGE_ERROR_STATUSES, not a second copy of it.
+//     Bobby: "error triage shows 1 but has 3 items in it." The badge and this
+//     list were two hand-maintained status lists; they are one now, so the
+//     number on the ribbon and the rows on this page cannot say different
+//     things again.
 const TAB_STATUSES: Record<Tab, ErrorGroupStatus[]> = {
-  active: ['new', 'queued', 'in_progress'],
-  resolved: ['resolved', 'dismissed'],
-  all: ['new', 'queued', 'in_progress', 'resolved', 'dismissed'],
+  active: BADGE_ERROR_STATUSES,
+  resolved: CLOSED_STATUSES,
+  all: [...BADGE_ERROR_STATUSES, ...CLOSED_STATUSES],
 };
 
 const SOURCE_LABEL: Record<ErrorGroup['source'], string> = {
