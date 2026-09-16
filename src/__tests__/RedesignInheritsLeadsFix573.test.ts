@@ -307,8 +307,12 @@ describe('fix-573 §B — lib/selfScope is still pure', () => {
     for (const f of ['src/pages/Dashboard.tsx', 'src/pages/ProjectList.tsx']) {
       const src = code(read(f));
       expect(src, `${f} must build the index`).toContain('buildProjectLeadIndex');
+      // ★ fix-583 §A: the boards now call the UNION `projectIsMine`, which takes
+      //   the index as its FOURTH argument and forwards it to
+      //   `projectMatchesSelf`. fix-573's ruling is unchanged and is what this
+      //   guards: the call site supplies the lookup and never chases itself.
       expect(src, `${f} must pass it to the predicate`).toMatch(
-        /projectMatchesSelf\([^)]*originalLeads/,
+        /project(MatchesSelf|IsMine)\([\s\S]{0,160}originalLeads/,
       );
       // ★ …and must not re-implement the chase.
       expect(src, `${f} must not chase the parent itself`).not.toMatch(
@@ -330,15 +334,29 @@ describe('fix-573 §B — lib/selfScope is still pure', () => {
     expect(deriveSelfScope('Briana', BRIANA_REDESIGNS)).toBe('permit');
   });
 
-  it('★★ the index is built from ids and carries only the two lead fields', () => {
+  it('★★ the index is built from ids and carries ONLY the lead fields', () => {
+    // ★★★ fix-583 WIDENED THE SET FROM TWO TO FOUR, and the ruling this guards
+    //     is unchanged: the index carries LEADS AND NOTHING ELSE. In particular
+    //     it still has no `redesign_of_project_id`, which is what makes the
+    //     one-level chase structural rather than a comment — there is nothing to
+    //     hop a second time with.
+    //
+    //     Two was never the point; "only the fields that say who owns this" was.
+    //     `schematic_designer` and `construction_admin` are two more answers to
+    //     that same question, and leaving them out of the index was what stopped
+    //     the fallback from reaching them (P-287).
     const idx = buildProjectLeadIndex(ORIGINALS);
     expect(idx.get('o-concord')).toEqual({
       entitlement_lead: 'Briana',
       design_manager: 'Brittani',
+      schematic_designer: null,
+      construction_admin: null,
     });
     expect(Object.keys(idx.get('o-concord')!).sort()).toEqual([
+      'construction_admin',
       'design_manager',
       'entitlement_lead',
+      'schematic_designer',
     ]);
   });
 });

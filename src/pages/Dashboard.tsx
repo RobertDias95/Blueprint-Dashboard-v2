@@ -66,6 +66,7 @@ import { useScopeMode } from '../hooks/useSelfScope';
 import {
   buildProjectLeadIndex,
   permitMatchesSelf,
+  projectIsMine,
   projectMatchesSelf,
 } from '../lib/selfScope';
 import ScopeToggle from '../components/shared/ScopeToggle';
@@ -495,11 +496,11 @@ export default function Dashboard() {
     // project-level search filter. Empty filter Sets are no-ops; specific
     // values exclude permits whose dimension is null per v1 :4949-4951.
     // fix-176: "My work" scope. For a project-scope user (ent_lead/dm) keep a
-    // project's permits only when they lead that project; for a permit-scope
-    // user (da) keep only the permits assigned to them. mode!=='mine' or an
-    // unmapped user (name=null) is a no-op.
+    // ★★★ fix-583 §A: the TIER no longer appears here at all. It used to pick
+    //     which half of the rule ran; it now only sets the toggle's default
+    //     position, which `useScopeMode` owns. `mode !== 'mine'` or an unmapped
+    //     user (name = null) is still a no-op.
     const selfName = scopeMode === 'mine' ? identity.name : null;
-    const selfScope = identity.scope;
     const filteredInputs: BucketInput[] = [];
     for (const project of projects) {
       // fix-264: a CANCELLED project is off the pipeline unconditionally — no
@@ -554,18 +555,31 @@ export default function Dashboard() {
       // fix-178: hold filter is project-level (a permit is held iff its project
       // is). Drop the whole project's permits when it fails the hold filter.
       if (!passesHoldFilter(activeHeld.has(project.id), holdMode)) continue;
-      // ★ fix-573: the index is the THIRD argument — the chase lives in the
+      // ★★★ fix-583 §A: ONE predicate, and the TIER IS NOT CONSULTED.
+      //
+      //     This was two guarded `continue`s branching on `selfScope` — a
+      //     project-scope person never saw their permit-only work and a
+      //     permit-scope person never saw their project-level work. Now:
+      //     **the project is mine if I match its header OR any of its permits**,
+      //     and a card survives if the project is mine at header level or the
+      //     card's own permit is mine.
+      //
+      // ★ A strict superset of both old branches, which is why nobody loses a
+      //   card: a header match still yields every permit (the old 'project'
+      //   branch) and an own-permit match still yields that permit (the old
+      //   'permit' branch).
+      //
+      // ★ fix-573: the index is the FOURTH argument — the chase lives in the
       //   predicate, never at a call site, so the two boards cannot drift.
-      if (
-        selfName &&
-        selfScope === 'project' &&
-        !projectMatchesSelf(project, selfName, originalLeads)
-      ) {
+      const permitsOfProject = projectPermits.map((b) => b.permit);
+      if (selfName && !projectIsMine(project, permitsOfProject, selfName, originalLeads)) {
         continue;
       }
+      const headerIsMine =
+        !selfName || projectMatchesSelf(project, selfName, originalLeads);
       for (const b of projectPermits) {
         if (!permitPassesDashFilters(b.permit, filters)) continue;
-        if (selfName && selfScope === 'permit' && !permitMatchesSelf(b.permit, selfName)) {
+        if (selfName && !headerIsMine && !permitMatchesSelf(b.permit, selfName)) {
           continue;
         }
         filteredInputs.push(b);
@@ -697,7 +711,8 @@ export default function Dashboard() {
     filters,
     scopeMode,
     identity.name,
-    identity.scope,
+    // ★ fix-583 §A: `identity.scope` is gone from this memo because the memo no
+    //   longer reads it — the tier stopped deciding which predicate runs.
     holdMode,
     activeHeld,
     // ★ fix-524: `cancelledIds` is still read here through `retiredSets`, which
