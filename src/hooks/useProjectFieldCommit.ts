@@ -86,6 +86,38 @@ export interface ProjectFieldCommit {
   saving: boolean;
 }
 
+// ===========================================================================
+// ★★★ fix-575a — THE NO-OP GUARD HAD TO LEARN ABOUT ARRAYS
+// ===========================================================================
+//
+// It was `next === (original ?? null)`, which is REFERENCE equality. That is
+// correct and sufficient for every scalar column — and it can never short
+// -circuit an array, because `['ECA'] === ['ECA']` is false.
+//
+// ★★★ THAT MATTERED THE MOMENT `project_tags` CAME THROUGH HERE. Its editor
+//     builds a fresh array on every call (`chosen.filter(…)`, `[...chosen, v]`),
+//     so a reference check would have declared every write a change. Today that
+//     is harmless — the editor only calls on a click, and a click IS a change —
+//     but *"harmless because of how the one current caller happens to behave"*
+//     is exactly the kind of guard that stops being true when a second caller
+//     arrives, and this hook exists because a second caller always does.
+//
+// ★★ SHALLOW, NOT DEEP, AND THAT IS THE RIGHT DEPTH. The only array columns on
+//    `projects` are `product_types` and `project_tags`, both `string[]`. A deep
+//    compare would also invite `unit_types` (an array of OBJECTS) through this
+//    hook, and that column is written by `writeTypes` through a whitelist
+//    rebuild — a different model, deliberately not unified here.
+//
+// ⚠️ ORDER-SENSITIVE ON PURPOSE. `['ECA','SIP']` and `['SIP','ECA']` are
+//    different values: the stored order is what the chips render in, so a
+//    reorder is a real edit and must not be swallowed as a no-op.
+function projectValuesEqual(a: unknown, b: unknown): boolean {
+  if (Array.isArray(a) && Array.isArray(b)) {
+    return a.length === b.length && a.every((v, i) => v === b[i]);
+  }
+  return a === b;
+}
+
 export function useProjectFieldCommit(project: Project): ProjectFieldCommit {
   const updateMutation = useUpdateProject();
   // ★★★ fix-567 §D — ASKED, NEVER RE-DERIVED. `useMayWriteProject` calls
@@ -111,16 +143,54 @@ export function useProjectFieldCommit(project: Project): ProjectFieldCommit {
       if (!updatedAt) return;
       // ★ `?? null` on the original: an ABSENT column and a null are the same
       //   fact, and only one of them survives a round-trip.
-      if (next === (original ?? null)) return;
-      await updateMutation.mutateAsync({
-        projectId,
-        expectedUpdatedAt: updatedAt,
-        patch: { [field]: next } as Partial<Project>,
-        // ★ The label is what the OCC toast says when this collides, so it is
-        //   the field's NAME as the person reading it knows it — "GO date",
-        //   not "go_date".
-        fieldLabel: label,
-      });
+      if (projectValuesEqual(next, original ?? null)) return;
+      try {
+        await updateMutation.mutateAsync({
+          projectId,
+          expectedUpdatedAt: updatedAt,
+          patch: { [field]: next } as Partial<Project>,
+          // ★ The label is what the OCC toast says when this collides, so it is
+          //   the field's NAME as the person reading it knows it — "GO date",
+          //   not "go_date".
+          fieldLabel: label,
+        });
+      } catch {
+        // ═══════════════════════════════════════════════════════════════
+        // ★★★ fix-575a — THE SWALLOW IS LOAD-BEARING, AND IT HIDES NOTHING
+        // ═══════════════════════════════════════════════════════════════
+        //
+        // ★★★ THE USER HAS ALREADY BEEN TOLD, by the time this runs.
+        //     `useUpdateProject.onError` fires FIRST and unconditionally: it
+        //     rolls the optimistic patch back out of the cache — so the control
+        //     visibly reverts — and pushes one of three toasts, chosen by what
+        //     actually happened:
+        //
+        //       write denied  → the fix-549 §C message, naming who to ask
+        //       OCC conflict  → "modified by someone else"
+        //       anything else → "Could not save project — …"
+        //
+        //     There is no failure mode in which this `catch` is the difference
+        //     between the user seeing something and seeing nothing.
+        //
+        // ★★★ WHAT IT IS ACTUALLY FOR: every one of the 23 call sites writes
+        //     `void commit(…)`, because a blur handler cannot await. Without
+        //     this, a refused write leaves a REJECTED PROMISE WITH NO HANDLER —
+        //     an unhandled rejection on a path the user has already been
+        //     notified about. **Measured before this ticket: `commit()` did
+        //     reject, and all 14 of the hook's own call sites discarded it.**
+        //
+        // ★★ SO THIS IS THE COPY THAT WAS RIGHT. `ProjectTagsEditor` carried
+        //    exactly this `catch` and the hook did not; unifying on the hook's
+        //    behaviour would have created 23 unhandled-rejection paths instead
+        //    of removing one. The right definition wins, not the oldest one.
+        //
+        // ⚠️ IF A CALLER EVER NEEDS TO KNOW, it must be a RETURNED VALUE, never
+        //    a re-thrown error — `writeTypes` in `ProjectDataEditors` already
+        //    does that (fix-572 §D returns `Promise<boolean>` so a field can
+        //    confirm only a write that landed). fix-575 will want the same
+        //    here; it is deliberately NOT added now, because nothing reads it
+        //    yet and an unused return value is a claim nobody is checking.
+      }
     },
     [projectId, updatedAt, updateMutation],
   );

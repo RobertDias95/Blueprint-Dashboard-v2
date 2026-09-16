@@ -143,14 +143,36 @@ describe('fix-549 §B — the screen asks the server, it does not re-derive', ()
   });
 
   it('★★★ every Project Data editor that writes `projects` asks it', () => {
-    // ★ Five editors, including `UnitSizeEditor` — which is literally the
+    // ★ Five editors, including the unit-size field — which is literally the
     //   second field in Cam's refusals.
+    //
+    // ★★★ fix-575a REPOINTED THIS FROM A SPELLING TO THE PROPERTY, and the
+    //     ruling got STRONGER rather than weaker. This counted textual
+    //     `useMayWriteProject(project.id)` calls in the component file. Three
+    //     of those editors — SiteEditor, ClosingRow, ProjectTagsEditor — now
+    //     ask through `useProjectFieldCommit`, which calls it internally and
+    //     returns the answer as `occMissing`. Counting the old spelling would
+    //     have demanded they each keep a private copy of the very thing
+    //     fix-575a folded away.
+    //
+    // ★★ SO IT COUNTS BOTH FORMS, and separately pins that the shared hook
+    //    really does ask — which is what makes the indirect form legitimate.
+    //    Without that second assertion this test could be satisfied by a hook
+    //    that gates on nothing at all.
     const editors = code(read('src/components/ProjectDetail/ProjectDataEditors.tsx'));
-    const asks = editors.split('useMayWriteProject(project.id)').length - 1;
-    expect(asks).toBeGreaterThanOrEqual(5);
-    expect(editors).toContain('const locked = occMissing || !mayWrite549;');
-    // ★★ and no control is left on the old answer alone
+    const direct = editors.split('useMayWriteProject(project.id)').length - 1;
+    const viaHook = editors.split('useProjectFieldCommit(project)').length - 1;
+    expect(direct + viaHook).toBeGreaterThanOrEqual(5);
+
+    const hook = code(read('src/hooks/useProjectFieldCommit.ts'));
+    expect(hook).toContain('useMayWriteProject(project.id)');
+    expect(hook).toContain('!project.updated_at || !mayWrite');
+
+    // ★★ and no control is left on the old answer alone — the assertion that
+    //    caught the tag ADD select, which read `occMissing` while the remove ×
+    //    six lines above it read `locked` (fix-575a).
     expect(editors).not.toContain('disabled={occMissing}');
+    expect(editors).not.toContain('disabled={occMissing || addable.length === 0}');
   });
 });
 
