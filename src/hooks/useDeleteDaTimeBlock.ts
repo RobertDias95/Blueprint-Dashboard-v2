@@ -4,7 +4,7 @@ import { queryKeys } from '../lib/queryKeys';
 import { OCCConflictError, isOCCConflict, occToken } from '../lib/occ';
 import { pushToast } from '../stores/toastStore';
 import { useAuthStore } from '../stores/authStore';
-import { applyDeletedBlock } from '../lib/daTimeBlockCache';
+import { applyDeletedBlock, currentBlockToken } from '../lib/daTimeBlockCache';
 
 // Q6.2.f: bp_delete_da_time_block_row. PK is text. Idempotent on
 // missing rows (server returns deleted=true, conflict=false).
@@ -22,9 +22,14 @@ export function useDeleteDaTimeBlock() {
     // ★ fix-511 §C — see useUpsertDaTimeBlock.
     meta: { write: 'bp_delete_da_time_block_row' },
     mutationFn: async ({ id, updated_at }) => {
+      // ★★ fix-581: same read as the other two writers. The popup's Remove
+      //    button posts `npPopup.block.updated_at`, held for as long as the
+      //    popup has been open — a refused DELETE is the same defect wearing a
+      //    different verb, and it would have been the next report.
+      const expected = currentBlockToken(queryClient, tenantId, id, updated_at);
       const { data, error } = await supabase.rpc(
         'bp_delete_da_time_block_row',
-        { p_id: id, p_expected_updated_at: occToken(updated_at) },
+        { p_id: id, p_expected_updated_at: occToken(expected) },
       );
       if (error) throw error;
       const row = (data as Row[])[0];

@@ -202,7 +202,14 @@ describe('fix-579 — every OCC refusal on these two tables says both sides', ()
   it('★★★ the time block hook stops discarding the server’s stamp', () => {
     const h = strip(read('src/hooks/useUpsertDaTimeBlock.ts'));
     expect(h).toContain("throw new OCCConflictError(0, 'Time block', {");
-    expect(h).toContain('expected: isInsert ? null : input.block.updated_at,');
+    // ★★★ fix-581 STRENGTHENED THIS. It used to report
+    //     `isInsert ? null : input.block.updated_at` — the snapshot the caller
+    //     was HOLDING. Since fix-581 the posted token is read from the cache
+    //     instead, so the two are different values, and the report must name the
+    //     one that went on the wire. A report naming the snapshot would send the
+    //     next reader back to a popup whose bug is already fixed.
+    expect(h).toContain('expected,');
+    expect(h).toContain('currentBlockToken(');
     expect(h).toContain('actual: row.updated_at ?? null,');
   });
 
@@ -275,7 +282,13 @@ describe('fix-579 — nothing about the write path moved', () => {
   it('★★ the RPC and the forbidden neighbours are untouched', () => {
     // Guardrails: no migration, and P-283's live area stays still.
     const block = strip(read('src/hooks/useUpsertDaTimeBlock.ts'));
-    expect(block).toContain("supabase.rpc(\n        'bp_upsert_da_time_block_row',");
+    // ⚠️ LINE-ENDING AGNOSTIC, and that is not cosmetic. The literal this
+    //    replaced embedded a bare `\n`, so it could only pass where the working
+    //    tree is LF — it failed on every Windows checkout and passed in CI, and
+    //    it cost three consecutive tickets a diagnosis before anybody wrote it
+    //    down. Unchanged in meaning: the RPC is still called by that name, on
+    //    the multi-line call form.
+    expect(block).toMatch(/supabase\.rpc\(\s*'bp_upsert_da_time_block_row',/);
     expect(block).not.toContain('forgetDaTimeBlocks');
   });
 });

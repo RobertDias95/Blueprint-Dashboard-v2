@@ -549,11 +549,15 @@ describe('fix-442 §A5 — the guard, the RPCs and the sentence are untouched', 
 
   it('★★ the RPC names and their arguments are unchanged', () => {
     expect(code(resizeSrc)).toContain('bp_resize_da_time_block');
-    // ★ fix-580: the token is normalised at the boundary now — the ARGUMENT
-    //   and its source are unchanged, which is what this guard is about.
-    expect(code(resizeSrc)).toContain(
-      'p_expected_updated_at: occToken(input.expectedUpdatedAt)',
-    );
+    // ★ fix-580 normalised the token at the boundary; ★★ fix-581 changed where
+    //   it is READ FROM — `currentBlockToken(…)` instead of the captured
+    //   `input.expectedUpdatedAt`, because a token held in React state across a
+    //   confirm dialog cannot be corrected by the writer that superseded it.
+    //   **fix-442's ruling is untouched and is what this guard is about**: the
+    //   RPC and its argument list have not moved, and the guard did not widen.
+    expect(code(resizeSrc)).toContain('p_expected_updated_at: occToken(expected)');
+    expect(code(resizeSrc)).toContain('currentBlockToken(');
+    expect(code(resizeSrc)).toContain('input.expectedUpdatedAt,');
     expect(code(upsertSrc)).toContain('bp_upsert_da_time_block_row');
     expect(code(deleteSrc)).toContain('bp_delete_da_time_block_row');
   });

@@ -129,44 +129,29 @@ describe('fix-566 §C — the redesign seed carries the parent address verbatim'
 });
 
 // ---------------------------------------------------------------------------
-// §C1b · THE BRIDGE ACROSS THE APPLY GAP
+// §C1b · THE BRIDGE IS GONE (fix-581 §D)
 // ---------------------------------------------------------------------------
 //
-// ⚠️⚠️ THE CLIENT SHIPS ON MERGE; THE MIGRATION SHIPS WHEN COWORK RUNS IT.
-//       In between, `bp_create_project_with_permits` still refuses any existing
-//       address in a pre-check that runs BEFORE the constraint — so a redesign
-//       seeded with its parent's address would come back `conflict: true` and
-//       dead-end on *"This address already exists in the system"*.
-//       fix-574's Edge Function sat merged-but-undeployed for four days.
+// fix-566 shipped a one-retry-with-the-old-suffix bridge to cover the window
+// between merging and the migration being applied. **The migration was applied
+// 2026-09-16** — verified on prod: `projects_address_key` gone, the partial
+// index present, the pre-check redesign-aware, **0 of 227 addresses suffixed**,
+// and a 21st redesign created since with none. fix-581 §D deletes the retry, and
+// these assert it stayed deleted.
 
-describe('fix-566 §C — the wizard survives the gap before the migration lands', () => {
+describe('fix-566 §C — the wizard posts the parent address and nothing else', () => {
   const src = strip(read('src/components/NewProjectWizard.tsx'));
 
-  it('★★★ it retries with the old suffix ONLY after a refusal', () => {
-    // ★ The order is the whole point: the parent's address is attempted FIRST.
-    //   Once the migration lands that call succeeds and the retry is unreachable.
-    const first = src.indexOf('let result = await create.mutateAsync(payload)');
-    const retry = src.indexOf('[Redesign ${redesignSiblingCount + 1}]');
-    expect(first).toBeGreaterThan(-1);
-    expect(retry).toBeGreaterThan(first);
-    expect(src).toMatch(/if \(result\.conflict && isRedesign\) \{/);
-  });
-
-  it('★★★ the retry is gated on BOTH the refusal and the redesign', () => {
-    // ⚠️ A retry gated only on `conflict` would silently suffix a genuine
-    //    duplicate — turning the warning this app spent fix-333 building into a
-    //    second project at the same lot.
-    expect(src).not.toMatch(/if \(result\.conflict\) \{[\s\S]{0,120}\[Redesign/);
-  });
-
-  it('★★ it needs no new query — N comes from the duplicate check already loaded', () => {
-    expect(src).toMatch(/duplicate\.matches\.filter\(/);
-    expect(src).not.toMatch(/useProjectRedesigns\(/);
+  it('★★★ there is ONE create call and no suffix retry', () => {
+    expect(src).toContain('const result = await create.mutateAsync(payload)');
+    expect(src).not.toMatch(/\[Redesign \$\{/);
+    expect(src).not.toMatch(/result\.conflict && isRedesign/);
+    expect(src).not.toContain('redesignSiblingCount');
   });
 
   it('★★ a genuine duplicate still reaches the dead-end banner', () => {
     // The banner stays for the case it was written for — a non-redesign at an
-    // address that already exists.
+    // address that already exists. Removing the bridge must not remove that.
     expect(src).toContain('setConflictExistingId(result.project_id)');
   });
 });

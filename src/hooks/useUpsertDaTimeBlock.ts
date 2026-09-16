@@ -5,7 +5,7 @@ import { OCCConflictError, isOCCConflict, occToken } from '../lib/occ';
 import { pushToast } from '../stores/toastStore';
 import { useAuthStore } from '../stores/authStore';
 import type { DaTimeBlock } from '../lib/database.types';
-import { applyUpsertedBlock } from '../lib/daTimeBlockCache';
+import { applyUpsertedBlock, currentBlockToken } from '../lib/daTimeBlockCache';
 
 // Q6.2.f: row-level OCC upsert for da_time_blocks via the Q7.3.0 RPC
 // bp_upsert_da_time_block_row. The table's PK is text (client-generated
@@ -72,12 +72,26 @@ export function useUpsertDaTimeBlock() {
       const payload = isInsert
         ? buildPayload({}, input.patch)
         : buildPayload(input.block, input.patch);
+      // ★★★ fix-581 (P-283): the token comes from the CACHE, not from
+      //     `input.block` — which is a React-state snapshot taken when the popup
+      //     opened and posted when the user pressed Save, seconds or minutes
+      //     later. Prod 735: Dave posted his block's `created_at` while a resize
+      //     had moved the stamp 5.4 s earlier. The cache is what every writer
+      //     already corrects; the snapshot is what nothing can.
+      const expected = isInsert
+        ? null
+        : currentBlockToken(
+            queryClient,
+            tenantId,
+            input.block.id,
+            input.block.updated_at,
+          );
       const { data, error } = await supabase.rpc(
         'bp_upsert_da_time_block_row',
         {
           p_id: isInsert ? input.id : input.block.id,
           p_data: payload,
-          p_expected_updated_at: occToken(isInsert ? null : input.block.updated_at),
+          p_expected_updated_at: occToken(expected),
         },
       );
       if (error) throw error;
@@ -98,9 +112,12 @@ export function useUpsertDaTimeBlock() {
         //
         // ★ NULL means the row is GONE rather than changed; the reporter names
         //   that case `row-missing` instead of leaving it to be inferred.
+        // ⚠️ fix-581: report what was actually POSTED, not what the caller was
+        //    holding. Those are no longer the same value, and a report that
+        //    named the snapshot would send the next reader back to the popup.
         throw new OCCConflictError(0, 'Time block', {
           rowId: input.op === 'update' ? input.block.id : input.id,
-          expected: isInsert ? null : input.block.updated_at,
+          expected,
           actual: row.updated_at ?? null,
         });
       }

@@ -4,7 +4,7 @@ import { queryKeys } from '../lib/queryKeys';
 import { OCCConflictError, isOCCConflict, occToken } from '../lib/occ';
 import { pushToast } from '../stores/toastStore';
 import { useAuthStore } from '../stores/authStore';
-import { applyResizedBlock } from '../lib/daTimeBlockCache';
+import { applyResizedBlock, currentBlockToken } from '../lib/daTimeBlockCache';
 
 // fix-25-feat-a: bp_resize_da_time_block. Atomic, overlap-aware resize
 // for da_time_blocks (NP / vacation / training / corrections rows).
@@ -74,11 +74,23 @@ export function useResizeDaTimeBlock() {
     // ★ fix-511 §C — see useUpsertDaTimeBlock.
     meta: { write: 'bp_resize_da_time_block' },
     mutationFn: async (input) => {
+      // ★★★ fix-581: the resize token is captured too — not only off the
+      //     rendered row (which does refresh) but into `pendingNpWarning` and
+      //     `pendingOverlap`, which sit in React state while a confirm dialog is
+      //     open. A prompt somebody reads for ten seconds is the widest window
+      //     of the four, and `c.expectedUpdatedAt` on each listed conflict is
+      //     the same value again.
+      const expected = currentBlockToken(
+        queryClient,
+        tenantId,
+        input.blockId,
+        input.expectedUpdatedAt,
+      );
       const { data, error } = await supabase.rpc('bp_resize_da_time_block', {
         p_id: input.blockId,
         p_new_start_week: input.newStartWeek,
         p_new_end_week: input.newEndWeek,
-        p_expected_updated_at: occToken(input.expectedUpdatedAt),
+        p_expected_updated_at: occToken(expected),
         p_force: input.force ?? false,
       });
       if (error) throw error;
