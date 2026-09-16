@@ -2,6 +2,7 @@ import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '../lib/supabase';
 import { queryKeys } from '../lib/queryKeys';
 import { OCCConflictError, isOCCConflict, occToken } from '../lib/occ';
+import { occInsertKey, occRowKey, occSerialize } from '../lib/occQueue';
 import { isUserInputValidationError } from '../lib/errorLogger';
 import { pushToast } from '../stores/toastStore';
 import { useAuthStore } from '../stores/authStore';
@@ -279,7 +280,41 @@ export function useUpsertPermitCycle() {
     // these are one-person keystroke saves, ~150ms each, and the alternative
     // is the race this ticket exists to remove.
     scope: { id: 'permit-cycle-write' },
-    mutationFn: async (input) => {
+    mutationFn: async (input) =>
+      // ★★★ fix-584 §B: one write per CYCLE row at a time. The date cells on a
+      //     cycle commit per field exactly as the unit editor does, and
+      //     `freshestCycleStamp` is the cache read — correct when nothing is in
+      //     flight, and blind while something is.
+      //
+      // ⚠⚠ THE SEED **IS** THAT CACHE READ, and getting this wrong is a
+      //    regression rather than a missed improvement: seeding from
+      //    `input.cycle.updated_at` instead would override fix-341's sibling-snap
+      //    refresh and re-open the false alarm it closed (Shire, cycle 1 snapping
+      //    cycle 2). The suite catches it — it caught this while it was being
+      //    written.
+      occSerialize(
+        input.op === 'insert'
+          ? occInsertKey('permit_cycles')
+          : occRowKey('permit_cycles', input.cycle.id),
+        input.op === 'insert'
+          ? null
+          : occToken(
+              freshestCycleStamp(
+                [
+                  queryClient.getQueryData<PermitWithCycles[]>(
+                    queryKeys.permitsByProject(tenantId, input.projectId),
+                  ),
+                  queryClient.getQueryData<PermitWithCycles[]>(
+                    queryKeys.permits(tenantId),
+                  ),
+                ],
+                input.permitId,
+                input.cycle.id,
+                input.cycle.updated_at,
+              ),
+            ),
+        async (expectedFromQueue) => {
+        const value = await (async () => {
       let row: RpcRow | undefined;
       let editedCycle: PermitCycle;
 
@@ -317,23 +352,13 @@ export function useUpsertPermitCycle() {
         // sibling write from moments ago. See freshestCycleStamp: this can
         // only ever be a stamp the server gave us, so a genuine conflict still
         // fails.
-        const expectedUpdatedAt = freshestCycleStamp(
-          [
-            queryClient.getQueryData<PermitWithCycles[]>(
-              queryKeys.permitsByProject(tenantId, input.projectId),
-            ),
-            queryClient.getQueryData<PermitWithCycles[]>(
-              queryKeys.permits(tenantId),
-            ),
-          ],
-          input.permitId,
-          input.cycle.id,
-          input.cycle.updated_at,
-        );
+        // ★ fix-341's cache read moved UP into the serializer's seed — same
+        //   value, computed one line earlier, so a queued follower can override
+        //   it with the token its predecessor minted. See the header above.
         const { data, error } = await supabase.rpc('bp_upsert_permit_cycle_row', {
           p_id: input.cycle.id,
           p_data: merged,
-          p_expected_updated_at: occToken(expectedUpdatedAt),
+          p_expected_updated_at: expectedFromQueue,
         });
         if (error) throw error;
         row = (data as RpcRow[])[0];
@@ -415,7 +440,9 @@ export function useUpsertPermitCycle() {
       }
 
       return { cycle: editedCycle, snapCycle, parentPermitUpdatedAt, cycleStamps };
-    },
+        })();
+        return { value, token: value.cycle.updated_at ?? undefined };
+      }),
 
     onMutate: async (input) => {
       await queryClient.cancelQueries({ queryKey: queryKeys.permits(tenantId) });

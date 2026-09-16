@@ -2,6 +2,7 @@ import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '../lib/supabase';
 import { queryKeys } from '../lib/queryKeys';
 import { OCCConflictError, isOCCConflict, occToken } from '../lib/occ';
+import { occRowKey, occSerialize } from '../lib/occQueue';
 import { pushToast } from '../stores/toastStore';
 import { useAuthStore } from '../stores/authStore';
 import type { DrawScheduleRow, PermitWithCycles } from '../lib/database.types';
@@ -41,7 +42,9 @@ export function useUpdateDrawSchedule() {
   const tenantId = useAuthStore((s) => s.activeTenantId) ?? '';
 
   return useMutation<RpcResult, Error, UpdateDrawScheduleInput, MutationContext>({
-    mutationFn: async (input) => {
+    mutationFn: async (input) =>
+      occSerialize(occRowKey('draw_schedule', input.projectId), occToken(input.expectedUpdatedAt), async (expected) => {
+        const value = await (async () => {
       const { data, error } = await supabase.rpc(
         'bp_update_draw_schedule_with_dd_sync',
         {
@@ -50,7 +53,7 @@ export function useUpdateDrawSchedule() {
           p_start_week: input.startWeek,
           p_end_week: input.endWeek,
           p_schedule_status: input.scheduleStatus,
-          p_expected_updated_at: occToken(input.expectedUpdatedAt),
+          p_expected_updated_at: expected,
         },
       );
       if (error) throw error;
@@ -60,7 +63,9 @@ export function useUpdateDrawSchedule() {
         throw new OCCConflictError(0, 'Draw schedule');
       }
       return row;
-    },
+        })();
+        return { value, token: value.out_updated_at ?? undefined };
+      }),
 
     onMutate: async (input) => {
       const drawKey = queryKeys.drawSchedule(tenantId);

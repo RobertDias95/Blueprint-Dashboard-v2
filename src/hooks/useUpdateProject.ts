@@ -2,6 +2,7 @@ import { useMutation, useQueryClient, type QueryClient } from '@tanstack/react-q
 import { supabase } from '../lib/supabase';
 import { queryKeys } from '../lib/queryKeys';
 import { OCCConflictError, isOCCConflict, occToken } from '../lib/occ';
+import { occRowKey, occSerialize } from '../lib/occQueue';
 import {
   ProjectWriteDeniedError,
   isDeniedResponse,
@@ -251,8 +252,15 @@ export function useUpdateProject() {
         input.projectId,
         input.expectedUpdatedAt,
       );
+      // ★★★ fix-584 §B: ONE WRITE PER ROW AT A TIME. `token` above is the
+      //     cache read fix-532 §B added — kept as the SEED, because it is right
+      //     whenever nothing is in flight — but a second commit composed before
+      //     the first returned now waits and posts the token the first MINTED.
+      //     That is the case fix-532's own header predicted and could not fix:
+      //     *"Three is not [survivable]"*. Cam's backfill made three routine.
+      const runProjectUpdate = async (attemptToken: string): Promise<Project> => {
       try {
-        return await tryUpdateProject(input, token, members);
+        return await tryUpdateProject(input, attemptToken, members);
       } catch (err) {
         // silentOnOcc=true → caller wants to handle recovery itself.
         // Don't auto-retry; let the error propagate. (Non-OCC errors
@@ -281,6 +289,18 @@ export function useUpdateProject() {
         // refresh.
         return await tryUpdateProject(input, freshToken, members);
       }
+      };
+
+      return occSerialize(
+        occRowKey('projects', input.projectId),
+        token,
+        async (expected) => {
+          // ★ `expected` is the seed when nothing was in flight, or the token
+          //   the PREVIOUS write on this row minted when something was.
+          const value = await runProjectUpdate(expected ?? token);
+          return { value, token: value.updated_at ?? null };
+        },
+      );
     },
 
     onMutate: async ({ projectId, patch }) => {

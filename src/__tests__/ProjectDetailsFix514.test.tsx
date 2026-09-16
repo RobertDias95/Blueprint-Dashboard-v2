@@ -357,7 +357,9 @@ describe('fix-514 §D — remove goes through an RPC, and nothing is hard-delete
     // ★ fix-580: same argument, same source, wrapped in `occToken` so an
     //   empty string can never reach the timestamptz cast.
     expect(code(consultantHookSrc)).toContain(
-      'p_expected_updated_at: occToken(input.expectedUpdatedAt)',
+      // ★★ fix-584 §B: through `occCall`, the thin form of the same per-row
+      //    queue — the seed is still `occToken(input.expectedUpdatedAt)`.
+      'p_expected_updated_at: expected,',
     );
   });
 });

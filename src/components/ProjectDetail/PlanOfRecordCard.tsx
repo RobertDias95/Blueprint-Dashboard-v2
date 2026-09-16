@@ -45,7 +45,7 @@ import {
   pdfDownloadName,
   signPlanPdfUrl,
 } from '../../lib/planOfRecordShare';
-import { pushToast } from '../../stores/toastStore';
+import { pushToast, pushValidationToast } from '../../stores/toastStore';
 import { ARCHIVED_FALLBACK_LABEL, isArchivedFallback } from '../../lib/archivedFallback';
 import {
   findShareLink,
@@ -675,7 +675,8 @@ async function downloadPlanPdf(objectPath: string | null, fileName: string | nul
     // ★ Should be unreachable: the control does not render without a path. Kept
     //   because "unreachable" is a claim about today's data, and 336 of 336
     //   sets having a PDF is also a claim about today's data.
-    pushToast('That set has no PDF on file yet', 'error');
+    // ★ fix-584 §A: a state the app refuses on purpose, not a failure.
+    pushValidationToast('That set has no PDF on file yet');
     return;
   }
   try {

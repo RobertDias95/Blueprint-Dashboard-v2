@@ -2,6 +2,7 @@ import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '../lib/supabase';
 import { queryKeys } from '../lib/queryKeys';
 import { OCCConflictError, isOCCConflict, occToken } from '../lib/occ';
+import { occRowKey, occSerialize } from '../lib/occQueue';
 import { pushToast } from '../stores/toastStore';
 import { useAuthStore } from '../stores/authStore';
 
@@ -38,14 +39,16 @@ export function useUpdateTeamMemberQuarters() {
     Error,
     UpdateTeamMemberQuartersInput
   >({
-    mutationFn: async (input) => {
+    mutationFn: async (input) =>
+      occSerialize(occRowKey('team_members', input.memberId), occToken(input.expectedUpdatedAt), async (expected) => {
+        const value = await (async () => {
       const { data, error } = await supabase.rpc(
         'bp_update_team_member_quarters',
         {
           p_id: input.memberId,
           p_active_start: input.activeStart,
           p_active_end: input.activeEnd,
-          p_expected_updated_at: occToken(input.expectedUpdatedAt),
+          p_expected_updated_at: expected,
         },
       );
       if (error) throw error;
@@ -55,7 +58,9 @@ export function useUpdateTeamMemberQuarters() {
         throw new OCCConflictError(0, 'Team member');
       }
       return { memberId: row.out_id, updatedAt: row.out_updated_at };
-    },
+        })();
+        return { value, token: value.updatedAt };
+      }),
 
     onSuccess: () => {
       queryClient.invalidateQueries({

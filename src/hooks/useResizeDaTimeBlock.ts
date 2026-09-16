@@ -2,6 +2,7 @@ import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '../lib/supabase';
 import { queryKeys } from '../lib/queryKeys';
 import { OCCConflictError, isOCCConflict, occToken } from '../lib/occ';
+import { occRowKey, occSerialize } from '../lib/occQueue';
 import { pushToast } from '../stores/toastStore';
 import { useAuthStore } from '../stores/authStore';
 import { applyResizedBlock, currentBlockToken } from '../lib/daTimeBlockCache';
@@ -73,24 +74,33 @@ export function useResizeDaTimeBlock() {
   return useMutation<ResizeDaTimeBlockResult, Error, ResizeDaTimeBlockInput>({
     // ★ fix-511 §C — see useUpsertDaTimeBlock.
     meta: { write: 'bp_resize_da_time_block' },
-    mutationFn: async (input) => {
+    mutationFn: async (input) =>
       // ★★★ fix-581: the resize token is captured too — not only off the
       //     rendered row (which does refresh) but into `pendingNpWarning` and
       //     `pendingOverlap`, which sit in React state while a confirm dialog is
       //     open. A prompt somebody reads for ten seconds is the widest window
       //     of the four, and `c.expectedUpdatedAt` on each listed conflict is
       //     the same value again.
-      const expected = currentBlockToken(
-        queryClient,
-        tenantId,
-        input.blockId,
-        input.expectedUpdatedAt,
-      );
+      // ★★★ fix-584 §B: that cache read is the SEED. A drag emits several
+      //     resizes on one block in a second, and the serializer is what makes
+      //     the second one post the token the first MINTED.
+      occSerialize(
+        occRowKey('da_time_blocks', input.blockId),
+        occToken(
+          currentBlockToken(
+            queryClient,
+            tenantId,
+            input.blockId,
+            input.expectedUpdatedAt,
+          ),
+        ),
+        async (expected) => {
+        const value = await (async () => {
       const { data, error } = await supabase.rpc('bp_resize_da_time_block', {
         p_id: input.blockId,
         p_new_start_week: input.newStartWeek,
         p_new_end_week: input.newEndWeek,
-        p_expected_updated_at: occToken(expected),
+        p_expected_updated_at: expected,
         p_force: input.force ?? false,
       });
       if (error) throw error;
@@ -107,7 +117,11 @@ export function useResizeDaTimeBlock() {
         proposedStartWeek: row.out_proposed_start_week,
         proposedEndWeek: row.out_proposed_end_week,
       };
-    },
+        })();
+        // ★ An OVERLAP response is not a write — nothing moved, so there is no
+        //   new stamp to hand on and the next write keeps its own seed.
+        return { value, token: value.overlapKind ? undefined : (value.updatedAt ?? undefined) };
+      }),
 
     onSuccess: (result, input) => {
       // Overlap responses are NOT writes — caller handles via prompt.

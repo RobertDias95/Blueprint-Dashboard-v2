@@ -2,6 +2,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '../lib/supabase';
 import { queryKeys } from '../lib/queryKeys';
 import { occToken } from '../lib/occ';
+import { occCall, occRowKey } from '../lib/occQueue';
 import { pushToast } from '../stores/toastStore';
 import { useAuthStore } from '../stores/authStore';
 import type {
@@ -206,10 +207,15 @@ export function useRemoveProjectConsultant(projectId: string | null | undefined)
       /** ★ The CONSULTANT's `updated_at` — this write is on that row. */
       expectedUpdatedAt: string | null;
     }) => {
-      const { data, error } = await supabase.rpc('bp_remove_project_consultant', {
-        p_consultant_id: input.consultantId,
-        p_expected_updated_at: occToken(input.expectedUpdatedAt),
-      });
+      const { data, error } = await occCall(
+        occRowKey('project_consultants', input.consultantId),
+        occToken(input.expectedUpdatedAt),
+        async (expected) =>
+          supabase.rpc('bp_remove_project_consultant', {
+            p_consultant_id: input.consultantId,
+            p_expected_updated_at: expected,
+          }),
+      );
       if (error) throw error;
       const row = firstRow<ConsultantRemoveResult>(data);
       if (row?.out_conflict) {
@@ -254,11 +260,16 @@ export function useSetConsultantStatus(projectId: string | null | undefined) {
        *  `round_updated_at`. */
       expectedUpdatedAt: string | null;
     }) => {
-      const { data, error } = await supabase.rpc('bp_set_consultant_status', {
-        p_consultant_id: input.consultantId,
-        p_status: input.status,
-        p_expected_updated_at: occToken(input.expectedUpdatedAt),
-      });
+      const { data, error } = await occCall(
+        occRowKey('project_consultants', input.consultantId),
+        occToken(input.expectedUpdatedAt),
+        async (expected) =>
+          supabase.rpc('bp_set_consultant_status', {
+            p_consultant_id: input.consultantId,
+            p_status: input.status,
+            p_expected_updated_at: expected,
+          }),
+      );
       if (error) throw error;
       const row = firstRow<ConsultantWriteResult>(data);
       if (row?.conflict) {
@@ -291,12 +302,17 @@ export function useSetConsultantDate(projectId: string | null | undefined) {
       value: string | null;
       expectedUpdatedAt: string | null;
     }) => {
-      const { data, error } = await supabase.rpc('bp_set_consultant_date', {
-        p_consultant_id: input.consultantId,
-        p_field: input.field,
-        p_value: input.value,
-        p_expected_updated_at: occToken(input.expectedUpdatedAt),
-      });
+      const { data, error } = await occCall(
+        occRowKey('project_consultants', input.consultantId),
+        occToken(input.expectedUpdatedAt),
+        async (expected) =>
+          supabase.rpc('bp_set_consultant_date', {
+            p_consultant_id: input.consultantId,
+            p_field: input.field,
+            p_value: input.value,
+            p_expected_updated_at: expected,
+          }),
+      );
       if (error) throw error;
       return firstRow<ConsultantWriteResult>(data);
     },
@@ -314,11 +330,16 @@ export function useSetConsultantPhase(projectId: string | null | undefined) {
       phase: string;
       expectedUpdatedAt: string | null;
     }) => {
-      const { data, error } = await supabase.rpc('bp_set_consultant_phase', {
-        p_consultant_id: input.consultantId,
-        p_phase: input.phase,
-        p_expected_updated_at: occToken(input.expectedUpdatedAt),
-      });
+      const { data, error } = await occCall(
+        occRowKey('project_consultants', input.consultantId),
+        occToken(input.expectedUpdatedAt),
+        async (expected) =>
+          supabase.rpc('bp_set_consultant_phase', {
+            p_consultant_id: input.consultantId,
+            p_phase: input.phase,
+            p_expected_updated_at: expected,
+          }),
+      );
       if (error) throw error;
       return firstRow<ConsultantWriteResult>(data);
     },
@@ -344,12 +365,17 @@ export function useSetConsultantFirm(projectId: string | null | undefined) {
        *  default: a caller that forgets this must never destroy history. */
       clearRounds?: boolean;
     }) => {
-      const { data, error } = await supabase.rpc('bp_set_consultant_firm', {
-        p_consultant_id: input.consultantId,
-        p_firm_id: input.firmId,
-        p_expected_updated_at: occToken(input.expectedUpdatedAt),
-        p_clear_rounds: input.clearRounds ?? false,
-      });
+      const { data, error } = await occCall(
+        occRowKey('project_consultants', input.consultantId),
+        occToken(input.expectedUpdatedAt),
+        async (expected) =>
+          supabase.rpc('bp_set_consultant_firm', {
+            p_consultant_id: input.consultantId,
+            p_firm_id: input.firmId,
+            p_clear_rounds: input.clearRounds ?? false,
+            p_expected_updated_at: expected,
+          }),
+      );
       if (error) throw error;
       return firstRow<ConsultantWriteResult>(data);
     },

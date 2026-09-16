@@ -2,6 +2,7 @@ import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '../lib/supabase';
 import { queryKeys } from '../lib/queryKeys';
 import { OCCConflictError, isOCCConflict, occToken } from '../lib/occ';
+import { occRowKey, occSerialize } from '../lib/occQueue';
 import { pushToast } from '../stores/toastStore';
 import { useAuthStore } from '../stores/authStore';
 
@@ -27,14 +28,16 @@ export function useUpsertTargetSubmitFormula() {
   const queryClient = useQueryClient();
   const tenantId = useAuthStore((s) => s.activeTenantId) ?? '';
   return useMutation<string, Error, UpsertTargetSubmitFormulaInput>({
-    mutationFn: async (input) => {
+    mutationFn: async (input) =>
+      occSerialize(occRowKey('target_submit_formulas', `${input.type}|${input.jurisdiction}`), occToken(input.expected_updated_at), async (expected) => {
+        const value = await (async () => {
       const { data, error } = await supabase.rpc(
         'bp_upsert_target_submit_formula',
         {
           p_type: input.type,
           p_jurisdiction: input.jurisdiction,
           p_offset_days: input.offset_days,
-          p_expected_updated_at: occToken(input.expected_updated_at),
+          p_expected_updated_at: expected,
         },
       );
       if (error) throw error;
@@ -42,7 +45,9 @@ export function useUpsertTargetSubmitFormula() {
       if (!row) throw new Error('Upsert returned no row');
       if (row.conflict) throw new OCCConflictError(0, 'Target submit formula');
       return row.out_updated_at;
-    },
+        })();
+        return { value, token: value };
+      }),
     onSuccess: () => {
       queryClient.invalidateQueries({
         queryKey: queryKeys.targetSubmitFormulas(tenantId),

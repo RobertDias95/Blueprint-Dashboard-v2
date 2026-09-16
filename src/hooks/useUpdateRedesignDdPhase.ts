@@ -2,6 +2,7 @@ import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '../lib/supabase';
 import { queryKeys } from '../lib/queryKeys';
 import { OCCConflictError, isOCCConflict, occToken } from '../lib/occ';
+import { occRowKey, occSerialize } from '../lib/occQueue';
 import { pushToast } from '../stores/toastStore';
 
 // fix-145: edit a reuse-redesign's draw_schedule lane (DA / dates / status)
@@ -31,21 +32,25 @@ export function useUpdateRedesignDdPhase() {
   const qc = useQueryClient();
 
   return useMutation<RpcRow, Error, UpdateRedesignDdPhaseInput>({
-    mutationFn: async (input) => {
+    mutationFn: async (input) =>
+      occSerialize(occRowKey('draw_schedule', input.projectId), occToken(input.expectedUpdatedAt), async (expected) => {
+        const value = await (async () => {
       const { data, error } = await supabase.rpc('bp_update_redesign_dd_phase', {
         p_project_id: input.projectId,
         p_da: input.da,
         p_dd_start: input.dd_start,
         p_dd_end: input.dd_end,
         p_status: input.status,
-        p_expected_updated_at: occToken(input.expectedUpdatedAt),
+        p_expected_updated_at: expected,
       });
       if (error) throw error;
       const row = (data as RpcRow[] | null)?.[0];
       if (!row) throw new Error('redesign DD-phase RPC returned no row');
       if (row.conflict) throw new OCCConflictError(0, 'redesign DD phase');
       return row;
-    },
+        })();
+        return { value, token: undefined };
+      }),
     onSuccess: () => {
       // Bare prefix → Draw Schedule + Project Overview both refresh.
       qc.invalidateQueries({ queryKey: queryKeys.drawScheduleAll });

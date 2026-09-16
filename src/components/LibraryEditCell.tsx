@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { parseLotDimensionFt } from '../lib/lotDimensions';
-import { pushToast } from '../stores/toastStore';
+import { pushValidationToast } from '../stores/toastStore';
 
 // ===========================================================================
 // ★★★ fix-532 §A — THE LIBRARY'S FIRST WRITE SURFACE SINCE fix-506 §H
@@ -77,7 +77,8 @@ export function LibraryDimensionCell({
     if (!parsed.ok) {
       // ★ The number is refused and the cell goes back to what it held. Nothing
       //   was sent, and the message says so.
-      pushToast(`${label}: ${parsed.message}`, 'error');
+      // ★ fix-584 §A: a refused number is not a defect. Same toast, no report.
+      pushValidationToast(`${label}: ${parsed.message}`);
       return;
     }
     if ((parsed.value ?? null) === (value ?? null)) return;
@@ -217,7 +218,10 @@ export function LibraryIntegerCell({
     }
     const n = Number(t);
     if (!Number.isFinite(n) || !/^\d+$/.test(t) || n < 0 || n > max) {
-      pushToast(`${label}: enter a whole number between 0 and ${max}.`, 'error');
+      // ★★★ fix-584 §A: THE EXACT MESSAGE OF prod row #737 (Cam, /library).
+      //     fix-511's bounds check working as designed — it stops reaching
+      //     Error Triage and keeps reaching the person.
+      pushValidationToast(`${label}: enter a whole number between 0 and ${max}.`);
       return;
     }
     if (n === value) return;

@@ -169,23 +169,47 @@ describe('fix-580 §A2 — every OCC token on the wire goes through occToken', (
     expect(occCallSites().length).toBeGreaterThanOrEqual(45);
   });
 
-  it('★★★ …and each one either calls occToken or posts a literal null', () => {
+  it('★★★ …and each one either calls occToken or posts a value that did', () => {
     // ★ A literal `null` is already the honest value for "no prior row", which
     //   is what every insert branch posts. Everything else — a variable, a
     //   property, a ternary — is a string that could be `""`, and must be
     //   normalised. This is the assertion that covers the other 44 RPCs.
+    //
+    // ★★★ fix-584 §B MOVED THE `occToken` CALL ONE LINE UP, and this rule moved
+    //     with it rather than being deleted. Every OCC write now goes through
+    //     `occSerialize` / `occCall`, whose SEED argument is the `occToken(…)`
+    //     expression the wire line used to carry; the wire line posts the
+    //     serializer's parameter instead. **The guarantee is unchanged** — no
+    //     un-normalised string reaches the wire — and the test below is what
+    //     keeps it true.
+    const QUEUE_SUPPLIED = /^(expected|expectedFromQueue|expectedToken|token)$/;
     const offenders = occCallSites()
       .filter((s) => {
         if (/occToken\(/.test(s.line)) return false;
         if (/:\s*null\b/.test(s.line)) return false;
+        const m = s.line.match(/:\s*([A-Za-z_$][\w$]*)\s*(?:\?\?[^,]*)?,?\s*\}?\s*,?\s*$/);
+        if (!m) return true;
         // A local this file already ran through occToken — useUpsertTeamTask
         // normalises first and then fetches a real stamp if what it had was
         // empty, so the value reaching the wire is two steps from the call.
-        const m = s.line.match(/:\s*([A-Za-z_$][\w$]*)\s*,?\s*$/);
-        return !(m && s.derived.has(m[1]!));
+        if (s.derived.has(m[1]!)) return false;
+        // …or the serializer's own parameter, whose seed was normalised.
+        return !QUEUE_SUPPLIED.test(m[1]!);
       })
       .map((s) => `${s.file.split(/[\\/]/).pop()}:${s.n}: ${s.line}`);
     expect(offenders, 'OCC tokens posted raw').toEqual([]);
+  });
+
+  it('★★★ …and a queue-supplied token is legal only because the SEED was normalised', () => {
+    // ⚠️ THE LOOPHOLE THIS CLOSES. `p_expected_updated_at: expected` is fine only
+    //    when `expected` came from `occSerialize(key, occToken(…), …)`. A file
+    //    that posts a bare identifier and never calls `occToken` at all would
+    //    satisfy the rule above by accident, so it is asserted separately.
+    const files = [...new Set(occCallSites().map((s) => s.file))];
+    const offenders = files
+      .filter((f) => !/occToken\(/.test(read(f)))
+      .map((f) => f.split(/[\\/]/).pop()!);
+    expect(offenders, 'posts an OCC token but never normalises one').toEqual([]);
   });
 
   it('★★★ the 46th surface — the token carried INSIDE jsonb — is normalised too', () => {

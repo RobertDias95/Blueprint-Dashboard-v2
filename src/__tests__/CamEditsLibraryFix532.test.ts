@@ -277,18 +277,26 @@ describe('fix-532 §B (P-246) — the stale token was the caller’s', () => {
     // ★★ AMENDED BY fix-549, RULING UNCHANGED. The call gained a third argument
     //    (§C's members, for naming who to ask in a refusal), so the assertion
     //    matches the first two — which are the ones fix-532 is about.
-    expect(src).toContain('tryUpdateProject(input, token,');
+    // ★★ fix-584 §B renamed the parameter — the retry now takes the token the
+    //    serializer handed this attempt (`attemptToken`), which is the SEED
+    //    `token` when nothing was in flight and the PREVIOUS write's minted
+    //    token when something was. fix-532's ruling is unchanged and is what
+    //    this guards: the caller's render-captured value is never re-sent.
+    expect(src).toContain('tryUpdateProject(input, attemptToken, members)');
+    expect(src).toContain('occSerialize(');
     expect(src).not.toContain('input.expectedUpdatedAt,\n        );');
   });
 
   it('★★ the Library save reads its token the same way, from the first line', () => {
     // ★ Built in rather than retrofitted: the Library's cells have the same
     //   several-in-flight shape the units editor has.
-    expect(hook()).toContain('queryClient.getQueryData<Project[]>(queryKeys.projects(tenantId))');
-    // ★ fix-580 wraps every OCC token in `occToken` at the boundary — `""` is
-    //   not a timestamptz and PostgREST refuses the whole call. The assertion
-    //   is still "the token comes from the cached row", which is fix-532's
-    //   ruling; only the spelling on the wire moved.
-    expect(hook()).toContain('p_expected_updated_at: occToken(expected)');
+    // ★★ fix-584 §B moved the cache read into the SERIALIZER'S SEED — same
+    //    read, one line earlier — so a queued follower can override it with the
+    //    token its predecessor minted. fix-532's ruling is unchanged and is what
+    //    this guards: the token comes from the cached row, never from a prop.
+    expect(hook()).toContain('.getQueryData<Project[]>(queryKeys.projects(tenantId))');
+    expect(hook()).toContain('occSerialize(');
+    expect(hook()).toContain("occRowKey('projects', input.projectId)");
+    expect(hook()).toContain('p_expected_updated_at: expected');
   });
 });

@@ -2,6 +2,7 @@ import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '../lib/supabase';
 import { queryKeys } from '../lib/queryKeys';
 import { OCCConflictError, isOCCConflict, occToken } from '../lib/occ';
+import { occRowKey, occSerialize } from '../lib/occQueue';
 import { pushToast } from '../stores/toastStore';
 import { useAuthStore } from '../stores/authStore';
 import type { IntakeRecord } from '../lib/database.types';
@@ -24,10 +25,12 @@ export function useDeleteIntakeRecord() {
     //   from the message — exactly the cost fix-511 §C measured at four
     //   database queries per row.
     meta: { write: 'bp_delete_intake_records_row' },
-    mutationFn: async ({ id, updated_at }) => {
+    mutationFn: async ({ id, updated_at }) =>
+      occSerialize(occRowKey('intake_records', id), occToken(updated_at), async (expected) => {
+        const value = await (async () => {
       const { data, error } = await supabase.rpc(
         'bp_delete_intake_records_row',
-        { p_id: id, p_expected_updated_at: occToken(updated_at) },
+        { p_id: id, p_expected_updated_at: expected },
       );
       if (error) throw error;
       const row = (data as Row[])[0];
@@ -42,7 +45,9 @@ export function useDeleteIntakeRecord() {
           actual: row.current_updated_at ?? null,
         });
       }
-    },
+        })();
+        return { value, token: undefined };
+      }),
     onSuccess: (_void, variables) => {
       // fix-258: drop the row from the cache immediately rather than waiting
       // for the invalidate-driven refetch. Without this the deleted row stays

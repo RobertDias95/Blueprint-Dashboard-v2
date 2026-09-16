@@ -2,6 +2,7 @@ import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '../lib/supabase';
 import { queryKeys } from '../lib/queryKeys';
 import { OCCConflictError, isOCCConflict, occToken } from '../lib/occ';
+import { occRowKey, occSerialize } from '../lib/occQueue';
 import { pushToast } from '../stores/toastStore';
 import { useAuthStore } from '../stores/authStore';
 import type { PermitWithCycles } from '../lib/database.types';
@@ -93,12 +94,14 @@ export function useSetBpDdDates() {
   const tenantId = useAuthStore((s) => s.activeTenantId) ?? '';
 
   return useMutation<SetBpDdDatesResult, Error, SetBpDdDatesInput>({
-    mutationFn: async (input) => {
+    mutationFn: async (input) =>
+      occSerialize(occRowKey('draw_schedule', input.projectId), occToken(input.expectedUpdatedAt), async (expected) => {
+        const value = await (async () => {
       const { data, error } = await supabase.rpc('bp_set_bp_dd_dates', {
         p_project_id: input.projectId,
         p_dd_start: input.ddStart,
         p_dd_end: input.ddEnd,
-        p_expected_updated_at: occToken(input.expectedUpdatedAt),
+        p_expected_updated_at: expected,
         p_force_np: input.forceNp ?? false,
       });
       if (error) throw error;
@@ -117,7 +120,9 @@ export function useSetBpDdDates() {
         proposedStartWeek: row.out_proposed_start_week,
         proposedEndWeek: row.out_proposed_end_week,
       };
-    },
+        })();
+        return { value, token: undefined };
+      }),
 
     onSuccess: (result, input) => {
       // Overlap responses are NOT writes — caller handles them via prompts.

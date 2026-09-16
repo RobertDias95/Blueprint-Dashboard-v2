@@ -2,6 +2,7 @@ import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '../lib/supabase';
 import { queryKeys } from '../lib/queryKeys';
 import { OCCConflictError, isOCCConflict, occToken } from '../lib/occ';
+import { occRowKey, occSerialize } from '../lib/occQueue';
 import { pushToast } from '../stores/toastStore';
 import { useAuthStore } from '../stores/authStore';
 import type { DrawScheduleRow } from '../lib/database.types';
@@ -51,14 +52,16 @@ export function useResolveDaOverlap() {
   const tenantId = useAuthStore((s) => s.activeTenantId) ?? '';
 
   return useMutation<RpcResult, Error, ResolveDaOverlapInput, MutationContext>({
-    mutationFn: async (input) => {
+    mutationFn: async (input) =>
+      occSerialize(occRowKey('draw_schedule', input.anchorProjectId), occToken(input.expectedUpdatedAt), async (expected) => {
+        const value = await (async () => {
       const { data, error } = await supabase.rpc('bp_resolve_da_overlap', {
         p_anchor_project_id: input.anchorProjectId,
         p_target_da: input.daAssigned,
         p_target_start_week: input.startWeek,
         p_target_end_week: input.endWeek,
         p_anchor_status: input.scheduleStatus,
-        p_anchor_expected_updated_at: occToken(input.expectedUpdatedAt),
+        p_anchor_expected_updated_at: expected,
       });
       if (error) throw error;
       const row = (data as RpcResult[])[0];
@@ -67,7 +70,9 @@ export function useResolveDaOverlap() {
         throw new OCCConflictError(0, 'Draw schedule');
       }
       return row;
-    },
+        })();
+        return { value, token: value.out_anchor_updated_at ?? undefined };
+      }),
 
     onMutate: async (input) => {
       const drawKey = queryKeys.drawSchedule(tenantId);

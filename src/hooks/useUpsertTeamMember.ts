@@ -2,6 +2,7 @@ import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '../lib/supabase';
 import { queryKeys } from '../lib/queryKeys';
 import { OCCConflictError, isOCCConflict, occToken } from '../lib/occ';
+import { occInsertKey, occRowKey, occSerialize } from '../lib/occQueue';
 import { pushToast } from '../stores/toastStore';
 import { useAuthStore } from '../stores/authStore';
 import type { TeamMember } from '../lib/database.types';
@@ -47,7 +48,9 @@ export function useUpsertTeamMember() {
   const queryClient = useQueryClient();
   const tenantId = useAuthStore((s) => s.activeTenantId) ?? '';
   return useMutation<TeamMember, Error, UpsertTeamMemberInput>({
-    mutationFn: async (input) => {
+    mutationFn: async (input) =>
+      occSerialize(input.op === 'insert' ? occInsertKey('team_members') : occRowKey('team_members', input.member.id), occToken(input.op === 'insert' ? null : input.member.updated_at), async (expected) => {
+        const value = await (async () => {
       if (input.op === 'insert') {
         const payload = buildPayload({}, input.patch);
         const { data, error } = await supabase.rpc('bp_upsert_team_member_row', {
@@ -76,14 +79,16 @@ export function useUpsertTeamMember() {
       const { data, error } = await supabase.rpc('bp_upsert_team_member_row', {
         p_id: input.member.id,
         p_data: payload,
-        p_expected_updated_at: occToken(input.member.updated_at),
+        p_expected_updated_at: expected,
       });
       if (error) throw error;
       const row = (data as Row[])[0];
       if (!row) throw new Error('Update returned no row');
       if (row.conflict) throw new OCCConflictError(0, 'Team member');
       return { ...input.member, ...input.patch, updated_at: row.updated_at };
-    },
+        })();
+        return { value, token: value.updated_at };
+      }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: queryKeys.teamMembers(tenantId) });
       pushToast('Saved team member', 'success');

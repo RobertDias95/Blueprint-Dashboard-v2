@@ -2,6 +2,7 @@ import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '../lib/supabase';
 import { queryKeys } from '../lib/queryKeys';
 import { OCCConflictError, isOCCConflict, occToken } from '../lib/occ';
+import { occRowKey, occSerialize } from '../lib/occQueue';
 import { pushToast } from '../stores/toastStore';
 import { useAuthStore } from '../stores/authStore';
 import type { DrawScheduleRow } from '../lib/database.types';
@@ -44,7 +45,9 @@ export function useUpdateDsRow() {
   const tenantId = useAuthStore((s) => s.activeTenantId) ?? '';
 
   return useMutation<RpcResult, Error, UpdateDsRowInput, MutationContext>({
-    mutationFn: async ({ current, patch }) => {
+    mutationFn: async ({ current, patch }) =>
+      occSerialize(occRowKey('draw_schedule', current.project_id), occToken(current.updated_at), async (expected) => {
+        const value = await (async () => {
       // Merge current + patch, then strip non-payload columns and stringify
       // jsonb-style values the way the RPC expects (p_data->>'field' returns
       // text, so dates/booleans must serialize cleanly).
@@ -127,14 +130,16 @@ export function useUpdateDsRow() {
       const { data, error } = await supabase.rpc('bp_upsert_draw_schedule_row', {
         p_project_id: current.project_id,
         p_data: payload,
-        p_expected_updated_at: occToken(current.updated_at),
+        p_expected_updated_at: expected,
       });
       if (error) throw error;
       const row = (data as RpcResult[])[0];
       if (!row) throw new Error('Upsert returned no row');
       if (row.conflict) throw new OCCConflictError(0, 'Draw schedule');
       return row;
-    },
+        })();
+        return { value, token: undefined };
+      }),
 
     onMutate: async ({ current, patch }) => {
       const drawKey = queryKeys.drawSchedule(tenantId);

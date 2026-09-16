@@ -2,6 +2,7 @@ import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '../lib/supabase';
 import { queryKeys } from '../lib/queryKeys';
 import { occToken } from '../lib/occ';
+import { occRowKey, occSerialize } from '../lib/occQueue';
 import { pushToast } from '../stores/toastStore';
 import { useAuthStore } from '../stores/authStore';
 import type { Permit, PermitWithCycles, Project } from '../lib/database.types';
@@ -93,12 +94,14 @@ export function useUpdateProjectWithPermits() {
     // ★ fix-511 §C: the settings modal's atomic save — the second
     //   `lot_size_sf` write path.
     meta: { write: 'bp_update_project_with_permits' },
-    mutationFn: async (input) => {
+    mutationFn: async (input) =>
+      occSerialize(occRowKey('projects', input.projectId), occToken(input.projectExpectedUpdatedAt), async (expected) => {
+        const value = await (async () => {
       const { data, error } = await supabase.rpc(
         'bp_update_project_with_permits',
         {
           p_project_id: input.projectId,
-          p_project_expected_updated_at: occToken(input.projectExpectedUpdatedAt),
+          p_project_expected_updated_at: expected,
           p_project_patch: input.projectPatch,
           // ★★★ fix-580 §A — THE 46th OCC SURFACE, AND THE ONLY ONE THAT IS NOT
           //     AN ARGUMENT. Each element of this array carries its own
@@ -126,7 +129,9 @@ export function useUpdateProjectWithPermits() {
         projectUpdatedAt: row.out_project_updated_at,
         permits: row.out_permits ?? [],
       };
-    },
+        })();
+        return { value, token: value.projectUpdatedAt ?? undefined };
+      }),
 
     onSuccess: (result, input) => {
       // Conflict is a normal (non-error) return — the whole edit rolled back

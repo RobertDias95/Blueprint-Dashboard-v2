@@ -2,6 +2,7 @@ import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '../lib/supabase';
 import { queryKeys } from '../lib/queryKeys';
 import { OCCConflictError, isOCCConflict, occToken } from '../lib/occ';
+import { occInsertKey, occRowKey, occSerialize } from '../lib/occQueue';
 import { pushToast } from '../stores/toastStore';
 import { useAuthStore } from '../stores/authStore';
 import type { DrawScheduleQuarterLayoutRow } from '../lib/database.types';
@@ -44,7 +45,9 @@ export function useUpsertQuarterLayoutRow() {
     Error,
     UpsertQuarterLayoutInput
   >({
-    mutationFn: async (input) => {
+    mutationFn: async (input) =>
+      occSerialize(input.op === 'insert' ? occInsertKey('draw_schedule_quarter_layout') : occRowKey('draw_schedule_quarter_layout', input.row.id), occToken(input.op === 'insert' ? null : input.row.updated_at), async (expected) => {
+        const value = await (async () => {
       const isInsert = input.op === 'insert';
       const payload: EditableCol = isInsert
         ? input.data
@@ -64,14 +67,16 @@ export function useUpsertQuarterLayoutRow() {
       const { data, error } = await supabase.rpc('bp_upsert_quarter_layout_row', {
         p_id: isInsert ? null : input.row.id,
         p_data: payload,
-        p_expected_updated_at: occToken(isInsert ? null : input.row.updated_at),
+        p_expected_updated_at: expected,
       });
       if (error) throw error;
       const row = (data as Row[])[0];
       if (!row) throw new Error('Upsert returned no row');
       if (row.conflict) throw new OCCConflictError(0, 'Quarter layout');
       return { id: row.out_id, updated_at: row.updated_at, quarter: payload.quarter };
-    },
+        })();
+        return { value, token: value.updated_at };
+      }),
     onSuccess: (res) => {
       queryClient.invalidateQueries({
         queryKey: queryKeys.drawScheduleQuarterLayout(tenantId, res.quarter),

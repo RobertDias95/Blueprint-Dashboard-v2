@@ -2,6 +2,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '../lib/supabase';
 import { queryKeys } from '../lib/queryKeys';
 import { occToken } from '../lib/occ';
+import { occRowKey, occSerialize } from '../lib/occQueue';
 import { pushToast } from '../stores/toastStore';
 import { useAuthStore } from '../stores/authStore';
 import { mayEditLibrary } from '../lib/workDataNames';
@@ -172,14 +173,23 @@ export function useUpdateLibraryFields() {
   >({
     // ★ fix-511 §C: what a failed save was writing, for the error report.
     meta: { write: 'bp_update_library_fields' },
-    mutationFn: async (input) => {
+    mutationFn: async (input) =>
       // ★★★ fix-532 §B's rule, applied here from the first line rather than
       //     retrofitted: the OCC token is read from the CACHE at send time, not
       //     handed in by a component that rendered a moment ago. The Library's
       //     cells fire a save per field exactly as the Unit Dimensions editor
-      //     does, so it has the same three-in-flight shape.
-      const cached = queryClient.getQueryData<Project[]>(queryKeys.projects(tenantId));
-      const expected = cached?.find((p) => p.id === input.projectId)?.updated_at ?? null;
+      //     does, so it has the same three-in-flight shape — which is why
+      //     ★★★ fix-584 §B makes the cache read the SEED and lets the serializer
+      //     supply the token whenever one of those saves is still in flight.
+      occSerialize(
+        occRowKey('projects', input.projectId),
+        occToken(
+          queryClient
+            .getQueryData<Project[]>(queryKeys.projects(tenantId))
+            ?.find((p) => p.id === input.projectId)?.updated_at ?? null,
+        ),
+        async (expected) => {
+        const value = await (async () => {
       // ★★★ fix-562 §G — KEY PRESENCE IS THE WHOLE CONTRACT. A key the caller
       //     did not supply must NOT appear in the jsonb, or the column is
       //     written to null; a key the caller supplied AS null must appear, or
@@ -195,7 +205,7 @@ export function useUpdateLibraryFields() {
       }
       const { data, error } = await supabase.rpc('bp_update_library_fields', {
         p_project_id: input.projectId,
-        p_expected_updated_at: occToken(expected),
+        p_expected_updated_at: expected,
         p_patch,
       });
       if (error) {
@@ -209,7 +219,9 @@ export function useUpdateLibraryFields() {
       const row = (data as RpcRow[] | null)?.[0];
       if (!row) throw new Error('bp_update_library_fields returned no row');
       return { updatedAt: row.out_updated_at, conflict: row.out_conflict };
-    },
+        })();
+        return { value, token: value.updatedAt ?? undefined };
+      }),
 
     onSuccess: (result, input) => {
       if (result.conflict) {
