@@ -83,7 +83,27 @@ export function useUpsertDaTimeBlock() {
       if (error) throw error;
       const row = (data as Row[])[0];
       if (!row) throw new Error('Upsert returned no row');
-      if (row.conflict) throw new OCCConflictError(0, 'Time block');
+      if (row.conflict) {
+        // ═════════════════════════════════════════════════════════
+        // ★★★ fix-579 (P-283) — RECORD BOTH SIDES. THIS FIXES NOTHING.
+        // ═════════════════════════════════════════════════════════
+        //
+        // This message has refused edits from five people across four weeks and
+        // four proposed mechanisms have each been killed by measurement. The
+        // one thing never captured is the pair being compared.
+        //
+        // ★★ `row.updated_at` IS THE ROW'S REAL STAMP and was already on the
+        //    wire — the RPC's conflict path re-reads it into `v_actual` and
+        //    returns it. It was being thrown away here.
+        //
+        // ★ NULL means the row is GONE rather than changed; the reporter names
+        //   that case `row-missing` instead of leaving it to be inferred.
+        throw new OCCConflictError(0, 'Time block', {
+          rowId: input.op === 'update' ? input.block.id : input.id,
+          expected: isInsert ? null : input.block.updated_at,
+          actual: row.updated_at ?? null,
+        });
+      }
       return {
         id: row.out_id,
         da_name: payload.da_name as string,

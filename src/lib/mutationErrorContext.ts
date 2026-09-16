@@ -59,6 +59,53 @@ export interface MutationErrorContext {
   write?: string;
   /** Which fields it was writing — COLUMN NAMES AND CAPTIONS ONLY. */
   fields?: string[];
+
+  // ════════════════════════════════════════════════════════════════
+  // ★★★ fix-579 (P-283) — BOTH SIDES OF A REFUSED OCC COMPARISON
+  // ════════════════════════════════════════════════════════════════
+  //
+  // ★★ THESE OBEY THE SAME RULE AS `fields`, WHICH IS WHY THEY ARE ALLOWED
+  //    HERE AT ALL: an ISO timestamp and a row id say WHICH row and WHEN. They
+  //    carry no address, no name and no typed value. **Do not widen this into
+  //    arbitrary row content** — that is the line `fields` exists to hold.
+
+  /** The row the refused write was aimed at. */
+  occRowId?: string | number;
+  /** The token the client POSTED as `p_expected_updated_at`. */
+  occExpected?: string;
+  /**
+   * The row's REAL `updated_at` at the moment of refusal.
+   *
+   * ★★★ ABSENT MEANS THE ROW WAS GONE. All three conflict paths re-read the
+   *     row into `v_actual`, which is NULL when it no longer exists — so
+   *     `occConflict: 'row-missing'` below is a DELETE, not an edit collision.
+   */
+  occActual?: string;
+  /**
+   * `actual − expected`, in milliseconds. **This is the number that answers
+   * the question.**
+   *
+   *   sub-second   the row moved DURING the save
+   *   minutes      the row moved while the editor sat open
+   *   exactly 0    the two instants are identical and the comparison still
+   *                refused — which would be a different bug entirely
+   *   negative     the row's stamp went BACKWARDS, which should be impossible
+   */
+  occDeltaMs?: number;
+  /** `now − expected`: how old the token the client was holding had become.
+   *  ★ Honestly named — it is the age of the TOKEN, not of the open popup: a
+   *    row nobody has touched for a week hands out a week-old token. */
+  occTokenAgeMs?: number;
+  /**
+   * What kind of refusal this was, so a reader does not have to infer it from
+   * which fields are present.
+   *
+   *   `stale-token`  the row exists and its stamp differs from the one posted
+   *   `row-missing`  the row is gone — the refusal is a delete, not a conflict
+   *   `same-instant` both stamps parse to the SAME instant and it refused
+   *                  anyway; see `occDeltaMs`
+   */
+  occConflict?: 'stale-token' | 'row-missing' | 'same-instant';
 }
 
 /** ★ A patch with 40 keys is a bulk save; the first dozen identify it as well
@@ -80,6 +127,10 @@ export function mutationErrorContext(
   mutationKey: unknown,
   meta: unknown,
   variables: unknown,
+  /** ★ fix-579: optional and last, so every existing three-argument caller is
+   *  unchanged and a hook that raises no detail reports exactly what it does
+   *  today. */
+  error?: unknown,
 ): MutationErrorContext {
   const out: MutationErrorContext = {};
   if (mutationKey !== undefined) out.mutationKey = mutationKey;
@@ -90,6 +141,64 @@ export function mutationErrorContext(
 
   const fields = fieldsOf(variables);
   if (fields.length > 0) out.fields = fields;
+
+  Object.assign(out, occDetailOf(error));
+  return out;
+}
+
+/**
+ * Pull the two sides of a refused OCC comparison off the error, if it carries
+ * them.
+ *
+ * ★★ DUCK-TYPED RATHER THAN `instanceof`. This module is imported by App's
+ *    MutationCache, which sees errors from every hook in the app; requiring the
+ *    class would couple the reporter to `lib/occ` and would silently contribute
+ *    nothing if a bundling quirk ever produced two copies of it. A shape check
+ *    cannot fail that way.
+ */
+function occDetailOf(error: unknown): Partial<MutationErrorContext> {
+  if (!isRecord(error)) return {};
+  const detail = (error as { detail?: unknown }).detail;
+  if (!isRecord(detail)) return {};
+
+  const out: Partial<MutationErrorContext> = {};
+  const { rowId, expected, actual } = detail as {
+    rowId?: unknown;
+    expected?: unknown;
+    actual?: unknown;
+  };
+
+  if (typeof rowId === 'string' || typeof rowId === 'number') out.occRowId = rowId;
+  if (typeof expected === 'string') out.occExpected = expected;
+  if (typeof actual === 'string') out.occActual = actual;
+
+  // ★ `expected` absent means this was an INSERT path, which posts null — there
+  //   is no comparison to describe, so nothing is contributed.
+  if (out.occExpected === undefined) return out;
+
+  if (out.occActual === undefined) {
+    // ★★★ THE ROW IS GONE. Named rather than left as a missing field, because
+    //     "the stamp differed" and "there was no row" are different incidents
+    //     that have been wearing one message.
+    out.occConflict = 'row-missing';
+    return out;
+  }
+
+  const e = Date.parse(out.occExpected);
+  const a = Date.parse(out.occActual);
+  if (Number.isFinite(e) && Number.isFinite(a)) {
+    out.occDeltaMs = a - e;
+    out.occTokenAgeMs = Date.now() - e;
+    // ★★★ IDENTICAL INSTANTS THAT STILL REFUSED. The stamps round-trip through
+    //     JSON as text and are compared as `timestamptz` in the RPC, so a
+    //     precision or formatting difference could refuse a write whose two
+    //     sides mean the same moment. That would be a DIFFERENT bug from the
+    //     one being hunted, and this is how it would announce itself rather
+    //     than hiding inside a delta of zero.
+    out.occConflict = out.occDeltaMs === 0 ? 'same-instant' : 'stale-token';
+  } else {
+    out.occConflict = 'stale-token';
+  }
   return out;
 }
 

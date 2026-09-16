@@ -235,7 +235,12 @@ describe('fix-511 §C2 — a reported mutation error names what it was writing',
 
   it('★★★ App.tsx spreads it into the mutation report', () => {
     const c = code(appSrc);
-    expect(c).toContain('mutationErrorContext(key, mutation.options.meta, vars)');
+    // ★★ fix-579 (P-283) ADDED A FOURTH ARGUMENT — the ERROR — so an OCC
+    //    refusal can contribute both sides of the comparison it lost. The three
+    //    fix-511 §C arguments are unchanged and still first, which is what this
+    //    assertion is about; matching the prefix keeps it true of the call
+    //    rather than of its exact arity.
+    expect(c).toContain('mutationErrorContext(key, mutation.options.meta, vars');
     // …and the query side is untouched: it already carries its queryKey.
     expect(c).toContain("kind: 'query'");
     expect(c).toContain('queryKey: query.queryKey');

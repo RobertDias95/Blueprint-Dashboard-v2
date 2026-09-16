@@ -136,7 +136,9 @@ const queryClient = new QueryClient({
           //     since fix-87 and is undefined in EVERY row because no hook
           //     declares one; the name now comes from `meta.write` instead, and
           //     the fields are KEYS ONLY — see lib/mutationErrorContext.
-          ...mutationErrorContext(key, mutation.options.meta, vars),
+          // ★ fix-579 (P-283): the error is the fourth argument — an OCC
+          //   refusal carries both sides of the comparison it lost.
+          ...mutationErrorContext(key, mutation.options.meta, vars, err),
           url:
             typeof window !== 'undefined'
               ? window.location?.pathname
