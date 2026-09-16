@@ -63,6 +63,7 @@ import type { PermitWithCycles, Project, UnitType } from '../../lib/database.typ
 import { shouldShowLotsField, ADD_LOTS_LABEL } from '../../lib/lotsVisibility';
 import { useMayWriteProject } from '../../hooks/useMayWriteProject';
 import { useProjectFieldCommit } from '../../hooks/useProjectFieldCommit';
+import SavesNowMark from '../shared/SavesNowMark';
 
 // ===========================================================================
 // ★★★ fix-506 §G (P-140) — THE EDITORS THE OVERVIEW NO LONGER OWNS
@@ -192,6 +193,10 @@ interface MilestoneDateRowProps {
    *  from, since there is nothing to click. */
   title?: string;
   ariaLabel?: string;
+  /** ★★★ fix-575 §C: this row writes IMMEDIATELY rather than waiting for the
+   *  modal's Save. Only the rows that genuinely cascade set it — see
+   *  `lib/saveModel` for the list and why each one cannot be buffered. */
+  savesNow?: boolean;
 }
 
 export function MilestoneDateRow({
@@ -204,6 +209,7 @@ export function MilestoneDateRow({
   testId,
   title,
   ariaLabel,
+  savesNow,
 }: MilestoneDateRowProps) {
   const editable = typeof onChange === 'function';
   return (
@@ -239,6 +245,10 @@ export function MilestoneDateRow({
           formatMilestoneDate(value) || '—'
         )}
       </div>
+      {/* ★ fix-575 §C — beside the box, never inside it: the marker is about
+          the CONTROL, and putting it in the value would read as part of the
+          date. Editable rows only — a read-only row saves nothing at all. */}
+      {savesNow && editable && <SavesNowMark testid={`saves-now-${testId ?? label}`} />}
     </div>
   );
 }
@@ -633,6 +643,7 @@ export function DDPhaseEditor({
             disabled={occMissing || !canEdit}
             testId="pd-bp-dd_start"
             ariaLabel="DD start"
+            savesNow
           />
           {/* ★ fix-311: the external/consultant target, between the two DD
               dates as briefed — the date we are committing to hand documents
@@ -646,6 +657,7 @@ export function DDPhaseEditor({
             disabled={occMissing || !canEdit}
             testId="pd-bp-dd_end"
             ariaLabel="DD end"
+            savesNow
           />
           {/* fix-309 #49: the Duration line is gone. The two dates say it. */}
         </div>
@@ -858,6 +870,7 @@ export function TargetSubmitRow({
       disabled={occMissing || mut.isPending}
       title="Target Submit (projected submit date, anchored on the Building Permit)"
       testId="pd-target-submit"
+      savesNow
       ariaLabel="Target Submit"
     />
   ) : (

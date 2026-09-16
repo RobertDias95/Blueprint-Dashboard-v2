@@ -221,12 +221,22 @@ describe('fix-386: editable after creation, quietly', () => {
     //     The modal used to send every project scalar on every save, so
     //     `is_backfill` needed a key-presence guard to avoid asserting "not a
     //     backfill" on a project nobody had asked. **Nothing sends it any more
-    //     unless somebody ticks the box**: the checkbox writes one column, on
-    //     change, and an untouched project's save carries no `is_backfill` key
-    //     because it carries no project columns at all.
-    // ★ So the guard is not weakened — it is the only shape available.
+    //     unless somebody ticks the box.**
+    //
+    // ★★★ fix-575 §A BUFFERS THE SCALARS AGAIN — AND THE RULE HOLDS BY THE SAME
+    //     MECHANISM, WHICH IS WHY THIS IS A REPOINT AND NOT A WEAKENING. The
+    //     patch is `{ ...draft }`, and **the draft is not a snapshot**: a
+    //     column only enters it when somebody edits that control. An untouched
+    //     `is_backfill` is absent from the draft, therefore absent from the
+    //     patch, therefore left alone by `ELSE is_backfill END`.
+    //
+    // ★★ THE DANGEROUS SHAPE, NAMED so the next reader can see it is absent:
+    //    a patch built by restating every form field would send
+    //    `is_backfill: false` for a project nobody had answered. That is what
+    //    fix-386 caught the first time, and it is what this assertion still
+    //    forbids.
     expect(settingsPayloadSource).toContain(
-      'const projectPatch: Record<string, unknown> = {};',
+      'const projectPatch: Record<string, unknown> = { ...draft };',
     );
     expect(settingsPayloadSource).not.toContain('is_backfill');
     expect(sqlCode).toContain("ELSE is_backfill END");

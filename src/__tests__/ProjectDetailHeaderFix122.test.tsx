@@ -1,10 +1,11 @@
 import { MemoryRouter } from 'react-router-dom';
 import { describe, it, expect, beforeEach, vi } from 'vitest';
-import { fireEvent, render, screen, waitFor, cleanup } from '@testing-library/react';
+import { fireEvent, render, screen, cleanup } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import type { ReactNode } from 'react';
 import { useAuthStore } from '../stores/authStore';
 import { queryKeys } from '../lib/queryKeys';
+import { commitViaSave } from '../test/bufferedSave';
 
 // fix-122: three new project-level fields land in SiteEditor as
 // inline-editable rows. These tests pin the DOM (Lots/Corner/Closing
@@ -15,7 +16,18 @@ const T = 'test-tenant-uuid';
 const OLD_TOKEN = '2026-05-15T12:00:00Z';
 
 const updateMutateAsync = vi.hoisted(() => vi.fn());
+// ★ fix-575 §A: the 23 scalars reach the database through the modal's Save
+//   now, as ONE multi-column patch. This is where they land.
+const permitsMutateAsync = vi.hoisted(() =>
+  vi.fn((input: Record<string, unknown>) => Promise.resolve({ ...input, ok: true })),
+);
 
+vi.mock('../hooks/useUpdateProjectWithPermits', () => ({
+  useUpdateProjectWithPermits: () => ({
+    mutateAsync: permitsMutateAsync,
+    isPending: false,
+  }),
+}));
 vi.mock('../hooks/useUpdateProject', () => ({
   useUpdateProject: () => ({
     mutateAsync: updateMutateAsync,
@@ -160,6 +172,7 @@ const setup = (
 
 beforeEach(() => {
   updateMutateAsync.mockReset();
+  permitsMutateAsync.mockClear();
   updateMutateAsync.mockResolvedValue({});
   useAuthStore.setState({
     activeTenantId: T,
@@ -190,25 +203,34 @@ describe('SiteEditor — fix-122 Number of Lots row', () => {
   });
 
   it('picking a value commits num_lots as a number via useUpdateProject', async () => {
+    // ★★★ fix-575 §A — THE VALUE IS THE RULING, AND IT IS UNCHANGED. This
+    //     asserted the typed value on a blur-time write; the field buffers now
+    //     and reaches the database through Save, as one multi-column patch.
+    //     `3` is still a NUMBER and not the string the `<select>` produced,
+    //     which is the whole of what fix-122 pinned here.
     setup();
-    fireEvent.change(screen.getByTestId('pd-site-lots'), {
-      target: { value: '3' },
-    });
-    await waitFor(() => expect(updateMutateAsync).toHaveBeenCalledTimes(1));
-    const call = updateMutateAsync.mock.calls[0][0];
+    const patch = await commitViaSave(permitsMutateAsync, () =>
+      fireEvent.change(screen.getByTestId('pd-site-lots'), {
+        target: { value: '3' },
+      }),
+    );
+    expect(patch).toEqual({ num_lots: 3 });
+    // ★★ THE OCC TOKEN IS THE PROJECT'S LIVE ONE, which is the half of this
+    //    test that fix-575 §A could plausibly have broken: the form freezes its
+    //    rebuild while dirty, so a token carried in the draft would go stale.
+    const call = permitsMutateAsync.mock.calls[0][0];
     expect(call.projectId).toBe('p-test');
-    expect(call.expectedUpdatedAt).toBe(OLD_TOKEN);
-    expect(call.patch).toEqual({ num_lots: 3 });
-    expect(call.fieldLabel).toBe('Number of Lots');
+    expect(call.projectExpectedUpdatedAt).toBe(OLD_TOKEN);
   });
 
   it('picking blank commits num_lots as null', async () => {
     setup({ num_lots: 7 });
-    fireEvent.change(screen.getByTestId('pd-site-lots'), {
-      target: { value: '' },
-    });
-    await waitFor(() => expect(updateMutateAsync).toHaveBeenCalledTimes(1));
-    expect(updateMutateAsync.mock.calls[0][0].patch).toEqual({
+    const patch = await commitViaSave(permitsMutateAsync, () =>
+      fireEvent.change(screen.getByTestId('pd-site-lots'), {
+        target: { value: '' },
+      }),
+    );
+    expect(patch).toEqual({
       num_lots: null,
     });
   });
@@ -235,33 +257,36 @@ describe('SiteEditor — fix-122 Corner Lot row', () => {
 
   it('picking Yes commits true', async () => {
     setup();
-    fireEvent.change(screen.getByTestId('pd-site-corner'), {
+    const patch = await commitViaSave(permitsMutateAsync, () =>
+      fireEvent.change(screen.getByTestId('pd-site-corner'), {
       target: { value: 'Yes' },
-    });
-    await waitFor(() => expect(updateMutateAsync).toHaveBeenCalledTimes(1));
-    expect(updateMutateAsync.mock.calls[0][0].patch).toEqual({
+    }),
+    );
+    expect(patch).toEqual({
       is_corner_lot: true,
     });
   });
 
   it('picking No commits false (NOT null — preserves the explicit answer)', async () => {
     setup();
-    fireEvent.change(screen.getByTestId('pd-site-corner'), {
+    const patch = await commitViaSave(permitsMutateAsync, () =>
+      fireEvent.change(screen.getByTestId('pd-site-corner'), {
       target: { value: 'No' },
-    });
-    await waitFor(() => expect(updateMutateAsync).toHaveBeenCalledTimes(1));
-    expect(updateMutateAsync.mock.calls[0][0].patch).toEqual({
+    }),
+    );
+    expect(patch).toEqual({
       is_corner_lot: false,
     });
   });
 
   it('picking blank from Yes commits null (user clearing the answer)', async () => {
     setup({ is_corner_lot: true });
-    fireEvent.change(screen.getByTestId('pd-site-corner'), {
+    const patch = await commitViaSave(permitsMutateAsync, () =>
+      fireEvent.change(screen.getByTestId('pd-site-corner'), {
       target: { value: '' },
-    });
-    await waitFor(() => expect(updateMutateAsync).toHaveBeenCalledTimes(1));
-    expect(updateMutateAsync.mock.calls[0][0].patch).toEqual({
+    }),
+    );
+    expect(patch).toEqual({
       is_corner_lot: null,
     });
   });
@@ -294,30 +319,35 @@ describe('Closing Date row (fix-148: moved out of Project Site; fix-506: the Dat
   it('typing a date and blurring commits the ISO string', async () => {
     setup();
     const input = screen.getByTestId('project-overview-closing') as HTMLInputElement;
-    fireEvent.change(input, { target: { value: '2026-09-30' } });
-    fireEvent.blur(input);
-    await waitFor(() => expect(updateMutateAsync).toHaveBeenCalledTimes(1));
-    expect(updateMutateAsync.mock.calls[0][0].patch).toEqual({
-      closing_date: '2026-09-30',
+    // ★★ THE ISO STRING IS THE RULING (fix-320 ·1: one date format on the card),
+    //    and it survives the buffer unchanged — the draft holds the COLUMN's
+    //    real type, so nothing re-formats it on the way to the patch.
+    const patch = await commitViaSave(permitsMutateAsync, () => {
+      fireEvent.change(input, { target: { value: '2026-09-30' } });
+      fireEvent.blur(input);
     });
-    expect(updateMutateAsync.mock.calls[0][0].fieldLabel).toBe('Closing Date');
+    expect(patch).toEqual({ closing_date: '2026-09-30' });
   });
 
   it('clearing a stored date commits null', async () => {
     setup({ closing_date: '2026-09-30' });
     const input = screen.getByTestId('project-overview-closing') as HTMLInputElement;
-    fireEvent.change(input, { target: { value: '' } });
-    fireEvent.blur(input);
-    await waitFor(() => expect(updateMutateAsync).toHaveBeenCalledTimes(1));
-    expect(updateMutateAsync.mock.calls[0][0].patch).toEqual({
-      closing_date: null,
+    const patch = await commitViaSave(permitsMutateAsync, () => {
+      fireEvent.change(input, { target: { value: '' } });
+      fireEvent.blur(input);
     });
+    // ★ NULL, never the empty string — "nobody set a closing date" is a fact.
+    expect(patch).toEqual({ closing_date: null });
   });
 
   it('blurring without changes does NOT call mutateAsync', async () => {
     setup({ closing_date: '2026-09-30' });
     const input = screen.getByTestId('project-overview-closing') as HTMLInputElement;
     fireEvent.blur(input);
+    // ★★★ fix-575 §A: and it leaves the modal CLEAN, which is the same claim one
+    //     layer up — a blur that wrote nothing must not put a Save button on
+    //     screen, or tabbing through the form makes the modal look unsaved.
+    expect(screen.getByTestId('project-data-done').textContent).toBe('Exit');
     await settle();
     expect(updateMutateAsync).not.toHaveBeenCalled();
   });
