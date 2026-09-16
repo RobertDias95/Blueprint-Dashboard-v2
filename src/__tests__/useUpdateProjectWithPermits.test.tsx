@@ -16,18 +16,40 @@ const mocks = vi.hoisted(() => {
     data: [],
     error: null,
   };
+  // ★★★ fix-588 §2a — THE READ-BACK. The RPC returns no project row, only a
+  //     fresh `updated_at`, so the hook asks the table what it actually holds
+  //     for the columns this patch tried to set. This mock records the select
+  //     so the suite can pin WHICH columns are asked for and WHEN the read is
+  //     skipped entirely.
+  let afterResult: { data: unknown; error: Error | null } = {
+    data: null,
+    error: null,
+  };
   const rpcFn = vi.fn();
+  const selectFn = vi.fn();
   const builder = {
     rpc: (name: string, args: Record<string, unknown>) => {
       rpcFn(name, args);
       return Promise.resolve(resolveResult);
     },
+    from: (table: string) => ({
+      select: (columns: string) => {
+        selectFn(table, columns);
+        return {
+          eq: () => ({ maybeSingle: () => Promise.resolve(afterResult) }),
+        };
+      },
+    }),
   };
   return {
     builder,
     rpcFn,
+    selectFn,
     setResult: (r: { data: unknown[] | null; error: Error | null }) => {
       resolveResult = r;
+    },
+    setAfter: (r: { data: unknown; error: Error | null }) => {
+      afterResult = r;
     },
   };
 });
@@ -59,6 +81,8 @@ function row(overrides: Record<string, unknown> = {}) {
 
 beforeEach(() => {
   mocks.rpcFn.mockClear();
+  mocks.selectFn.mockClear();
+  mocks.setAfter({ data: null, error: null });
   useToastStore.getState().clear();
   useAuthStore.setState({
     activeTenantId: T,
@@ -274,5 +298,119 @@ describe('useUpdateProjectWithPermits', () => {
     const after = queryClient.getQueryData<typeof stale>(['permits', T]) ?? [];
     // Conflict = whole edit rolled back server-side; the cache stays as-is.
     expect(after.find((p) => p.id === 256)?.updated_at).toBe('stale');
+  });
+  // =========================================================================
+  // ★★★ fix-588 §2a (P-288) — THE READ-BACK THAT MAKES A SILENT DROP LOUD
+  // =========================================================================
+  //
+  // Bobby added a tag in Project Details, pressed Save, and was told it saved.
+  // `bp_update_project_with_permits` had discarded `project_tags` — the column
+  // is absent from its `CASE WHEN v_patch ? 'col'` list — and `updated_at`
+  // bumped anyway, because every column the list does not know writes itself
+  // to itself. **This function's return value cannot tell those apart**, which
+  // is why the hook now asks the row.
+
+  it('★★★ fix-588: reads back exactly the columns the patch tried to set', async () => {
+    mocks.setResult({ data: [row()], error: null });
+    mocks.setAfter({
+      data: { project_tags: ['ECA'], zone: 'NR3' },
+      error: null,
+    });
+    const { wrapper } = setup();
+    const { result } = renderHook(() => useUpdateProjectWithPermits(), { wrapper });
+
+    let res!: Awaited<ReturnType<typeof result.current.mutateAsync>>;
+    await act(async () => {
+      res = await result.current.mutateAsync({
+        projectId: 'proj-1',
+        projectExpectedUpdatedAt: '2026-05-20T17:00:00Z',
+        projectPatch: { project_tags: ['ECA', 'HVL'], zone: 'NR3' },
+        permitUpserts: [],
+        permitDeletes: [],
+      });
+    });
+
+    expect(mocks.selectFn).toHaveBeenCalledTimes(1);
+    expect(mocks.selectFn.mock.calls[0]).toEqual(['projects', 'project_tags,zone']);
+    // ★ The row as it IS — one column landed, one did not. Judging which is
+    //   `lib/savedPatchAudit`'s job; this hook's job is to fetch the truth.
+    expect(res.projectAfter).toEqual({ project_tags: ['ECA'], zone: 'NR3' });
+  });
+
+  it('★★ fix-588: an EMPTY project patch reads nothing back', async () => {
+    // The common case since fix-520 §A emptied this patch — a permits-only
+    // save. There is no column to check, so there is no round trip.
+    mocks.setResult({ data: [row()], error: null });
+    const { wrapper } = setup();
+    const { result } = renderHook(() => useUpdateProjectWithPermits(), { wrapper });
+
+    let res!: Awaited<ReturnType<typeof result.current.mutateAsync>>;
+    await act(async () => {
+      res = await result.current.mutateAsync({
+        projectId: 'proj-1',
+        projectExpectedUpdatedAt: '2026-05-20T17:00:00Z',
+        projectPatch: {},
+        permitUpserts: [{ id: 256, expected_updated_at: '2026-05-20T17:00:00Z' }],
+        permitDeletes: [],
+      });
+    });
+
+    expect(mocks.selectFn).not.toHaveBeenCalled();
+    expect(res.projectAfter).toBeNull();
+  });
+
+  it('★★ fix-588: a CONFLICT reads nothing back — the edit rolled back', async () => {
+    mocks.setResult({
+      data: [
+        row({
+          out_conflict: true,
+          out_conflict_kind: 'project',
+          out_conflict_id: 'proj-1',
+          out_project_updated_at: null,
+          out_permits: [],
+        }),
+      ],
+      error: null,
+    });
+    const { wrapper } = setup();
+    const { result } = renderHook(() => useUpdateProjectWithPermits(), { wrapper });
+
+    let res!: Awaited<ReturnType<typeof result.current.mutateAsync>>;
+    await act(async () => {
+      res = await result.current.mutateAsync({
+        projectId: 'proj-1',
+        projectExpectedUpdatedAt: 'stale',
+        projectPatch: { project_tags: ['ECA', 'HVL'] },
+        permitUpserts: [],
+        permitDeletes: [],
+      });
+    });
+
+    expect(mocks.selectFn).not.toHaveBeenCalled();
+    expect(res.projectAfter).toBeNull();
+  });
+
+  it('★★★ fix-588: a FAILED read-back is silent, never an error', async () => {
+    // The verification is a second opinion, not the write. Throwing here would
+    // report a save that succeeded as a failure — the same lie in the other
+    // direction, and the caller reads `null` as "no opinion".
+    mocks.setResult({ data: [row()], error: null });
+    mocks.setAfter({ data: null, error: new Error('network') });
+    const { wrapper } = setup();
+    const { result } = renderHook(() => useUpdateProjectWithPermits(), { wrapper });
+
+    let res!: Awaited<ReturnType<typeof result.current.mutateAsync>>;
+    await act(async () => {
+      res = await result.current.mutateAsync({
+        projectId: 'proj-1',
+        projectExpectedUpdatedAt: '2026-05-20T17:00:00Z',
+        projectPatch: { project_tags: ['ECA', 'HVL'] },
+        permitUpserts: [],
+        permitDeletes: [],
+      });
+    });
+
+    expect(res.conflict).toBe(false);
+    expect(res.projectAfter).toBeNull();
   });
 });

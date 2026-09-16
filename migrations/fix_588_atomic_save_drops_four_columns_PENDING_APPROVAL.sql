@@ -1,0 +1,197 @@
+-- ===========================================================================
+-- fix-588 — THE ATOMIC SAVE SILENTLY DROPS FOUR COLUMNS
+-- ===========================================================================
+--
+-- ⚠️⚠️ **NOT APPLIED.** Written for Cowork. Every statement below is commented
+--       out and a test (fix-450) keeps it that way.
+--
+-- MEASURED ON PROD 2026-09-16 (eibnmwthkcuumyclyxoe). No rows are moved by this
+-- file: it replaces ONE function body, by anchor.
+--
+-- ---------------------------------------------------------------------------
+-- ★★★ THE REPORT
+-- ---------------------------------------------------------------------------
+--
+-- Bobby, 2026-09-16, 403 W Dravus St: added the **HVL** tag in Project Details,
+-- pressed Save, was told it saved. The tag is nowhere. `projects.updated_at`
+-- bumped to 21:27:47Z and there is **no `audit_log` row for that moment** —
+-- `bp_audit_projects_row` only skips the insert when nothing differs.
+--
+-- ---------------------------------------------------------------------------
+-- ★★★ THE HOP WHERE IT DIES — INSTRUMENTED, NOT ARGUED
+-- ---------------------------------------------------------------------------
+--
+-- The five hops were logged for a real add to a project that already carried
+-- `["ECA"]`, through the real modal:
+--
+--   HOP 1  select options    ["","SIP","TRAO","LBA","Short Plat","HVL",…]
+--   HOP 1  write(next)       ["ECA","HVL"]          ✔ by IDENTITY, not index
+--   HOP 2  commit()          not a no-op, proceeds  ✔
+--   HOP 3  draft entry       KEPT; chips render ECA + HVL ✔
+--   HOP 4  projectPatch      {"project_tags":["ECA","HVL"]} ✔
+--   HOP 5  the RPC           ✘ **DROPPED HERE**
+--
+-- ★★★ `bp_update_project_with_permits` applies the project patch through an
+--     EXPLICIT 27-COLUMN `CASE WHEN v_patch ? 'x' … ELSE x END` LIST, and
+--     `project_tags` IS NOT IN IT. `v_patch <> '{}'` is true, so the UPDATE
+--     runs — and every column falls to its `ELSE`, writing itself to itself.
+--     The row does not change, `updated_at` bumps from the trigger, the audit
+--     trigger sees `'{}'` and inserts nothing, and the client is told it saved.
+--     **That is the reported symptom, exactly.**
+--
+-- ⚠️ THE BRIEF'S §0 FACT 1 MEASURED A DIFFERENT FUNCTION. It is right that
+--    `bp_update_project_fields` writes the patch verbatim and validates only
+--    column NAMES — but that is the per-field BLUR path. The modal's **Save**
+--    goes through `bp_update_project_with_permits`, which is the one with the
+--    column list. Hence the "no migration expected" in the brief, and hence
+--    this file.
+--
+-- ⛔ THIS IS NOT A VALUE WHITELIST, which §3 forbids and rightly. It is the
+--    opposite: four columns are added to an existing COLUMN list so a patch the
+--    client already sends stops being discarded. No value is constrained
+--    anywhere, and `HVL` was never the problem — no tag of any name could have
+--    survived this path.
+--
+-- ---------------------------------------------------------------------------
+-- ★★★ IT IS FOUR COLUMNS, NOT ONE
+-- ---------------------------------------------------------------------------
+--
+-- Every `projects` column the modal's draft can carry, diffed against the
+-- function's list:
+--
+--   project_tags    ✘ dropped   ← the report
+--   closing_date    ✘ dropped   — **0 audited changes, ever**
+--   is_corner_lot   ✘ dropped   — 1, via fix-410's direct-table path
+--   num_lots        ✘ dropped   — 1, same
+--
+-- …and the other 18 are applied. `closing_date` has never once been written
+-- through any path, which is what a column nobody can save looks like from the
+-- outside. **The report is one symptom of four.**
+--
+-- ---------------------------------------------------------------------------
+-- ★ AND "ONLY THE FIRST TAG OPTION HAS EVER BEEN WRITTEN" DOES NOT SURVIVE
+-- ---------------------------------------------------------------------------
+--
+-- §0's fact B suspected an index seam — that the CHOICE was being lost. The
+-- instrument killed it: the `<select>` carries `value={t}` and the handler reads
+-- `e.target.value`, so the chosen tag reaches hop 4 correctly for all nine
+-- options, including HVL. The three ECA rows in `audit_log` came through the
+-- per-field path, and the four options added 2026-09-10 are unused because
+-- **no modal tag save has ever landed**, not because the wrong one was picked.
+-- Sample size 3. Reported rather than quietly dropped.
+--
+-- ---------------------------------------------------------------------------
+-- ⚠️ SAFETY
+-- ---------------------------------------------------------------------------
+--
+-- * ONE function body, re-emitted by ANCHOR from the LIVE definition. The
+--   anchor was counted on prod first: **1 hit**, and the block RAISEs if it
+--   matches nothing (fix-540's rule).
+-- * NO DATA IS TOUCHED. No INSERT/UPDATE/DELETE/DROP/ALTER in this file.
+-- * Every cast on a `v_patch` key is guarded with `nullif(btrim(…),'')` —
+--   fix-580's rule, because `''::boolean` and `''::date` both RAISE and a
+--   COALESCE around the cast does not help.
+-- * After applying, run `scripts/sql/on_conflict_census.sql` — fix-547 rule 3,
+--   a function body replaced by anchor. 42P10 and 42703 must both be 0.
+--
+-- ---------------------------------------------------------------------------
+-- ★★★ ALREADY RUN ON PROD, IN A TRANSACTION THAT ABORTED. 2026-09-16.
+-- ---------------------------------------------------------------------------
+--
+-- The statement below was executed verbatim against prod inside a `DO` block
+-- that ended in `RAISE EXCEPTION`, so the replacement, the test write and the
+-- audit row all rolled back. **This is not a plan; it is a measurement.**
+--
+--   before     {"lots": 1, "tags": ["ECA"], "corner": true,  "closing": null}
+--   the call   bp_update_project_with_permits(403 W Dravus, <live token>,
+--                {"project_tags":["ECA","HVL"],"closing_date":"2026-01-02",
+--                 "num_lots":2,"is_corner_lot":false}, [], {})
+--   conflict   f
+--   after      {"lots": 2, "tags": ["ECA","HVL"], "corner": false,
+--               "closing": "2026-01-02"}
+--   audit_log  **1 row** — where the real attempt on 2026-09-16 21:27:47Z left
+--              NONE, which is how this was found in the first place.
+--
+-- ★ Called through the fix-587 impersonation recipe — BOTH
+--   `set_config('request.jwt.claims', …, true)` AND `SET LOCAL ROLE
+--   authenticated` — because the function's own guard reads `auth.role()` and
+--   `auth_tenant_ids()`, and as `postgres` it refuses with 42501.
+--
+-- ★ Re-checked after the abort: the live body still has no `project_tags`, and
+--   403 W Dravus still reads `updated_at = 2026-09-16 21:27:47.293297+00`.
+--   Nothing persisted.
+
+-- ===========================================================================
+-- THE STATEMENT
+-- ===========================================================================
+--
+-- DO $mig$
+-- DECLARE
+--   v_src text;
+--   v_new text;
+--   v_anchor text :=
+--     'is_backfill      = CASE WHEN v_patch ? ''is_backfill''       THEN (v_patch->>''is_backfill'')::boolean       ELSE is_backfill END';
+-- BEGIN
+--   SELECT pg_get_functiondef(p.oid) INTO v_src
+--     FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
+--    WHERE n.nspname = 'public' AND p.proname = 'bp_update_project_with_permits';
+--   IF v_src IS NULL THEN
+--     RAISE EXCEPTION 'fix-588: bp_update_project_with_permits not found';
+--   END IF;
+--   IF position(v_anchor IN v_src) = 0 THEN
+--     RAISE EXCEPTION 'fix-588: anchor not found — the live body has moved';
+--   END IF;
+--
+--   v_new := replace(
+--     v_src,
+--     v_anchor,
+--     v_anchor || ',' || chr(10) ||
+--     -- ★★★ THE FOUR THAT WERE BEING DISCARDED.
+--     --
+--     -- ★ `project_tags` is jsonb. The editor sends an ARRAY to set and a JSON
+--     --   `null` to clear (its "an empty list is NULL, not []" rule), so the two
+--     --   are distinguished by `jsonb_typeof` rather than by presence — a key
+--     --   that IS present carrying `null` must clear the column, not be ignored.
+--     '        project_tags     = CASE WHEN v_patch ? ''project_tags''' || chr(10) ||
+--     '                            THEN CASE WHEN jsonb_typeof(v_patch->''project_tags'') = ''array''' || chr(10) ||
+--     '                                      THEN v_patch->''project_tags''' || chr(10) ||
+--     '                                      ELSE NULL END' || chr(10) ||
+--     '                            ELSE project_tags END,' || chr(10) ||
+--     '        closing_date     = CASE WHEN v_patch ? ''closing_date''      THEN (nullif(btrim(coalesce(v_patch->>''closing_date'','''')),''''))::date      ELSE closing_date END,' || chr(10) ||
+--     '        num_lots         = CASE WHEN v_patch ? ''num_lots''          THEN (nullif(btrim(coalesce(v_patch->>''num_lots'','''')),''''))::int          ELSE num_lots END,' || chr(10) ||
+--     '        is_corner_lot    = CASE WHEN v_patch ? ''is_corner_lot''     THEN (nullif(btrim(coalesce(v_patch->>''is_corner_lot'','''')),''''))::boolean ELSE is_corner_lot END');
+--
+--   IF v_new = v_src THEN
+--     RAISE EXCEPTION 'fix-588: replacement changed nothing';
+--   END IF;
+--   EXECUTE v_new;
+--   RAISE NOTICE 'fix-588: bp_update_project_with_permits now applies project_tags, closing_date, num_lots, is_corner_lot';
+-- END
+-- $mig$;
+
+-- ===========================================================================
+-- VERIFY — after applying, all four must hold
+-- ===========================================================================
+--
+-- -- 1. the four columns are in the function's SET list. Expect 4 rows.
+-- SELECT c FROM unnest(ARRAY['project_tags','closing_date','num_lots','is_corner_lot']) c
+--  WHERE EXISTS (
+--    SELECT 1 FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
+--     WHERE n.nspname='public' AND p.proname='bp_update_project_with_permits'
+--       AND pg_get_functiondef(p.oid) LIKE '%' || c || '     = CASE WHEN v_patch%');
+--
+-- -- 2. NOTHING ELSE the modal can send is still missing. Expect 0 rows.
+-- --    (The modal's project columns, minus the ones the function applies.)
+-- --    Re-run this whenever a field is added to Project Details — it is the
+-- --    server half of the client-side guard fix-588 §2a adds.
+--
+-- -- 3. a real add lands. Inside a transaction, ROLLBACK afterwards:
+-- --    SELECT * FROM public.bp_update_project_with_permits(
+-- --      '65269a66-74a2-4d8b-8d1b-49a8ff799fb9',
+-- --      (SELECT updated_at FROM projects WHERE id='65269a66-74a2-4d8b-8d1b-49a8ff799fb9'),
+-- --      '{"project_tags":["ECA","HVL"]}'::jsonb, '[]'::jsonb, ARRAY[]::int[]);
+-- --    SELECT project_tags FROM projects WHERE id='65269a66-…';   -- ["ECA","HVL"]
+-- --    …and an audit_log row now EXISTS for it, which is how the drop was found.
+--
+-- -- 4. run scripts/sql/on_conflict_census.sql — fix-547 rule 3 (a body replaced
+-- --    by anchor). 42P10 and 42703 must both be 0.
