@@ -183,7 +183,7 @@ describe('fix-487 §A: the project-level Construction Admin', () => {
 // ---------------------------------------------------------------------------
 
 describe('fix-487 §A: permits.ca', () => {
-  it('★★★ a permit-level CA sees their own permit; the PROJECT twin is NOT widened', () => {
+  it('★★★ a permit-level CA sees their own permit; the PROJECT twin IS widened now', () => {
     const permit = {
       ent_lead: null, dm: null, da: null, dual_da: null, ca: 'David',
     } as unknown as Permit;
@@ -192,12 +192,29 @@ describe('fix-487 §A: permits.ca', () => {
     // ★ Clearing it takes the permit back out — set AND clear, both directions.
     expect(permitMatchesSelf({ ...permit, ca: null } as Permit, 'David')).toBe(false);
 
-    // ★★★ `projectMatchesSelf` is deliberately NOT widened. Steve is on all 211
-    //     projects by default, so a project scope built on `construction_admin`
-    //     would be "everything" — which is not a scope, it is the absence of
-    //     one. A CA's real work is the permits somebody hands them.
-    expect(projectMatchesSelf(PROJECT, 'Steve')).toBe(false);
+    // ══════════════════════════════════════════════════════════
+    // ★★★ SUPERSEDED BY fix-583 §C — AND NOT MISTAKEN
+    // ══════════════════════════════════════════════════════════
+    //
+    // This asserted `projectMatchesSelf(PROJECT, 'Steve') === false`, with the
+    // reasoning: *"Steve is on all 211 projects by default, so a project scope
+    // built on `construction_admin` would be everything — which is not a scope,
+    // it is the absence of one."*
+    //
+    // ★★ BOBBY HAS SINCE RULED THE CA IN (P-287, "holistic"), so the field is
+    //    read. **The 2026-08 reasoning was correct and still is** — re-measured
+    //    2026-09-16 it is now `'Steve'` on all **227** rows with zero nulls, so
+    //    his "My Work" does equal "Everyone". What changed is the ruling, not
+    //    the data, and fix-583 records the consequence beside the predicate
+    //    rather than quietly bending it.
+    //
+    // ★ Nothing Steve can SEE moved: fix-428 already defaulted him to Everyone
+    //   across all 227. The rule is right the day the column is maintained.
+    expect(projectMatchesSelf(PROJECT, 'Steve')).toBe(true);
     expect(projectMatchesSelf(PROJECT, 'Bobby')).toBe(true);
+    // ★★ …and the permit-level half is untouched, which is what fix-487 was
+    //    actually for: a CA on a permit still matches that permit only.
+    expect(permitMatchesSelf({ ...permit, ca: 'Steve' } as Permit, 'Steve')).toBe(true);
   });
 
   it('★★★ the cascade watches the COLUMN, not just the function body', () => {

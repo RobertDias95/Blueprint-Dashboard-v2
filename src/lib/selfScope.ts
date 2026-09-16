@@ -74,6 +74,13 @@ function norm(s: string | null | undefined): string {
   return (s ?? '').trim().toLowerCase();
 }
 
+/** ★ fix-583: the same rule for a text ARRAY column. Normalises every element
+ *  and DROPS the blanks, so `null`, `[]` and `['  ']` all collapse to `[]` —
+ *  one spelling of "empty" for the fallback in `projectMatchesSelf` to test. */
+function normList(v: readonly string[] | null | undefined): string[] {
+  return (v ?? []).map((s) => norm(s)).filter((s) => s !== '');
+}
+
 /** fix-179: decide a mapped user's scope from REAL project-level assignments
  *  (reusing the unchanged projectMatchesSelf predicate): project-scope iff the
  *  name leads at least one project (entitlement_lead / design_manager), else
@@ -225,8 +232,42 @@ export function resolveRosterIdentity(
 //     **Four reads, three chased.** Naming the fourth is the point: the last
 //     two tickets each found one more and each thought it had found the last.
 
-/** The lead fields this predicate reads. */
-export type ProjectLeads = Pick<Project, 'entitlement_lead' | 'design_manager'>;
+// ===========================================================================
+// ★★★ fix-583 (P-287) — THE TYPE WAS NARROWER THAN THE QUESTION ITS NAME ASKS
+// ===========================================================================
+//
+// Bobby: *"derry is saying this project is not on his project list, but he is
+// the DM and the schematic — huge problem… we already caught this with briana
+// and 2443 redesign."*
+//
+// ★★★ `ProjectLeads` NAMED TWO FIELDS WHILE `projectMatchesSelf` CLAIMED TO
+//     ANSWER "is this project mine". Four project-level columns say who a
+//     project belongs to; the type admitted two, so the predicate could not read
+//     the other two even in principle — **the hole was in the type, not in the
+//     logic**, which is why it survived a year of edits to the function.
+//
+// MEASURED ON PROD 2026-09-16, "My Work" vs what it should show:
+//
+//     Dave      sees 0 of 69   (schematic on 65 projects, permits on 0)
+//     Ana       sees 0 of 15   (schematic on 14, permits on 0)
+//     Derry     44, hiding 10  (5 of them schematic — incl. 4137 54th Ave SW)
+//     Lindsay   64, hiding  7  (3 schematic)
+//     Brittani  90, hiding  5
+//     Jade/Miles/Briana        hiding 1 each
+//
+//   **109 hidden (person, project) pairs across 8 people; 92 involve
+//   `schematic_designer`.** Two people saw nothing at all.
+
+/** The project-level fields that say who a project belongs to.
+ *
+ *  ★★ ALL FOUR, and the list is the point. `entitlement_lead` and
+ *  `design_manager` are scalars; `schematic_designer` is a text ARRAY (a project
+ *  can have several); `construction_admin` is a scalar — see the warning on
+ *  `projectMatchesSelf` about what that column currently holds. */
+export type ProjectLeads = Pick<
+  Project,
+  'entitlement_lead' | 'design_manager' | 'schematic_designer' | 'construction_admin'
+>;
 
 /**
  * ★★★ THE ORIGINAL'S LEADS, BY PROJECT ID — AND IT CARRIES **ONLY** THE LEADS.
@@ -257,6 +298,10 @@ export function buildProjectLeadIndex(
     out.set(p.id, {
       entitlement_lead: p.entitlement_lead ?? null,
       design_manager: p.design_manager ?? null,
+      // ★ fix-583: carried so the redesign chase covers all four fields. A
+      //   field the index drops is a field the fallback cannot inherit.
+      schematic_designer: p.schematic_designer ?? null,
+      construction_admin: p.construction_admin ?? null,
     });
   }
   return out;
@@ -308,6 +353,35 @@ export function redesignsOfRedesigns(
  *    alone; it also does not need the chase, because a redesign only ever
  *    inherits from an original the same person already leads — so anybody the
  *    chase would promote to 'project' is there already.
+ *
+ * ---------------------------------------------------------------------------
+ * ⚠️⚠️ fix-583 §C — `construction_admin` IS IN, AND IT IS A **DEFAULT**, NOT AN
+ *    ASSIGNMENT. READ THIS BEFORE TRUSTING IT.
+ * ---------------------------------------------------------------------------
+ *
+ * fix-487 deliberately did NOT widen this predicate with it, and said why:
+ * *"adding `construction_admin` would give Steve — who is on all 211 projects
+ * by default — a project scope of EVERYTHING. That is not a scope, it is the
+ * absence of one."* Bobby has since ruled the CA in, so it is in.
+ *
+ * ★★★ BUT THE MEASUREMENT THAT WARNING RESTED ON IS STILL TRUE, AND WORSE.
+ *     Prod 2026-09-16: `projects.construction_admin` is **`'Steve'` on all 227
+ *     rows, with zero nulls** — one value on every project in the book. A column
+ *     that never varies carries no information and cannot scope anything. So
+ *     this line adds **227 pairs for exactly one person, which is 100% of the
+ *     book**, and Steve's "My Work" is identical to "Everyone" until somebody
+ *     fills the column in per project.
+ *
+ * ★★ IT IS SHIPPED ANYWAY, ON PURPOSE. Nothing Steve can see changes — he was
+ *    already defaulted to Everyone by fix-428 and saw all 227 — the rule is
+ *    right the day the column becomes real, and special-casing one name here
+ *    would be a hidden exception nobody could find later. **What changes is that
+ *    his toggle stops meaning anything**, and that is a data problem to raise,
+ *    not a predicate to bend.
+ *
+ * ★ `permits.ca` is empty on **every** permit, so fix-487's permit-level CA rule
+ *   has never matched a row either. The CA columns are unmaintained on both
+ *   sides; this ticket makes the app ready for them rather than pretending.
  */
 export function projectMatchesSelf(
   project: ProjectLeads & Partial<Pick<Project, 'redesign_of_project_id'>>,
@@ -318,7 +392,9 @@ export function projectMatchesSelf(
   if (!n) return false;
   const ownEnt = norm(project.entitlement_lead);
   const ownDm = norm(project.design_manager);
-  if (ownEnt === n || ownDm === n) return true;
+  const ownSd = normList(project.schematic_designer);
+  const ownCa = norm(project.construction_admin);
+  if (ownEnt === n || ownDm === n || ownCa === n || ownSd.includes(n)) return true;
 
   // ★ Not a redesign, or the caller did not supply the index → the predicate is
   //   exactly what it was before fix-573.
@@ -331,6 +407,17 @@ export function projectMatchesSelf(
   //    never yields.
   if (ownEnt === '' && norm(original.entitlement_lead) === n) return true;
   if (ownDm === '' && norm(original.design_manager) === n) return true;
+  if (ownCa === '' && norm(original.construction_admin) === n) return true;
+  // ⚠️⚠️ fix-583 — "EMPTY" FOR AN ARRAY IS `length === 0`, AND IT HAS TO MEAN
+  //    THE SAME THING IN BOTH BRANCHES. `[]`, `null` and `['  ']` are all
+  //    "this redesign has not said who draws it" and all inherit; `['Derry']`
+  //    has said, and never yields — fix-386's nullable-means-not-recorded rule,
+  //    applied to a column whose emptiness has three spellings. `normList`
+  //    collapses all three to `[]` so neither branch can read one as a value
+  //    while the other reads it as a blank.
+  if (ownSd.length === 0 && normList(original.schematic_designer).includes(n)) {
+    return true;
+  }
   return false;
 }
 
@@ -359,6 +446,56 @@ export function permitMatchesSelf(
     //    EVERYTHING. That is not a scope, it is the absence of one. A CA's real
     //    work is the permits somebody hands them, which is exactly this line.
     norm(permit.ca) === n
+  );
+}
+
+// ===========================================================================
+// ★★★ fix-583 §A (P-287) — A UNION, NOT AN IF/ELSE
+// ===========================================================================
+//
+// Both boards asked the tier which PREDICATE to run:
+//
+//     if (identity.scope === 'permit')  → permitMatchesSelf only
+//     else                              → projectMatchesSelf only
+//
+// ★★★ SO EVERY PERSON WAS SHOWN HALF THE RULE. A project-scope person's
+//     permit-only work was invisible; a permit-scope person's project-level work
+//     was invisible. Two predicates behind an if/else are one predicate with a
+//     hole — and the hole moved around depending on a tier nobody could see.
+//
+// Measured on prod 2026-09-16, independent of the `schematic_designer` half:
+// **17 (person, project) pairs across 6 people** — Derry 5, Brittani 5,
+// Lindsay 4, and one each for Jade, Miles and Briana. `4137 54th Ave SW` is
+// hidden from Derry by BOTH causes at once: he is its `schematic_designer` AND
+// the `dm` on its Building Permit, and the predicate read neither.
+//
+// ★★★ THE TIER NOW DECIDES THE DEFAULT TOGGLE POSITION AND NOTHING ELSE.
+//     Which fields are consulted is not a per-person question and never was.
+//     `initialScopeMode` / `widenScopeWhenUnassigned` still read the tier; this
+//     predicate does not, and must not — that is the whole correction.
+//
+// ⚠️ AND IT STILL EXCLUDES. A union is not "show everything": somebody on
+//    neither the project header nor any of its permits still does not match, and
+//    the suite asserts that negative directly. A widened filter that stopped
+//    filtering would be a worse bug than the one being fixed.
+
+/**
+ * Is this project MINE — by a project-level role, or by ANY of its permits?
+ *
+ * ★ The one predicate both boards call. `permits` is the project's own permits;
+ *   pass `[]` where a caller genuinely has none loaded, which degrades to the
+ *   project-level half rather than to "no".
+ */
+export function projectIsMine(
+  project: ProjectLeads & Partial<Pick<Project, 'redesign_of_project_id'>>,
+  permits: ReadonlyArray<Pick<Permit, 'ent_lead' | 'dm' | 'da' | 'dual_da' | 'ca'>>,
+  name: string | null,
+  originals?: ProjectLeadIndex,
+): boolean {
+  if (!norm(name)) return false;
+  return (
+    projectMatchesSelf(project, name, originals) ||
+    permits.some((p) => permitMatchesSelf(p, name))
   );
 }
 

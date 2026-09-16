@@ -35,9 +35,8 @@ import {
 import { STAGE_LABEL } from '../lib/stageLabel';
 import { useScopeMode } from '../hooks/useSelfScope';
 import {
-  permitMatchesSelf,
   buildProjectLeadIndex,
-  projectMatchesSelf,
+  projectIsMine,
   type RosterIdentity,
   type ScopeMode,
 } from '../lib/selfScope';
@@ -164,14 +163,20 @@ export default function ProjectList() {
   const scoped = useMemo(() => {
     const name = identity.name;
     if (scopeMode !== 'mine' || !name) return filtered;
-    if (identity.scope === 'permit') {
-      return filtered.filter((r) =>
-        r.permits.some((p) => permitMatchesSelf(p.permit, name)),
-      );
-    }
-    // ★ Same predicate, same index — one change fixed both boards.
-    return filtered.filter((r) => projectMatchesSelf(r.project, name, originalLeads));
-  }, [filtered, scopeMode, identity.name, identity.scope, originalLeads]);
+    // ★★★ fix-583 §A: ONE predicate, and the TIER IS NOT CONSULTED. This used
+    //     to branch on `identity.scope` and run half the rule — project-scope
+    //     people never saw their permit-only work and permit-scope people never
+    //     saw their project-level work. The tier decides the default toggle
+    //     POSITION (see useScopeMode); it never decides which fields are read.
+    return filtered.filter((r) =>
+      projectIsMine(
+        r.project,
+        r.permits.map((p) => p.permit),
+        name,
+        originalLeads,
+      ),
+    );
+  }, [filtered, scopeMode, identity.name, originalLeads]);
 
   // fix-178: three-way hold filter (project-level), layered after the scope
   // filter. Default 'all'; no persistence.
