@@ -302,16 +302,41 @@ export function makeEmptyWizardState(): WizardState {
  *  team fields (entitlement_lead, design_manager, acq_lead, lead_da) do
  *  NOT — the redesign may be assigned to different staff.
  *
- *  The address is auto-suffixed " [Redesign N]" where N is one more than
- *  the existing redesign count. `existingRedesignCount` should come from
- *  the same useProjectRedesigns hook the Project Overview "Redesigns (N)"
- *  section uses, so the suffix stays unique even if the user spawns two
- *  redesigns in quick succession.
+ *  ==========================================================================
+ *  ★★★ fix-566 (P-270) — THE ADDRESS COMES OVER UNCHANGED
+ *  ==========================================================================
  *
- *  The address column has a global unique index (projects_address_key);
- *  the suffix is the simplest way to keep redesign rows linked to the
- *  same conceptual parcel while still satisfying the constraint. Users
- *  can edit the address freely after the wizard opens. */
+ *  Bobby, 2026-09-14: *"a redesign and the new version of that project should
+ *  have the same address because the address is not changing. It's the metrics
+ *  within it."*
+ *
+ *  ★★★ THIS FUNCTION WAS THE SUFFIX FACTORY, and the docstring it replaces
+ *  said out loud that the suffix was never a naming choice: *"the address
+ *  column has a global unique index (projects_address_key); the suffix is the
+ *  simplest way to keep redesign rows linked to the same conceptual parcel
+ *  while still satisfying the constraint."* **A constraint workaround wearing
+ *  a label.** Every ticket since has worked around the workaround — fix-530 §C
+ *  strips it for display, fix-524 and fix-556 §C refuse to edit the stored
+ *  value.
+ *
+ *  ★★ 19 OF 19 REDESIGNS ON PROD CARRY ONE (measured 2026-09-16): 18 ×
+ *  `[Redesign 1]`, plus `4409 S Holly ST.` — a trailing period Bobby typed by
+ *  hand on 2026-09-14 to get past the same constraint. The fix-566 migration
+ *  swaps that constraint for a partial unique index that exempts redesigns, so
+ *  the suffix has nothing left to work around and this seeds the parent's
+ *  address verbatim.
+ *
+ *  ⚠️ `existingRedesignCount` WENT WITH IT. It existed only to number the
+ *     suffix, and a parameter kept "in case" is how the suffix comes back. The
+ *     Project Overview "Redesigns (N)" section reads
+ *     `useProjectRedesignsWithPermits`, which is untouched.
+ *
+ *  ★ THE DUPLICATE WARNING STILL BEHAVES, and that is measured rather than
+ *    hoped: `findAddressMatches` anchors `expectedRedesign` on
+ *    `redesign_of_project_id` — the FK this function also sets — and only falls
+ *    back to the typed suffix when there is no parent id. A redesign at its
+ *    parent's address therefore reads `expected-redesign`, not `duplicate`,
+ *    with the suffix nowhere in the chain. */
 export function makeRedesignWizardState(
   parentProject: {
     id: string;
@@ -339,18 +364,17 @@ export function makeRedesignWizardState(
     poc_name?: string | null;
     poc_email?: string | null;
   },
-  existingRedesignCount: number,
   // fix-158: the parent's primary Building Permit DA. Seeds the Redesign DD
   // Phase DA picker so the common case (the redesign stays with the same DA)
   // is one click; the user can still change it.
   parentBpDa?: string | null,
 ): WizardState {
   const base = makeEmptyWizardState();
-  const n = existingRedesignCount + 1;
   return {
     ...base,
     redesign_dd_da: parentBpDa?.trim() ? parentBpDa.trim() : '',
-    address: `${parentProject.address} [Redesign ${n}]`,
+    // ★★★ fix-566: the parent's address, verbatim. No suffix, no counter.
+    address: parentProject.address,
     juris: parentProject.juris ?? '',
     units: parentProject.units != null ? String(parentProject.units) : '',
     // ★★ fix-541: a redesign still inherits the parent's count and still gets

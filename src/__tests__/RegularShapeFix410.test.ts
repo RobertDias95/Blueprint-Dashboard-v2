@@ -101,15 +101,15 @@ describe('fix-410 §1: the form carries the default, not the column', () => {
       address: '100 Main St',
       is_regular_shape: false as boolean | null,
     };
-    expect(makeRedesignWizardState(parent, 0).is_regular_shape).toBe('no');
+    expect(makeRedesignWizardState(parent).is_regular_shape).toBe('no');
     expect(
-      makeRedesignWizardState({ ...parent, is_regular_shape: true }, 0)
+      makeRedesignWizardState({ ...parent, is_regular_shape: true })
         .is_regular_shape,
     ).toBe('yes');
     // ★ No recorded answer on the parent → the redesign is a NEW project, and
     //   Bobby's rule for a new project is Yes.
     expect(
-      makeRedesignWizardState({ ...parent, is_regular_shape: null }, 0)
+      makeRedesignWizardState({ ...parent, is_regular_shape: null })
         .is_regular_shape,
     ).toBe('yes');
     expect(wizardStateSource).toContain('is_regular_shape');

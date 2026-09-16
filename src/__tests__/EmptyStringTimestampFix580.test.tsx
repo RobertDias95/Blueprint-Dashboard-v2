@@ -562,10 +562,22 @@ describe('fix-580 §C — an empty string in a typed jsonb field stores NULL', (
     }
   });
 
-  it('★★★ the sibling sweep names all eight functions and all seventeen casts', () => {
+  it('★★★ the sibling sweep names all NINE functions and all seventeen casts', () => {
     // ★ Measured against the LIVE bodies: every anchor matched 1 or 2 times,
     //   0 misses, and folding the substitution over those bodies leaves ZERO
     //   unguarded casts in any bp_upsert_* function.
+    //
+    // ★★★ THIS TEST SAID "EIGHT" AND LISTED NINE, and so did the migration and
+    //     the PR. The §C block asserted `v_hits <> 8` over those nine names, so
+    //     it raised and **the whole file was rolled back at apply time on
+    //     2026-09-15**. Three statements of one miscount, none of which could
+    //     catch the others — because all three were typed by hand from the same
+    //     wrong reading of the same list.
+    //
+    //     fix-566 repaired it, and not by changing 8 to 9: the expected count is
+    //     now derived from the job array the loop walks, so the assertion cannot
+    //     disagree with the list it is asserting about. The literal below is the
+    //     list itself, which is the only place a name can be added or removed.
     const FNS = [
       'bp_upsert_draw_schedule_row',
       'bp_upsert_intake_records_row',
@@ -577,10 +589,16 @@ describe('fix-580 §C — an empty string in a typed jsonb field stores NULL', (
       'bp_upsert_task_template_subtask_row',
       'bp_upsert_team_member_row',
     ];
-    // Nine names, eight rewritten: bp_upsert_team_task is replaced wholesale in
-    // §B, and bp_upsert_permit_cycle_row/… are the eight the DO block loops.
+    // ★ NINE names, NINE rewritten. `bp_upsert_team_task` is NOT one of them —
+    //   it is replaced wholesale in §B and never appears in this list, which is
+    //   exactly the slip that produced "eight".
+    expect(FNS).toHaveLength(9);
     for (const fn of FNS) expect(MIGRATION, fn).toContain(fn);
-    expect(MIGRATION).toContain('expected 8 functions, rewrote');
+    expect(FNS).not.toContain('bp_upsert_team_task');
+    // ★★★ AND THE COUNT IS DERIVED. No literal survives in the assertion.
+    expect(MIGRATION).toMatch(/SELECT count\(DISTINCT v_jobs\[i\]\[1\]\) INTO v_expect/);
+    expect(MIGRATION).toMatch(/IF v_hits <> v_expect THEN/);
+    expect(MIGRATION).not.toMatch(/IF v_hits <> \d+ THEN/);
   });
 
   it('★★★ the anchor block RAISES when it matches nothing', () => {

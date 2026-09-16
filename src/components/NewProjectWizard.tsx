@@ -586,8 +586,39 @@ export default function NewProjectWizard({ open, onClose, initialState }: Props)
         p.type === BUILDING_PERMIT ? backfillDdEnd ?? undefined : undefined,
     }));
 
+    // ════════════════════════════════════════════════════════════════════
+    // ★★★ fix-566 (P-270) — THE BRIDGE, AND IT DELETES ITSELF
+    // ════════════════════════════════════════════════════════════════════
+    //
+    // ⚠️⚠️ THE CLIENT SHIPS BEFORE THE MIGRATION AND THIS WOULD OTHERWISE BREAK
+    //       "Spawn Redesign" IN THE GAP. The wizard now seeds the parent's
+    //       address verbatim, and `bp_create_project_with_permits` refuses ANY
+    //       existing address in a pre-check that runs BEFORE the constraint is
+    //       reached — so until Cowork applies fix-566, every redesign would come
+    //       back `conflict: true` and land on *"This address already exists in
+    //       the system"*, which is the exact dead end this ticket removes.
+    //
+    // ★★ THE REPO HAS BEEN BITTEN BY THIS ORDERING BEFORE: fix-574's Edge
+    //    Function sat merged-but-undeployed for four days and 12 × 404. Merging
+    //    is not applying, and the approval shelf currently holds a dozen files.
+    //
+    // ★★★ SO: ONE RETRY, WITH THE OLD SUFFIX, ONLY WHEN THE SERVER STILL
+    //     REFUSES. The moment the partial index and the redesign-aware pre-check
+    //     are applied, the first call succeeds and this branch never runs again
+    //     — it is dead code the day the migration lands, and a test asserts it
+    //     is reached only on a refusal.
+    //
+    // ★ N comes from the matches the duplicate check already computed — the
+    //   same count `makeRedesignWizardState` used to take as a parameter — so
+    //   there is no new query and no resurrected hook.
+    const redesignSiblingCount = isRedesign
+      ? duplicate.matches.filter(
+          (m) => m.project.redesign_of_project_id === state.redesign_of_project_id,
+        ).length
+      : 0;
+
     try {
-      const result = await create.mutateAsync({
+      const payload = {
         address: state.address.trim(),
         juris: state.juris.trim(),
         notes: state.notes.trim() || undefined,
@@ -606,7 +637,17 @@ export default function NewProjectWizard({ open, onClose, initialState }: Props)
                 dd_end: redesignDdEnd,
               }
             : undefined,
-      });
+      };
+      let result = await create.mutateAsync(payload);
+
+      // ★★★ fix-566: the bridge. See the block above — one retry, only for a
+      //     redesign, only on a refusal, only while the old constraint stands.
+      if (result.conflict && isRedesign) {
+        result = await create.mutateAsync({
+          ...payload,
+          address: `${payload.address} [Redesign ${redesignSiblingCount + 1}]`,
+        });
+      }
 
       if (result.conflict) {
         setConflictExistingId(result.project_id);

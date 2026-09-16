@@ -5,8 +5,17 @@ import type { PermitWithCycles, Project } from '../lib/database.types';
 
 // fix-126: descendant redesigns of a given project. Used by:
 //   - Project Overview's "Redesigns (N)" expandable section
-//   - The wizard's [Redesign N] address-suffix counter
 //   - The "Spawn Redesign" button's "is one already in flight?" gate
+//
+// ★★★ fix-566 (P-270) REMOVED THE THIRD CONSUMER, and it was the only caller
+//     of `useProjectRedesigns` itself: the wizard's `[Redesign N]` address-suffix
+//     counter. The suffix existed to satisfy `projects_address_key`, the
+//     migration replaces that constraint with a partial unique index that
+//     exempts redesigns, and a redesign now carries its original's address
+//     verbatim — so there is nothing left to number.
+//
+// ⚠️  `useProjectRedesignsWithPermits` below is a DIFFERENT function and is
+//     the one the "Redesigns (N)" section reads. It is untouched.
 //
 // Implemented on top of useProjects (already cached + tenant-scoped via
 // RLS) rather than a dedicated query — projects are read-frequent and

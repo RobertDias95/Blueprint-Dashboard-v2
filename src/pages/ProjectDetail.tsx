@@ -50,7 +50,6 @@ import {
   type WizardState,
 } from '../components/wizard/wizardState';
 import {
-  useProjectRedesigns,
   useProjectRedesignsWithPermits,
   type RedesignWithPermits,
 } from '../hooks/useProjectRedesigns';
@@ -423,9 +422,13 @@ function ProjectDetailBody({
   const [deleteOpen, setDeleteOpen] = useState(false);
   // fix-126: redesign-wizard state. When non-null the New Project wizard
   // mounts in redesign mode with this seed; Project Details is closed first
-  // so the two modals never overlap. The seed embeds the parent project's
-  // address suffixed " [Redesign N]" — see makeRedesignWizardState +
-  // useProjectRedesigns.
+  // so the two modals never overlap.
+  //
+  // ★★★ fix-566 (P-270): the seed now carries the parent's address VERBATIM.
+  //     It used to embed " [Redesign N]", which existed only to satisfy
+  //     `projects_address_key` — the migration replaces that constraint with a
+  //     partial unique index that exempts redesigns. The counter that numbered
+  //     the suffix (`useProjectRedesigns(project.id).count`) went with it.
   const [redesignSeed, setRedesignSeed] = useState<WizardState | null>(null);
   // fix-225: DA reassign (ownership handoff) — admin-only modal + shared marker.
   const [reassignOpen, setReassignOpen] = useState(false);
@@ -437,7 +440,6 @@ function ProjectDetailBody({
   // ★ fix-549 §D: only an admin may delete a project.
   const isTenantAdmin = useIsTenantAdmin();
   const handoffsQ = useProjectDaHandoffs(project.id);
-  const redesignsQ = useProjectRedesigns(project.id);
   // fix-151: redesigns + their permits. Drives the Redesigns sidebar section
   // and the Schedule Health lineage aggregation (parent + all redesign permits
   // → one holistic health computation). Empty for projects with no redesigns,
@@ -543,11 +545,7 @@ function ProjectDetailBody({
               : undefined
           }
           onSpawnRedesign={() => {
-            const seed = makeRedesignWizardState(
-              project,
-              redesignsQ.count,
-              bp?.da ?? null,
-            );
+            const seed = makeRedesignWizardState(project, bp?.da ?? null);
             closeProjectData();
             setRedesignSeed(seed);
           }}
@@ -571,7 +569,7 @@ function ProjectDetailBody({
             // wizard-seed path the Settings modal's "Spawn Redesign" uses.
             setReassignOpen(false);
             setRedesignSeed(
-              makeRedesignWizardState(project, redesignsQ.count, bp?.da ?? null),
+              makeRedesignWizardState(project, bp?.da ?? null),
             );
           }}
         />
