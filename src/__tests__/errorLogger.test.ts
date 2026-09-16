@@ -41,6 +41,14 @@ describe('errorLogger', () => {
     //    every frontend exception in a seven-day window came from
     //    localhost:5178 and no row could say so, because `backend_rpc` rows
     //    carry only a relative pathname. See DevSessionsNotReportedFix511.
+    // ★★ fix-587 §1b ADDS A SECOND STAMP, for the same reason fix-511 added
+    //    the first: P-287 was two people on one screen seeing 332 and 65, and
+    //    the cause was that one of them was on a three-week-old BUNDLE — a fact
+    //    no row in this table could carry, so it had to be established by
+    //    counting toolbar buttons in a screenshot.
+    //
+    // ★ The SHA is matched, never pinned: it changes every commit, and a test
+    //   that had to be edited on every commit would be deleted within a week.
     expect(rpcMock.mock.calls[0][1]).toEqual({
       p_source: 'frontend_toast',
       p_level: 'error',
@@ -49,6 +57,7 @@ describe('errorLogger', () => {
         url: '/dashboard',
         environment: 'test',
         origin: 'http://localhost:3000',
+        build: expect.stringMatching(/\S/),
       },
     });
   });
@@ -73,6 +82,8 @@ describe('errorLogger', () => {
     expect(rpcMock.mock.calls[0][1].p_context).toEqual({
       environment: 'test',
       origin: 'http://localhost:3000',
+      // ★ fix-587 §1b: the build rides on every row, caller context or not.
+      build: expect.stringMatching(/\S/),
     });
   });
 
