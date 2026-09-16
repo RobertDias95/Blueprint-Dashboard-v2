@@ -105,12 +105,12 @@ describe('fix-541 §A — the question is gone and the default is singular', () 
       num_lots: null,
       units: 3,
     } as unknown as Parameters<typeof makeRedesignWizardState>[0];
-    const st = makeRedesignWizardState(parent, 1, null);
+    const st = makeRedesignWizardState(parent, null);
     expect(st.num_lots).toBe(DEFAULT_NUM_LOTS);
 
     // ★ …and a parent that DOES have a count is still inherited verbatim.
     const parent5 = { ...parent, num_lots: 5 } as typeof parent;
-    expect(makeRedesignWizardState(parent5, 1, null).num_lots).toBe('5');
+    expect(makeRedesignWizardState(parent5, null).num_lots).toBe('5');
   });
 });
 

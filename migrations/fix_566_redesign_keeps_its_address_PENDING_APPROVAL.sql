@@ -1,0 +1,519 @@
+-- ===========================================================================
+-- fix-566 (P-270) — A REDESIGN KEEPS ITS OWN ADDRESS
+-- ===========================================================================
+--
+-- ⚠️⚠️ **NOT APPLIED.** Written for Cowork. Every statement below is commented
+--       out and a test (fix-450) keeps it that way.
+--
+-- MEASURED ON PROD 2026-09-16 (eibnmwthkcuumyclyxoe). Every count and every
+-- function body below is the output of a real run there.
+--
+-- Bobby, 2026-09-14: *"a redesign and the new version of that project should
+-- have the same address because the address is not changing. It's the metrics
+-- within it."*
+--
+-- ---------------------------------------------------------------------------
+-- ★★★ §0 — RE-MEASURED 2026-09-16 16:30 UTC. **IT IS 20, NOT 19.**
+-- ---------------------------------------------------------------------------
+--
+--   226 projects · 226 distinct addresses
+--    20 redesigns (redesign_of_project_id IS NOT NULL)
+--    19 carry `… [Redesign 1]` · 1 carries a trailing period
+--     0 redesigns carry no workaround at all
+--
+-- ★★★ THE COUNT MOVED **WHILE THIS FILE WAS BEING WRITTEN.** The first
+--     measurement of this session, an hour earlier, returned 224 projects and
+--     19 redesigns — the brief's number. `4707 S Graham St [Redesign 1]` was
+--     created at **2026-09-16 16:28 UTC**, minutes later, by the wizard line
+--     this ticket deletes; two ordinary projects arrived with it.
+--
+--     The brief said its own 18 went stale in 24 hours and warned that ours
+--     could too. **It went stale in under an hour.** That is not an argument
+--     for measuring faster — it is the argument for §B below: **not one number
+--     in the statements changed, because not one of them is typed.** The SQL
+--     that was correct for 19 is correct for 20 and will be correct for 21.
+--
+-- After §B: 226 projects, 206 distinct addresses — derived, never asserted as
+-- a literal (see §B).
+--
+-- ★★★ ALL 20 HOLD 0 PLAN-OF-RECORD SETS AND 0 INDEXED FILES; their originals
+--     hold 1–4 sets and 7–51 files. Re-checked 2026-09-16 against
+--     `project_plan_of_record_sets` and `project_file_index`, zero exceptions
+--     — including the one that arrived mid-ticket.
+--     **The rename cannot strand a plan of record.**
+--
+-- ---------------------------------------------------------------------------
+-- 🚨 §A0 — WHAT THE BRIEF DID NOT SAY, AND WHAT WOULD HAVE BROKEN
+-- ---------------------------------------------------------------------------
+--
+-- `projects_address_key` is not only a uniqueness rule. **Three live statements
+-- INFER it**, and `ON CONFLICT` does not NAME an index, it INFERS one:
+--
+--   bp_ensure_project                 ON CONFLICT (address) DO NOTHING
+--   bp_create_project_with_permits    ON CONFLICT (address) DO NOTHING RETURNING …
+--   bp_replace_draw_schedule          on conflict (address) do nothing
+--
+-- ★★★ PROVED ON PROD, ON A TEMP TABLE, ROLLED BACK: against a PARTIAL index the
+--     unrepaired form raises
+--
+--       42P10  there is no unique or exclusion constraint matching the
+--              ON CONFLICT specification
+--
+--     …which is a PostgREST 400 on the scraper's project-creation path and on
+--     the wizard's. This is fix-536's failure mode exactly — *"every guard in
+--     fix-536 passed; the damage was in a different object"* — and fix-450's
+--     shelf test exists to make an author look for it.
+--
+-- ★★★ AND THE REPAIRED FORM INFERS **BOTH** INDEXES. Also proved on a temp
+--     table: `ON CONFLICT (address) WHERE redesign_of_project_id IS NULL`
+--     works against the old full index AND the new partial one, because a
+--     non-partial index has predicate TRUE and anything implies TRUE.
+--     **So §A2 can be applied before §A3 with no broken window**, even if the
+--     file is run statement by statement rather than as one transaction.
+--
+-- ---------------------------------------------------------------------------
+-- 🚨 §A0b — THE SECOND THING THE CONSTRAINT WAS DOING
+-- ---------------------------------------------------------------------------
+--
+-- **EIGHT `SELECT … INTO … WHERE address = …` lookups**, across five functions,
+-- are unambiguous today ONLY because the address is unique:
+--
+--   bp_ensure_project               × 2   (fast path + post-race re-select)
+--   bp_create_project_with_permits  × 2   (duplicate pre-check + post-conflict)
+--   bp_replace_draw_schedule        × 2   (identical text, both sides of insert)
+--   bp_replace_intake_records       × 1
+--   bp_replace_project_documents    × 1
+--
+-- ⚠️ After §B an address matches TWO rows and plpgsql `SELECT … INTO` takes an
+--    ARBITRARY one, silently. For the scraper that means a permit, an intake
+--    record or a draw row attaching to the redesign instead of the original at
+--    random — a wrong-row write with no error anywhere.
+--
+-- ★★★ THE RULE, AND WHY IT IS THIS ONE: **prefer the NON-redesign.** That is
+--     the row these lookups matched BEFORE the rename (the redesign's address
+--     carried a suffix, so it never matched), so preferring it changes nothing
+--     that works today. One helper, `bp_project_id_for_address`, so the rule
+--     has one definition rather than eight.
+--
+-- ⚠️ CROSS-REPO, FLAGGED NOT FIXED: the share-folder indexer resolves
+--    address → project_id in the SCRAPER, not here (`project_file_index` is
+--    keyed by `project_id`; no database function joins projects on address for
+--    it). If it does its own lookup it needs the same prefer-the-original rule.
+--    It cannot strand anything today — all 20 redesigns hold 0 files — but the
+--    next index run after this is applied is the moment to check.
+--
+-- ---------------------------------------------------------------------------
+-- ★★★ §B — THE COUNT IS DERIVED, NOT TYPED
+-- ---------------------------------------------------------------------------
+--
+-- fix-580 §C was rolled back at apply time on 2026-09-15 for exactly this: it
+-- looped over nine functions and asserted eight. **Nothing in this file asserts
+-- a literal row count.** Every number is computed in the same transaction that
+-- uses it:
+--
+--   * how many rows need renaming        → counted from the data
+--   * how many are safe to rename        → counted from the data, and the two
+--                                          must be EQUAL or the file refuses
+--   * the project count after            → captured before, compared after
+--   * the distinct-address count after   → `before − renamed`, because each
+--                                          renamed row collapses onto its
+--                                          original.
+--
+-- ★★★ AND THAT IS NOT A STYLE PREFERENCE — IT WAS EXERCISED. The redesign
+--     count went 19 → 20 between the first query of this session and the last.
+--     A typed `19` would have been wrong before the file was finished; a typed
+--     `205` would have been wrong by one. The derived version needed no edit at
+--     all, and its NOTICE will print whatever is true on the day it runs.
+--
+-- ---------------------------------------------------------------------------
+-- ⚠️ ORDER, TRIGGERS AND SAFETY
+-- ---------------------------------------------------------------------------
+--
+-- * ORDER IS LOAD-BEARING: §A1 → §A2 → §A3 → §B. §B creates the duplicate
+--   addresses, so the constraint must already be partial when it runs.
+-- * `projects` fires three triggers on an address UPDATE, and they were read
+--   rather than assumed:
+--     - `projects_set_updated_at` — LEFT ENABLED. These rows are genuinely
+--       changing, so the new token is true and somebody holding a stale copy
+--       SHOULD be refused (fix-577's reasoning, same conclusion).
+--     - `bp_log_user_activity` — returns early when `auth.uid()` IS NULL, and a
+--       migration applied over direct SQL has none. **It records nothing; no
+--       suppression is needed** and none is written.
+--     - `projects_audit_row` — LEFT ENABLED ON PURPOSE. It writes one
+--       `audit_log` row per project with `{address: {before, after}}`, which is
+--       the durable record of this rename and complements the snapshot table.
+-- * The snapshot table `_fix566_redesign_address_rename` keeps the before/after
+--   pairs (the fix-537 pattern) so the mapping survives the transaction.
+-- * ★ AFTER APPLYING, RUN `scripts/sql/on_conflict_census.sql` — fix-547 rule 1
+--   (a unique index is reshaped) AND rule 3 (function bodies replaced by
+--   anchor). `42P10` and `42703` must both be 0. This file is the exact case
+--   that rule was written for.
+--
+-- ===========================================================================
+-- THE STATEMENTS
+-- ===========================================================================
+
+-- ---------------------------------------------------------------------------
+-- §A1 — one definition of "the project at this address"
+-- ---------------------------------------------------------------------------
+--
+-- ★ SECURITY INVOKER (the default), deliberately: every lookup it replaces ran
+--   as the caller under RLS, and a DEFINER helper would quietly widen all eight.
+--
+-- CREATE OR REPLACE FUNCTION public.bp_project_id_for_address(p_address text)
+--  RETURNS uuid
+--  LANGUAGE sql
+--  STABLE
+--  SET search_path TO 'public', 'pg_temp'
+-- AS $function$
+--   SELECT p.id
+--     FROM public.projects p
+--    WHERE p.address = p_address
+--    -- ★★★ THE ORIGINAL WINS. `false` sorts before `true`, so a non-redesign
+--    --     comes first; created_at then id make the tie-break deterministic
+--    --     rather than plan-dependent.
+--    ORDER BY (p.redesign_of_project_id IS NOT NULL), p.created_at, p.id
+--    LIMIT 1;
+-- $function$;
+
+-- ---------------------------------------------------------------------------
+-- §A2a — bp_ensure_project, re-emitted whole from the LIVE definition
+--
+-- Small enough to replace rather than patch, and it carries two of the eight
+-- lookups plus one of the three ON CONFLICTs.
+-- ---------------------------------------------------------------------------
+--
+-- CREATE OR REPLACE FUNCTION public.bp_ensure_project(p_address text, p_juris text DEFAULT NULL::text)
+--  RETURNS uuid
+--  LANGUAGE plpgsql
+--  SET search_path TO 'public', 'pg_temp'
+-- AS $function$
+-- DECLARE
+--   v_id    uuid;
+--   v_juris text := COALESCE(NULLIF(trim(p_juris), ''), 'Unknown');
+-- BEGIN
+--   IF p_address IS NULL OR trim(p_address) = '' THEN
+--     RAISE EXCEPTION 'p_address is required';
+--   END IF;
+--
+--   -- Fast path: project already exists at this address.
+--   -- ★ fix-566: an address can now name two projects (an original and its
+--   --   redesign). The helper returns the ORIGINAL, which is the row this
+--   --   lookup found before the rename.
+--   v_id := public.bp_project_id_for_address(p_address);
+--   IF v_id IS NOT NULL THEN
+--     RETURN v_id;
+--   END IF;
+--
+--   -- Slow path: insert. ON CONFLICT handles the race where two concurrent
+--   -- callers ensure the same new address simultaneously.
+--   -- ★★★ fix-566: the WHERE clause is INDEX INFERENCE, not a filter. Without
+--   --     it this raises 42P10 against the partial index — proved on prod.
+--   INSERT INTO public.projects (address, juris)
+--   VALUES (p_address, v_juris)
+--   ON CONFLICT (address) WHERE redesign_of_project_id IS NULL DO NOTHING
+--   RETURNING id INTO v_id;
+--
+--   -- If the conflict fired (we lost the race to a concurrent caller),
+--   -- re-select to get the winner's id.
+--   IF v_id IS NULL THEN
+--     v_id := public.bp_project_id_for_address(p_address);
+--   END IF;
+--
+--   RETURN v_id;
+-- END;
+-- $function$;
+
+-- ---------------------------------------------------------------------------
+-- §A2b — the other four functions, BY ANCHOR
+--
+-- Each anchor was counted against the live body before this was written:
+-- six matched once, one (`bp_replace_draw_schedule`'s lookup) matched twice and
+-- `replace()` fixes both. Zero misses.
+--
+-- ★★★ THE FUNCTION COUNT IS DERIVED FROM THE JOB LIST, NOT TYPED. fix-580 §C
+--     typed 8 over a list of 9 and was rolled back at apply time.
+-- ---------------------------------------------------------------------------
+--
+-- DO $mig$
+-- DECLARE
+--   v_fn     text;
+--   v_src    text;
+--   v_new    text;
+--   v_hits   int := 0;
+--   v_expect int;
+--   v_i      int;
+--   -- {function, from, to}
+--   v_jobs text[][] := ARRAY[
+--     -- bp_create_project_with_permits ------------------------------------
+--     -- ★★★ THE DUPLICATE PRE-CHECK IS WHAT ACTUALLY REFUSES A REDESIGN.
+--     --     It runs BEFORE the constraint is ever reached, so §A3 alone would
+--     --     not have been enough: the RPC returns `conflict := true` for any
+--     --     address that already exists. It now asks only for a NON-redesign,
+--     --     which is the same rule the partial index enforces — stated twice
+--     --     on purpose, because the index refuses and the RPC explains.
+--     ['bp_create_project_with_permits',
+--      '  SELECT id INTO v_existing_id FROM public.projects WHERE address = p_address;',
+--      '  IF NULLIF(v_pd->>''redesign_of_project_id'','''') IS NULL THEN'
+--        || chr(10) || '    v_existing_id := public.bp_project_id_for_address(p_address);'
+--        || chr(10) || '  END IF;'],
+--     ['bp_create_project_with_permits',
+--      ') ON CONFLICT (address) DO NOTHING RETURNING id INTO v_project_id;',
+--      ') ON CONFLICT (address) WHERE redesign_of_project_id IS NULL DO NOTHING RETURNING id INTO v_project_id;'],
+--     ['bp_create_project_with_permits',
+--      '  SELECT id INTO v_project_id FROM public.projects WHERE address = p_address;',
+--      '  v_project_id := public.bp_project_id_for_address(p_address);'],
+--     -- bp_replace_draw_schedule ------------------------------------------
+--     ['bp_replace_draw_schedule',
+--      'select id into pid_uuid from public.projects where address = addr;',
+--      'pid_uuid := public.bp_project_id_for_address(addr);'],
+--     ['bp_replace_draw_schedule',
+--      'on conflict (address) do nothing;',
+--      'on conflict (address) where redesign_of_project_id is null do nothing;'],
+--     -- bp_replace_intake_records -----------------------------------------
+--     ['bp_replace_intake_records',
+--      'select id into proj_uuid from public.projects where address = rec->>''address'';',
+--      'proj_uuid := public.bp_project_id_for_address(rec->>''address'');'],
+--     -- bp_replace_project_documents --------------------------------------
+--     ['bp_replace_project_documents',
+--      'select id into proj_uuid from public.projects where address = p_address;',
+--      'proj_uuid := public.bp_project_id_for_address(p_address);']
+--   ];
+-- BEGIN
+--   SELECT count(DISTINCT v_jobs[i][1]) INTO v_expect
+--     FROM generate_subscripts(v_jobs, 1) i;
+--
+--   FOR v_fn IN
+--     SELECT DISTINCT v_jobs[i][1] FROM generate_subscripts(v_jobs, 1) i ORDER BY 1
+--   LOOP
+--     SELECT pg_get_functiondef(p.oid) INTO v_src
+--       FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
+--      WHERE n.nspname = 'public' AND p.proname = v_fn;
+--     IF v_src IS NULL THEN
+--       RAISE EXCEPTION 'fix-566 A2b: % not found', v_fn;
+--     END IF;
+--     v_new := v_src;
+--     FOR v_i IN 1 .. array_length(v_jobs, 1) LOOP
+--       CONTINUE WHEN v_jobs[v_i][1] <> v_fn;
+--       IF position(v_jobs[v_i][2] IN v_new) = 0 THEN
+--         RAISE EXCEPTION 'fix-566 A2b: anchor not found in % — the live body has moved: %',
+--           v_fn, left(v_jobs[v_i][2], 60);
+--       END IF;
+--       v_new := replace(v_new, v_jobs[v_i][2], v_jobs[v_i][3]);
+--     END LOOP;
+--     EXECUTE v_new;
+--     v_hits := v_hits + 1;
+--   END LOOP;
+--
+--   IF v_hits <> v_expect THEN
+--     RAISE EXCEPTION 'fix-566 A2b: expected % functions, rewrote %', v_expect, v_hits;
+--   END IF;
+--   RAISE NOTICE 'fix-566 A2b: % functions rewritten', v_hits;
+-- END
+-- $mig$;
+
+-- ---------------------------------------------------------------------------
+-- §A3 — the constraint becomes a partial unique index
+--
+-- ★★★ BOTH DIRECTIONS PROVED ON PROD, on a temp table, rolled back:
+--       redesign at the original's address  → ACCEPTED
+--       second non-redesign at that address → REFUSED (23505)
+--     A mistyped duplicate is refused exactly as it is today.
+--
+-- ⚠️ `DROP CONSTRAINT` also drops the index that backs it; the partial index is
+--    a plain index, not a constraint, because a UNIQUE CONSTRAINT cannot carry
+--    a WHERE clause.
+-- ---------------------------------------------------------------------------
+--
+-- ALTER TABLE public.projects DROP CONSTRAINT projects_address_key;
+--
+-- CREATE UNIQUE INDEX projects_address_unique_non_redesign
+--     ON public.projects (address)
+--  WHERE redesign_of_project_id IS NULL;
+
+-- ---------------------------------------------------------------------------
+-- §B — the renames
+--
+-- The BEFORE/AFTER pairs, measured 2026-09-16 16:30 UTC. All twenty. The
+-- right-hand column is also each row's ORIGINAL's address, verified equal for
+-- all 20 — which is why §B can assert the stronger condition ("the strip lands
+-- exactly on the original") rather than trusting a regex:
+--
+--   12836 N 60th St [Redesign 1]      → 12836 N 60th St
+--   4120 49th Ave S [Redesign 1]      → 4120 49th Ave S
+--   10150 NE 64th St [Redesign 1]     → 10150 NE 64th St
+--   7603 8th Ave NW [Redesign 1]      → 7603 8th Ave NW
+--   6505 21st Ave NW [Redesign 1]     → 6505 21st Ave NW
+--   5053 25th Ave SW [Redesign 1]     → 5053 25th Ave SW
+--   548 3rd Ave N [Redesign 1]        → 548 3rd Ave N
+--   12238 4th Ave NW [Redesign 1]     → 12238 4th Ave NW
+--   5537 35th Ave NE [Redesign 1]     → 5537 35th Ave NE
+--   2443 5th Ave W [Redesign 1]       → 2443 5th Ave W
+--   3623 SW Othello St [Redesign 1]   → 3623 SW Othello St
+--   4000 SW Concord St [Redesign 1]   → 4000 SW Concord St
+--   725 N 92nd ST [Redesign 1]        → 725 N 92nd ST
+--   220 N 58th St [Redesign 1]        → 220 N 58th St
+--   123 N 48th St [Redesign 1]        → 123 N 48th St
+--   7200 54th Ave S [Redesign 1]      → 7200 54th Ave S
+--   137 13th Ave [Redesign 1]         → 137 13th Ave
+--   4409 S Holly ST.                  → 4409 S Holly ST
+--   5620 6th Ave NW [Redesign 1]      → 5620 6th Ave NW
+--   4707 S Graham St [Redesign 1]     → 4707 S Graham St
+--
+-- ★★★ THE LAST TWO ARE THE POINT OF RE-MEASURING, and the last one is the
+--     point of DERIVING. `5620 6th Ave NW [Redesign 1]` was created 2026-09-15,
+--     after the brief was first written. `4707 S Graham St [Redesign 1]` was
+--     created **2026-09-16 16:28 UTC, while this file was being written.**
+--     Both by the wizard line this ticket deletes.
+--
+--     This table is prose and prose goes stale; the statements below do not
+--     read it. They recompute the set from `redesign_of_project_id` at apply
+--     time, so a 21st redesign minted between now and Cowork running this file
+--     is renamed too, and the assertions still hold.
+--
+-- ★★ THE STRIPPER IS fix-530 §C's RULE, TRANSCRIBED, NOT A SECOND ONE.
+--    TS:  /\s*\[\s*redesign\s*\d*\s*\]\s*$/i
+--    SQL: '(?i)\s*\[\s*redesign\s*\d*\s*\]\s*$'
+--    Anchored to the word AND to end-of-string, so `12 Main St [Lot 3]`
+--    survives. A test asserts the two agree over all 20 real pairs.
+--
+-- ⚠️ THE TRAILING PERIOD IS A SEPARATE, DELIBERATELY NARROW RULE. It is applied
+--    only to redesign rows and only at end-of-string, because a period can be
+--    part of a real address ("St." / "Ave.") — it is a one-row data correction,
+--    not a display rule. And the `after = original` gate below means even that
+--    cannot fire on a row where it would be wrong.
+-- ---------------------------------------------------------------------------
+--
+-- CREATE TABLE IF NOT EXISTS public._fix566_redesign_address_rename AS
+-- SELECT r.id,
+--        r.address AS address_before,
+--        btrim(regexp_replace(
+--          regexp_replace(r.address, '(?i)\s*\[\s*redesign\s*\d*\s*\]\s*$', ''),
+--          '\.$', '')) AS address_after,
+--        r.redesign_of_project_id,
+--        o.address AS original_address,
+--        now() AS captured_at
+--   FROM public.projects r
+--   JOIN public.projects o ON o.id = r.redesign_of_project_id;
+--
+-- DO $rename$
+-- DECLARE
+--   v_need        int;
+--   v_safe        int;
+--   v_done        int;
+--   v_projects_b  int;
+--   v_projects_a  int;
+--   v_distinct_b  int;
+--   v_distinct_a  int;
+--   v_left_suffix int;
+--   v_left_period int;
+-- BEGIN
+--   SELECT count(*), count(DISTINCT address) INTO v_projects_b, v_distinct_b
+--     FROM public.projects;
+--
+--   -- How many rows DIFFER from their stripped form…
+--   SELECT count(*) INTO v_need
+--     FROM public._fix566_redesign_address_rename
+--    WHERE address_before IS DISTINCT FROM address_after;
+--
+--   -- …and how many of those land exactly on their original's address.
+--   SELECT count(*) INTO v_safe
+--     FROM public._fix566_redesign_address_rename
+--    WHERE address_before IS DISTINCT FROM address_after
+--      AND address_after = original_address;
+--
+--   -- ★★★ THE GATE. If a redesign's stripped address is NOT its original's,
+--   --     it is not a suffix workaround — it is a redesign that genuinely moved,
+--   --     and a human has to say what its address should be. Refuse the whole
+--   --     file rather than rename 18 and leave one wrong.
+--   IF v_need <> v_safe THEN
+--     RAISE EXCEPTION 'fix-566 B: % rows need renaming but only % land on their original — inspect _fix566_redesign_address_rename', v_need, v_safe;
+--   END IF;
+--
+--   UPDATE public.projects p
+--      SET address = s.address_after
+--     FROM public._fix566_redesign_address_rename s
+--    WHERE p.id = s.id
+--      AND s.address_before IS DISTINCT FROM s.address_after
+--      AND s.address_after = s.original_address;
+--   GET DIAGNOSTICS v_done = ROW_COUNT;
+--
+--   IF v_done <> v_need THEN
+--     RAISE EXCEPTION 'fix-566 B: expected % renames, made %', v_need, v_done;
+--   END IF;
+--
+--   SELECT count(*), count(DISTINCT address) INTO v_projects_a, v_distinct_a
+--     FROM public.projects;
+--
+--   SELECT count(*) INTO v_left_suffix FROM public.projects
+--    WHERE address ~* '\[\s*redesign';
+--   SELECT count(*) INTO v_left_period FROM public.projects
+--    WHERE address LIKE '%.';
+--
+--   -- ★★★ EVERY EXPECTATION IS DERIVED FROM A VALUE CAPTURED IN THIS
+--   --     TRANSACTION. Not one of them is a typed literal.
+--   IF v_projects_a <> v_projects_b THEN
+--     RAISE EXCEPTION 'fix-566 B: project count moved, % -> %', v_projects_b, v_projects_a;
+--   END IF;
+--   IF v_distinct_a <> v_distinct_b - v_done THEN
+--     RAISE EXCEPTION 'fix-566 B: distinct addresses %, expected % (% - %)',
+--       v_distinct_a, v_distinct_b - v_done, v_distinct_b, v_done;
+--   END IF;
+--   IF v_left_suffix <> 0 THEN
+--     RAISE EXCEPTION 'fix-566 B: % addresses still carry a [Redesign suffix', v_left_suffix;
+--   END IF;
+--   IF v_left_period <> 0 THEN
+--     RAISE EXCEPTION 'fix-566 B: % addresses still end in a period', v_left_period;
+--   END IF;
+--
+--   RAISE NOTICE 'fix-566 B: % renamed · % projects · % distinct addresses (was %)',
+--     v_done, v_projects_a, v_distinct_a, v_distinct_b;
+-- END
+-- $rename$;
+
+-- ===========================================================================
+-- VERIFY — after applying, all seven must hold
+-- ===========================================================================
+--
+-- -- 1. the constraint is gone and the partial index is there (expect 1 row,
+-- --    `… WHERE (redesign_of_project_id IS NULL)`)
+-- SELECT indexname, indexdef FROM pg_indexes
+--  WHERE schemaname='public' AND tablename='projects' AND indexdef ILIKE '%unique%';
+-- SELECT count(*) AS should_be_zero FROM pg_constraint
+--  WHERE conrelid='public.projects'::regclass AND conname='projects_address_key';
+--
+-- -- 2. BOTH DIRECTIONS of the uniqueness rule, on the real table, rolled back.
+-- --    Expect: the redesign insert SUCCEEDS and the duplicate insert RAISES 23505.
+-- --    BEGIN; … INSERT a redesign at an original's address … ROLLBACK;
+--
+-- -- 3. no ON CONFLICT is left inferring the dropped index. Expect 0 rows.
+-- SELECT p.proname
+--   FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace,
+--        LATERAL unnest(string_to_array(pg_get_functiondef(p.oid), chr(10))) ln
+--  WHERE n.nspname='public'
+--    AND ln ~* 'on conflict \(address\)'
+--    AND ln !~* 'redesign_of_project_id';
+--
+-- -- 4. no bare address lookup is left. Expect 0 rows.
+-- SELECT p.proname
+--   FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace,
+--        LATERAL unnest(string_to_array(pg_get_functiondef(p.oid), chr(10))) ln
+--  WHERE n.nspname='public'
+--    AND ln ~* 'from public\.projects' AND ln ~* 'address\s*=';
+--
+-- -- 5. the shape of the data (expect 226 / 206 / 20 / 0 / 0 on 2026-09-16's
+-- --    numbers — and expect those to have moved again by the time this runs)
+-- SELECT count(*) AS projects,
+--        count(DISTINCT address) AS distinct_addresses,
+--        count(*) FILTER (WHERE redesign_of_project_id IS NOT NULL) AS redesigns,
+--        count(*) FILTER (WHERE address ~* '\[\s*redesign') AS suffixed,
+--        count(*) FILTER (WHERE address LIKE '%.') AS trailing_period
+--   FROM public.projects;
+--
+-- -- 6. every redesign now shares its original's address exactly. Expect 0 rows.
+-- SELECT r.id, r.address, o.address
+--   FROM public.projects r JOIN public.projects o ON o.id = r.redesign_of_project_id
+--  WHERE r.address IS DISTINCT FROM o.address;
+--
+-- -- 7. run scripts/sql/on_conflict_census.sql — fix-547 rules 1 AND 3 both
+-- --    apply to this file. 42P10 and 42703 must both be 0.

@@ -84,8 +84,10 @@
 -- 731/732 hit, so this is defence in depth, not the cause.
 --
 -- ⚠️ A `COALESCE` AROUND THE CAST DOES NOT GUARD IT — the cast runs first, so
---    `COALESCE((p_data->>'done')::boolean, false)` still raises on `""`. Eight
+--    `COALESCE((p_data->>'done')::boolean, false)` still raises on `""`. NINE
 --    sibling functions had exactly that shape and are fixed here by anchor.
+--    (★ fix-566 corrected this from "eight" — see §C, where the miscount cost
+--    this file an apply-time rollback.)
 --
 -- ---------------------------------------------------------------------------
 -- ★★★ §D — THE BADGE AND THE LIST
@@ -339,7 +341,20 @@
 -- ---------------------------------------------------------------------------
 -- §C — THE SIBLING SWEEP, BY ANCHOR
 --
--- Eight more functions cast a p_data key with no NULLIF. The block below reads
+-- ★★★ REPAIRED BY fix-566, 2026-09-16 — THIS FILE WAS ROLLED BACK AT APPLY
+--     TIME ON 2026-09-15. The loop walks the DISTINCT function names in the job
+--     list below — there are **NINE** — and the final check then asserted
+--     `v_hits <> 8`, so it raised and took the whole transaction with it. The
+--     header said "eight" and the PR said "eight sibling functions" too: one
+--     miscount in three places, none of which could catch the others.
+--
+-- ★★★ AND THE FIX IS NOT "CHANGE 8 TO 9". It is to stop typing the number at
+--     all — `v_expect` is counted from the very array the loop walks, so the
+--     assertion cannot disagree with the list it is asserting about. fix-566
+--     was written under that rule and retrofits it here, because this file is
+--     the one that proved it was needed.
+--
+-- Nine more functions cast a p_data key with no NULLIF. The block below reads
 -- each LIVE definition, substitutes the guard and RAISES if no anchor matched —
 -- fix-540's rule: an anchor needs a hit assertion, because a replacement that
 -- silently matches nothing looks exactly like a success.
@@ -382,6 +397,8 @@
 --   v_new  text;
 --   v_hits int := 0;
 --   v_i    int;
+--   -- ★★★ fix-566: DERIVED from v_jobs, never typed. See the header.
+--   v_expect int;
 --   v_jobs text[][] := ARRAY[
 --     ['bp_upsert_draw_schedule_row',        'manually_placed',          'boolean'],
 --     ['bp_upsert_draw_schedule_row',        'manual_status',            'boolean'],
@@ -402,6 +419,9 @@
 --     ['bp_upsert_team_member_row',          'former',                   'boolean']
 --   ];
 -- BEGIN
+--   SELECT count(DISTINCT v_jobs[i][1]) INTO v_expect
+--     FROM generate_subscripts(v_jobs, 1) i;
+--
 --   FOR v_fn IN
 --     SELECT DISTINCT v_jobs[i][1] FROM generate_subscripts(v_jobs, 1) i ORDER BY 1
 --   LOOP
@@ -426,10 +446,10 @@
 --     EXECUTE v_new;
 --     v_hits := v_hits + 1;
 --   END LOOP;
---   RAISE NOTICE 'fix-580 C: % functions rewritten (expected 8)', v_hits;
---   IF v_hits <> 8 THEN
---     RAISE EXCEPTION 'fix-580 C: expected 8 functions, rewrote %', v_hits;
+--   IF v_hits <> v_expect THEN
+--     RAISE EXCEPTION 'fix-580 C: expected % functions, rewrote %', v_expect, v_hits;
 --   END IF;
+--   RAISE NOTICE 'fix-580 C: % functions rewritten', v_hits;
 -- END
 -- $mig$;
 

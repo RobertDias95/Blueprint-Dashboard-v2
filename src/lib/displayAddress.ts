@@ -36,6 +36,31 @@
  */
 const REDESIGN_SUFFIX = /\s*\[\s*redesign\s*\d*\s*\]\s*$/i;
 
+// ===========================================================================
+// ★★★ fix-566 (P-270) — THIS STAYS, AND THE REASON CHANGED
+// ===========================================================================
+//
+// fix-566 removes the suffix at its source: the wizard stops minting it and the
+// migration renames all 19 stored rows that carry one. So on the day that
+// migration is applied this helper becomes a no-op for every project in the
+// database — and it is **still load-bearing**, for two reasons that are not the
+// same reason:
+//
+// ★★★ 1. THE MIGRATION IS STAGED, NOT APPLIED. Until Cowork runs it, all 19
+//     rows still hold the suffix and 17 call sites still need it stripped.
+//     Deleting this first would put `[Redesign 1]` back on every screen.
+//
+// ★★ 2. A REDESIGN CREATED BEFORE THIS SHIPS STILL CARRIES ONE. `5620 6th Ave
+//     NW [Redesign 1]` was minted on 2026-09-15 — the day after the fix-566
+//     brief was first written, by the very code path fix-566 deletes. The gap
+//     between a rule changing and the data catching up is where this helper
+//     lives, and that gap has now been demonstrated rather than imagined.
+//
+// ⚠️ IT DOES NOT STRIP A TRAILING PERIOD, deliberately. `4409 S Holly ST.` is
+//    the same workaround by another spelling, but a period can be part of a real
+//    address ("St." / "Ave."), so removing it is a one-row DATA correction in
+//    the migration — not a display rule applied to 224 projects.
+
 /**
  * An address as a person should read it.
  *

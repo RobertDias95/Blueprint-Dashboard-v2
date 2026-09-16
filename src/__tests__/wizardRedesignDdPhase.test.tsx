@@ -346,11 +346,12 @@ describe('Redesign DD phase — full wizard submit', () => {
   it('fix-158: makeRedesignWizardState seeds redesign_dd_da from the parent BP DA (blank when none)', () => {
     const withDa = makeRedesignWizardState(
       { id: 'p', address: '500 Pike St', juris: 'Seattle' },
-      0,
       'Marc',
     );
     expect(withDa.redesign_dd_da).toBe('Marc');
-    const noDa = makeRedesignWizardState({ id: 'p', address: 'X' }, 0, null);
+    // ★ fix-566: the address comes over verbatim — no " [Redesign N]".
+    expect(withDa.address).toBe('500 Pike St');
+    const noDa = makeRedesignWizardState({ id: 'p', address: 'X' }, null);
     expect(noDa.redesign_dd_da).toBe('');
   });
 });
