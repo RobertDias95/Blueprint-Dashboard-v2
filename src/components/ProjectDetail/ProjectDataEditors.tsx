@@ -62,6 +62,7 @@ import NpWarningPrompt from '../NpWarningPrompt';
 import type { PermitWithCycles, Project, UnitType } from '../../lib/database.types';
 import { shouldShowLotsField, ADD_LOTS_LABEL } from '../../lib/lotsVisibility';
 import { useMayWriteProject } from '../../hooks/useMayWriteProject';
+import { useProjectFieldCommit } from '../../hooks/useProjectFieldCommit';
 
 // ===========================================================================
 // ★★★ fix-506 §G (P-140) — THE EDITORS THE OVERVIEW NO LONGER OWNS
@@ -262,23 +263,12 @@ function MilestoneDivider({ testId }: { testId: string }) {
  *  phase, and DD Phase has the room). Renders at the top of all three DD Phase
  *  states. Writes projects.closing_date via useUpdateProject (OCC). */
 function ClosingRow({ project }: { project: Project }) {
-  const updateMutation = useUpdateProject();
-  const occMissing = !project.updated_at;
-  // ★★★ fix-549 §B: the same server answer the write path asks. A field that
-  //     will be refused must not accept typing first.
-  const mayWrite549 = useMayWriteProject(project.id);
-  const locked = occMissing || !mayWrite549;
+  // ★★★ fix-575a — THROUGH THE ONE HOOK. This carried a third private copy,
+  //     hard-coded to `closing_date`. It already gated on
+  //     `bp_may_write_project` (fix-549 §B) by the same arithmetic the hook
+  //     uses, so `locked` is the hook's `occMissing` unchanged.
+  const { commit, occMissing: locked } = useProjectFieldCommit(project);
   const [draft, setDraft] = useState<string>(project.closing_date ?? '');
-  async function commit(next: string | null) {
-    if (!project.updated_at) return;
-    if (next === (project.closing_date ?? null)) return;
-    await updateMutation.mutateAsync({
-      projectId: project.id,
-      expectedUpdatedAt: project.updated_at,
-      patch: { closing_date: next } as Partial<Project>,
-      fieldLabel: 'Closing Date',
-    });
-  }
   return (
     <MilestoneDateRow
       label="Closing"
@@ -286,7 +276,12 @@ function ClosingRow({ project }: { project: Project }) {
       onChange={setDraft}
       onBlur={() => {
         const t = draft.trim();
-        void commit(t === '' ? null : t);
+        void commit(
+          'closing_date',
+          t === '' ? null : t,
+          project.closing_date,
+          'Closing Date',
+        );
       }}
       disabled={locked}
       testId="project-overview-closing"
@@ -879,7 +874,6 @@ export function TargetSubmitRow({
 // ============================================================
 
 export function SiteEditor({ project }: { project: Project }) {
-  const updateMutation = useUpdateProject();
   // ══════════════════════════════════════════════════════════════
   // ★★★ fix-549 §B (P-255) — ASK BEFORE RENDERING AN INPUT
   // ══════════════════════════════════════════════════════════════
@@ -894,29 +888,17 @@ export function SiteEditor({ project }: { project: Project }) {
   //
   // ★★ READ-ONLY, not disabled: a greyed box still reads as a box you could
   //    use if you tried harder. The rows below render their value as text.
-  const mayWrite = useMayWriteProject(project.id);
-  const occMissing = !project.updated_at;
-  const locked = occMissing || !mayWrite;
+  // ★★★ fix-575a — THROUGH THE ONE HOOK. This component carried a private copy
+  //     of `useProjectFieldCommit.commit`, byte-identical in shape: same 4-arg
+  //     generic, same `?? null` no-op guard, same one-column patch. Its
+  //     `locked` was `!project.updated_at || !mayWrite`, which is exactly what
+  //     the hook returns as `occMissing` — so this is the same two values by
+  //     the same arithmetic, read from one definition instead of two.
+  const { commit, occMissing: locked } = useProjectFieldCommit(project);
   // ★★ fix-541 (P-236): the route back. Local to the visit — once a real
   //    count is committed the predicate keeps the field visible on its own,
   //    so there is nothing to persist.
   const [lotsRevealed, setLotsRevealed] = useState(false);
-
-  async function commit<K extends keyof Project>(
-    field: K,
-    next: Project[K],
-    original: Project[K] | null | undefined,
-    label: string,
-  ) {
-    if (!project.updated_at) return;
-    if (next === (original ?? null)) return;
-    await updateMutation.mutateAsync({
-      projectId: project.id,
-      expectedUpdatedAt: project.updated_at,
-      patch: { [field]: next } as Partial<Project>,
-      fieldLabel: label,
-    });
-  }
 
   return (
     <div className="flex flex-col gap-1">
@@ -1341,30 +1323,39 @@ function SiteLotSizeRow({
 //    not a reversal.
 
 export function ProjectTagsEditor({ project }: { project: Project }) {
-  // ★★★ fix-549 §B: the same server answer the write path asks. A field that
-  //     will be refused must not accept typing first.
-  const mayWrite549 = useMayWriteProject(project.id);
-  const updateMutation = useUpdateProject();
+  // ★★★ fix-575a — THROUGH THE ONE HOOK, AND THIS IS THE COPY THAT WAS RIGHT.
+  //
+  //     It carried `.catch(() => {})`, which reads like swallowed data loss and
+  //     is not: `useUpdateProject.onError` fires first, unconditionally — it
+  //     rolls the optimistic patch back (so the chip visibly reverts) and
+  //     pushes a toast naming what happened. The `catch` only stopped the
+  //     `void write(…)` caller leaving an unhandled rejection behind.
+  //
+  // ★★ MEASURED: the HOOK was the one that rejected, and all 14 of its own
+  //    call sites discarded it with `void`. So the swallow moved INTO the hook
+  //    rather than being deleted — unifying on this component's behaviour, not
+  //    on the older definition's. See `useProjectFieldCommit`.
+  //
+  // ★★★ `project_tags` IS AN ARRAY, and the hook's no-op guard was reference
+  //     equality, which can never short-circuit one. The guard is value-aware
+  //     for arrays now; see `projectValuesEqual`.
+  const { commit, occMissing: locked } = useProjectFieldCommit(project);
   const appConfigQ = useAppConfig();
   const options = readAppConfigStringArray(appConfigQ.map, 'projectTagOptions');
   const chosen = Array.isArray(project.project_tags)
     ? (project.project_tags as string[]).filter((t) => typeof t === 'string')
     : [];
-  const occMissing = !project.updated_at;
-  const locked = occMissing || !mayWrite549;
 
-  async function write(next: string[]) {
-    if (!project.updated_at) return;
-    await updateMutation
-      .mutateAsync({
-        projectId: project.id,
-        expectedUpdatedAt: project.updated_at,
-        patch: { project_tags: next.length > 0 ? next : null } as Partial<Project>,
-        fieldLabel: 'Project Tags',
-      })
-      .catch(() => {
-        /* hook's onError already pushed the user-visible message */
-      });
+  function write(next: string[]) {
+    // ★ An empty list is NULL, not `[]` — the column's "nobody has tagged this"
+    //   and "somebody removed the last tag" are the same fact, and only one of
+    //   them survives a round-trip.
+    void commit(
+      'project_tags',
+      next.length > 0 ? next : null,
+      project.project_tags,
+      'Project Tags',
+    );
   }
 
   const addable = options.filter((t) => !chosen.includes(t));
@@ -1388,7 +1379,7 @@ export function ProjectTagsEditor({ project }: { project: Project }) {
             <button
               type="button"
               disabled={locked}
-              onClick={() => void write(chosen.filter((x) => x !== t))}
+              onClick={() => write(chosen.filter((x) => x !== t))}
               className="leading-none disabled:opacity-40"
               title={`Remove ${t}`}
               data-testid={`pd-tag-remove-${t}`}
@@ -1399,11 +1390,21 @@ export function ProjectTagsEditor({ project }: { project: Project }) {
         ))}
         <select
           value=""
-          disabled={occMissing || addable.length === 0}
+          // ★★★ fix-575a — THIS READ `occMissing`, NOT `locked`, AND THAT WAS
+          //     THE ONE REAL DIVERGENCE IN THIS COMPONENT. Every other control
+          //     here — including the remove × on each chip, six lines up —
+          //     gates on `locked`, which includes `bp_may_write_project`. So
+          //     somebody the server will refuse could ADD a tag but not REMOVE
+          //     one: the add landed as a failed write with a toast where it
+          //     should have been a control they could see was not theirs.
+          //
+          // ★★ fix-549 §B's WHOLE POINT, missed by one line: *"a field that
+          //    will be refused must not accept typing first."*
+          disabled={locked || addable.length === 0}
           onChange={(e) => {
             const v = e.target.value;
             if (!v || chosen.includes(v)) return;
-            void write([...chosen, v]);
+            write([...chosen, v]);
           }}
           className="text-[9px] font-semibold text-text border-0 border-b outline-none bg-transparent px-0 py-0.5 disabled:opacity-50"
           style={{ borderBottomColor: 'var(--color-border)' }}
