@@ -1,7 +1,7 @@
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '../lib/supabase';
 import { queryKeys } from '../lib/queryKeys';
-import { OCCConflictError, isOCCConflict } from '../lib/occ';
+import { OCCConflictError, isOCCConflict, occToken } from '../lib/occ';
 import { pushToast } from '../stores/toastStore';
 import { useAuthStore } from '../stores/authStore';
 import type { PermitTask } from '../lib/database.types';
@@ -83,7 +83,7 @@ export function useUpsertPermitTask() {
         const { data, error } = await supabase.rpc('bp_upsert_permit_task_row', {
           p_id: null,
           p_data: payload,
-          p_expected_updated_at: null,
+          p_expected_updated_at: occToken( null),
         });
         if (error) throw error;
         const row = (data as { out_id: string; updated_at: string; conflict: boolean }[])[0];
@@ -117,7 +117,7 @@ export function useUpsertPermitTask() {
       const { data, error } = await supabase.rpc('bp_upsert_permit_task_row', {
         p_id: input.task.id,
         p_data: payload,
-        p_expected_updated_at: input.task.updated_at,
+        p_expected_updated_at: occToken(input.task.updated_at),
       });
       if (error) throw error;
       const row = (data as { out_id: string; updated_at: string; conflict: boolean }[])[0];

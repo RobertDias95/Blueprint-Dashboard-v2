@@ -1,7 +1,7 @@
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '../lib/supabase';
 import { queryKeys } from '../lib/queryKeys';
-import { OCCConflictError, isOCCConflict } from '../lib/occ';
+import { OCCConflictError, isOCCConflict, occToken } from '../lib/occ';
 import { isUserInputValidationError } from '../lib/errorLogger';
 import { pushToast } from '../stores/toastStore';
 import { useAuthStore } from '../stores/authStore';
@@ -292,7 +292,7 @@ export function useUpsertPermitCycle() {
         const { data, error } = await supabase.rpc('bp_upsert_permit_cycle_row', {
           p_id: null,
           p_data: dataPayload,
-          p_expected_updated_at: null,
+          p_expected_updated_at: occToken( null),
         });
         if (error) throw error;
         row = (data as RpcRow[])[0];
@@ -333,7 +333,7 @@ export function useUpsertPermitCycle() {
         const { data, error } = await supabase.rpc('bp_upsert_permit_cycle_row', {
           p_id: input.cycle.id,
           p_data: merged,
-          p_expected_updated_at: expectedUpdatedAt,
+          p_expected_updated_at: occToken(expectedUpdatedAt),
         });
         if (error) throw error;
         row = (data as RpcRow[])[0];

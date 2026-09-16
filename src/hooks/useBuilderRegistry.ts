@@ -1,6 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '../lib/supabase';
 import { queryKeys } from '../lib/queryKeys';
+import { occToken } from '../lib/occ';
 import { pushToast } from '../stores/toastStore';
 import { useAuthStore } from '../stores/authStore';
 import type { Builder } from '../lib/database.types';
@@ -159,7 +160,7 @@ export function useUpsertBuilderRow() {
         p_address: input.address ?? null,
         p_notes: input.notes ?? null,
         p_active: input.active ?? null,
-        p_expected_updated_at: input.expectedUpdatedAt ?? null,
+        p_expected_updated_at: occToken(input.expectedUpdatedAt ?? null),
       });
       if (error) throw error;
       return data as Builder;

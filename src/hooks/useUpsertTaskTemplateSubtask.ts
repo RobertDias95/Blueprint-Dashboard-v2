@@ -1,7 +1,7 @@
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '../lib/supabase';
 import { queryKeys } from '../lib/queryKeys';
-import { OCCConflictError, isOCCConflict } from '../lib/occ';
+import { OCCConflictError, isOCCConflict, occToken } from '../lib/occ';
 import { pushToast } from '../stores/toastStore';
 import { useAuthStore } from '../stores/authStore';
 import type { TaskTemplateSubtask } from '../lib/database.types';
@@ -62,7 +62,7 @@ export function useUpsertTaskTemplateSubtask() {
         {
           p_id: input.subtask.id,
           p_data: payload,
-          p_expected_updated_at: input.subtask.updated_at,
+          p_expected_updated_at: occToken(input.subtask.updated_at),
         },
       );
       if (error) throw error;

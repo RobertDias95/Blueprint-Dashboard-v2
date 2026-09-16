@@ -1,7 +1,7 @@
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '../lib/supabase';
 import { queryKeys } from '../lib/queryKeys';
-import { OCCConflictError, isOCCConflict } from '../lib/occ';
+import { OCCConflictError, isOCCConflict, occToken } from '../lib/occ';
 import { pushToast } from '../stores/toastStore';
 import { useAuthStore } from '../stores/authStore';
 import type { DrawScheduleRow, PermitWithCycles } from '../lib/database.types';
@@ -50,7 +50,7 @@ export function useUpdateDrawSchedule() {
           p_start_week: input.startWeek,
           p_end_week: input.endWeek,
           p_schedule_status: input.scheduleStatus,
-          p_expected_updated_at: input.expectedUpdatedAt,
+          p_expected_updated_at: occToken(input.expectedUpdatedAt),
         },
       );
       if (error) throw error;

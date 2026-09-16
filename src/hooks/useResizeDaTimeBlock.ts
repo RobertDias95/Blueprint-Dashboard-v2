@@ -1,7 +1,7 @@
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '../lib/supabase';
 import { queryKeys } from '../lib/queryKeys';
-import { OCCConflictError, isOCCConflict } from '../lib/occ';
+import { OCCConflictError, isOCCConflict, occToken } from '../lib/occ';
 import { pushToast } from '../stores/toastStore';
 import { useAuthStore } from '../stores/authStore';
 import { applyResizedBlock } from '../lib/daTimeBlockCache';
@@ -78,7 +78,7 @@ export function useResizeDaTimeBlock() {
         p_id: input.blockId,
         p_new_start_week: input.newStartWeek,
         p_new_end_week: input.newEndWeek,
-        p_expected_updated_at: input.expectedUpdatedAt,
+        p_expected_updated_at: occToken(input.expectedUpdatedAt),
         p_force: input.force ?? false,
       });
       if (error) throw error;

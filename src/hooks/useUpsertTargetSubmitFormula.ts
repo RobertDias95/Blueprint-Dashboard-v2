@@ -1,7 +1,7 @@
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '../lib/supabase';
 import { queryKeys } from '../lib/queryKeys';
-import { OCCConflictError, isOCCConflict } from '../lib/occ';
+import { OCCConflictError, isOCCConflict, occToken } from '../lib/occ';
 import { pushToast } from '../stores/toastStore';
 import { useAuthStore } from '../stores/authStore';
 
@@ -34,7 +34,7 @@ export function useUpsertTargetSubmitFormula() {
           p_type: input.type,
           p_jurisdiction: input.jurisdiction,
           p_offset_days: input.offset_days,
-          p_expected_updated_at: input.expected_updated_at,
+          p_expected_updated_at: occToken(input.expected_updated_at),
         },
       );
       if (error) throw error;

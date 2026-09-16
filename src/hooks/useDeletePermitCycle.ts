@@ -1,7 +1,7 @@
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '../lib/supabase';
 import { queryKeys } from '../lib/queryKeys';
-import { OCCConflictError, isOCCConflict } from '../lib/occ';
+import { OCCConflictError, isOCCConflict, occToken } from '../lib/occ';
 import { pushToast } from '../stores/toastStore';
 import { useAuthStore } from '../stores/authStore';
 import type { PermitCycle, PermitWithCycles } from '../lib/database.types';
@@ -27,7 +27,7 @@ export function useDeletePermitCycle() {
     mutationFn: async ({ cycle, permitId }) => {
       const { data, error } = await supabase.rpc('bp_delete_permit_cycle_row', {
         p_id: cycle.id,
-        p_expected_updated_at: cycle.updated_at,
+        p_expected_updated_at: occToken(cycle.updated_at),
       });
       if (error) throw error;
       const row = (

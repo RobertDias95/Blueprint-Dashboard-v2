@@ -1,7 +1,7 @@
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '../lib/supabase';
 import { queryKeys } from '../lib/queryKeys';
-import { OCCConflictError, isOCCConflict } from '../lib/occ';
+import { OCCConflictError, isOCCConflict, occToken } from '../lib/occ';
 import { pushToast } from '../stores/toastStore';
 import { useAuthStore } from '../stores/authStore';
 import type { TaskTemplate } from '../lib/database.types';
@@ -97,7 +97,7 @@ export function useUpsertTaskTemplate() {
       const { data, error } = await supabase.rpc('bp_upsert_task_template_row', {
         p_id: input.template.id,
         p_data: payload,
-        p_expected_updated_at: input.template.updated_at,
+        p_expected_updated_at: occToken(input.template.updated_at),
       });
       if (error) throw error;
       const row = (data as Row[])[0];

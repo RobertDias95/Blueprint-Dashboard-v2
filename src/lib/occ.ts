@@ -95,3 +95,66 @@ export class OCCConflictError extends Error {
 export function isOCCConflict(error: unknown): error is OCCConflictError {
   return error instanceof OCCConflictError;
 }
+
+// ===========================================================================
+// ★★★ fix-580 §A (P-285) — AN EMPTY STRING IS NOT A TIMESTAMP
+// ===========================================================================
+//
+// PROD ROWS 731 AND 732, 2026-09-16 00:53:00 and 00:53:09, brittani@:
+//
+//   invalid input syntax for type timestamp with time zone: ""
+//   { url: "/board", kind: "mutation", fields: [text, discipline, start_date,
+//     target_date, assigned_to, completion_status, priority, notes] }
+//
+// Nine seconds apart — a retry, not two edits — and **zero `team_tasks` rows
+// were created or updated after 2026-09-15 17:11 UTC.** Both attempts were
+// refused and her work never landed. Data loss by refusal.
+//
+// ★★★ THE TYPE NAME IS THE DISCRIMINATOR. `''::date` says *"invalid input
+//     syntax for type **date**"*. Only `''::timestamptz` says what we got, and
+//     every `timestamptz` argument on every one of the 45 `bp_*` functions that
+//     take one is an OCC guard — `p_expected_updated_at`, `p_expected_a`,
+//     `p_expected_b`, `p_anchor_expected_updated_at`,
+//     `p_project_expected_updated_at`. There is no other `timestamptz` input on
+//     any write path. So the client posted `""` as the token, and **PostgREST
+//     failed the cast before the function body ran**: no guard inside the
+//     function can catch this, because the argument never arrives.
+//
+// ---------------------------------------------------------------------------
+// ★★ WHY THIS IS A FUNCTION AND NOT A FIX AT THE ONE CALL SITE
+// ---------------------------------------------------------------------------
+//
+// 45 RPCs take the same guard the same way and 49 call sites post it. A
+// per-site fix is a promise to hit this again on the other 44.
+//
+// ⚠️ AND THERE IS NO `supabase.rpc` WRAPPER TO PUT IT IN — the brief assumed
+//    one exists because `write` appears in the error context, but `write` is a
+//    `useMutation({ meta })` field (fix-511), not a call wrapper.
+//    `mutationErrorContext`'s own header records why the wrapper was refused:
+//    ~200 suites mock `lib/supabase`, so a wrapper would be absent in precisely
+//    the tests meant to prove it. An explicit call visible in the hook beats an
+//    invisible mechanism — so every OCC hook names this function.
+//
+// ★ IT IS ALSO THE ONLY SHAPE THE TYPES CAN ENFORCE. `occToken` returns
+//   `string | null`, so a hook that forgets it and posts a `string` still
+//   compiles; what stops the next one is the test that walks every OCC hook in
+//   `src/hooks` and asserts the call is there.
+
+/**
+ * Normalise an OCC token for the wire: `""` and whitespace-only become `null`,
+ * and a real timestamp passes through **unchanged**.
+ *
+ * ★ `null` is the honest value for "I have no token". PostgREST casts `null`
+ *   to `timestamptz` without complaint, and every OCC function already means
+ *   "no prior row" by it on an insert.
+ *
+ * ⚠️ ON AN **UPDATE**, `null` is not a free pass — `updated_at = null` matches
+ *    no row, so the write is refused as a conflict rather than accepted
+ *    blindly. That is deliberate: this function makes a bad token *legible*,
+ *    it does not invent a good one. A caller that genuinely has no token has to
+ *    go and get one (see `useUpsertTeamTask`).
+ */
+export function occToken(value: string | null | undefined): string | null {
+  if (typeof value !== 'string') return null;
+  return value.trim() === '' ? null : value;
+}

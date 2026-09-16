@@ -1,7 +1,7 @@
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '../lib/supabase';
 import { queryKeys } from '../lib/queryKeys';
-import { OCCConflictError, isOCCConflict } from '../lib/occ';
+import { OCCConflictError, isOCCConflict, occToken } from '../lib/occ';
 import { pushToast } from '../stores/toastStore';
 import { useAuthStore } from '../stores/authStore';
 import type { DrawScheduleRow } from '../lib/database.types';
@@ -58,7 +58,7 @@ export function useResolveDaOverlap() {
         p_target_start_week: input.startWeek,
         p_target_end_week: input.endWeek,
         p_anchor_status: input.scheduleStatus,
-        p_anchor_expected_updated_at: input.expectedUpdatedAt,
+        p_anchor_expected_updated_at: occToken(input.expectedUpdatedAt),
       });
       if (error) throw error;
       const row = (data as RpcResult[])[0];
