@@ -2,6 +2,7 @@ import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '../lib/supabase';
 import { queryKeys } from '../lib/queryKeys';
 import { OCCConflictError, occToken } from '../lib/occ';
+import { occRowKey, occSerialize } from '../lib/occQueue';
 import { pushToast } from '../stores/toastStore';
 import { useAuthStore } from '../stores/authStore';
 import type { Project } from '../lib/database.types';
@@ -27,17 +28,21 @@ export function useDeleteProject() {
   const tenantId = useAuthStore((s) => s.activeTenantId) ?? '';
 
   return useMutation<void, Error, DeleteProjectInput>({
-    mutationFn: async ({ projectId, expectedUpdatedAt }) => {
+    mutationFn: async ({ projectId, expectedUpdatedAt }) =>
+      occSerialize(occRowKey('projects', projectId), occToken(expectedUpdatedAt), async (expected) => {
+        const value = await (async () => {
       const { data, error } = await supabase.rpc('bp_delete_project_row', {
         p_id: projectId,
-        p_expected_updated_at: occToken(expectedUpdatedAt),
+        p_expected_updated_at: expected,
       });
       if (error) throw error;
       const row = (data as DeleteResult[] | null)?.[0];
       if (!row || row.conflict) {
         throw new OCCConflictError(0, 'Project');
       }
-    },
+        })();
+        return { value, token: undefined };
+      }),
 
     onSuccess: (_data, { projectId }) => {
       // Drop the deleted project from the projects cache + invalidate

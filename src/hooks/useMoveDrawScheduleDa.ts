@@ -2,6 +2,7 @@ import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '../lib/supabase';
 import { queryKeys } from '../lib/queryKeys';
 import { OCCConflictError, isOCCConflict, occToken } from '../lib/occ';
+import { occRowKey, occSerialize } from '../lib/occQueue';
 import { pushToast } from '../stores/toastStore';
 import { useAuthStore } from '../stores/authStore';
 import type { DrawScheduleRow } from '../lib/database.types';
@@ -59,7 +60,9 @@ export function useMoveDrawScheduleDa() {
   const tenantId = useAuthStore((s) => s.activeTenantId) ?? '';
 
   return useMutation<MoveDrawScheduleDaResult, Error, MoveDrawScheduleDaInput>({
-    mutationFn: async (input) => {
+    mutationFn: async (input) =>
+      occSerialize(occRowKey('draw_schedule', input.projectId), occToken(input.expectedUpdatedAt), async (expected) => {
+        const value = await (async () => {
       const { data, error } = await supabase.rpc('bp_move_draw_schedule_da', {
         p_project_id: input.projectId,
         p_new_da: input.newDa,
@@ -67,7 +70,7 @@ export function useMoveDrawScheduleDa() {
         p_start_week: input.startWeek,
         p_end_week: input.endWeek,
         p_status: input.scheduleStatus,
-        p_expected_updated_at: occToken(input.expectedUpdatedAt),
+        p_expected_updated_at: expected,
       });
       if (error) throw error;
       const row = (data as RpcRow[])[0];
@@ -85,7 +88,9 @@ export function useMoveDrawScheduleDa() {
         gapDownstreamCount: row.out_gap_downstream_count,
         gapAfterWeek: row.out_gap_after_week,
       };
-    },
+        })();
+        return { value, token: value.updatedAt ?? undefined };
+      }),
 
     onSuccess: (result, input) => {
       // ★★★ fix-443 §A (P-095) — WRITE THE RETURNED TOKEN BACK, SYNCHRONOUSLY.

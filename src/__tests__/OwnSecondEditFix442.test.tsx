@@ -555,7 +555,13 @@ describe('fix-442 §A5 — the guard, the RPCs and the sentence are untouched', 
     //   confirm dialog cannot be corrected by the writer that superseded it.
     //   **fix-442's ruling is untouched and is what this guard is about**: the
     //   RPC and its argument list have not moved, and the guard did not widen.
-    expect(code(resizeSrc)).toContain('p_expected_updated_at: occToken(expected)');
+    // ★★ fix-584 §B: the token is supplied by the per-row serializer now — its
+    //    SEED is fix-581's `currentBlockToken(…)` cache read, wrapped in
+    //    `occToken` as fix-580 requires. fix-442's ruling is untouched and is
+    //    what this guards: the RPC and its argument list have not moved.
+    expect(code(resizeSrc)).toContain('p_expected_updated_at: expected');
+    expect(code(resizeSrc)).toContain('occSerialize(');
+    expect(code(resizeSrc)).toContain('currentBlockToken(');
     expect(code(resizeSrc)).toContain('currentBlockToken(');
     expect(code(resizeSrc)).toContain('input.expectedUpdatedAt,');
     expect(code(upsertSrc)).toContain('bp_upsert_da_time_block_row');

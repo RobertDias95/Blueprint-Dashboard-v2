@@ -2,6 +2,7 @@ import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '../lib/supabase';
 import { queryKeys } from '../lib/queryKeys';
 import { OCCConflictError, isOCCConflict, occToken } from '../lib/occ';
+import { occRowKey, occSerialize } from '../lib/occQueue';
 import { pushToast } from '../stores/toastStore';
 import { useAuthStore } from '../stores/authStore';
 import type { PermitCycle, PermitWithCycles } from '../lib/database.types';
@@ -24,10 +25,12 @@ export function useDeletePermitCycle() {
   const tenantId = useAuthStore((s) => s.activeTenantId) ?? '';
 
   return useMutation<void, Error, DeleteCycleInput, MutationContext>({
-    mutationFn: async ({ cycle, permitId }) => {
+    mutationFn: async ({ cycle, permitId }) =>
+      occSerialize(occRowKey('permit_cycles', cycle.id), occToken(cycle.updated_at), async (expected) => {
+        const value = await (async () => {
       const { data, error } = await supabase.rpc('bp_delete_permit_cycle_row', {
         p_id: cycle.id,
-        p_expected_updated_at: occToken(cycle.updated_at),
+        p_expected_updated_at: expected,
       });
       if (error) throw error;
       const row = (
@@ -41,7 +44,9 @@ export function useDeletePermitCycle() {
       if (row.conflict) {
         throw new OCCConflictError(permitId, 'Cycle');
       }
-    },
+        })();
+        return { value, token: undefined };
+      }),
 
     onMutate: async ({ cycle, permitId, projectId }) => {
       await queryClient.cancelQueries({ queryKey: queryKeys.permits(tenantId) });

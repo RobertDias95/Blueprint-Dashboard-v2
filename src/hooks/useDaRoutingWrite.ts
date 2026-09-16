@@ -2,6 +2,7 @@ import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '../lib/supabase';
 import { queryKeys } from '../lib/queryKeys';
 import { OCCConflictError, isOCCConflict, occToken } from '../lib/occ';
+import { occInsertKey, occRowKey, occSerialize } from '../lib/occQueue';
 import { pushToast } from '../stores/toastStore';
 import { useAuthStore } from '../stores/authStore';
 
@@ -45,7 +46,9 @@ export function useUpsertDaRouting() {
   const queryClient = useQueryClient();
   const tenantId = useAuthStore((s) => s.activeTenantId) ?? '';
   return useMutation<{ id: number; updated_at: string }, Error, UpsertDaRoutingInput>({
-    mutationFn: async (input) => {
+    mutationFn: async (input) =>
+      occSerialize(input.op === 'insert' ? occInsertKey('da_team_routing') : occRowKey('da_team_routing', input.id), occToken(input.op === 'insert' ? null : input.updated_at), async (expected) => {
+        const value = await (async () => {
       const isInsert = input.op === 'insert';
       const { data, error } = await supabase.rpc(
         'bp_upsert_da_team_routing_row',
@@ -58,7 +61,7 @@ export function useUpsertDaRouting() {
             jurisdiction: input.patch.jurisdiction ?? '',
             ent_lead: input.patch.ent_lead,
           },
-          p_expected_updated_at: occToken(isInsert ? null : input.updated_at),
+          p_expected_updated_at: expected,
         },
       );
       if (error) throw error;
@@ -66,7 +69,9 @@ export function useUpsertDaRouting() {
       if (!row) throw new Error('Upsert returned no row');
       if (row.conflict) throw new OCCConflictError(0, 'DA routing');
       return { id: row.out_id, updated_at: row.updated_at };
-    },
+        })();
+        return { value, token: value.updated_at };
+      }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: queryKeys.daTeamRouting(tenantId) });
       pushToast('Saved DA routing', 'success');
@@ -89,15 +94,19 @@ export function useDeleteDaRouting() {
   const queryClient = useQueryClient();
   const tenantId = useAuthStore((s) => s.activeTenantId) ?? '';
   return useMutation<void, Error, { id: number; updated_at: string }>({
-    mutationFn: async ({ id, updated_at }) => {
+    mutationFn: async ({ id, updated_at }) =>
+      occSerialize(occRowKey('da_team_routing', id), occToken(updated_at), async (expected) => {
+        const value = await (async () => {
       const { data, error } = await supabase.rpc(
         'bp_delete_da_team_routing_row',
-        { p_id: id, p_expected_updated_at: occToken(updated_at) },
+        { p_id: id, p_expected_updated_at: expected },
       );
       if (error) throw error;
       const row = (data as DeleteRow[])[0];
       if (row?.conflict) throw new OCCConflictError(0, 'DA routing');
-    },
+        })();
+        return { value, token: undefined };
+      }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: queryKeys.daTeamRouting(tenantId) });
       pushToast('Removed routing rule', 'success');

@@ -2,6 +2,7 @@ import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '../lib/supabase';
 import { queryKeys } from '../lib/queryKeys';
 import { OCCConflictError, isOCCConflict, occToken } from '../lib/occ';
+import { occInsertKey, occRowKey, occSerialize } from '../lib/occQueue';
 import { pushToast } from '../stores/toastStore';
 import { useAuthStore } from '../stores/authStore';
 import type { TaskTemplate } from '../lib/database.types';
@@ -68,7 +69,9 @@ export function useUpsertTaskTemplate() {
   const queryClient = useQueryClient();
   const tenantId = useAuthStore((s) => s.activeTenantId) ?? '';
   return useMutation<TaskTemplate, Error, UpsertTaskTemplateInput>({
-    mutationFn: async (input) => {
+    mutationFn: async (input) =>
+      occSerialize(input.op === 'insert' ? occInsertKey('task_templates') : occRowKey('task_templates', input.template.id), occToken(input.op === 'insert' ? null : input.template.updated_at), async (expected) => {
+        const value = await (async () => {
       if (input.op === 'insert') {
         const payload = buildPayload({}, input.patch);
         const { data, error } = await supabase.rpc(
@@ -97,14 +100,16 @@ export function useUpsertTaskTemplate() {
       const { data, error } = await supabase.rpc('bp_upsert_task_template_row', {
         p_id: input.template.id,
         p_data: payload,
-        p_expected_updated_at: occToken(input.template.updated_at),
+        p_expected_updated_at: expected,
       });
       if (error) throw error;
       const row = (data as Row[])[0];
       if (!row) throw new Error('Update returned no row');
       if (row.conflict) throw new OCCConflictError(0, 'Task template');
       return { ...input.template, ...input.patch, updated_at: row.updated_at };
-    },
+        })();
+        return { value, token: value.updated_at };
+      }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: queryKeys.taskTemplates(tenantId) });
     },

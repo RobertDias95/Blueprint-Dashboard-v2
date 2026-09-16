@@ -2,6 +2,7 @@ import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '../lib/supabase';
 import { queryKeys } from '../lib/queryKeys';
 import { OCCConflictError, isOCCConflict, occToken } from '../lib/occ';
+import { occInsertKey, occRowKey, occSerialize } from '../lib/occQueue';
 import { pushToast } from '../stores/toastStore';
 import { useAuthStore } from '../stores/authStore';
 import type { DaTimeBlock } from '../lib/database.types';
@@ -67,7 +68,26 @@ export function useUpsertDaTimeBlock() {
     // ★ fix-511 §C: prod rows 694/695 (§B's OCC refusals) carried no name
     //   either. Both halves of this ticket are the same missing sentence.
     meta: { write: 'bp_upsert_da_time_block_row' },
-    mutationFn: async (input) => {
+    mutationFn: async (input) =>
+      // ★★★ fix-584 §B: the fix-581 cache read below is the SEED; the serializer
+      //     supplies the token while another write on this block is in flight,
+      //     which the cache cannot. Same mechanism as every other OCC writer.
+      occSerialize(
+        input.op === 'insert'
+          ? occInsertKey('da_time_blocks')
+          : occRowKey('da_time_blocks', input.block.id),
+        occToken(
+          input.op === 'insert'
+            ? null
+            : currentBlockToken(
+                queryClient,
+                tenantId,
+                input.block.id,
+                input.block.updated_at,
+              ),
+        ),
+        async (expectedToken) => {
+        const value = await (async () => {
       const isInsert = input.op === 'insert';
       const payload = isInsert
         ? buildPayload({}, input.patch)
@@ -78,20 +98,13 @@ export function useUpsertDaTimeBlock() {
       //     later. Prod 735: Dave posted his block's `created_at` while a resize
       //     had moved the stamp 5.4 s earlier. The cache is what every writer
       //     already corrects; the snapshot is what nothing can.
-      const expected = isInsert
-        ? null
-        : currentBlockToken(
-            queryClient,
-            tenantId,
-            input.block.id,
-            input.block.updated_at,
-          );
+      const expected = expectedToken;
       const { data, error } = await supabase.rpc(
         'bp_upsert_da_time_block_row',
         {
           p_id: isInsert ? input.id : input.block.id,
           p_data: payload,
-          p_expected_updated_at: occToken(expected),
+          p_expected_updated_at: expected,
         },
       );
       if (error) throw error;
@@ -132,7 +145,9 @@ export function useUpsertDaTimeBlock() {
         updated_at: row.updated_at,
         project_id: payload.project_id as string | null,
       };
-    },
+        })();
+        return { value, token: value.updated_at };
+      }),
     onSuccess: (row) => {
       // ★★★ fix-442 (P-067): the mutationFn already returns the WHOLE row with
       // the server's new `updated_at`, so the cache can be right immediately

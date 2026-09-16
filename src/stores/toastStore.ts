@@ -142,3 +142,43 @@ export function pushToast(
 ) {
   return useToastStore.getState().push(message, kind, opts);
 }
+
+// ===========================================================================
+// ★★★ fix-584 §A (P-286) — A VALIDATION MESSAGE IS NOT AN ERROR
+// ===========================================================================
+//
+// Bobby, 2026-09-16: *"maybe we do stop routing it to error triage so that it
+// stops popping up there."*
+//
+// Prod `error_reports` #737, Cam, `/library`: **"Unit size: enter a whole number
+// between 0 and 2147483647."** That is fix-511's bounded numeric input working
+// exactly as designed — somebody typed something out of range and was told.
+// **Nothing failed.** The Errors page already states the principle for its
+// neighbour case: *"Permit conditions are not errors."*
+//
+// ★★★ CLASSIFIED AT THE THROW SITE, NEVER BY MESSAGE TEXT. Matching on
+//     "enter a whole number" is a rule that rots the first time somebody rewords
+//     a label — and it would have to be re-guessed for every future validator.
+//     The code raising the message already knows it is REFUSING INPUT rather
+//     than REPORTING A FAILURE; this function is that knowledge, named.
+//
+// ★★ IT IS NOT A NEW MECHANISM. fix-165 built `{ log: false }` for exactly
+//    this, for chronology dates (SQLSTATE 22008), and it has worked: those
+//    stopped appearing on 2026-06-15 and there are **zero** since. What was
+//    missing is a name — an options bag nobody remembers to pass is why
+//    fix-511's numeric inputs, written later, never opted in.
+//
+// ⚠️ WHAT IS **NOT** THIS: a refusal the app did not intend. A database error,
+//    a failed RPC, an exception, an OCC conflict — all still reported, because
+//    the app did not mean to produce them. The test asserts both directions.
+
+/**
+ * Tell somebody their input was refused — and do not report it as an error.
+ *
+ * ★ Use for anything the app decided to refuse ON PURPOSE: a bounds check, a
+ *   required field, a format that will not parse, an action that does not apply.
+ *   The person sees exactly the toast they saw before; Error Triage does not.
+ */
+export function pushValidationToast(message: string) {
+  return useToastStore.getState().push(message, 'error', { log: false });
+}

@@ -2,6 +2,7 @@ import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '../lib/supabase';
 import { queryKeys } from '../lib/queryKeys';
 import { occToken } from '../lib/occ';
+import { occRowKey, occSerialize } from '../lib/occQueue';
 import { pushToast } from '../stores/toastStore';
 import { useAuthStore } from '../stores/authStore';
 
@@ -32,11 +33,13 @@ export function useSwapIntakeDates() {
   const queryClient = useQueryClient();
   const tenantId = useAuthStore((s) => s.activeTenantId) ?? '';
   return useMutation<boolean, Error, SwapIntakeInput>({
-    mutationFn: async ({ idA, idB, expectedA, expectedB }) => {
+    mutationFn: async ({ idA, idB, expectedA, expectedB }) =>
+      occSerialize(occRowKey('intake_records', idA), occToken(expectedA), async (expected) => {
+        const value = await (async () => {
       const { data, error } = await supabase.rpc('bp_swap_intake_dates', {
         p_id_a: idA,
         p_id_b: idB,
-        p_expected_a: occToken(expectedA),
+        p_expected_a: expected,
         p_expected_b: occToken(expectedB),
       });
       if (error) throw error;
@@ -48,7 +51,9 @@ export function useSwapIntakeDates() {
         );
       }
       return row.swapped;
-    },
+        })();
+        return { value, token: undefined };
+      }),
     onSuccess: () => {
       queryClient.invalidateQueries({
         queryKey: queryKeys.intakeRecords(tenantId),

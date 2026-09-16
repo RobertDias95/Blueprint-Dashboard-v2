@@ -2,6 +2,7 @@ import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '../lib/supabase';
 import { queryKeys } from '../lib/queryKeys';
 import { OCCConflictError, isOCCConflict, occToken } from '../lib/occ';
+import { occRowKey, occSerialize } from '../lib/occQueue';
 import { pushToast } from '../stores/toastStore';
 import { useAuthStore } from '../stores/authStore';
 
@@ -18,15 +19,19 @@ export function useDeleteDmDaGroup() {
   const queryClient = useQueryClient();
   const tenantId = useAuthStore((s) => s.activeTenantId) ?? '';
   return useMutation<void, Error, { id: string; updated_at: string }>({
-    mutationFn: async ({ id, updated_at }) => {
+    mutationFn: async ({ id, updated_at }) =>
+      occSerialize(occRowKey('dm_da_groups', id), occToken(updated_at), async (expected) => {
+        const value = await (async () => {
       const { data, error } = await supabase.rpc('bp_delete_dm_da_group_row', {
         p_id: id,
-        p_expected_updated_at: occToken(updated_at),
+        p_expected_updated_at: expected,
       });
       if (error) throw error;
       const row = (data as Row[])[0];
       if (row?.conflict) throw new OCCConflictError(0, 'Team group');
-    },
+        })();
+        return { value, token: undefined };
+      }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: queryKeys.dmDaGroups(tenantId) });
       pushToast('Removed DA from group', 'success');

@@ -2,6 +2,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '../lib/supabase';
 import { queryKeys } from '../lib/queryKeys';
 import { occToken } from '../lib/occ';
+import { occInsertKey, occRowKey, occSerialize } from '../lib/occQueue';
 import { pushToast } from '../stores/toastStore';
 import { useAuthStore } from '../stores/authStore';
 import type { Builder } from '../lib/database.types';
@@ -150,7 +151,9 @@ function useInvalidate() {
 export function useUpsertBuilderRow() {
   const invalidate = useInvalidate();
   return useMutation<Builder, Error, UpsertBuilderInput>({
-    mutationFn: async (input) => {
+    mutationFn: async (input) =>
+      occSerialize(input.id ? occRowKey('builders', input.id) : occInsertKey('builders'), occToken(input.expectedUpdatedAt ?? null), async (expected) => {
+        const value = await (async () => {
       const { data, error } = await supabase.rpc('bp_upsert_builder', {
         p_id: input.id ?? null,
         p_name: input.name,
@@ -160,11 +163,13 @@ export function useUpsertBuilderRow() {
         p_address: input.address ?? null,
         p_notes: input.notes ?? null,
         p_active: input.active ?? null,
-        p_expected_updated_at: occToken(input.expectedUpdatedAt ?? null),
+        p_expected_updated_at: expected,
       });
       if (error) throw error;
       return data as Builder;
-    },
+        })();
+        return { value, token: value.updated_at ?? undefined };
+      }),
     onSuccess: () => {
       invalidate();
       pushToast('Saved builder', 'success');

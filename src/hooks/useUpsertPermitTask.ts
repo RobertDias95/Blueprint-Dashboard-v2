@@ -2,6 +2,7 @@ import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '../lib/supabase';
 import { queryKeys } from '../lib/queryKeys';
 import { OCCConflictError, isOCCConflict, occToken } from '../lib/occ';
+import { occInsertKey, occRowKey, occSerialize } from '../lib/occQueue';
 import { pushToast } from '../stores/toastStore';
 import { useAuthStore } from '../stores/authStore';
 import type { PermitTask } from '../lib/database.types';
@@ -77,7 +78,9 @@ export function useUpsertPermitTask() {
   const tenantId = useAuthStore((s) => s.activeTenantId) ?? '';
 
   return useMutation<PermitTask, Error, UpsertTaskInput, MutationContext>({
-    mutationFn: async (input) => {
+    mutationFn: async (input) =>
+      occSerialize(input.op === 'insert' ? occInsertKey('permit_tasks') : occRowKey('permit_tasks', input.task.id), occToken(input.op === 'insert' ? null : input.task.updated_at), async (expected) => {
+        const value = await (async () => {
       if (input.op === 'insert') {
         const payload = buildFullPayload(input.permitId, {}, input.patch);
         const { data, error } = await supabase.rpc('bp_upsert_permit_task_row', {
@@ -117,7 +120,7 @@ export function useUpsertPermitTask() {
       const { data, error } = await supabase.rpc('bp_upsert_permit_task_row', {
         p_id: input.task.id,
         p_data: payload,
-        p_expected_updated_at: occToken(input.task.updated_at),
+        p_expected_updated_at: expected,
       });
       if (error) throw error;
       const row = (data as { out_id: string; updated_at: string; conflict: boolean }[])[0];
@@ -130,7 +133,9 @@ export function useUpsertPermitTask() {
         ...input.patch,
         updated_at: row.updated_at,
       };
-    },
+        })();
+        return { value, token: value.updated_at };
+      }),
 
     onMutate: async (input) => {
       const key = queryKeys.permitTasksFor(tenantId, input.permitId);

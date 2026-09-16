@@ -2,6 +2,7 @@ import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '../lib/supabase';
 import { queryKeys } from '../lib/queryKeys';
 import { OCCConflictError, isOCCConflict, occToken } from '../lib/occ';
+import { occInsertKey, occRowKey, occSerialize } from '../lib/occQueue';
 import { pushToast } from '../stores/toastStore';
 import { useAuthStore } from '../stores/authStore';
 import type { IntakeRecord } from '../lib/database.types';
@@ -76,7 +77,9 @@ export function useUpsertIntakeRecord() {
     //   from the message — exactly the cost fix-511 §C measured at four
     //   database queries per row.
     meta: { write: 'bp_upsert_intake_records_row' },
-    mutationFn: async (input) => {
+    mutationFn: async (input) =>
+      occSerialize(input.op === 'insert' ? occInsertKey('intake_records') : occRowKey('intake_records', input.record.id), occToken(input.op === 'insert' ? null : input.record.updated_at), async (expected) => {
+        const value = await (async () => {
       if (input.op === 'insert') {
         const id = await nextId();
         const payload = buildPayload({}, input.patch);
@@ -110,7 +113,7 @@ export function useUpsertIntakeRecord() {
         {
           p_id: input.record.id,
           p_data: payload,
-          p_expected_updated_at: occToken(input.record.updated_at),
+          p_expected_updated_at: expected,
         },
       );
       if (error) throw error;
@@ -132,7 +135,9 @@ export function useUpsertIntakeRecord() {
         });
       }
       return { ...input.record, ...input.patch, updated_at: row.updated_at };
-    },
+        })();
+        return { value, token: value.updated_at };
+      }),
     onSuccess: (result) => {
       // fix-258: write the fresh OCC token straight into the cache before the
       // invalidate-driven refetch lands. Without this, a second edit made

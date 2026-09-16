@@ -2,6 +2,7 @@ import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '../lib/supabase';
 import { queryKeys } from '../lib/queryKeys';
 import { OCCConflictError, isOCCConflict, occToken } from '../lib/occ';
+import { occInsertKey, occRowKey, occSerialize } from '../lib/occQueue';
 import { pushToast } from '../stores/toastStore';
 import { useAuthStore } from '../stores/authStore';
 
@@ -150,9 +151,19 @@ export function useUpsertTeamTask() {
     // ★ fix-511 §C / fix-580: name the RPC in Error Reports. Rows 731/732 cost
     //   four queries to attribute because `fields` was all they carried.
     meta: { write: 'bp_upsert_team_task' },
-    mutationFn: async (input) => {
+    mutationFn: async (input) =>
+      // ★★★ fix-584 §B: the row-fetch below is fix-580's bridge for a caller
+      //     that has NO token; the serializer is what handles a caller whose
+      //     token is merely one write behind. Different failures, one mechanism.
+      occSerialize(
+        input.op === 'insert'
+          ? occInsertKey('team_tasks')
+          : occRowKey('team_tasks', input.id),
+        input.op === 'insert' ? null : occToken(input.updated_at),
+        async (expected) => {
+        const value = await (async () => {
       const isInsert = input.op === 'insert';
-      let token = isInsert ? null : occToken(input.updated_at);
+      let token = isInsert ? null : expected;
       if (!isInsert && token === null) {
         // ★★★ fix-580: the caller has no token. Go and get one rather than
         //     posting a lie — see the header. Falls through to `null` (and so
@@ -184,7 +195,9 @@ export function useUpsertTeamTask() {
         });
       }
       return { id: row.out_id, updated_at: row.updated_at };
-    },
+        })();
+        return { value, token: value.updated_at };
+      }),
     onSuccess: () => {
       // ★★ THE SAME KEY THE BOARD READS. Team tasks come back through
       //    bp_list_tasks, so invalidating that one query is what makes a new
