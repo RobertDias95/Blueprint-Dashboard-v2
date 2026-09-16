@@ -1,4 +1,5 @@
 import { supabase } from './supabase';
+import { buildStamp } from './buildInfo';
 
 // fix-87: single entry point for sending errors to the bp_log_error RPC.
 //
@@ -317,6 +318,19 @@ export function logError(input: LogErrorInput): Promise<void> {
       ...(input.context ?? {}),
       environment: env.mode,
       origin: env.origin ?? undefined,
+      // ★★★ fix-587 §1b: WHICH BUILD THIS BROWSER IS RUNNING.
+      //
+      //     P-287 was two people on one screen seeing 332 and 65. The server
+      //     returned identical rows to both and every filter stage was correct;
+      //     what differed was that one of them was on a bundle three weeks old
+      //     — established by COUNTING CONTROLS IN A SCREENSHOT, because no row
+      //     in this table could say it.
+      //
+      // ★★ The same argument fix-511 makes for `environment` one line up: the
+      //    stamp answers a question a stack trace cannot, and it cannot be
+      //    recovered retroactively. Every row from here carries it, so "is that
+      //    person stale?" becomes a SQL query instead of a ticket.
+      build: buildStamp(),
     },
   };
 

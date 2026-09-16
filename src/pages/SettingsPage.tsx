@@ -1,3 +1,4 @@
+import { buildStamp } from '../lib/buildInfo';
 import { NavLink, useLocation } from 'react-router-dom';
 import AdminAccountTab from '../components/Settings/AdminAccountTab';
 import AdminTeamTab from '../components/Settings/AdminTeamTab';
@@ -54,6 +55,18 @@ export default function SettingsPage() {
     >
       <div className="flex items-baseline gap-3 flex-none mb-3">
         <h1 className="text-[15px] font-extrabold text-text">System Settings</h1>
+        {/* ★★★ fix-587 §1b — THE BUILD, WHERE A PERSON CAN READ IT OUT.
+            P-287 took a day because nobody could answer "which version are you
+            on?". Brittani was three weeks stale and the only evidence was three
+            missing toolbar buttons in a screenshot. One line, in the place
+            somebody already opens when something looks wrong. */}
+        <span
+          className="text-[10px] text-dim font-mono ml-auto select-all"
+          title={`Build ${buildStamp()} — quote this if a screen looks wrong`}
+          data-testid="settings-build-stamp"
+        >
+          Build {buildStamp()}
+        </span>
       </div>
 
       <div className="flex flex-1 min-h-0 border border-border rounded-md overflow-hidden bg-surface">
