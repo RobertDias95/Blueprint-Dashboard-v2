@@ -1,0 +1,107 @@
+# ===========================================================================
+# ★★★ fix-589 §3c (P-289) — THE CACHING DECISION, WRITTEN DOWN
+# ===========================================================================
+#
+# ⚠️ **INERT UNTIL SOMEBODY LINKS IT.** Render reads this file only for a
+#    service created from a Blueprint. `blueprint-dashboard-v2` was created in
+#    the dashboard, so committing this changes nothing about today's deploy —
+#    it is here so the decision is visible and reviewable, which is what §3c
+#    asks for. To make it take effect, either link the service to this
+#    Blueprint in Render, or set the two header rules by hand under
+#    Settings → Headers. Said plainly rather than implied, because a config
+#    that reports success and changes nothing is fix-588's injury again.
+#
+# ---------------------------------------------------------------------------
+# ★★★ WHAT THE HOST ACTUALLY SENDS TODAY — MEASURED 2026-09-16
+# ---------------------------------------------------------------------------
+#
+#   $ curl -sSD - -o /dev/null https://blueprint-dashboard-v2.onrender.com/
+#   HTTP/1.1 200 OK
+#   Cache-Control: public, max-age=0, s-maxage=300
+#   etag: W/"2258e322d35d4a45ef63c1fc60c811fe"
+#   last-modified: Wed, 16 Sep 2026 23:19:29 UTC
+#   cf-cache-status: MISS        (HIT, Age: 0 on the second request)
+#   Server: cloudflare
+#
+# **Nobody chose that.** There was no render.yaml, no public/_headers, no
+# static.json — `appVersion.ts` asserted in a comment that "index.html is
+# UNFINGERPRINTED and served fresh", and that was an assumption about a host
+# default, not a configuration.
+#
+# ★★★ THE GOOD HALF: `max-age=0` MEANS THE BROWSER MUST REVALIDATE, and it
+#     does. Measured in the real deployed app, service worker controlling the
+#     page, calling `window.location.reload()` exactly as the ribbon's button
+#     does:
+#
+#       navigation.type          'reload'
+#       navigation.transferSize  2500       ← went to the network
+#       navigation.deliveryType  ''         ← NOT served from the HTTP cache
+#
+#     So the reload is **not** re-reading a cached index.html. §0's hypothesis
+#     that a person could click Reload for three weeks and never move is dead,
+#     and the PR says so.
+#
+# ★★ THE HALF THAT IS REAL: `s-maxage=300` lets the CDN answer that
+#    revalidation from a copy up to five minutes old. Bounded, self-clearing,
+#    and incapable of producing three weeks — but it IS a window in which the
+#    detector (which always bypasses the edge, because its URL carries a unique
+#    `?build-check=` query and always MISSes) and the reload can disagree about
+#    which bundle is current. The rules below close it.
+#
+# ---------------------------------------------------------------------------
+# ★★ THE STANDARD SPLIT, AND WHY IT IS SAFE
+# ---------------------------------------------------------------------------
+#
+#   index.html   UNFINGERPRINTED — it is the one file whose URL never changes,
+#                so it is the only one that can announce a new build. Never
+#                store it: `no-store` at every cache, browser and CDN alike.
+#   /assets/*    FINGERPRINTED by Vite — the hash IS the version, so the
+#                content at a given URL can never change. A year, immutable.
+#                This is also the part that makes `no-store` on the HTML cheap:
+#                a reload re-reads 3KB of HTML and keeps every byte of JS.
+#
+# ⛔ NOTHING HERE ADDS CACHING TO `public/sw.js`. fix-369 excluded it on
+#    purpose and §4 restates why: a stale-serving worker is the classic cause
+#    of the very bug this ticket chased.
+
+services:
+  - type: web
+    runtime: static
+    name: blueprint-dashboard-v2
+    # ★ Matches package.json today: `tsc -b && vite build`, Vite's default
+    #   outDir. Stated so that linking this Blueprint cannot silently change
+    #   how the site is built.
+    buildCommand: npm ci && npm run build
+    staticPublishPath: ./dist
+
+    headers:
+      # ★★★ THE UNFINGERPRINTED ENTRY POINT. `no-store` rather than
+      #     `no-cache, must-revalidate`: `no-cache` still stores the response
+      #     and permits a 304, which leaves the CDN in the loop. `no-store`
+      #     takes every cache out of it, and the file is 3KB.
+      - path: /index.html
+        name: Cache-Control
+        value: no-store, must-revalidate
+      # ★ The SPA rewrite below serves index.html at every route, so the root
+      #   needs the rule in its own right.
+      - path: /
+        name: Cache-Control
+        value: no-store, must-revalidate
+      # ★★ The service worker script. Chrome revalidates it on its own schedule
+      #   regardless, but an edge holding it for five minutes delays every
+      #   worker change by that much for no benefit.
+      - path: /sw.js
+        name: Cache-Control
+        value: no-store, must-revalidate
+      # ★★★ …AND THE FINGERPRINTED BUNDLE IS CACHED FOREVER. This is the half
+      #     that makes the half above free.
+      - path: /assets/*
+        name: Cache-Control
+        value: public, max-age=31536000, immutable
+
+    routes:
+      # ★ The SPA rewrite the service already performs — restated so that
+      #   linking this Blueprint does not turn every deep link into a 404.
+      - type: rewrite
+        source: /*
+        destination: /index.html
