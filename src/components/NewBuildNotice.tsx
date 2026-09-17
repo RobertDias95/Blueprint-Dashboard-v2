@@ -7,8 +7,16 @@ import {
   isNewBuildAvailable,
   markNewBuildLive,
   newBuildIsLive,
+  reloadOntoNewBuild,
   runningBundleUrl,
 } from '../lib/appVersion';
+import {
+  buildAgeDays,
+  dismissQuietMs,
+  noticeCopy,
+  noticeStep,
+  recordClientBuild,
+} from '../lib/clientBuild';
 
 // ===========================================================================
 // ★★ fix-371 §4 — a line that says a new version is ready, and a control
@@ -24,6 +32,39 @@ import {
 // the time. See lib/appVersion for why this needs no build step and no version
 // file.
 
+// ===========================================================================
+// ★★★ fix-589 (P-289) — THE NOTICE REPORTS ITSELF, AND IT ESCALATES
+// ===========================================================================
+//
+// Brittani, 2026-09-16: she gets this ribbon *"multiple times a day"*, *"and I
+// hit it"* — *"I swear I hit that reload button 4–5x a day."* She ran a bundle
+// from before 2026-08-29 for three weeks. **Closing the app entirely and
+// reopening it is what finally fixed it.**
+//
+// ★★★ SO DETECTION WORKS, THE RIBBON RENDERS, THE PERSON ACTS ON IT — AND THE
+//     BUNDLE DID NOT CHANGE. Every theory that blames the notice, the poll
+//     interval or the person's habits is dead, and `public/sw.js` caches
+//     nothing so it is not that either.
+//
+// ★★★ AND NOTHING IN THE OLD CODE COULD HAVE SETTLED IT. This component
+//     rendered a ribbon and recorded nothing — **"it never showed" and "it
+//     showed and was ignored" were indistinguishable**, which is why Bobby's
+//     second question was unanswerable in principle and not merely in fact.
+//     Three things changed here and each one is that gap:
+//
+//       §3a  every appearance, dismissal and use is recorded, at the grain the
+//            question is asked at — per person, per build.
+//       §3b  the copy climbs a four-step ladder as the bundle ages, and a
+//            dismissal buys less quiet at each step. **No step blocks work and
+//            no step reloads.**
+//       §3c  the control fetches the document uncached BEFORE reloading onto
+//            it, so a cache nobody configured cannot hand the same bundle back.
+//            See `reloadOntoNewBuild` for what was measured on the deployed app.
+//
+// ⚠️ THE HEARTBEAT RIDES THE CHECK THAT WAS ALREADY HAPPENING. No new timer,
+//    and `recordClientBuild` shares `BUILD_CHECK_MIN_GAP_MS`, so the three
+//    triggers cannot burst it any more than they can burst the check itself.
+
 export default function NewBuildNotice() {
   // ★★★ fix-424: SEEDED FROM THE MODULE-LEVEL FACT, not from `false`.
   //
@@ -35,9 +76,26 @@ export default function NewBuildNotice() {
   // verify, which is a thing that happens to a window left open all day.
   const [available, setAvailable] = useState(newBuildIsLive);
 
+  // ★★★ fix-589 §3b: a dismissal is a PAUSE, never a mute. How long it lasts is
+  //     the escalation — see `dismissQuietMs`.
+  //
+  // ★★ TWO HALVES ON PURPOSE, and the React Compiler is why. `snoozed` is
+  //    STATE because render reads it; the deadline is a REF because only
+  //    callbacks read it. Deriving the visible answer from `Date.now()` and a
+  //    ref during render is exactly the shape lint rejects — the fourth time
+  //    this repo has hit it (fix-403, fix-408, fix-426), and the only thing
+  //    that catches it is `npm run lint`.
+  const [snoozed, setSnoozed] = useState(false);
+  const quietUntil = useRef(0);
+
   // ★ The floor between checks. A ref, not state: it must not re-render
   //   anything, and it must be read at call time rather than closed over.
   const lastCheckAt = useRef(0);
+
+  // ★★ Recorded once per document, not once per render. Without this, the
+  //    `shown` count would measure React re-renders rather than appearances —
+  //    a number that looks like evidence and is not.
+  const reportedShown = useRef(false);
 
   const check = useCallback(async () => {
     // ★★ THE THREE TRIGGERS SHARE ONE FLOOR. Alt-tabbing between two windows
@@ -47,6 +105,16 @@ export default function NewBuildNotice() {
     const now = Date.now();
     if (now - lastCheckAt.current < BUILD_CHECK_MIN_GAP_MS) return;
     lastCheckAt.current = now;
+    // ★★★ fix-589 §A — THE HEARTBEAT. Same moment, same floor, no new timer.
+    //     Fire-and-forget: the migration ships unapplied, so this is a 404 in
+    //     production today and must be exactly as harmless then as after.
+    void recordClientBuild();
+    // ★ A dismissal that has run out brings the ribbon back without waiting for
+    //   a new deploy — the ribbon is about the bundle being old, and it is.
+    if (quietUntil.current && now >= quietUntil.current) {
+      quietUntil.current = 0;
+      setSnoozed(false);
+    }
     const running = runningBundleUrl();
     if (!running) return;
     const deployed = await fetchDeployedBundleUrl();
@@ -60,6 +128,10 @@ export default function NewBuildNotice() {
   }, []);
 
   useEffect(() => {
+    // ★★★ fix-589 §A — AND ONCE ON LOAD, which is the only heartbeat a person
+    //     who opens the app and closes it again ever sends. It is the first
+    //     thing the effect does so it does not wait out BUILD_CHECK_FIRST_MS.
+    void recordClientBuild();
     // The first check is DEFERRED, for two reasons. It keeps a request off the
     // initial paint, and calling `check` straight from the effect body is a
     // synchronous setState inside an effect - which the React Compiler rejects,
@@ -95,25 +167,86 @@ export default function NewBuildNotice() {
     };
   }, [check]);
 
-  if (!available) return null;
+  // ★★ fix-589 §3b — the step is the AGE OF THE BUNDLE THIS DOCUMENT IS
+  //    RUNNING, not the age of the deploy that triggered the notice. What
+  //    matters to the person is how far behind THEY are.
+  const ageDays = buildAgeDays();
+  const step = noticeStep(ageDays);
+  // ★ Pure: two pieces of state and nothing else. The clock lives in `check`.
+  const showing = available && !snoozed;
+
+  // ★★★ §3a — RECORD THE APPEARANCE. In an effect, not in render: this writes
+  //     to the network, and a render may be thrown away or replayed.
+  useEffect(() => {
+    if (!showing || reportedShown.current) return;
+    reportedShown.current = true;
+    void recordClientBuild('shown');
+  }, [showing]);
+
+  if (!showing) return null;
+
+  const copy = noticeCopy(step, ageDays);
+  const loud = copy.tone === 'loud';
 
   return (
     <div
-      className="flex items-center gap-2 px-3 py-1.5 bg-de-bg border-b border-de-border text-[11px] text-text"
+      // ★ `wa` is fix-441 §A's warning family — the EXISTING corrections amber,
+      //   aliased so a future edit to it cannot leave this behind. The border
+      //   goes through `style` because `--color-wa-border` has no Tailwind
+      //   utility in this repo and fix-406's lesson is that an undefined class
+      //   looks exactly like a colour somebody chose to make subtle.
+      className={`flex items-center gap-2 px-3 py-1.5 border-b text-[11px] text-text ${
+        loud ? 'bg-wa-bg' : 'bg-de-bg'
+      }`}
+      style={{
+        borderBottomColor: loud ? 'var(--color-wa-border)' : 'var(--color-de-border)',
+      }}
       role="status"
       data-testid="new-build-notice"
+      // ★ The step, on the element, so a test can assert the LADDER without
+      //   pinning a sentence somebody will want to reword.
+      data-step={step}
+      data-tone={copy.tone}
     >
-      <span className="font-bold">A new version of the Bridge is ready.</span>
-      <span className="text-muted">
-        Reload when you are at a good stopping point — nothing reloads on its own.
-      </span>
+      <span className="font-bold">{copy.headline}</span>
+      <span className="text-muted">{copy.detail}</span>
       <button
         type="button"
-        onClick={() => window.location.reload()}
-        className="ml-auto font-bold px-2.5 py-1 rounded-md border border-de text-de bg-surface hover:bg-de-bg transition"
+        onClick={() => {
+          // ★★ Recorded BEFORE the navigation starts. A reload tears this
+          //    document down, so a fire-and-forget after it would be a race
+          //    that loses most of the time.
+          void recordClientBuild('reloaded');
+          void reloadOntoNewBuild();
+        }}
+        className={`ml-auto font-bold px-2.5 py-1 rounded-md border bg-surface transition ${
+          loud ? 'text-wa hover:bg-wa-bg' : 'text-de hover:bg-de-bg'
+        }`}
+        style={{ borderColor: loud ? 'var(--color-wa)' : 'var(--color-de)' }}
         data-testid="new-build-reload"
       >
         Reload
+      </button>
+      {/* ★★ fix-589 §3b — DISMISS IS A SNOOZE, AND THE SNOOZE SHORTENS.
+          At `ready` it lasts the rest of this document's life; at `stale` it
+          buys fifteen minutes. It is here so that "was it ignored?" becomes a
+          recorded answer instead of a guess — and because a ribbon somebody
+          cannot put down for one minute is one they learn to read past. */}
+      <button
+        type="button"
+        onClick={() => {
+          quietUntil.current = Date.now() + dismissQuietMs(step);
+          // ★ So the NEXT appearance is counted as one. The count is of
+          //   appearances, and this ribbon is about to stop being one.
+          reportedShown.current = false;
+          void recordClientBuild('dismissed');
+          setSnoozed(true);
+        }}
+        className="font-bold px-2 py-1 rounded-md text-muted hover:text-text transition"
+        title="Hide this for now — it will come back"
+        data-testid="new-build-dismiss"
+      >
+        Later
       </button>
     </div>
   );

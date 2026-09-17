@@ -24,6 +24,7 @@ import { useIsTenantAdmin } from '../../hooks/useIsTenantAdmin';
 // retiring here — see AddPersonSection for why this is not a sixth Settings
 // section.
 import AddPersonSection from './AddPersonSection';
+import ClientBuildsPanel from './ClientBuildsPanel';
 import { SkeletonRows } from '../Skeleton';
 import QueryError from '../QueryError';
 import { ROLE_TITLE, ROLE_TITLE_PLURAL } from '../../lib/roleLabels';
@@ -334,6 +335,26 @@ export default function AdminTeamTab() {
           complaint. */}
       <Section title="Who the work data means">
         <WorkDataNamesPanel readOnly={!isAdmin} />
+      </Section>
+
+      {/* ★★★ fix-589 §A (P-289) — WHICH BUILD EACH PERSON IS ACTUALLY RUNNING.
+          Bobby: *"Is there a way to see if others are on a super outdated
+          version?"* Until this panel the answer was no — P-287 took a day and
+          was settled by counting toolbar buttons in a screenshot, because
+          fix-587's stamp rides on `error_reports` and a stale person's symptom
+          is WRONG NUMBERS, not an error.
+
+          ★★ THE FIFTH PANEL IN THE SAME SHAPE as the four above it: count, then
+          list, then name the control that closes the gap. It is a roster fact
+          about a PERSON, which is what this half of the tab is for, and it is a
+          panel rather than a sixth Settings section for the same reason
+          `AddPersonSection` is.
+
+          ⚠️ `migrations/fix_589_client_build_seen.sql` is with Bobby. Until it
+          runs the panel says "nothing recorded yet" rather than rendering an
+          empty table that would read as "everybody is current". */}
+      <Section title="Who is running what">
+        <ClientBuildsPanel />
       </Section>
 
       {/* ★★★ fix-458 §A (P-106): the THIRD roster-gap surface on this tab, and

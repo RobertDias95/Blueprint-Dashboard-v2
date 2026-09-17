@@ -3,6 +3,10 @@ import { render, screen, act } from '@testing-library/react';
 import chromeSource from '../components/Chrome.tsx?raw';
 import routerSource from '../router.tsx?raw';
 import noticeSource from '../components/NewBuildNotice.tsx?raw';
+// ★ fix-589 moved the copy and the reload out of the component — see the
+//   two SUPERSEDED assertions below for why these are read here now.
+import clientBuildSource from '../lib/clientBuild.ts?raw';
+import appVersionSource from '../lib/appVersion.ts?raw';
 import {
   BUILD_CHECK_FIRST_MS,
   BUILD_CHECK_INTERVAL_MS,
@@ -141,7 +145,17 @@ describe('fix-424 §B: a shown notice is never taken back down', () => {
     // The guard that keeps the shell unchanged for everybody on the current
     // build, which is everybody most of the time. Asserted on the source,
     // because the module flag is process-wide within a test file.
-    expect(strip(noticeSource)).toContain('if (!available) return null;');
+    //
+    // ★★★ SUPERSEDED BY fix-589, NOT MISTAKEN. The literal was
+    //     `if (!available) return null;`. §3b added a "Later" control, so the
+    //     early return now reads the CONJUNCTION — a notice renders when a
+    //     deploy has been seen AND the person has not just snoozed it. The
+    //     RULING this test exists for is untouched and in fact stricter: the
+    //     shell is unchanged for everybody on the current build, because
+    //     `showing` can never be true while `available` is false.
+    const notice = strip(noticeSource);
+    expect(notice).toContain('if (!showing) return null;');
+    expect(notice).toMatch(/const showing = available &&/);
   });
 });
 
@@ -282,9 +296,32 @@ describe('fix-424 §E: it still only ever offers', () => {
     //   inside the button's own handler — asserted by COUNT, so a second one
     //   cannot be added anywhere.
     const notice = strip(noticeSource);
-    expect(notice).toContain('nothing reloads on its own');
-    expect(notice).toMatch(/onClick=\{\(\) => window\.location\.reload\(\)\}/);
-    expect(notice.match(/window\.location\.reload/g) ?? []).toHaveLength(1);
+    // ★★★ SUPERSEDED BY fix-589, NOT MISTAKEN — AND THE COUNT IS STILL THE
+    //     POINT. Two things moved and neither weakens this:
+    //
+    //       · the promise text moved into `lib/clientBuild.noticeCopy`, because
+    //         §3b gives the ribbon four wordings as the bundle ages. It is
+    //         asserted there instead, on EVERY step — a ladder that dropped the
+    //         commitment at its loudest rung would be the exact thing this
+    //         assertion guards against.
+    //       · the button now calls `reloadOntoNewBuild`, which fetches the
+    //         document uncached and then reloads. §3c: the deployed host sends
+    //         `s-maxage=300`, so the CDN may answer a revalidation from a copy
+    //         five minutes old, and the control must not depend on that.
+    //
+    //     So the count moves to the one call, in the one handler, and
+    //     `window.location.reload` must not appear in this component at all.
+    // ★ Case-insensitive: the `stale` rung opens the sentence with it, which is
+    //   a wording choice and not a different promise.
+    expect(strip(clientBuildSource).match(/nothing reloads on its own/gi) ?? [])
+      .toHaveLength(4);
+    expect(notice).toMatch(/void reloadOntoNewBuild\(\);/);
+    expect(notice.match(/reloadOntoNewBuild/g) ?? []).toHaveLength(2); // import + call
+    expect(notice).not.toMatch(/window\.location\.reload/);
+    // ★★ AND THE ONE REAL RELOAD IN THE APP IS STILL ONE, now in appVersion —
+    //    inside `reloadOntoNewBuild`, which only ever runs from that click.
+    expect((strip(appVersionSource).match(/\.location\.reload\(\)/g) ?? []))
+      .toHaveLength(1);
     // ★★ AND NOTHING HERE TOUCHES THE SERVICE WORKER. The gate in the brief
     //    turns on this: the worker's registration, caching and activation are
     //    untouched, which is why this shipped instead of stopping.

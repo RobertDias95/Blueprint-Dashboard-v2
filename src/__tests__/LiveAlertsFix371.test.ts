@@ -7,6 +7,9 @@ import controlSource from '../components/DesktopAlertsControl.tsx?raw';
 import chromeSource from '../components/Chrome.tsx?raw';
 import iconScript from '../../scripts/compose-app-icons.py?raw';
 import noticeSource from '../components/NewBuildNotice.tsx?raw';
+// ★ fix-589 moved the one reload into `appVersion.reloadOntoNewBuild` —
+//   see the SUPERSEDED note in "NOTHING auto-reloads" below.
+import appVersionSource from '../lib/appVersion.ts?raw';
 import appIcon256 from '../../public/bridge-app-256.png?inline';
 import maskable192 from '../../public/bridge-maskable-192.png?inline';
 import {
@@ -401,12 +404,26 @@ describe('fix-371 §4: the new-build notice', () => {
 
   it('★★★ NOTHING auto-reloads', () => {
     // Reloading discards what somebody was typing. It offers; a person acts.
+    //
+    // ★★★ SUPERSEDED BY fix-589, NOT MISTAKEN — AND THE RULING IS UNCHANGED.
+    //     Two literals moved and neither loosens anything:
+    //
+    //       · the reload itself is now `appVersion.reloadOntoNewBuild`, which
+    //         fetches the document uncached first. §3c: the deployed host sends
+    //         `s-maxage=300`, so a CDN may answer a revalidation from a copy
+    //         five minutes old, and the control must not depend on that.
+    //       · `if (!available) return null;` became `if (!showing) return
+    //         null;` when §3b added a "Later" control — a CONJUNCTION, so it
+    //         can only ever render less than before.
+    //
+    //     What this test is actually for — **exactly one reload in the app, and
+    //     only from a click** — is asserted by the same count, one file over.
     const notice = strip(noticeSource);
-    expect(notice).toContain('window.location.reload()');
-    expect(notice).toMatch(/onClick=\{\(\) => window\.location\.reload\(\)\}/);
-    // The only reload is inside the button's handler.
-    expect(notice.match(/window\.location\.reload/g) ?? []).toHaveLength(1);
-    expect(notice).toContain('if (!available) return null;');
+    expect(notice).toMatch(/void reloadOntoNewBuild\(\);/);
+    expect(notice).not.toMatch(/window\.location\.reload/);
+    expect(strip(appVersionSource).match(/\.location\.reload\(\)/g) ?? []).toHaveLength(1);
+    expect(notice).toContain('if (!showing) return null;');
+    expect(notice).toMatch(/const showing = available &&/);
   });
 });
 

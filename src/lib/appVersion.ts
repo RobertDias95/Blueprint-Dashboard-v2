@@ -195,3 +195,65 @@ export async function fetchDeployedBundleUrl(
     return null;
   }
 }
+// ===========================================================================
+// ★★★ fix-589 §3c (P-289) — THE CONTROL MUST ACTUALLY LOAD THE NEW BUNDLE
+// ===========================================================================
+//
+// Brittani, 2026-09-16, in her own words: she gets the ribbon *"multiple times
+// a day"*, *"and I hit it"* — *"I swear I hit that reload button 4–5x a day."*
+// She stayed on a three-week-old bundle throughout, and **closing the app
+// entirely and reopening it is what finally fixed it.**
+//
+// ★★★ SO THE SUSPICION WAS THAT THE DETECTOR AND THE RELOAD DISAGREE: this
+//     file fetches index.html with `cache: 'no-store'` and always sees the new
+//     hash, while `window.location.reload()` is an ordinary navigation that
+//     honours the HTTP cache. **MEASURED ON THE DEPLOYED APP, 2026-09-16 —
+//     AND THAT IS NOT WHAT HAPPENS.** With the service worker controlling the
+//     page:
+//
+//       navigation.type          'reload'   ← location.reload() really ran
+//       navigation.transferSize  2500       ← the document WENT TO THE NETWORK
+//       navigation.deliveryType  ''         ← NOT served from the HTTP cache
+//
+//     The host sends `Cache-Control: public, max-age=0, s-maxage=300`, and
+//     `max-age=0` is what forces that revalidation. **The browser half of the
+//     hypothesis is dead**, and the PR says so rather than quietly keeping it.
+//
+// ★★ WHAT IS REAL IS THE OTHER HALF OF THAT HEADER. `s-maxage=300` lets the
+//    CDN in front of Render answer the browser's revalidation from a copy up
+//    to five minutes old, and **nothing in this repo ever decided that** —
+//    there was no `render.yaml`, no `_headers`, no static.json. A five-minute
+//    window cannot produce three weeks, but it is a real disagreement between
+//    the two paths and it was nobody's decision. `render.yaml` now states it.
+//
+// ★★★ AND THIS FUNCTION CLOSES IT FROM THE CLIENT SIDE, which is the half that
+//     does not depend on a host setting nobody can see. `cache: 'reload'`
+//     bypasses the HTTP cache on the way out **and stores what comes back**, so
+//     the `location.reload()` immediately after reads an entry that is
+//     milliseconds old rather than trusting a revalidation to happen. One 3KB
+//     request, on a path a person has just explicitly asked for.
+//
+// ⚠️ IT STILL ONLY EVER RUNS FROM A CLICK. Nothing in fix-589 reloads a page
+//    by itself — the standing ruling, and there is a test that asserts it.
+
+/**
+ * Fetch the current document uncached, then reload onto it.
+ *
+ * ★ The fetch failing is not a reason to refuse: offline, a blocked request or
+ *   a 500 all fall through to the plain reload, which is exactly what the
+ *   button did before. This can only ever improve on it.
+ */
+export async function reloadOntoNewBuild(
+  win: Window = window,
+  fetchImpl: typeof fetch = fetch,
+): Promise<void> {
+  try {
+    await fetchImpl(win.location.href, {
+      cache: 'reload',
+      credentials: 'same-origin',
+    });
+  } catch {
+    // Fall through — a plain reload is still better than nothing.
+  }
+  win.location.reload();
+}
