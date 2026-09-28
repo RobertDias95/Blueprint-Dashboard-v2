@@ -799,10 +799,40 @@ export function TargetSubmitRow({
   const mut = useUpdateProjectWithPermits();
   // Need both OCC tokens. bp null → no anchor; project.updated_at missing →
   // project query hasn't landed. Either disables the input.
-  const occMissing = !bp || !bp.updated_at || !project.updated_at;
+  //
+  // ═══════════════════════════════════════════════════════════════════════
+  // ★★★ fix-591 (P-290) — THE SECOND CONTROL WITH THE SAME DEFECT
+  // ═══════════════════════════════════════════════════════════════════════
+  //
+  // This is the OTHER caller of `bp_update_project_with_permits`, and it sends
+  // exactly the payload the Permits tab did: `p_project_id` = the project on
+  // screen, `permitUpserts = [{ id: bp.id }]`. On a reuse-redesign **`bp` is the
+  // ORIGINAL's Building Permit** — fix-556 §B changed this page's anchor to the
+  // EFFECTIVE set precisely so a reuse-redesign would have one — so step 0's
+  // `WHERE id = … AND project_id = p_project_id` finds nothing, and the branch
+  // below prints *"This project was modified elsewhere"* over a row nobody
+  // touched. Same guard, same lie, on the same 16 projects.
+  //
+  // ★★ SO IT IS DISABLED RATHER THAN RE-ROUTED, and deliberately: this row's
+  //    write path is fix-66's and the trigger behind it
+  //    (`bp_trg_set_target_submit_manual_flag`) is why it uses this RPC at all.
+  //    Re-pointing the call at the permit's own project would need that
+  //    project's OCC token, which this component does not have — and the only
+  //    reason it would "work" without one is that the RPC skips its project
+  //    check on an empty patch. **Leaning on an argument the server ignores is
+  //    not a fix**, it is the next ticket.
+  //
+  // ★ The original's own Dates tab has this row, with its own BP, and its save
+  //   lands. Same answer as the Permits tab's foreign rows: shown here, edited
+  //   there.
+  const bpIsForeign = !!bp && !!bp.project_id && bp.project_id !== project.id;
+  const occMissing = !bp || !bp.updated_at || !project.updated_at || bpIsForeign;
 
   async function commit() {
     if (!bp || !bp.updated_at || !project.updated_at) return;
+    // ★ fix-591: belt and braces behind the disabled input — a keydown path
+    //   that reached here would produce the false conflict again.
+    if (bp.project_id && bp.project_id !== project.id) return;
     const next = draft.trim() || null;
     const current = bp.target_submit ?? null;
     if (next === current) return;
@@ -868,7 +898,13 @@ export function TargetSubmitRow({
       onBlur={() => void commit()}
       onKeyDown={onKeyDown}
       disabled={occMissing || mut.isPending}
-      title="Target Submit (projected submit date, anchored on the Building Permit)"
+      title={
+        bpIsForeign
+          ? // ★ fix-591: it says WHY, because a greyed box with no reason is the
+            //   thing fix-549 §B called *"a box you could use if you tried harder"*.
+            'Target Submit is anchored on a Building Permit filed under the original project — edit it there'
+          : 'Target Submit (projected submit date, anchored on the Building Permit)'
+      }
       testId="pd-target-submit"
       savesNow
       ariaLabel="Target Submit"

@@ -354,7 +354,12 @@ const REUSE_REDESIGN = () =>
     redesign_reuses_original_permit: true,
   });
 
-function mount(project: Project, permits: PermitWithCycles[], allProjects: Project[] = []) {
+function mount(
+  project: Project,
+  permits: PermitWithCycles[],
+  allProjects: Project[] = [],
+  tab: 'permits' | 'dates' = 'permits',
+) {
   const qc = new QueryClient({
     defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
   });
@@ -370,7 +375,7 @@ function mount(project: Project, permits: PermitWithCycles[], allProjects: Proje
       permits={permits}
       bp={permits.find((p) => p.type === 'Building Permit') ?? permits[0] ?? null}
       allProjects={[project, ...allProjects]}
-      initialTab={'permits' as never}
+      initialTab={tab as never}
       onClose={() => {}}
     />,
     { wrapper },
@@ -379,6 +384,11 @@ function mount(project: Project, permits: PermitWithCycles[], allProjects: Proje
 
 function toastCalls(): [string, string][] {
   return (pushToast as unknown as { mock: { calls: [string, string][] } }).mock.calls;
+}
+
+/** `MilestoneDateRow` puts `title` on the wrapper around its input. */
+function titleOfRow(input: HTMLElement): string {
+  return input.closest('[title]')?.getAttribute('title') ?? '';
 }
 
 async function pressSave(): Promise<void> {
@@ -559,6 +569,31 @@ describe('fix-591 §2a — a foreign row is shown, not edited', () => {
     // Only the placeholder: its own project has no other saved, non-sub permit.
     expect(values).toEqual(['']);
     expect(values).not.toContain('10638');
+  });
+});
+
+// ===========================================================================
+describe('fix-591 — the OTHER caller of the same RPC', () => {
+  // `TargetSubmitRow` sends `p_project_id` = the project on screen with
+  // `permitUpserts = [{ id: bp.id }]`, and on a reuse-redesign `bp` is the
+  // ORIGINAL's Building Permit (fix-556 §B pointed this page's anchor at the
+  // EFFECTIVE set on purpose). Same guard, same false "modified elsewhere".
+  it('Target Submit is disabled, and says why, when the BP belongs to the original', () => {
+    mount(REUSE_REDESIGN(), [makePermit(10638, ORIGINAL)], [makeProject(ORIGINAL)], 'dates');
+    const input = screen.getByTestId('pd-target-submit') as HTMLInputElement;
+    expect(input.disabled).toBe(true);
+    // ★ A greyed box with no reason is fix-549 §B's "box you could use if you
+    //   tried harder". It names the original and the action that works.
+    //   `MilestoneDateRow` hangs `title` on the row's value wrapper, not the
+    //   input, so the assertion looks there.
+    expect(titleOfRow(input)).toMatch(/original project — edit it there/);
+  });
+
+  it('…and is still editable when the BP is the project\'s own', () => {
+    mount(makeProject(PLAIN), [makePermit(10425, PLAIN)], [], 'dates');
+    const input = screen.getByTestId('pd-target-submit') as HTMLInputElement;
+    expect(input.disabled).toBe(false);
+    expect(titleOfRow(input)).toMatch(/projected submit date/);
   });
 });
 
