@@ -46,10 +46,14 @@ vi.mock('../hooks/useAppConfig', () => ({
 vi.mock('../hooks/useBuilderSearch', () => ({
   useBuilderSearch: () => ({ data: [], isLoading: false }),
 }));
-vi.mock('../stores/toastStore', () => ({
-  pushToast: vi.fn(),
+vi.mock('../stores/toastStore', () => {
+  const __recoveredOrPlain = vi.fn();
+  return {
+  pushToast: __recoveredOrPlain,
+    pushRecoveredToast: __recoveredOrPlain,
   useToastStore: () => ({ toasts: [], push: vi.fn(), dismiss: vi.fn() }),
-}));
+};
+});
 
 // ★★★ fix-475 (P-116) — THE CONSULTANTS CARD IS INERT HERE.
 //

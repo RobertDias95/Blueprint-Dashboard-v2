@@ -3,7 +3,7 @@ import { supabase } from '../lib/supabase';
 import { queryKeys } from '../lib/queryKeys';
 import { OCCConflictError, isOCCConflict, occToken } from '../lib/occ';
 import { occRowKey, occSerialize } from '../lib/occQueue';
-import { pushToast } from '../stores/toastStore';
+import { pushToast, pushRecoveredToast } from '../stores/toastStore';
 import { useAuthStore } from '../stores/authStore';
 
 // fix-182b: bp_delete_quarter_layout_row. Remove a single column with OCC.
@@ -44,7 +44,7 @@ export function useDeleteQuarterLayoutRow() {
     },
     onError: (error) => {
       if (isOCCConflict(error)) {
-        pushToast(
+        pushRecoveredToast(
           'Layout changed since you loaded it — refresh and retry',
           'warn',
         );

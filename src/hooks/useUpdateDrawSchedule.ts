@@ -3,7 +3,7 @@ import { supabase } from '../lib/supabase';
 import { queryKeys } from '../lib/queryKeys';
 import { OCCConflictError, isOCCConflict, occToken } from '../lib/occ';
 import { occRowKey, occSerialize } from '../lib/occQueue';
-import { pushToast } from '../stores/toastStore';
+import { pushToast, pushRecoveredToast } from '../stores/toastStore';
 import { useAuthStore } from '../stores/authStore';
 import type { DrawScheduleRow, PermitWithCycles } from '../lib/database.types';
 
@@ -156,7 +156,7 @@ export function useUpdateDrawSchedule() {
       }
 
       if (isOCCConflict(error)) {
-        pushToast(
+        pushRecoveredToast(
           'Draw schedule changed since you loaded it — reverted',
           'warn',
         );

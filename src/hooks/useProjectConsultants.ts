@@ -3,7 +3,7 @@ import { supabase } from '../lib/supabase';
 import { queryKeys } from '../lib/queryKeys';
 import { occToken } from '../lib/occ';
 import { occCall, occRowKey } from '../lib/occQueue';
-import { pushToast } from '../stores/toastStore';
+import { pushToast, pushRecoveredToast } from '../stores/toastStore';
 import { useAuthStore } from '../stores/authStore';
 import type {
   ConsultantCurrent,
@@ -55,6 +55,102 @@ export function useProjectConsultants(projectId: string | null | undefined) {
         .order('discipline', { ascending: true });
       if (error) throw error;
       return (data ?? []) as unknown as ConsultantCurrent[];
+    },
+  });
+}
+
+// ===========================================================================
+// ★★★ fix-592 §A (P-291) — THE DISCIPLINES THE UNIQUE INDEX STILL REFUSES
+// ===========================================================================
+//
+// **Lindsay, 2026-09-23, 3020 E Yesler Way — three `duplicate key value
+// violates unique constraint "project_consultants_one_per_discipline"` in 106
+// seconds, then she stopped.**
+//
+// ★★★ THE BRIEF'S READING DOES NOT SURVIVE THE DATA, and this is the whole
+//     finding. §A says *"Nothing told her a Civil was already on that project"*
+//     and blames a picker that *"offers a taken discipline and then
+//     apologises."* **There was no Civil on that project, and the picker was
+//     right to offer it.** The prod timeline:
+//
+//       15:33:48  Civil added
+//       15:36:11  Civil REMOVED   ← `removed_at` stamped; the row stays
+//       15:37:42  duplicate key   (report 744)
+//       15:37:59  Geotech added
+//       15:38:05  Geotech REMOVED
+//       15:38:10  duplicate key   (report 745)
+//       15:38:29  duplicate key   (report 746)
+//
+// ★★★ THE CAUSE IS THAT REMOVE IS A SOFT DELETE AND THE INDEX IS NOT PARTIAL:
+//
+//       CREATE UNIQUE INDEX project_consultants_one_per_discipline
+//         ON public.project_consultants USING btree (project_id, discipline);
+//                                                    -- no WHERE removed_at IS NULL
+//
+//     `project_consultant_current` hides a removed row, so the picker sees the
+//     slot as free; the index still counts it, so the insert is refused. **A
+//     removed consultant holds its discipline for ever.**
+//
+// ★★★ AND THE MEASURED POPULATION IS 2 OF 2. Prod, 2026-09-28: 198 consultant
+//     rows, **exactly 2 with `removed_at` set** — Lindsay's Civil and her
+//     Geotech — and **both** of those slots are now permanently unaddable. The
+//     brief's *"198 rows, zero duplicates, so the rule has held everywhere"* is
+//     true and misleading: there are no duplicates BECAUSE the index forbids
+//     them, and remove has been used twice, and broke re-add both times.
+//     fix-514 §D's remove has never once been followed by a successful re-add.
+//
+// ⏸ THE MODEL QUESTION IS BOBBY'S AND IS NOT TOUCHED HERE. Making the index
+//    partial would keep "one LIVE consultant per discipline" exactly as it is
+//    and only stop removed rows from squatting — but it is still a constraint
+//    change, and the instruction on this ticket is explicit: improve the message
+//    only. So this hook makes the app TELL THE TRUTH about the slot, and the PR
+//    carries the finding for a ruling.
+//
+// ★ Reads the BASE TABLE, not the view: the view's whole job is to hide these
+//   rows. `authenticated` has SELECT on `project_consultants` under the same
+//   tenant policy (verified on prod), so no migration is needed to ask.
+
+/**
+ * Disciplines on this project whose slot is held ONLY by a removed consultant.
+ *
+ * ★ Each one is a discipline the view reports as free and the database will
+ *   refuse. Empty for 269 of 270 projects, so every other screen renders
+ *   exactly as it does today.
+ */
+export function useBlockedConsultantDisciplines(
+  projectId: string | null | undefined,
+) {
+  const tenantId = useAuthStore((s) => s.activeTenantId);
+  return useQuery<string[]>({
+    queryKey: queryKeys.projectConsultantsBlocked(tenantId ?? '', projectId ?? ''),
+    enabled: !!tenantId && !!projectId,
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from('project_consultants')
+        .select('discipline, removed_at')
+        .eq('project_id', projectId as string);
+      if (error) throw error;
+      const rows = (data ?? []) as { discipline: string; removed_at: string | null }[];
+      const live = new Set<string>();
+      const removed = new Set<string>();
+      for (const r of rows) {
+        const d = (r.discipline ?? '').trim();
+        if (!d) continue;
+        (r.removed_at ? removed : live).add(d.toLowerCase());
+      }
+      // ★ A discipline with a LIVE row is "taken", which the picker already
+      //   handles off the view. Blocked means removed AND not live — the state
+      //   only the index can see.
+      return rows
+        .filter(
+          (r) =>
+            r.removed_at &&
+            (r.discipline ?? '').trim() !== '' &&
+            !live.has(r.discipline.trim().toLowerCase()),
+        )
+        .map((r) => r.discipline.trim())
+        .filter((d, i, a) => a.indexOf(d) === i)
+        .sort();
     },
   });
 }
@@ -167,8 +263,45 @@ export function useAddProjectConsultant(projectId: string | null | undefined) {
       return firstRow<ConsultantWriteResult>(data);
     },
     onSuccess: invalidate,
-    onError: (e: Error) => pushToast(e.message, 'error'),
+    // ★★★ fix-592 §A — SAY WHAT HAPPENED, NOT WHAT POSTGRES CALLED IT.
+    //     Lindsay was shown `duplicate key value violates unique constraint
+    //     "project_consultants_one_per_discipline"` three times. The sentence
+    //     below names the discipline and the actual reason, and — because the
+    //     picker can no longer offer a blocked discipline — reaching it at all
+    //     now means a genuine race, which is worth a report.
+    onError: (e: Error, input) =>
+      pushToast(addConsultantMessage(e, input.discipline), 'error'),
   });
+}
+
+// ===========================================================================
+// ★★★ fix-592 §A — THE TWO REFUSALS THIS RPC CAN RAISE, IN WORDS
+// ===========================================================================
+//
+// ★★ MATCHED ON THE CONSTRAINT NAME, WHICH IS A SCHEMA OBJECT, NOT PROSE.
+//    fix-584 §A forbids classifying by MESSAGE TEXT, and this does not: a
+//    constraint name is as stable as a SQLSTATE and is the precedent fix-165
+//    already set when it keyed on 22008. If the index is ever renamed this falls
+//    back to the raw message, which is exactly today's behaviour.
+//
+// ⚠️ AND IT DOES NOT CLAIM THE SLOT IS OCCUPIED, because usually it is not. The
+//    row holding it has been REMOVED; the sentence has to say that or it sends
+//    somebody looking for a consultant who is not on the project.
+const ONE_PER_DISCIPLINE = 'project_consultants_one_per_discipline';
+
+export function addConsultantMessage(error: unknown, discipline: string): string {
+  const raw =
+    typeof error === 'object' && error !== null && 'message' in error
+      ? String((error as { message: unknown }).message ?? '')
+      : String(error ?? '');
+  if (!raw.includes(ONE_PER_DISCIPLINE)) return raw;
+  const d = discipline.trim();
+  const what = d === '' ? 'That discipline' : d;
+  return (
+    `${what} still has a record on this project from an earlier booking that was removed, ` +
+    `and one consultant per discipline is enforced. It cannot be re-added until that record is cleared — ` +
+    `ask an admin to sort it out.`
+  );
 }
 
 // ===========================================================================
@@ -276,7 +409,7 @@ export function useSetConsultantStatus(projectId: string | null | undefined) {
         // ★ fix-341's lesson: say what happened in the words of the thing that
         //   happened. "Someone else changed this" with nobody there is what a
         //   bulk write looks like — here the round genuinely moved under us.
-        pushToast(
+        pushRecoveredToast(
           'That consultant changed while you were editing — reloaded.',
           'error',
         );

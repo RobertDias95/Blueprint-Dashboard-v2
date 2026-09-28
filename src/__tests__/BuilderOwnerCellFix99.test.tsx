@@ -97,7 +97,8 @@ const supabaseMock = vi.hoisted(() => {
 const toastMock = vi.hoisted(() => vi.fn());
 
 vi.mock('../lib/supabase', () => ({ supabase: supabaseMock.builder }));
-vi.mock('../stores/toastStore', () => ({ pushToast: toastMock }));
+vi.mock('../stores/toastStore', () => ({ pushToast: toastMock ,
+  pushRecoveredToast: toastMock}));
 
 // ★★★ fix-506 §B/§I — THE APPROVAL PROJECTION IS INERT HERE, AND THE REASON IS
 //     THE TRAP THIS FILE'S OWN MOCK SETS.

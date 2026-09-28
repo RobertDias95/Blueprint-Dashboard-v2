@@ -2,7 +2,7 @@ import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '../lib/supabase';
 import { queryKeys } from '../lib/queryKeys';
 import { OCCConflictError, isOCCConflict } from '../lib/occ';
-import { pushToast } from '../stores/toastStore';
+import { pushToast, pushRecoveredToast } from '../stores/toastStore';
 import { useAuthStore } from '../stores/authStore';
 import type { Permit, PermitWithCycles } from '../lib/database.types';
 
@@ -88,7 +88,7 @@ export function useUpdatePermit() {
         // persistent 'error' that names the field, and refetch the fresh
         // updated_at token (invalidate → refetch) so an immediate re-save
         // succeeds instead of reverting again.
-        pushToast(
+        pushRecoveredToast(
           `${variables.fieldLabel ?? 'Your change'} wasn't saved — this permit was updated elsewhere. The latest data was refreshed; re-enter and save.`,
           'error',
         );

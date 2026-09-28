@@ -3,7 +3,7 @@ import { supabase } from '../lib/supabase';
 import { queryKeys } from '../lib/queryKeys';
 import { occToken } from '../lib/occ';
 import { occRowKey, occSerialize } from '../lib/occQueue';
-import { pushToast } from '../stores/toastStore';
+import { pushToast, pushRecoveredToast } from '../stores/toastStore';
 import { useAuthStore } from '../stores/authStore';
 import { mayEditLibrary } from '../lib/workDataNames';
 import type { Project, UnitType } from '../lib/database.types';
@@ -225,7 +225,7 @@ export function useUpdateLibraryFields() {
 
     onSuccess: (result, input) => {
       if (result.conflict) {
-        pushToast(
+        pushRecoveredToast(
           `${input.fieldLabel} changed since you loaded it — nothing was saved. Try again.`,
           'warn',
         );

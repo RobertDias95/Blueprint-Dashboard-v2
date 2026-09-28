@@ -3,7 +3,7 @@ import { supabase } from '../lib/supabase';
 import { queryKeys } from '../lib/queryKeys';
 import { OCCConflictError, isOCCConflict, occToken } from '../lib/occ';
 import { occRowKey, occSerialize } from '../lib/occQueue';
-import { pushToast } from '../stores/toastStore';
+import { pushToast, pushRecoveredToast } from '../stores/toastStore';
 import { useAuthStore } from '../stores/authStore';
 
 // Q7.3.c: bp_delete_task_template_row. FK CASCADE on task_template_subtasks
@@ -43,7 +43,7 @@ export function useDeleteTaskTemplate() {
     },
     onError: (error) => {
       if (isOCCConflict(error)) {
-        pushToast(error.message, 'warn');
+        pushRecoveredToast(error.message, 'warn');
         queryClient.invalidateQueries({ queryKey: queryKeys.taskTemplates(tenantId) });
       } else {
         pushToast(`Could not remove — ${error.message}`, 'error');

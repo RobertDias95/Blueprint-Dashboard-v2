@@ -3,7 +3,7 @@ import { supabase } from '../lib/supabase';
 import { queryKeys } from '../lib/queryKeys';
 import { OCCConflictError, isOCCConflict, occToken } from '../lib/occ';
 import { occRowKey, occSerialize } from '../lib/occQueue';
-import { pushToast } from '../stores/toastStore';
+import { pushToast, pushRecoveredToast } from '../stores/toastStore';
 import { useAuthStore } from '../stores/authStore';
 import type { PermitTask } from '../lib/database.types';
 
@@ -65,7 +65,7 @@ export function useDeletePermitTask() {
         );
       }
       if (isOCCConflict(error)) {
-        pushToast(error.message, 'warn');
+        pushRecoveredToast(error.message, 'warn');
         queryClient.invalidateQueries({
           queryKey: queryKeys.permitTasksFor(tenantId, input.permitId),
         });

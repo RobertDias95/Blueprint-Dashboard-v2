@@ -89,7 +89,11 @@ vi.mock('../hooks/useProjectConsultants', () => ({
   useSetConsultantPhase: () => ({ mutate: vi.fn(), isPending: false }),
   useSetConsultantFirm: () => ({ mutate: vi.fn(), isPending: false }),
 }));
-vi.mock('../stores/toastStore', () => ({ pushToast: vi.fn() }));
+vi.mock('../stores/toastStore', () => {
+  const __recoveredOrPlain = vi.fn();
+  return { pushToast: __recoveredOrPlain,
+    pushRecoveredToast: __recoveredOrPlain };
+});
 // ★ fix-549 §B: every field asks the server whether this person may write
 //   before it accepts typing. Unmocked it answers `false` and every control
 //   renders disabled, which would make the §C/§D assertions vacuously true.

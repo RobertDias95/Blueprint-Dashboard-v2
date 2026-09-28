@@ -78,10 +78,14 @@ vi.mock('../hooks/usePlanOfRecord', () => ({
   usePlanOfRecord: () => ({ data: null, isLoading: false, error: null, refetch: vi.fn() }),
   usePlanOfRecordThumbnail: () => ({ data: null, isLoading: false, error: null }),
 }));
-vi.mock('../stores/toastStore', () => ({
-  pushToast: vi.fn(),
+vi.mock('../stores/toastStore', () => {
+  const __recoveredOrPlain = vi.fn();
+  return {
+  pushToast: __recoveredOrPlain,
+    pushRecoveredToast: __recoveredOrPlain,
   useToastStore: () => ({ toasts: [], push: vi.fn(), dismiss: vi.fn() }),
-}));
+};
+});
 
 // ★★★ fix-475 (P-116) — THE CONSULTANTS CARD IS INERT HERE.
 //

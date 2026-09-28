@@ -202,6 +202,120 @@ function occDetailOf(error: unknown): Partial<MutationErrorContext> {
   return out;
 }
 
+// ===========================================================================
+// ★★★ fix-592 §C (P-291) — "FAILED TO FETCH" AND "OBJECT NOT FOUND" ARE NOT
+//     MESSAGES
+// ===========================================================================
+//
+// Four open rows across three people said only this, and nothing else:
+//
+//   747  Cam       TypeError: Failed to fetch
+//   742  Brittani  Failed to fetch
+//   743  Brittani  Object not found        ← twice (741 as well)
+//   738  Gena      HTTP 502 error
+//
+// **None names what was being fetched.** They cannot be actioned, and on the
+// triage list — which shows `message` — they cannot be told apart.
+//
+// ★★★ THE RECORD WAS ALREADY IN THE ROW, WHICH IS THE ANNOYING PART. Every one
+//     of these carries a `queryKey`, and the key holds the object:
+//
+//       747  ["avatar_paths", "<tenant>"]
+//       743  ["avatar_url",  "<tenant>/b74ca59f-….jpg"]      ← a storage MISS
+//       742  ["avatar_url",  "<tenant>/a62d67f4-….jpg"]
+//       738  ["plan_of_record_thumb", "<tenant>", { objectPath: "…/marketing_internal.jpg" }]
+//
+//     So this is not a plumbing gap. It is that the one field a reader actually
+//     sees was left generic while the identifying detail sat one click away,
+//     encoded as an array.
+//
+// ★★★ SO THE OPERATION GOES IN THE MESSAGE, AND THE RECORD BESIDE IT. §C's
+//     instruction is *"extend that [`write:`], do not invent a second shape"* —
+//     so `operation` is the read-side twin of `write`, filled from the query key
+//     the reporter already sends rather than from a new per-hook declaration.
+//     fix-511 §C refused an automatic mechanism for `write` because ~200 suites
+//     mock `supabase`; nothing is mocked here — the key is an argument the
+//     reporter is handed.
+//
+// ⚠️ THIS CHANGES FINGERPRINTS, ON PURPOSE AND ONLY FORWARD. `bp_log_error`
+//    hashes the normalised message plus fix-338's discriminator, so a report
+//    logged after this ships groups separately from the identically-caused rows
+//    logged before it. The old groups stay in the list under their old text —
+//    which is the honest outcome: they really were a different, less useful
+//    record of the same thing. Nothing is rewritten.
+//
+// ★★ AND `Object not found` IS SINGLED OUT because §C says so: *"a missing file
+//    is a real defect wearing a transport costume; do not let it hide in the same
+//    bucket as a 502."* It is a storage miss — the avatar row points at a file
+//    that is not in the bucket — so the object path is the diagnosis, not
+//    decoration. It is NOT suppressed, and neither is the 502.
+
+/** The read-side twin of {@link MutationWriteMeta.write}. */
+export interface QueryFailureContext {
+  /** What was being read, as a person would look it up: the query name. */
+  operation?: string;
+  /** Which record — a storage object path, or an id. */
+  record?: string;
+}
+
+/**
+ * ★ A record identifier is safe to record; typed CONTENT is not. This is
+ *   fix-511 §C's "fields are keys, never values" rule applied to the read side:
+ *   a uuid, a storage path and a bounded numeric id say WHICH thing, and carry
+ *   no address, name or typed value. The values below already travel in
+ *   `queryKey`, so nothing new is exposed — they are only being named.
+ */
+const MAX_RECORD = 200;
+
+function recordOf(key: readonly unknown[]): string | undefined {
+  const parts: string[] = [];
+  for (const seg of key.slice(1)) {
+    if (typeof seg === 'string' && seg !== '') parts.push(seg);
+    else if (typeof seg === 'number') parts.push(String(seg));
+    else if (isRecord(seg)) {
+      // ★ The `{ objectPath }` / `{ projectId }` tail this app's keys use. Only
+      //   string and number leaves, so a nested object cannot smuggle content in.
+      for (const [k, v] of Object.entries(seg)) {
+        if (typeof v === 'string' && v !== '') parts.push(`${k}=${v}`);
+        else if (typeof v === 'number') parts.push(`${k}=${v}`);
+      }
+    }
+  }
+  const joined = parts.join(' ');
+  return joined === '' ? undefined : joined.slice(0, MAX_RECORD);
+}
+
+/** The operation + record a failing QUERY contributes to its report. */
+export function queryFailureContext(queryKey: unknown): QueryFailureContext {
+  if (!Array.isArray(queryKey) || queryKey.length === 0) return {};
+  const head = queryKey[0];
+  if (typeof head !== 'string' || head.trim() === '') return {};
+  const out: QueryFailureContext = { operation: head.trim() };
+  const record = recordOf(queryKey);
+  if (record !== undefined) out.record = record;
+  return out;
+}
+
+/**
+ * The message a report carries: the failure, then what it was doing.
+ *
+ * ★★ THE FAILURE STAYS FIRST. `Object not found` is what went wrong and is what
+ *    a reader scans for; the operation qualifies it. Reversing them would sort
+ *    every storage failure together and bury the one that matters.
+ *
+ * ★ Unchanged when there is nothing to add, so a query with no usable key
+ *   produces byte-identical text to today's.
+ */
+export function describeFailure(
+  message: string,
+  detail: { operation?: string; record?: string },
+): string {
+  const op = (detail.operation ?? '').trim();
+  if (op === '') return message;
+  const rec = (detail.record ?? '').trim();
+  return rec === '' ? `${message} — ${op}` : `${message} — ${op} (${rec})`;
+}
+
 /** ★★ Two shapes, because this app has two: a `patch` object (the OCC row
  *  editors) and a `fieldLabel` caption (the inline commit helpers, which
  *  already pass one so the toast can name the field). Anything else

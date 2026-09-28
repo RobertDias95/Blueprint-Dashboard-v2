@@ -31,6 +31,9 @@ vi.mock('../lib/supabase', () => ({ supabase: mocks.builder }));
 const pushToast = vi.hoisted(() => vi.fn());
 vi.mock('../stores/toastStore', () => ({
   pushToast,
+  // ★ fix-592 §B: the same spy — these suites assert that the person was told,
+  //   and that is unchanged. The new export only stops the LOG.
+  pushRecoveredToast: pushToast,
   useToastStore: () => ({ toasts: [], push: vi.fn(), dismiss: vi.fn() }),
 }));
 

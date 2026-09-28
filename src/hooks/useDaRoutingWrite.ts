@@ -3,7 +3,7 @@ import { supabase } from '../lib/supabase';
 import { queryKeys } from '../lib/queryKeys';
 import { OCCConflictError, isOCCConflict, occToken } from '../lib/occ';
 import { occInsertKey, occRowKey, occSerialize } from '../lib/occQueue';
-import { pushToast } from '../stores/toastStore';
+import { pushToast, pushRecoveredToast } from '../stores/toastStore';
 import { useAuthStore } from '../stores/authStore';
 
 // ★★★ fix-457 §A6 (P-007) — THE WRITE SIDE da_team_routing NEVER HAD.
@@ -78,7 +78,7 @@ export function useUpsertDaRouting() {
     },
     onError: (error) => {
       if (isOCCConflict(error)) {
-        pushToast(error.message, 'warn');
+        pushRecoveredToast(error.message, 'warn');
         queryClient.invalidateQueries({ queryKey: queryKeys.daTeamRouting(tenantId) });
       } else {
         // ★ The RPC's duplicate guard raises a sentence ("Ainsley already has a
@@ -113,7 +113,7 @@ export function useDeleteDaRouting() {
     },
     onError: (error) => {
       if (isOCCConflict(error)) {
-        pushToast(error.message, 'warn');
+        pushRecoveredToast(error.message, 'warn');
         queryClient.invalidateQueries({ queryKey: queryKeys.daTeamRouting(tenantId) });
       } else {
         pushToast(`Could not remove rule — ${error.message}`, 'error');

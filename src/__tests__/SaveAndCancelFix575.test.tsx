@@ -72,7 +72,11 @@ vi.mock('../hooks/useProjectConsultants', () => ({
   useSetConsultantPhase: () => ({ mutate: vi.fn(), isPending: false }),
   useSetConsultantFirm: () => ({ mutate: vi.fn(), isPending: false }),
 }));
-vi.mock('../stores/toastStore', () => ({ pushToast: vi.fn() }));
+vi.mock('../stores/toastStore', () => {
+  const __recoveredOrPlain = vi.fn();
+  return { pushToast: __recoveredOrPlain,
+    pushRecoveredToast: __recoveredOrPlain };
+});
 
 import ProjectDetailsModal from '../components/ProjectDetail/ProjectDetailsModal';
 import modalSrc from '../components/ProjectDetail/ProjectDetailsModal.tsx?raw';

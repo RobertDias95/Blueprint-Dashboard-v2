@@ -3,7 +3,7 @@ import { supabase } from '../lib/supabase';
 import { queryKeys } from '../lib/queryKeys';
 import { OCCConflictError, isOCCConflict, occToken } from '../lib/occ';
 import { occRowKey, occSerialize } from '../lib/occQueue';
-import { pushToast } from '../stores/toastStore';
+import { pushToast, pushRecoveredToast } from '../stores/toastStore';
 import { useAuthStore } from '../stores/authStore';
 
 // fix-25-feat-b: bp_update_team_member_quarters. Dedicated OCC-aware
@@ -71,7 +71,7 @@ export function useUpdateTeamMemberQuarters() {
 
     onError: (error) => {
       if (isOCCConflict(error)) {
-        pushToast(
+        pushRecoveredToast(
           'Team member changed since you loaded it — refresh and retry',
           'warn',
         );

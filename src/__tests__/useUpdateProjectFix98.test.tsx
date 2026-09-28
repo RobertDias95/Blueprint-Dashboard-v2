@@ -57,7 +57,8 @@ const supabaseMock = vi.hoisted(() => {
 const toastMock = vi.hoisted(() => vi.fn());
 
 vi.mock('../lib/supabase', () => ({ supabase: supabaseMock.builder }));
-vi.mock('../stores/toastStore', () => ({ pushToast: toastMock }));
+vi.mock('../stores/toastStore', () => ({ pushToast: toastMock ,
+  pushRecoveredToast: toastMock}));
 
 import { useUpdateProject } from '../hooks/useUpdateProject';
 import { isOCCConflict } from '../lib/occ';

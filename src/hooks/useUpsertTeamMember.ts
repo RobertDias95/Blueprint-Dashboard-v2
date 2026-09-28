@@ -3,7 +3,7 @@ import { supabase } from '../lib/supabase';
 import { queryKeys } from '../lib/queryKeys';
 import { OCCConflictError, isOCCConflict, occToken } from '../lib/occ';
 import { occInsertKey, occRowKey, occSerialize } from '../lib/occQueue';
-import { pushToast } from '../stores/toastStore';
+import { pushToast, pushRecoveredToast } from '../stores/toastStore';
 import { useAuthStore } from '../stores/authStore';
 import type { TeamMember } from '../lib/database.types';
 
@@ -95,7 +95,7 @@ export function useUpsertTeamMember() {
     },
     onError: (error) => {
       if (isOCCConflict(error)) {
-        pushToast(error.message, 'warn');
+        pushRecoveredToast(error.message, 'warn');
         queryClient.invalidateQueries({ queryKey: queryKeys.teamMembers(tenantId) });
       } else {
         pushToast(`Could not save team member — ${error.message}`, 'error');

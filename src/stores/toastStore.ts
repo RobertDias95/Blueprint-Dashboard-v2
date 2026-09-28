@@ -182,3 +182,74 @@ export function pushToast(
 export function pushValidationToast(message: string) {
   return useToastStore.getState().push(message, 'error', { log: false });
 }
+
+// ===========================================================================
+// ★★★ fix-592 §B (P-291) — A MESSAGE THAT SAYS "RELOADED" IS NOT A DEFECT
+//     REPORT
+// ===========================================================================
+//
+// Prod `error_reports` #740, Brittani, 2026-09-17: *"That consultant changed
+// while you were editing — **reloaded**."* The app noticed a concurrent edit,
+// refetched so the screen was correct, and said so — **then filed itself as an
+// error.** Nothing failed and there is nothing for anybody to fix.
+//
+// ---------------------------------------------------------------------------
+// ★★★ THE SWEEP FOUND 36 SITES, AND 34 OF THEM WERE SILENT BY ACCIDENT
+// ---------------------------------------------------------------------------
+//
+// Every handled-OCC branch in this app follows one idiom — tell the person,
+// then `invalidateQueries` so the screen is right:
+//
+//     if (isOCCConflict(error)) {
+//       pushToast('… changed since you loaded it — refresh and retry', 'warn');
+//       queryClient.invalidateQueries({ … });
+//     } else {
+//       pushToast(`Could not … — ${error.message}`, 'error');
+//     }
+//
+// **34 of the 36 pass `'warn'`, and `push` only logs when `kind === 'error'`.**
+// So the class has been quiet for two years on the strength of nobody ever
+// choosing a louder colour — not on the strength of anybody deciding it was not
+// an error.
+//
+// ★★★ AND TWO AUTHORS DID CHOOSE THE LOUDER COLOUR, BOTH FOR GOOD REASONS.
+//     `useUpdatePermit` says so out loud (fix-39 Track B): *"an OCC conflict on
+//     a field commit used to fire a low-key 'warn' that read as 'silently
+//     blanked.' Make it a loud, persistent 'error'."* That is a correct UI
+//     judgement — and it bought a phantom defect report, because in this store
+//     **`kind` was carrying two unrelated decisions at once: how loud the toast
+//     is, and whether an engineer gets paged about it.**
+//
+// ★★★ SO THIS SEPARATES THEM. The caller keeps its colour; the class decides
+//     the reporting. `{ log: false }` is passed EXPLICITLY rather than relying
+//     on `kind !== 'error'`, so the guarantee lives in this function and holds
+//     whatever colour the call site wants.
+//
+// ★★ WHY NOT MATCH ON THE TEXT: fix-584 §A's rule, unchanged — *"classified at
+//    the throw site, never by message text."* Eleven of these messages say
+//    "refresh and retry", four say "reverted", one says "reloaded", one says
+//    "nothing was saved. Try again." A matcher would have to be re-guessed on
+//    every rewording, and `RecoveredToastCensusFix592` is the test that keeps
+//    the throw sites honest instead.
+//
+// ⚠️ WHAT IS **NOT** THIS, and the census asserts both directions: the `else`
+//    branch beside every one of these. *"Could not save — <message>"* is a
+//    write that failed for a reason nobody predicted, and it is still reported,
+//    still with its `write:` meta (§C). This helper is only for the branch that
+//    ALREADY HANDLED the thing it is describing.
+
+/**
+ * Tell somebody the app hit a concurrent edit, dealt with it, and refreshed —
+ * and do not report it as an error.
+ *
+ * ★ Use it where the handler ITSELF resolves the condition: it rolls back or
+ *   refetches, so the screen is correct by the time the toast is read. The
+ *   person may still have to redo their edit; what they do not have is a defect.
+ *
+ * @param kind the caller's own severity — `'warn'` for the quiet majority,
+ *   `'error'` where an author deliberately wants it loud (fix-39 Track B).
+ *   Either way it stays out of Error Triage.
+ */
+export function pushRecoveredToast(message: string, kind: ToastKind = 'warn') {
+  return useToastStore.getState().push(message, kind, { log: false });
+}

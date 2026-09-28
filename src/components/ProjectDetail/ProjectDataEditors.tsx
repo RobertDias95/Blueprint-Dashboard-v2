@@ -56,7 +56,7 @@ import { useIsTenantAdmin } from '../../hooks/useIsTenantAdmin';
 import { useDrawSchedule } from '../../hooks/useDrawSchedule';
 import { useUpdateProjectWithPermits } from '../../hooks/useUpdateProjectWithPermits';
 import { useAppConfig, readAppConfigStringArray } from '../../hooks/useAppConfig';
-import { pushToast } from '../../stores/toastStore';
+import { pushToast, pushRecoveredToast } from '../../stores/toastStore';
 import OverlapPrompt from '../OverlapPrompt';
 import NpWarningPrompt from '../NpWarningPrompt';
 import type { PermitWithCycles, Project, UnitType } from '../../lib/database.types';
@@ -861,7 +861,7 @@ export function TargetSubmitRow({
         // Whole edit rolled back atomically — surface the reload prompt and
         // keep `draft` as-typed so the user doesn't lose input. Same copy
         // as fix-62/63 + the ProjectSettings modal.
-        pushToast(
+        pushRecoveredToast(
           'This project was modified elsewhere — reload and retry.',
           'warn',
         );

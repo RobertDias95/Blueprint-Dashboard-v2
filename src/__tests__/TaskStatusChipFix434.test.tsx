@@ -89,6 +89,11 @@ vi.mock('../stores/toastStore', async (imp) => {
     pushToast: (msg: string, kind = 'info') => {
       toasts.list.push({ msg, kind });
     },
+    // ★ fix-592 §B: captured the same way. `...actual` would hand back the real
+    //   one, which reaches `logError` — the thing this suite has no server for.
+    pushRecoveredToast: (msg: string, kind = 'warn') => {
+      toasts.list.push({ msg, kind });
+    },
   };
 });
 

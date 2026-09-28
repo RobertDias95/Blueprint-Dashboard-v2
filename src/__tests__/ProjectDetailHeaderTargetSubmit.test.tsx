@@ -33,6 +33,7 @@ vi.mock('../hooks/useUpdateProjectWithPermits', () => ({
 }));
 vi.mock('../stores/toastStore', () => ({
   pushToast: pushToastMock,
+  pushRecoveredToast: pushToastMock,
   useToastStore: () => ({ toasts: [], push: vi.fn(), dismiss: vi.fn() }),
 }));
 // Sibling header cells / DD start-end machinery — inert stubs.
