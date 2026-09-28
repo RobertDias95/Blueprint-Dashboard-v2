@@ -14,6 +14,7 @@ import {
 } from './useProjectDraft';
 import {
   initProjectDetailsForm,
+  permitRowIsOwnedBy,
   projectDetailsFormIsDirty,
   type BpRoleFields,
   type PermitRow,
@@ -79,6 +80,10 @@ export interface ProjectDetailsFormController {
   setPermitField: (idx: number, patch: Partial<PermitRow>) => void;
   addPermit: () => void;
   removePermit: (idx: number) => void;
+  /** ★ fix-591: the project whose screen this form is on — what every row's
+   *  `projectId` is compared against. Exposed so `PermitsFormSection` asks
+   *  `permitRowIsOwnedBy` rather than inventing a second rule. */
+  projectId: string;
   /** Resolves true when the save landed (so the caller may close). */
   save: () => Promise<boolean>;
   // --- option lists, derived once ------------------------------------------
@@ -349,6 +354,15 @@ export function useProjectDetailsForm(
         ...s.form.permits,
         {
           id: null,
+          // ★★★ fix-591 §2b — A NEW PERMIT JOINS THE PROJECT YOU ARE ON.
+          //     Not a guess: `effectivePermitsBy` is a UNION written so that
+          //     *"a redesign that later files a permit of its own must not lose
+          //     it"*, `bp_create_project_with_permits`' own-permits branch
+          //     already files permits on a redesign (fix-158 gave them a draw
+          //     lane), and this RPC's INSERT branch has always written
+          //     `project_id = p_project_id`. Nothing in the model has ever
+          //     filed a permit onto a project other than the one in hand.
+          projectId: project.id,
           isNew: true,
           isDeleted: false,
           type: 'Building Permit',
@@ -362,7 +376,7 @@ export function useProjectDetailsForm(
         },
       ],
     } }));
-  }, []);
+  }, [project.id]);
   const removePermit = useCallback((idx: number) => {
     setState((s) => ({ ...s, form: {
       ...s.form,
@@ -449,7 +463,46 @@ export function useProjectDetailsForm(
       >[0]['permitUpserts'] = [];
       const permitDeletes: number[] = [];
 
+      // ═══════════════════════════════════════════════════════════════════
+      // ★★★ fix-591 §2a (P-290) — THIS SAVE SENDS ROWS THIS PROJECT OWNS
+      // ═══════════════════════════════════════════════════════════════════
+      //
+      // THE REPORT: Miles, 4707 S Graham St, *"cannot save the project with new
+      // permits added"* → **"This project was modified elsewhere — reload and
+      // retry."** Twice. Nobody had touched it; its `updated_at` had not moved
+      // since 09-16.
+      //
+      // ★★★ INSTRUMENTED BEFORE ANYTHING WAS NAMED (the probes are in the PR).
+      //     The save sent the REDESIGN's id and the REDESIGN's token — both
+      //     correct and current — and three upserts: permits **10638 and 10639,
+      //     stored on the ORIGINAL** `0bae741f…` and carrying their own correct
+      //     live tokens, plus the new row. The guard that answered was
+      //     **step 0's per-permit lookup**, `WHERE id = … AND project_id =
+      //     p_project_id FOR UPDATE` → `NOT FOUND` → `conflict_kind = 'permit'`,
+      //     `conflict_id = 10638`. Not the project OCC, not a stale token.
+      //
+      // ★★★ AND THE "SIX DAYS APART" READING IS DEAD, measured: a permits-only
+      //     save carries `{}` as its patch, and the RPC skips step 2 entirely on
+      //     an empty patch (`IF v_patch <> '{}'`). A probe with a project token
+      //     **27 years** stale still returned `conflict: false`. The two project
+      //     tokens are never compared to each other, or to anything.
+      //
+      // ★★ THE ROWS ARE HERE ON PURPOSE AND STAY. fix-556 §B hands this tab
+      //    `lineagePermits` so a reuse-redesign can SEE the permits it works
+      //    on. Reading them is right; writing them under this project's lock is
+      //    what the server refuses, and it is right to refuse — the row is not
+      //    on this project. So the partition is on the CLIENT, where the
+      //    knowledge is, and the guard is untouched.
+      //
+      // ⚠️ A FOREIGN ROW IS NOT SILENTLY DROPPED EITHER. `PermitRowCard`
+      //    renders it read-only with the project it belongs to and a link to
+      //    that project's Permits tab, so there is nothing to drop: no edit can
+      //    be typed into it and no ✕ can mark it deleted. This filter is the
+      //    second half of that, not a substitute for it — fix-588's whole
+      //    lesson is that a discarded edit with a success toast is worse than a
+      //    refusal.
       for (const row of form.permits) {
+        if (!permitRowIsOwnedBy(row, project.id)) continue;
         if (row.isDeleted) {
           if (!row.isNew && row.id != null) permitDeletes.push(row.id);
           continue;
@@ -510,7 +563,19 @@ export function useProjectDetailsForm(
 
       if (result.conflict) {
         // The whole edit rolled back atomically — nothing partial landed.
-        pushToast('This project was modified elsewhere — reload and retry.', 'warn');
+        //
+        // ★★★ fix-591 §2a — AND IT NAMES THE RIGHT ROW. The RPC has returned
+        //     `conflict_kind` since fix-36 and this branch threw it away, so a
+        //     PERMIT collision was reported as *"this project was modified
+        //     elsewhere"*. That sentence sent Miles looking for a colleague who
+        //     was not there. A conflict on a permit is still a conflict and
+        //     still refuses — it just says which thing changed.
+        pushToast(
+          result.conflictKind === 'permit'
+            ? 'A permit on this project was changed elsewhere — reload and retry.'
+            : 'This project was modified elsewhere — reload and retry.',
+          'warn',
+        );
         return false;
       }
       // ★★★ fix-519 §B — REBASE, so the modal reads CLEAN and the next
@@ -602,6 +667,7 @@ export function useProjectDetailsForm(
     setPermitField,
     addPermit,
     removePermit,
+    projectId: project.id,
     save,
     jurisdictionNames: (jurisdictionsQ.data ?? []).map((j) => j.name),
     permitTypeNames: (permitTypesQ.data ?? []).map((t) => t.name),

@@ -57,6 +57,32 @@ export interface BuilderFlatFields {
 
 export interface PermitRow {
   id: number | null;
+  /**
+   * ★★★ fix-591 §2 (P-290) — THE PROJECT THIS ROW IS STORED UNDER.
+   *
+   * **Measured, not assumed:** the Permits tab is handed `lineagePermits`, and
+   * on 21 of 270 prod projects that list contains rows this project does not
+   * own — 16 reuse-redesigns rendering their original's permits (fix-556 §B's
+   * mirror) and 5 originals rendering a redesign's own. `save()` sent every one
+   * of them as an upsert under THIS project's id, and
+   * `bp_update_project_with_permits` scopes each one
+   * `WHERE id = … AND project_id = p_project_id`, so step 0 found nothing and
+   * returned `conflict_kind = 'permit'`. **Nobody had modified anything.**
+   *
+   * ★★ SO THE ROW HAS TO CARRY ITS OWNER, because "which project is this
+   *    permit on" is the one question the form could not answer and the one the
+   *    server asks first. fix-517 §E's own comment asserted the opposite —
+   *    *"this form only ever holds one project's rows"* — and fix-556 §B made
+   *    that false a ticket later without either side noticing.
+   *
+   * ★ A NEW ROW GETS THE PROJECT YOU ARE ON. See §2b in the PR: the union in
+   *   `effectivePermits` was written so *"a redesign that later files a permit
+   *   of its own must not lose it"*, `bp_create_project_with_permits`'
+   *   own-permits branch already files permits on a redesign, and the RPC's
+   *   INSERT branch has always written `project_id = p_project_id`. A new
+   *   permit joins the project whose screen you are on.
+   */
+  projectId: string;
   isNew: boolean;
   isDeleted: boolean;
   type: string;
@@ -116,6 +142,11 @@ export interface ProjectDetailsFormState {
 export function permitToRow(p: PermitWithCycles): PermitRow {
   return {
     id: p.id,
+    /** ★ fix-591: the STORED owner, off the row itself — never the project the
+     *  screen happens to be showing. `asPermitOfProject` deliberately re-keys
+     *  this for the read-only Pipeline and its own comment says *"do not hand
+     *  the result to an editor"*; this is the editor. */
+    projectId: p.project_id ?? '',
     isNew: false,
     isDeleted: false,
     type: p.type ?? '',
@@ -129,6 +160,34 @@ export function permitToRow(p: PermitWithCycles): PermitRow {
       p.parent_permit_id != null ? String(p.parent_permit_id) : '',
     updated_at: p.updated_at,
   };
+}
+
+// ===========================================================================
+// ★★★ fix-591 §2 (P-290) — ONE DEFINITION OF "THIS PROJECT'S OWN ROW"
+// ===========================================================================
+//
+// The save uses it to decide what to send; the card uses it to decide what to
+// let you type; the sub-permit selector uses it to decide what may be a parent.
+// **Three readers, one rule** — a second copy is how they end up disagreeing
+// about which rows the server will accept, which is the whole defect again from
+// a different door.
+//
+// ★★ AN UNKNOWN OWNER IS TREATED AS FOREIGN, NOT AS OURS. `''` means the row
+//    reached this form without a `project_id`, and the only honest answer to
+//    "may I write this under project X?" when nobody knows whose it is, is no.
+//    Sending it is how a conflict — or worse, a write onto the wrong lineage —
+//    comes back. Both permit queries `select('*')`, so in practice this never
+//    fires; it is here because the day it does, silence would be the bug.
+/**
+ * Is this row one the project on screen may write in its own atomic save?
+ *
+ * ★ A NEW ROW ALWAYS IS: it has no stored owner yet, and the RPC's INSERT
+ *   branch files it on `p_project_id`. See `PermitRow.projectId` for why that
+ *   is the model's answer rather than a choice made here.
+ */
+export function permitRowIsOwnedBy(row: PermitRow, projectId: string): boolean {
+  if (row.isNew) return true;
+  return !!row.projectId && row.projectId === projectId;
 }
 
 export function initProjectDetailsForm(
