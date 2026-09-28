@@ -8,7 +8,12 @@ import SavesNowMark from '../shared/SavesNowMark';
 import { useUpdatePermit } from '../../hooks/useUpdatePermit';
 import type { PermitWithCycles, Project } from '../../lib/database.types';
 import type { ProjectDetailsFormController } from '../../hooks/useProjectDetailsForm';
+import { permitRowIsOwnedBy } from '../../lib/projectDetailsForm';
 import type { PermitRow } from '../../lib/projectDetailsForm';
+// ★ fix-591 §2a: the link a foreign row offers, and the address it is labelled
+//   with. Both already exist — this tab is the one surface that had neither.
+import { projectDataHref } from '../../lib/projectDataTabs';
+import { displayAddress } from '../../lib/displayAddress';
 
 // ===========================================================================
 // ★★★ fix-514 §A (P-191) — WHAT `ProjectSettingsModal` USED TO RENDER
@@ -78,11 +83,16 @@ function Input({
   onChange,
   type = 'text',
   testid,
+  disabled = false,
 }: {
   value: string;
   onChange: (v: string) => void;
   type?: string;
   testid?: string;
+  /** ★ fix-591: `SelectInput` has had this since fix-517 §E; the text boxes
+   *  needed it for the same reason — a row this project does not own is shown,
+   *  not edited. */
+  disabled?: boolean;
 }) {
   return (
     <input
@@ -91,6 +101,7 @@ function Input({
       onChange={(e) => onChange(e.target.value)}
       className={inputCls}
       style={inputStyle}
+      disabled={disabled}
       data-testid={testid}
     />
   );
@@ -727,6 +738,7 @@ function PermitRowCard({
   parentOptions,
   onChange,
   onRemove,
+  owner,
 }: {
   row: PermitRow;
   daOptions: string[];
@@ -736,7 +748,24 @@ function PermitRowCard({
   parentOptions: { value: string; label: string }[];
   onChange: (patch: Partial<PermitRow>) => void;
   onRemove: () => void;
+  /**
+   * ★★★ fix-591 §2a (P-290) — SET ONLY WHEN THIS ROW BELONGS TO ANOTHER
+   *     PROJECT, and its presence is what makes the card read-only.
+   *
+   * fix-556 §B hands this tab the lineage's permits so a reuse-redesign can see
+   * the ones it works on — right, and it stays. What was wrong is that they
+   * looked editable: every box took a keystroke, the ✕ offered to delete, and
+   * the Save that followed was refused by the server with *"this project was
+   * modified elsewhere"*. **A control that cannot work must not look like one.**
+   *
+   * ★★ SO THE CARD OFFERS THE ACTION THAT DOES WORK instead of pretending. The
+   *    permit's own project has the same Permits tab, its save lands, and the
+   *    link goes straight to this row on it. §2a's words: *"or the UI says
+   *    plainly why it cannot, and offers the action that does work."*
+   */
+  owner?: { address: string; href: string } | null;
 }) {
+  const readOnly = !!owner;
   const parentLabels = useMemo(() => {
     const m: Record<string, string> = {};
     for (const o of parentOptions) m[o.value] = o.label;
@@ -754,16 +783,51 @@ function PermitRowCard({
       className="rounded border p-3 flex flex-col gap-2 relative"
       style={{ background: 'var(--color-bg)', borderColor: 'var(--color-border)' }}
       data-testid={`psm-permit-row-${row.id ?? 'new'}`}
+      data-readonly={readOnly ? 'true' : undefined}
     >
-      <button
-        type="button"
-        onClick={onRemove}
-        className="absolute top-2 right-2 h-[20px] w-[20px] text-[12px] rounded border flex items-center justify-center"
-        style={{ borderColor: '#7f1d1d', color: '#f87171', background: 'transparent' }}
-        title="Remove permit"
-      >
-        ✕
-      </button>
+      {/* ★★★ fix-591 §2a — NO ✕ ON A ROW THIS PROJECT DOES NOT OWN, and this
+          one is not cosmetic. `permitDeletes` went to
+          `DELETE … WHERE id = v_del AND project_id = p_project_id`, which
+          matches NOTHING for a foreign id — no conflict, no error, zero rows.
+          The modal then said *"Project details saved."* over a deletion that
+          never happened. That is fix-588's defect exactly, on the one path
+          fix-588 did not look at. */}
+      {!readOnly && (
+        <button
+          type="button"
+          onClick={onRemove}
+          className="absolute top-2 right-2 h-[20px] w-[20px] text-[12px] rounded border flex items-center justify-center"
+          style={{ borderColor: '#7f1d1d', color: '#f87171', background: 'transparent' }}
+          title="Remove permit"
+        >
+          ✕
+        </button>
+      )}
+
+      {owner && (
+        <div
+          className="text-[10px] leading-snug rounded px-2 py-1.5"
+          style={{
+            background: 'var(--color-surface)',
+            color: 'var(--color-dim)',
+            border: '1px solid var(--color-border)',
+          }}
+          data-testid={`psm-permit-owner-${row.id ?? 'new'}`}
+        >
+          {/* ★ The address, then the reason, then the way out — in that order,
+              because the first question is "whose is this?" */}
+          On <span style={{ color: 'var(--color-text)' }}>{owner.address}</span>,
+          not this project. Shown here because the two share this permit;{' '}
+          <a
+            href={owner.href}
+            style={{ color: 'var(--color-de)', textDecoration: 'underline' }}
+            data-testid={`psm-permit-owner-link-${row.id ?? 'new'}`}
+          >
+            open it there to edit it
+          </a>
+          .
+        </div>
+      )}
 
       <div className="grid gap-2 items-end pr-7" style={{ gridTemplateColumns: '1fr 1fr 1fr' }}>
         <TinyField label="Type">
@@ -772,6 +836,7 @@ function PermitRowCard({
             onChange={(v) => onChange({ type: v })}
             options={typeOptionsWithLegacy}
             placeholderLabel="— select —"
+            disabled={readOnly}
           />
         </TinyField>
         <TinyField label="ENT">
@@ -780,6 +845,7 @@ function PermitRowCard({
             onChange={(v) => onChange({ ent_lead: v })}
             options={['', ...entOptions]}
             placeholderLabel="— none —"
+            disabled={readOnly}
           />
         </TinyField>
         <TinyField label="DA">
@@ -788,6 +854,7 @@ function PermitRowCard({
             onChange={(v) => onChange({ da: v })}
             options={['', ...daOptions]}
             placeholderLabel="— none —"
+            disabled={readOnly}
           />
         </TinyField>
       </div>
@@ -796,15 +863,20 @@ function PermitRowCard({
         {/* fix-36: no per-permit "Target Submit" — it is engine-owned
             (bp_recompute_target_submits) and this form must not write it. */}
         <TinyField label="Permit # (from city)">
-          <Input value={row.num} onChange={(v) => onChange({ num: v })} />
+          <Input value={row.num} onChange={(v) => onChange({ num: v })} disabled={readOnly} />
         </TinyField>
         <TinyField label="Permit Portal URL">
-          <Input value={row.portal_url} onChange={(v) => onChange({ portal_url: v })} />
+          <Input
+            value={row.portal_url}
+            onChange={(v) => onChange({ portal_url: v })}
+            disabled={readOnly}
+          />
         </TinyField>
         <TinyField label="Structure Address">
           <Input
             value={row.struct_address}
             onChange={(v) => onChange({ struct_address: v })}
+            disabled={readOnly}
           />
         </TinyField>
       </div>
@@ -822,6 +894,7 @@ function PermitRowCard({
             value={row.expected_issue}
             onChange={(v) => onChange({ expected_issue: v })}
             testid={`psm-permit-acq-${row.id ?? 'new'}`}
+            disabled={readOnly}
           />
         </TinyField>
         <div className="text-[9.5px] text-dim self-center">
@@ -848,9 +921,20 @@ function PermitRowCard({
              project's rows) no cross-project parent, which the rest of the app
              does not model.
 
+          ★★★ fix-591 — THAT PARENTHESIS WAS TRUE WHEN IT WAS WRITTEN AND FALSE
+              ONE TICKET LATER. fix-556 §B started handing this tab
+              `lineagePermits`, so the list DID hold more than one project's
+              rows, and the candidate list offered them: pick a foreign parent
+              and the RPC's subquery — which requires
+              `pp.project_id = p_project_id` — resolves to NULL and stores
+              nothing, with a success toast over it. `parentOptions` is
+              same-project-only now, and this whole block is absent on a row
+              this project does not own: a foreign permit's parent is its own
+              project's business.
+
           ★ ONLY ON A SAVED ROW. A permit that has not been written yet has no
             id for anything to point at, and cannot be a parent either. */}
-      {!row.isNew && row.id != null && (
+      {!readOnly && !row.isNew && row.id != null && (
         <div className="grid gap-2 items-end" style={{ gridTemplateColumns: '1fr 2fr' }}>
           <TinyField label="Sub-permit of">
             <SelectInput
@@ -875,8 +959,15 @@ function PermitRowCard({
 export function PermitsFormSection({
   ctl,
   focusPermitId,
+  allProjects,
 }: {
   ctl: ProjectDetailsFormController;
+  /**
+   * ★ fix-591 §2a — only to put a NAME on a row's owner. The modal already
+   *   holds this list (it feeds the Actions tab's redesign picker), so the
+   *   alternative was a second query for an address the page has in hand.
+   */
+  allProjects?: readonly { id: string; address: string | null }[];
   /**
    * ★★★ fix-517 §E — THE PERMIT THE ROW'S ✎ WAS CLICKED ON.
    *
@@ -917,14 +1008,44 @@ export function PermitsFormSection({
             !p.isNew &&
             p.id != null &&
             p.id !== row.id &&
+            // ★★★ fix-591: …AND ON THIS PROJECT. The RPC resolves the link with
+            //     `AND pp.project_id = p_project_id`, so a candidate from
+            //     elsewhere in the lineage stores NULL and reports success.
+            permitRowIsOwnedBy(p, ctl.projectId) &&
             !p.parent_permit_id.trim(),
         )
         .map((p) => ({
           value: String(p.id),
           label: p.num.trim() ? `${p.type} · ${p.num.trim()}` : `${p.type} · no number yet`,
         })),
-    [ctl.form.permits],
+    [ctl.form.permits, ctl.projectId],
   );
+
+  /**
+   * ★★★ fix-591 §2a/§2b — WHOSE ROW IS THIS, AND WHERE DO NEW ONES GO.
+   *
+   * `null` for every row on 249 of 270 prod projects — they own everything on
+   * their own Permits tab and this whole branch is invisible to them. The 21
+   * that do not are the 16 reuse-redesigns and the 5 originals whose tab lists a
+   * redesign's own permits: both directions of the same mirror, both previously
+   * unable to save this tab AT ALL, not merely unable to add.
+   */
+  const ownerFor = useCallback(
+    (row: PermitRow): { address: string; href: string } | null => {
+      if (permitRowIsOwnedBy(row, ctl.projectId)) return null;
+      const owner = allProjects?.find((p) => p.id === row.projectId);
+      return {
+        // ★ `displayAddress` here, not in the form model: fix-530 §C's rule that
+        //   the strip happens at the render edge and nowhere else.
+        address: displayAddress(owner?.address) || 'another project',
+        href: projectDataHref(row.projectId, 'permits', row.id),
+      };
+    },
+    [allProjects, ctl.projectId],
+  );
+  const foreignCount = ctl.form.permits.filter(
+    (p) => !p.isDeleted && !permitRowIsOwnedBy(p, ctl.projectId),
+  ).length;
 
   return (
     <div className="flex flex-col gap-2 w-full">
@@ -957,9 +1078,27 @@ export function PermitsFormSection({
               parentOptions={parentOptionsFor(row)}
               onChange={(patch) => ctl.setPermitField(idx, patch)}
               onRemove={() => ctl.removePermit(idx)}
+              owner={ownerFor(row)}
             />
           </div>
         ),
+      )}
+      {/* ★★★ fix-591 §2b — THE SCREEN SAYS WHICH PROJECT A NEW PERMIT JOINS.
+          §2b: *"Decide, and write down, WHICH PROJECT a new permit belongs to …
+          and make the screen say it out loud."* It joins the project you are on.
+          Said only where the question can arise — a project that owns every row
+          on its tab has nothing to disambiguate. */}
+      {foreignCount > 0 && (
+        <div
+          className="text-[10px] leading-snug"
+          style={{ color: 'var(--color-dim)' }}
+          data-testid="psm-new-permit-owner-note"
+        >
+          A permit you add here is filed on{' '}
+          <span style={{ color: 'var(--color-text)' }}>this</span> project, not on
+          the one the {foreignCount === 1 ? 'row' : 'rows'} above{' '}
+          {foreignCount === 1 ? 'belongs' : 'belong'} to.
+        </div>
       )}
       <button
         type="button"

@@ -236,8 +236,13 @@ function ProjectDetailBody({
     const original = projectsQ.data?.find(
       (p) => p.id === project.redesign_of_project_id,
     );
-    return permitProvenanceLine(displayAddress(original?.address));
-  }, [projectsQ.data, project]);
+    // ★★★ fix-591 §2b: `permits` is this project's OWN rows (`usePermitsByProject`
+    //     on its own id), so a non-empty one means the redesign has filed a
+    //     permit of its own and the banner must stop speaking for every row.
+    // ★ `permits` is the PROP — this body's own rows, the same reference the
+    //   `effective` memo above depends on, so it is stable between renders.
+    return permitProvenanceLine(displayAddress(original?.address), permits.length > 0);
+  }, [projectsQ.data, project, permits]);
 
   // Building Permit is the canonical anchor for project-level fields
   // (matches v1's `bp = ps.filter(p => p.type === 'Building Permit')[0] || ps[0]`).

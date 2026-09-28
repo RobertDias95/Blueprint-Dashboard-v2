@@ -179,10 +179,28 @@ export function asPermitOfProject<P extends { project_id?: string | null }>(
  * ★ Takes the address ALREADY stripped by `displayAddress` — the caller has it
  *   and this module must not become a second address-strip (fix-530 §C).
  */
+/**
+ * ★★★ fix-591 §2b (P-290) — `hasOwnPermits` IS THE SECOND HALF OF THE RULING.
+ *
+ * §2b: *"if it joins the redesign, then the redesign stops being permit-less and
+ * the reuse banner has to stop claiming otherwise."* It does join the redesign,
+ * so this sentence had to learn a second shape. The old one says **"Permits
+ * from 4707 S Graham St"** — a claim about EVERY row below it, and false the
+ * moment one of them is the redesign's own.
+ *
+ * ★★ `false` IS THE STATE OF ALL 16 REUSE-REDESIGNS ON PROD TODAY (measured
+ *    2026-09-28: 0 of 16 hold a permit of their own), so the line every reader
+ *    has seen is unchanged byte for byte. The second shape appears the first
+ *    time somebody uses the button Miles could not — which is the point.
+ */
 export function permitProvenanceLine(
   originalDisplayAddress: string | null | undefined,
+  hasOwnPermits = false,
 ): string | null {
   const a = (originalDisplayAddress ?? '').trim();
   if (!a) return null;
+  if (hasOwnPermits) {
+    return `Some permits here are from ${a} — this project reuses the original's permits alongside its own.`;
+  }
   return `Permits from ${a} — this project reuses the original's permits.`;
 }

@@ -365,7 +365,13 @@ export default function ProjectDetailsModal({
               lands on the same rows. */}
           {tab === 'permits' && (
             <TabPanel caption="★ The one tab with a Save button. A permit's fields — and a new row — have to land together, so they are written in one go. Everywhere else in Project Details, a field saves as you leave it.">
-              <PermitsFormSection ctl={ctl} focusPermitId={initialFocusPermitId} />
+              {/* ★ fix-591 §2a: `allProjects` only names a foreign row's owner
+                  — the modal already holds the list for the Actions tab. */}
+              <PermitsFormSection
+                ctl={ctl}
+                focusPermitId={initialFocusPermitId}
+                allProjects={allProjects}
+              />
             </TabPanel>
           )}
           {tab === 'builder' && (
