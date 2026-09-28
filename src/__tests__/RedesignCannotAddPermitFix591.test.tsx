@@ -500,12 +500,23 @@ describe('fix-591 §2a — a foreign row is shown, not edited', () => {
     );
   });
 
-  it('every box on it is disabled', () => {
+  it('every box on it is disabled, AND LOOKS IT', () => {
     mount(REUSE_REDESIGN(), [makePermit(10638, ORIGINAL)], [makeProject(ORIGINAL)]);
     const card = screen.getByTestId('psm-permit-row-10638');
     const fields = Array.from(card.querySelectorAll('input, select'));
     expect(fields.length).toBeGreaterThan(0);
-    for (const f of fields) expect((f as HTMLInputElement).disabled).toBe(true);
+    for (const f of fields) {
+      expect((f as HTMLInputElement).disabled).toBe(true);
+      // ★★★ `inputStyle` sets background and colour EXPLICITLY, which overrides
+      //     the browser's own greying — so `disabled` alone was pixel-identical
+      //     to a live box. Asserted because an invisible styling change is
+      //     fix-406's defect class, and because a control that cannot work must
+      //     not present as one.
+      expect((f as HTMLElement).style.borderStyle).toBe('dashed');
+      expect((f as HTMLElement).style.cursor).toBe('not-allowed');
+      // ★ …and the value stays readable: `--color-text`, never `--color-dim`.
+      expect((f as HTMLElement).style.color).toContain('--color-text');
+    }
   });
 
   it('has no ✕ — a foreign delete matched nothing and reported success', () => {

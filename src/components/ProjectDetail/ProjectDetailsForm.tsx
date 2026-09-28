@@ -42,6 +42,31 @@ import { displayAddress } from '../../lib/displayAddress';
 //   `lib/projectDetailsForm`.
 
 const inputCls = 'w-full px-2 py-1 text-[12px] border rounded';
+/**
+ * ★★★ fix-591 — A DISABLED BOX HAS TO LOOK DISABLED, and on this form it did
+ *     not. `inputStyle` sets `background` and `color` EXPLICITLY, which
+ *     overrides the browser's own greying: a `disabled` input here was
+ *     pixel-identical to a live one and gave way only when you clicked it. That
+ *     is the same failure as the conflict toast, in CSS — a control that cannot
+ *     work must not present as one.
+ *
+ * ★ Applied in the primitives rather than at the one call site, so the controls
+ *   already disabled for other reasons (`occMissing`) read correctly too.
+ *
+ * ★★★ AND THE VALUE STAYS FULLY LEGIBLE — `--color-text`, not `--color-dim`.
+ *     fix-406's lesson cuts both ways: a permit number you are being shown so
+ *     you can act on it must be readable at 12px. `#8a9bb5` on this fill is
+ *     ~4.4:1, under AA, for a value whose whole purpose is to be read. The
+ *     "you cannot type here" signal is carried by the shaded fill, the dashed
+ *     outline, the missing ✕ and the line above the row — four cues, none of
+ *     them paid for in contrast.
+ */
+const disabledInputStyle = {
+  background: 'var(--color-s2)',
+  color: 'var(--color-text)',
+  borderStyle: 'dashed' as const,
+  cursor: 'not-allowed' as const,
+};
 const inputStyle = {
   background: 'var(--color-surface)',
   borderColor: 'var(--color-border)',
@@ -100,7 +125,7 @@ function Input({
       value={value}
       onChange={(e) => onChange(e.target.value)}
       className={inputCls}
-      style={inputStyle}
+      style={disabled ? { ...inputStyle, ...disabledInputStyle } : inputStyle}
       disabled={disabled}
       data-testid={testid}
     />
@@ -131,7 +156,7 @@ function SelectInput({
       value={value}
       onChange={(e) => onChange(e.target.value)}
       className={inputCls}
-      style={inputStyle}
+      style={disabled ? { ...inputStyle, ...disabledInputStyle } : inputStyle}
       disabled={disabled}
       data-testid={testid}
     >
