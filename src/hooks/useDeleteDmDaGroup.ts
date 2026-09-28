@@ -3,7 +3,7 @@ import { supabase } from '../lib/supabase';
 import { queryKeys } from '../lib/queryKeys';
 import { OCCConflictError, isOCCConflict, occToken } from '../lib/occ';
 import { occRowKey, occSerialize } from '../lib/occQueue';
-import { pushToast } from '../stores/toastStore';
+import { pushToast, pushRecoveredToast } from '../stores/toastStore';
 import { useAuthStore } from '../stores/authStore';
 
 // Q7.3.b: bp_delete_dm_da_group_row. Remove a single DM-DA pairing. Used
@@ -38,7 +38,7 @@ export function useDeleteDmDaGroup() {
     },
     onError: (error) => {
       if (isOCCConflict(error)) {
-        pushToast(error.message, 'warn');
+        pushRecoveredToast(error.message, 'warn');
         queryClient.invalidateQueries({ queryKey: queryKeys.dmDaGroups(tenantId) });
       } else {
         pushToast(`Could not remove — ${error.message}`, 'error');

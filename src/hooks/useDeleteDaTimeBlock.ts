@@ -3,7 +3,7 @@ import { supabase } from '../lib/supabase';
 import { queryKeys } from '../lib/queryKeys';
 import { OCCConflictError, isOCCConflict, occToken } from '../lib/occ';
 import { occRowKey, occSerialize } from '../lib/occQueue';
-import { pushToast } from '../stores/toastStore';
+import { pushToast, pushRecoveredToast } from '../stores/toastStore';
 import { useAuthStore } from '../stores/authStore';
 import { applyDeletedBlock, currentBlockToken } from '../lib/daTimeBlockCache';
 
@@ -54,7 +54,7 @@ export function useDeleteDaTimeBlock() {
     },
     onError: (error) => {
       if (isOCCConflict(error)) {
-        pushToast(error.message, 'warn');
+        pushRecoveredToast(error.message, 'warn');
         queryClient.invalidateQueries({
           queryKey: queryKeys.daTimeBlocks(tenantId),
         });

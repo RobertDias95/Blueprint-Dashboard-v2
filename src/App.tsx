@@ -20,7 +20,11 @@ import {
   queryFailureLevel,
   shouldSkipBackendRpcLog,
 } from './lib/errorLogger';
-import { mutationErrorContext } from './lib/mutationErrorContext';
+import {
+  mutationErrorContext,
+  queryFailureContext,
+  describeFailure,
+} from './lib/mutationErrorContext';
 import { useSaveFailureStore } from './stores/saveFailureStore';
 import { describeMutation, isNetworkFailure } from './lib/saveFailure';
 import { newBuildIsLive } from './lib/appVersion';
@@ -83,13 +87,21 @@ const queryClient = new QueryClient({
       //     seeing. Classified by the query KEY, never by the message.
       const level = queryFailureLevel(err, query.queryKey, observers);
       if (!level) return;
+      // ★★★ fix-592 §C (P-291) — WHAT WAS BEING READ, AND WHICH RECORD.
+      //     Four open rows said only `Failed to fetch` / `Object not found` /
+      //     `HTTP 502 error`. The identifying detail was already in `queryKey`
+      //     and invisible on the list, which shows `message`.
+      const read = queryFailureContext(query.queryKey);
       void logError({
         source: 'backend_rpc',
         level,
-        message: messageOf(err),
+        message: describeFailure(messageOf(err), read),
         context: {
           kind: 'query',
           queryKey: query.queryKey,
+          // ★ Named beside the key rather than instead of it: `queryKey` is what
+          //   fix-338's discriminator hashes, and it stays exactly as it is.
+          ...read,
           // ★ fix-341: how many mounted components were waiting on it. Always
           // >0 here, and recorded so a future report cannot be mistaken for the
           // unobserved kind — the URL alone could not tell them apart.
@@ -123,10 +135,16 @@ const queryClient = new QueryClient({
         newBuildAvailable: newBuildIsLive(),
       });
       if (shouldSkipBackendRpcLog(err, key)) return;
+      // ★★★ fix-592 §C — THE SAME SENTENCE SHAPE ON THE WRITE SIDE. fix-511 §C
+      //     put `meta.write` in the CONTEXT; §C asks for the operation on every
+      //     reported failure, and the list only shows `message`. So the name a
+      //     hook already declares is now also in the line a person reads —
+      //     `duplicate key value violates … — bp_add_project_consultant`.
+      const wrote = mutationErrorContext(key, mutation.options.meta, vars, err);
       void logError({
         source: 'backend_rpc',
         level: 'error',
-        message: messageOf(err),
+        message: describeFailure(messageOf(err), { operation: wrote.write }),
         context: {
           kind: 'mutation',
           // ★★★ fix-511 §C (P-198): WHAT IT WAS WRITING, AND WHICH FIELDS.
@@ -138,7 +156,7 @@ const queryClient = new QueryClient({
           //     the fields are KEYS ONLY — see lib/mutationErrorContext.
           // ★ fix-579 (P-283): the error is the fourth argument — an OCC
           //   refusal carries both sides of the comparison it lost.
-          ...mutationErrorContext(key, mutation.options.meta, vars, err),
+          ...wrote,
           url:
             typeof window !== 'undefined'
               ? window.location?.pathname

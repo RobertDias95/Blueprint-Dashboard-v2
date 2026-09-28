@@ -84,7 +84,11 @@ vi.mock('../hooks/useProjectConsultants', () => ({
   useSetConsultantFirm: () => ({ mutate: vi.fn(), isPending: false }),
 }));
 
-vi.mock('../stores/toastStore', () => ({ pushToast: vi.fn() }));
+vi.mock('../stores/toastStore', () => {
+  const __recoveredOrPlain = vi.fn();
+  return { pushToast: __recoveredOrPlain,
+    pushRecoveredToast: __recoveredOrPlain };
+});
 
 // ★★★ fix-549 §B (P-255) — THIS SUITE IS ABOUT A PERMITTED USER.
 //

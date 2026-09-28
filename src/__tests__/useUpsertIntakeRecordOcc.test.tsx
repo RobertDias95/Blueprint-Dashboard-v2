@@ -30,7 +30,11 @@ vi.mock('../lib/supabase', () => ({
     }),
   },
 }));
-vi.mock('../stores/toastStore', () => ({ pushToast: (...a: unknown[]) => toast(...a) }));
+vi.mock('../stores/toastStore', () => {
+  const __recoveredOrPlain = (...a: unknown[]) => toast(...a);
+  return { pushToast: __recoveredOrPlain,
+    pushRecoveredToast: __recoveredOrPlain };
+});
 
 import { useUpsertIntakeRecord } from '../hooks/useUpsertIntakeRecord';
 

@@ -3,7 +3,7 @@ import { supabase } from '../lib/supabase';
 import { queryKeys } from '../lib/queryKeys';
 import { occToken } from '../lib/occ';
 import { occCall, occRowKey } from '../lib/occQueue';
-import { pushToast } from '../stores/toastStore';
+import { pushToast, pushRecoveredToast } from '../stores/toastStore';
 import { useAuthStore } from '../stores/authStore';
 import type {
   ConsultantCurrent,
@@ -167,8 +167,45 @@ export function useAddProjectConsultant(projectId: string | null | undefined) {
       return firstRow<ConsultantWriteResult>(data);
     },
     onSuccess: invalidate,
-    onError: (e: Error) => pushToast(e.message, 'error'),
+    // ★★★ fix-592 §A — SAY WHAT HAPPENED, NOT WHAT POSTGRES CALLED IT.
+    //     Lindsay was shown `duplicate key value violates unique constraint
+    //     "project_consultants_one_per_discipline"` three times. The sentence
+    //     below names the discipline and the actual reason, and — because the
+    //     picker can no longer offer a blocked discipline — reaching it at all
+    //     now means a genuine race, which is worth a report.
+    onError: (e: Error, input) =>
+      pushToast(addConsultantMessage(e, input.discipline), 'error'),
   });
+}
+
+// ===========================================================================
+// ★★★ fix-592 §A — THE TWO REFUSALS THIS RPC CAN RAISE, IN WORDS
+// ===========================================================================
+//
+// ★★ MATCHED ON THE CONSTRAINT NAME, WHICH IS A SCHEMA OBJECT, NOT PROSE.
+//    fix-584 §A forbids classifying by MESSAGE TEXT, and this does not: a
+//    constraint name is as stable as a SQLSTATE and is the precedent fix-165
+//    already set when it keyed on 22008. If the index is ever renamed this falls
+//    back to the raw message, which is exactly today's behaviour.
+//
+// ⚠️ AND IT DOES NOT CLAIM THE SLOT IS OCCUPIED, because usually it is not. The
+//    row holding it has been REMOVED; the sentence has to say that or it sends
+//    somebody looking for a consultant who is not on the project.
+const ONE_PER_DISCIPLINE = 'project_consultants_one_per_discipline';
+
+export function addConsultantMessage(error: unknown, discipline: string): string {
+  const raw =
+    typeof error === 'object' && error !== null && 'message' in error
+      ? String((error as { message: unknown }).message ?? '')
+      : String(error ?? '');
+  if (!raw.includes(ONE_PER_DISCIPLINE)) return raw;
+  const d = discipline.trim();
+  const what = d === '' ? 'That discipline' : d;
+  return (
+    `${what} still has a record on this project from an earlier booking that was removed, ` +
+    `and one consultant per discipline is enforced. It cannot be re-added until that record is cleared — ` +
+    `ask an admin to sort it out.`
+  );
 }
 
 // ===========================================================================
@@ -276,7 +313,7 @@ export function useSetConsultantStatus(projectId: string | null | undefined) {
         // ★ fix-341's lesson: say what happened in the words of the thing that
         //   happened. "Someone else changed this" with nobody there is what a
         //   bulk write looks like — here the round genuinely moved under us.
-        pushToast(
+        pushRecoveredToast(
           'That consultant changed while you were editing — reloaded.',
           'error',
         );

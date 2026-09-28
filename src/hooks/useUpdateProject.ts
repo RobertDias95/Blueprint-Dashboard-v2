@@ -11,7 +11,7 @@ import {
   projectMembersFromCache,
   type PermitLike,
 } from '../lib/projectWriteScope';
-import { pushToast } from '../stores/toastStore';
+import { pushToast, pushRecoveredToast } from '../stores/toastStore';
 import { useAuthStore } from '../stores/authStore';
 import type { Project } from '../lib/database.types';
 
@@ -329,7 +329,7 @@ export function useUpdateProject() {
         // toast fires only when BOTH attempts failed: that's a real
         // concurrent edit and the user needs to know.
         if (input.silentOnOcc !== true) {
-          pushToast(error.message, 'warn');
+          pushRecoveredToast(error.message, 'warn');
         }
         queryClient.invalidateQueries({ queryKey: queryKeys.projects(tenantId) });
       } else {

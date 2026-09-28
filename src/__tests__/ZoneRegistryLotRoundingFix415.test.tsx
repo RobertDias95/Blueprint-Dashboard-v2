@@ -408,7 +408,11 @@ vi.mock('../hooks/useProjectConsultants', () => ({
   useSetConsultantFirm: () => ({ mutate: vi.fn(), isPending: false }),
 }));
 
-vi.mock('../stores/toastStore', () => ({ pushToast: vi.fn() }));
+vi.mock('../stores/toastStore', () => {
+  const __recoveredOrPlain = vi.fn();
+  return { pushToast: __recoveredOrPlain,
+    pushRecoveredToast: __recoveredOrPlain };
+});
 
 // ===========================================================================
 // ★★★ fix-506 §G (P-140) — THIS SUITE'S EDITOR MOVED, AND NOTHING ELSE DID

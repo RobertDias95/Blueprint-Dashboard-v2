@@ -113,7 +113,8 @@ vi.mock('../lib/supabase', () => ({
 }));
 
 const toastMock = vi.hoisted(() => vi.fn());
-vi.mock('../stores/toastStore', () => ({ pushToast: toastMock }));
+vi.mock('../stores/toastStore', () => ({ pushToast: toastMock ,
+  pushRecoveredToast: toastMock}));
 
 import PlanOfRecordCard from '../components/ProjectDetail/PlanOfRecordCard';
 

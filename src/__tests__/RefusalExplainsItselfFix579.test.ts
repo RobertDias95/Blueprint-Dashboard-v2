@@ -259,7 +259,13 @@ describe('fix-579 — nothing about the write path moved', () => {
     expect(h).not.toContain('resetQueries');
     expect(h).not.toContain('refetchQueries');
     // The onError path is the one fix-442 shipped: toast + invalidate.
-    expect(h).toContain('pushToast(error.message');
+    // ★★ fix-592 §B: the OCC branch reaches the toast through
+    //    `pushRecoveredToast` now. The claim here is about the WRITE PATH — no
+    //    retry, no token refresh, still one toast and one invalidate — and none
+    //    of that moved. The report is suppressed, not the message; and this
+    //    hook's refusal is still recorded by the mutation reporter with its
+    //    `write:` meta, which is the evidence fix-579 exists to collect.
+    expect(h).toMatch(/push(?:Recovered)?Toast\(error\.message/);
     expect(h).toContain('queryClient.invalidateQueries({');
   });
 

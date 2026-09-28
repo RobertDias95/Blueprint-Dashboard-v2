@@ -121,10 +121,14 @@ vi.mock('../stores/authStore', () => ({
       session: null,
     }),
 }));
-vi.mock('../stores/toastStore', () => ({
-  pushToast: vi.fn(),
+vi.mock('../stores/toastStore', () => {
+  const __recoveredOrPlain = vi.fn();
+  return {
+  pushToast: __recoveredOrPlain,
+    pushRecoveredToast: __recoveredOrPlain,
   useToastStore: () => ({ toasts: [], push: vi.fn(), dismiss: vi.fn() }),
-}));
+};
+});
 
 import { useRealtimeInvalidation, REALTIME_FALLBACK_MS } from '../hooks/useRealtimeInvalidation';
 import { useBoardNotifications } from '../hooks/useBoardNotifications';

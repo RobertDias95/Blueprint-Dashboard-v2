@@ -3,7 +3,7 @@ import { supabase } from '../lib/supabase';
 import { queryKeys } from '../lib/queryKeys';
 import { OCCConflictError, isOCCConflict, occToken } from '../lib/occ';
 import { occRowKey, occSerialize } from '../lib/occQueue';
-import { pushToast } from '../stores/toastStore';
+import { pushToast, pushRecoveredToast } from '../stores/toastStore';
 import { useAuthStore } from '../stores/authStore';
 import type { PermitWithCycles } from '../lib/database.types';
 
@@ -205,7 +205,7 @@ export function useSetBpDdDates() {
 
     onError: (error) => {
       if (isOCCConflict(error)) {
-        pushToast(
+        pushRecoveredToast(
           'DD dates changed since you loaded them — refresh and retry',
           'warn',
         );

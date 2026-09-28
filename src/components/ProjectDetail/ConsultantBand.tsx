@@ -7,6 +7,7 @@ import BufferedDateInput from '../BufferedDateInput';
 import { useExternalTeamDirectory } from '../../hooks/useExternalTeamDirectory';
 import {
   useAddProjectConsultant,
+
   useConsultantRounds,
   useProjectConsultants,
   useSetConsultantDate,
@@ -15,6 +16,7 @@ import {
   useSetConsultantPhase,
   useSetConsultantStatus,
 } from '../../hooks/useProjectConsultants';
+import { useBlockedConsultantDisciplines } from '../../hooks/useBlockedConsultantDisciplines';
 import {
   CONSULTANT_DATE_LABEL,
   CONSULTANT_DATE_SLOTS,
@@ -128,6 +130,7 @@ export function ConsultantBand({
   const listQ = useProjectConsultants(projectId);
   const dirQ = useExternalTeamDirectory();
   const add = useAddProjectConsultant(projectId);
+  const blockedQ = useBlockedConsultantDisciplines(projectId);
   const [adding, setAdding] = useState(false);
 
   // ★ Both memoised: a bare `?? []` is a NEW array every render, which makes
@@ -135,6 +138,8 @@ export function ConsultantBand({
   //   lint rule is pointing at.
   const rows = useMemo(() => listQ.data ?? [], [listQ.data]);
   const firms = useMemo(() => dirQ.data ?? [], [dirQ.data]);
+  /** ★ fix-592 §A: disciplines whose slot a REMOVED consultant still holds. */
+  const blocked = useMemo(() => blockedQ.data ?? [], [blockedQ.data]);
 
   /** ★ Disciplines come from the DIRECTORY, never from a list typed here —
    *  fix-474's rule, so an eighth discipline needs no code change. Already-used
@@ -142,9 +147,26 @@ export function ConsultantBand({
    *  offering a duplicate would just raise. */
   const available = useMemo(() => {
     const taken = new Set(rows.map((r) => r.discipline.toLowerCase()));
+    // ★★★ fix-592 §A (P-291) — …AND THE ONES THE INDEX STILL REFUSES.
+    //
+    //     The comment above says offering a duplicate *"would just raise"*, and
+    //     it was right about the mechanism and wrong about the set. `rows` comes
+    //     from `project_consultant_current`, which HIDES a removed consultant;
+    //     `project_consultants_one_per_discipline` is not a partial index, so a
+    //     removed row still holds its slot. Lindsay removed a Civil at 15:36 and
+    //     this list offered Civil back to her at 15:37 — three raw
+    //     `duplicate key value violates unique constraint` toasts in 106
+    //     seconds. **The picker was not offering a taken discipline; it was
+    //     offering one the database had quietly reserved.**
+    //
+    // ★ `blocked` is empty on 269 of 270 prod projects, so this is a no-op
+    //   everywhere except where it is the whole bug.
+    const blockedSet = new Set(blocked.map((d) => d.toLowerCase()));
     const all = new Set(firms.filter((f) => f.active).map((f) => f.discipline));
-    return [...all].filter((d) => !taken.has(d.toLowerCase())).sort();
-  }, [firms, rows]);
+    return [...all]
+      .filter((d) => !taken.has(d.toLowerCase()) && !blockedSet.has(d.toLowerCase()))
+      .sort();
+  }, [firms, rows, blocked]);
 
   const seeds = useMemo(
     () =>
@@ -264,7 +286,36 @@ export function ConsultantBand({
           style={{ borderTopColor: 'var(--color-border)', color: 'var(--color-muted)' }}
           data-testid="pd-consultant-add-exhausted"
         >
-          Every discipline in the firm directory is already on this project.
+          {/* ★★★ fix-592 §A — AND THIS SENTENCE HAD TO LEARN THE OTHER CASE.
+              "Already on this project" is false for a blocked discipline: the
+              consultant was REMOVED. Saying it anyway is the same failure as the
+              raw constraint name, one layer up — it sends somebody looking for a
+              consultant who is not there. */}
+          {blocked.length > 0
+            ? 'Nothing left to add: every other discipline is either on this project already or held by a removed record.'
+            : 'Every discipline in the firm directory is already on this project.'}
+        </div>
+      )}
+      {/* ★★★ fix-592 §A (P-291) — A HELD SLOT SAYS SO, RATHER THAN GOING QUIET.
+          Dropping a blocked discipline out of the picker stops the raw
+          `duplicate key value violates unique constraint` toast, but on its own
+          it just makes the option disappear — and an option that vanishes with
+          no reason is how Lindsay would have spent the next 106 seconds looking
+          for it instead of at an error. One line, only where the state exists
+          (1 of 270 prod projects). */}
+      {manage && blocked.length > 0 && (
+        <div
+          className="px-2 py-1.5 border-t text-[10px]"
+          style={{ borderTopColor: 'var(--color-border)', color: 'var(--color-muted)' }}
+          data-testid="pd-consultant-blocked-note"
+        >
+          {blocked.join(', ')}{' '}
+          {blocked.length === 1 ? 'was' : 'were'} removed from this project
+          earlier, and {blocked.length === 1 ? 'that record' : 'those records'}{' '}
+          still {blocked.length === 1 ? 'holds its' : 'hold their'} slot — so{' '}
+          {blocked.length === 1 ? 'it cannot' : 'they cannot'} be added again
+          yet. An admin has to clear{' '}
+          {blocked.length === 1 ? 'the record' : 'them'} first.
         </div>
       )}
 

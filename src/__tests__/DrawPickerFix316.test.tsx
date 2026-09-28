@@ -199,7 +199,11 @@ const updateMutate = vi.hoisted(() => vi.fn());
 vi.mock('../hooks/useUpdateDsRow', () => ({
   useUpdateDsRow: () => ({ mutateAsync: updateMutate, isPending: false }),
 }));
-vi.mock('../stores/toastStore', () => ({ pushToast: vi.fn() }));
+vi.mock('../stores/toastStore', () => {
+  const __recoveredOrPlain = vi.fn();
+  return { pushToast: __recoveredOrPlain,
+    pushRecoveredToast: __recoveredOrPlain };
+});
 
 import ProjectBlockPopup from '../components/DrawSchedule/ProjectBlockPopup';
 

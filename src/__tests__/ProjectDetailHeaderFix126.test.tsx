@@ -60,7 +60,11 @@ vi.mock('../hooks/useProjectConsultants', () => ({
   useSetConsultantFirm: () => ({ mutate: vi.fn(), isPending: false }),
 }));
 
-vi.mock('../stores/toastStore', () => ({ pushToast: vi.fn() }));
+vi.mock('../stores/toastStore', () => {
+  const __recoveredOrPlain = vi.fn();
+  return { pushToast: __recoveredOrPlain,
+    pushRecoveredToast: __recoveredOrPlain };
+});
 
 // ===========================================================================
 // ★★★ fix-506 §C/§G — THE REDESIGN LIST MOVED, WITH THE ACTION THAT MAKES ONE

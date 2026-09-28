@@ -110,10 +110,14 @@ vi.mock('../hooks/useBoardReads', () => ({
   useBoardReads: () => ({ data: [], isLoading: false, error: null }),
   useMarkBoardItemsRead: () => ({ mutate: vi.fn(), isPending: false }),
 }));
-vi.mock('../stores/toastStore', () => ({
-  pushToast: vi.fn(),
+vi.mock('../stores/toastStore', () => {
+  const __recoveredOrPlain = vi.fn();
+  return {
+  pushToast: __recoveredOrPlain,
+    pushRecoveredToast: __recoveredOrPlain,
   useToastStore: () => ({ toasts: [], push: vi.fn(), dismiss: vi.fn() }),
-}));
+};
+});
 
 // The Plan of Record card is the tallest card in the row and the one whose
 // height varies — it is what §1 is about, so it renders for real here with a

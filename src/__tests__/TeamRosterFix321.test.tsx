@@ -152,10 +152,14 @@ vi.mock('../hooks/usePlanOfRecord', () => ({
   usePlanOfRecord: () => ({ data: null, isLoading: false, error: null, refetch: vi.fn() }),
   usePlanOfRecordThumbnail: () => ({ data: null, isLoading: false, error: null }),
 }));
-vi.mock('../stores/toastStore', () => ({
-  pushToast: vi.fn(),
+vi.mock('../stores/toastStore', () => {
+  const __recoveredOrPlain = vi.fn();
+  return {
+  pushToast: __recoveredOrPlain,
+    pushRecoveredToast: __recoveredOrPlain,
   useToastStore: () => ({ toasts: [], push: vi.fn(), dismiss: vi.fn() }),
-}));
+};
+});
 vi.mock('../hooks/useIsTenantAdmin', () => ({ useIsTenantAdmin: () => true }));
 // The quarter-layout editor renders its empty state (and no pickers) until it
 // has rows, so give it one — a lane belonging to a DA who has since left, which

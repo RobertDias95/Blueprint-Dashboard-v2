@@ -65,7 +65,11 @@ vi.mock('../hooks/usePlanOfRecordVerdict', () => ({
   }),
 }));
 
-vi.mock('../stores/toastStore', () => ({ pushToast: vi.fn() }));
+vi.mock('../stores/toastStore', () => {
+  const __recoveredOrPlain = vi.fn();
+  return { pushToast: __recoveredOrPlain,
+    pushRecoveredToast: __recoveredOrPlain };
+});
 
 import PlanOfRecordCard from '../components/ProjectDetail/PlanOfRecordCard';
 

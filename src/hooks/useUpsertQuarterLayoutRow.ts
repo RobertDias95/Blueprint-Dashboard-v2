@@ -3,7 +3,7 @@ import { supabase } from '../lib/supabase';
 import { queryKeys } from '../lib/queryKeys';
 import { OCCConflictError, isOCCConflict, occToken } from '../lib/occ';
 import { occInsertKey, occRowKey, occSerialize } from '../lib/occQueue';
-import { pushToast } from '../stores/toastStore';
+import { pushToast, pushRecoveredToast } from '../stores/toastStore';
 import { useAuthStore } from '../stores/authStore';
 import type { DrawScheduleQuarterLayoutRow } from '../lib/database.types';
 
@@ -84,7 +84,7 @@ export function useUpsertQuarterLayoutRow() {
     },
     onError: (error) => {
       if (isOCCConflict(error)) {
-        pushToast(
+        pushRecoveredToast(
           'Layout changed since you loaded it — refresh and retry',
           'warn',
         );

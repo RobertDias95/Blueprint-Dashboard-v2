@@ -6,7 +6,7 @@ import { useTeamMembers } from './useTeamMembers';
 import { useAppConfig, readAppConfigStringArray } from './useAppConfig';
 import { isCurrentMember } from '../lib/roster';
 import { seedExpectedIssue, seedTargetSubmit } from '../lib/permitSeedingDefaults';
-import { pushToast } from '../stores/toastStore';
+import { pushToast, pushRecoveredToast } from '../stores/toastStore';
 import { projectValuesEqual } from './useProjectFieldCommit';
 import { droppedPatchKeys, droppedPatchMessage } from '../lib/savedPatchAudit';
 import {
@@ -570,7 +570,7 @@ export function useProjectDetailsForm(
         //     elsewhere"*. That sentence sent Miles looking for a colleague who
         //     was not there. A conflict on a permit is still a conflict and
         //     still refuses — it just says which thing changed.
-        pushToast(
+        pushRecoveredToast(
           result.conflictKind === 'permit'
             ? 'A permit on this project was changed elsewhere — reload and retry.'
             : 'This project was modified elsewhere — reload and retry.',

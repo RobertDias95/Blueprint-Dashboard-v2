@@ -3,7 +3,7 @@ import { supabase } from '../lib/supabase';
 import { queryKeys } from '../lib/queryKeys';
 import { OCCConflictError, isOCCConflict, occToken } from '../lib/occ';
 import { occRowKey, occSerialize } from '../lib/occQueue';
-import { pushToast } from '../stores/toastStore';
+import { pushToast, pushRecoveredToast } from '../stores/toastStore';
 
 // fix-145: edit a reuse-redesign's draw_schedule lane (DA / dates / status)
 // from the Project Overview inline editor. Wraps bp_update_redesign_dd_phase,
@@ -59,7 +59,7 @@ export function useUpdateRedesignDdPhase() {
     },
     onError: (err) => {
       if (isOCCConflict(err)) {
-        pushToast('Lane was edited elsewhere — refresh and retry', 'warn');
+        pushRecoveredToast('Lane was edited elsewhere — refresh and retry', 'warn');
         qc.invalidateQueries({ queryKey: queryKeys.drawScheduleAll });
         return;
       }

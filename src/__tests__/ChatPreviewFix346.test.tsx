@@ -124,10 +124,14 @@ vi.mock('../hooks/useBoardReads', () => ({
   useBoardReads: () => ({ data: [], isLoading: false, error: null }),
   useMarkBoardItemsRead: () => ({ mutate: vi.fn(), isPending: false }),
 }));
-vi.mock('../stores/toastStore', () => ({
-  pushToast: vi.fn(),
+vi.mock('../stores/toastStore', () => {
+  const __recoveredOrPlain = vi.fn();
+  return {
+  pushToast: __recoveredOrPlain,
+    pushRecoveredToast: __recoveredOrPlain,
   useToastStore: () => ({ toasts: [], push: vi.fn(), dismiss: vi.fn() }),
-}));
+};
+});
 
 // ★★★ fix-475 (P-116) — THE CONSULTANTS CARD IS INERT HERE.
 //

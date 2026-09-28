@@ -40,6 +40,7 @@ vi.mock('../hooks/useUpdateProjectWithPermits', () => ({
 
 vi.mock('../stores/toastStore', () => ({
   pushToast: pushToastMock,
+  pushRecoveredToast: pushToastMock,
   useToastStore: () => ({ toasts: [], push: vi.fn(), dismiss: vi.fn() }),
 }));
 
