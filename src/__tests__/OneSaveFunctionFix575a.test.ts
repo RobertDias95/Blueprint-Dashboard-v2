@@ -286,7 +286,13 @@ describe('fix-575a — the catch moved INTO the hook rather than being deleted',
     expect(onError).toContain('isWriteDenied(error)');
     expect(onError).toContain('isOCCConflict(error)');
     // ★ Three branches, three toasts — there is no path that says nothing.
-    expect(onError.split('pushToast').length - 1).toBe(3);
+    // ★★ fix-592 §B: counted across BOTH helpers. The OCC branch pushes through
+    //    `pushRecoveredToast` now — same toast, same moment, same words; it just
+    //    no longer files itself in Error Triage. Counting the literal `pushToast`
+    //    would make this assertion about a function name rather than about the
+    //    claim it exists to defend, which is that no branch stays silent.
+    const toastCalls = (onError.match(/push(?:Recovered|Validation)?Toast\(/g) ?? []).length;
+    expect(toastCalls).toBe(3);
   });
 
   it('★★ nothing swallows it a SECOND time at a call site', () => {

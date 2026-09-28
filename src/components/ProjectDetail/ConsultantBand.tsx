@@ -7,7 +7,7 @@ import BufferedDateInput from '../BufferedDateInput';
 import { useExternalTeamDirectory } from '../../hooks/useExternalTeamDirectory';
 import {
   useAddProjectConsultant,
-  useBlockedConsultantDisciplines,
+
   useConsultantRounds,
   useProjectConsultants,
   useSetConsultantDate,
@@ -16,6 +16,7 @@ import {
   useSetConsultantPhase,
   useSetConsultantStatus,
 } from '../../hooks/useProjectConsultants';
+import { useBlockedConsultantDisciplines } from '../../hooks/useBlockedConsultantDisciplines';
 import {
   CONSULTANT_DATE_LABEL,
   CONSULTANT_DATE_SLOTS,
