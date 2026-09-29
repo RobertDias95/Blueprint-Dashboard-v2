@@ -24,7 +24,9 @@ import {
   RETIRED_VISIBILITY,
   redesignedAwayProjectIds,
   retiredCause,
+  retiredHiddenCounts,
   retiredHiddenFrom,
+  retiredHiddenLabel,
   type RetiredCause,
   type RetiredSets,
 } from '../lib/retiredState';
@@ -395,9 +397,15 @@ function Body({ projects, permits, retiredSets }: BodyProps) {
     () => projects.filter((p) => !retiredHiddenFrom('library', p.id, retiredSets)),
     [projects, retiredSets],
   );
-  /** ★★★ fix-525 §B: project ids that STAY but read as retired. Today that is
-   *  the 17 redesign originals and nothing else — `RETIRED_VISIBILITY` decides,
-   *  so if the ruling changes again it changes in one record. */
+  /** ★★★ fix-525 §B: project ids that STAY but read as retired.
+   *
+   *  ⚠️ fix-593 — **EMPTY TODAY, BY RULING RATHER THAN BY ACCIDENT.** Both causes
+   *  are now `library: 'hidden'`, so nothing is hatched here and the
+   *  `· N superseded` span below self-hides. It is KEPT rather than deleted
+   *  because that ruling has moved three times in eighteen days (09-10 hidden →
+   *  09-11 hatched → 09-28 hidden) and this derivation is what makes the next
+   *  move a one-line change to `RETIRED_VISIBILITY` again. It is not dead code —
+   *  it is a correct reading of a record that is expected to change. */
   const hatchedIds = useMemo(() => {
     const m = new Map<string, RetiredCause>();
     for (const p of visibleProjects) {
@@ -406,11 +414,30 @@ function Body({ projects, permits, retiredSets }: BodyProps) {
     }
     return m;
   }, [visibleProjects, retiredSets]);
-  /** ★ How many the hide removed, so the count line can SAY SO. §B: *"a number
-   *  that changes because a filter changed, with nothing saying so, is a bug
-   *  report waiting to happen."* fix-447 §B5 made exactly this argument about
-   *  the unit view's project count. */
-  const hiddenRetiredCount = projects.length - visibleProjects.length;
+  /** ★★★ fix-593 §3 — THE HIDE SAYS SO, AND BY WHICH CAUSE.
+   *
+   *  ★ fix-524 §B's reason for saying anything at all, kept verbatim because it
+   *  is the reason this line exists: *"a number that changes because a filter
+   *  changed, with nothing saying so, is a bug report waiting to happen."* The
+   *  Library's population drops by 21 more the day this ships.
+   *
+   *  ⚠️ `hiddenRetiredCount = projects.length - visibleProjects.length` USED TO
+   *  LIVE HERE and is gone: a single total cannot name two causes, and keeping it
+   *  beside the per-cause map would be two answers to one question. The invariant
+   *  it carried is not lost — it moved into the test, which asserts the RENDERED
+   *  label's numbers sum to (projects in − rows out). Asserting the DOM is
+   *  strictly stronger than asserting a variable nothing displayed.
+   *
+   *  fix-524 §B's copy was *"N cancelled hidden"*, correct while `cancelled` was
+   *  the only cause hidden from the Library. The redesign originals join it
+   *  today, and calling 21 of them "cancelled" would be a header disagreeing
+   *  with its own rows. The counts come off the SAME `projects` list and the
+   *  SAME `retiredSets` as `visibleProjects`, so the two cannot drift — and a
+   *  test asserts they sum to `hiddenRetiredCount`. */
+  const hiddenByCause = useMemo(
+    () => retiredHiddenCounts('library', projects.map((p) => p.id), retiredSets),
+    [projects, retiredSets],
+  );
   const allRows = useMemo(
     () => buildLibraryRows(visibleProjects, permits),
     [visibleProjects, permits],
@@ -1057,9 +1084,11 @@ function Body({ projects, permits, retiredSets }: BodyProps) {
               total that moves with nothing explaining it reads as a filter that
               broke. Same argument fix-447 §B5 made about the unit view's
               project count, applied to a filter the reader did not set. */}
-          {hiddenRetiredCount > 0 && (
+          {/* ★★★ fix-593 §3: …and it names EVERY cause, not just the first one
+              that ever had this treatment. "5 cancelled, 21 redesigned hidden." */}
+          {retiredHiddenLabel(hiddenByCause) !== null && (
             <span data-testid="library-retired-hidden">
-              {` · ${hiddenRetiredCount} cancelled hidden`}
+              {` · ${retiredHiddenLabel(hiddenByCause)}`}
             </span>
           )}
           {/* ★★★ fix-525 §B: and the ones that STAYED are named too. 17 of them
