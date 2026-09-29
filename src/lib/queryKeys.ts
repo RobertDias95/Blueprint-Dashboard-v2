@@ -347,11 +347,6 @@ export const queryKeys = {
   projectConsultantsAll: ['project_consultants'] as const,
   projectConsultants: (tenantId: string, projectId: string) =>
     ['project_consultants', tenantId, { projectId }] as const,
-  /** ★★ fix-592 §A: the disciplines whose slot is held by a REMOVED consultant.
-   *  Shares the bare prefix, so a remove or an add refreshes it with everything
-   *  else — the blocked set changes on exactly those writes. */
-  projectConsultantsBlocked: (tenantId: string, projectId: string) =>
-    ['project_consultants', tenantId, 'blocked', { projectId }] as const,
   /** ★ fix-475: one consultant's FULL round list — the Expand history. Shares
    *  the bare prefix above so any consultant write invalidates it too. */
   consultantRounds: (tenantId: string, consultantId: string) =>
