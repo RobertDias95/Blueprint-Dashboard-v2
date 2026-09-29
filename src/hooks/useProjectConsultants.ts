@@ -188,9 +188,30 @@ export function useAddProjectConsultant(projectId: string | null | undefined) {
 //    already set when it keyed on 22008. If the index is ever renamed this falls
 //    back to the raw message, which is exactly today's behaviour.
 //
-// ⚠️ AND IT DOES NOT CLAIM THE SLOT IS OCCUPIED, because usually it is not. The
-//    row holding it has been REMOVED; the sentence has to say that or it sends
-//    somebody looking for a consultant who is not on the project.
+// ═══════════════════════════════════════════════════════════════════════════
+// ★★★ fix-594 — THE SAME CONSTRAINT NOW MEANS SOMETHING ELSE, SO THE SENTENCE
+//     CHANGED WITH IT
+// ═══════════════════════════════════════════════════════════════════════════
+//
+// fix-592 shipped this saying the slot was *"held by an earlier booking that was
+// removed"*, which was the truth then: the index was
+// `(project_id, discipline)` with no predicate, so a soft-removed row kept its
+// discipline for ever and that was the only way most people could hit it.
+//
+// ★★★ BOBBY RULED THE INDEX PARTIAL (2026-09-28) — `WHERE removed_at IS NULL` —
+//     so **that case cannot happen any more.** What survives is the one this
+//     constraint was always for: a genuine RACE. Two people add the same live
+//     discipline at once, one insert wins, the other is refused.
+//
+// ★★ WHICH MAKES THE OLD WORDING ACTIVELY WRONG RATHER THAN MERELY STALE. It
+//    would send somebody hunting for a removed record that is not blocking
+//    anything, and tell them to ask an admin to clear it, when the fix is to
+//    refresh and look at what their colleague just added.
+//
+// ★ MATCHED ON THE CONSTRAINT NAME, WHICH IS A SCHEMA OBJECT, NOT PROSE —
+//   fix-584 §A forbids classifying by MESSAGE TEXT and this does not. It is why
+//   fix-594's migration keeps the index NAME while changing its predicate: rename
+//   it and this path silently returns to showing raw Postgres at somebody.
 const ONE_PER_DISCIPLINE = 'project_consultants_one_per_discipline';
 
 export function addConsultantMessage(error: unknown, discipline: string): string {
@@ -200,11 +221,10 @@ export function addConsultantMessage(error: unknown, discipline: string): string
       : String(error ?? '');
   if (!raw.includes(ONE_PER_DISCIPLINE)) return raw;
   const d = discipline.trim();
-  const what = d === '' ? 'That discipline' : d;
+  const what = d === '' ? 'a consultant for that discipline' : `a ${d} consultant`;
   return (
-    `${what} still has a record on this project from an earlier booking that was removed, ` +
-    `and one consultant per discipline is enforced. It cannot be re-added until that record is cleared — ` +
-    `ask an admin to sort it out.`
+    `Somebody just added ${what} to this project — one per discipline is enforced. ` +
+    `Refresh to see theirs.`
   );
 }
 

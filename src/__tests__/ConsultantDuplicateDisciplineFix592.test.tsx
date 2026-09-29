@@ -150,11 +150,18 @@ beforeEach(() => {
   rpc.mockImplementation(async (name: string, args: Record<string, unknown>) => {
     if (name !== 'bp_add_project_consultant') return { data: null, error: null };
     const d = String(args.p_discipline ?? '');
-    // ★★★ THE INDEX, MIRRORED: it counts EVERY row, removed or not. That one
-    //     clause is the defect, and a stub that filtered `removed_at` would
-    //     pass this whole file while prod kept refusing.
+    // ★★★ THE INDEX, MIRRORED — AND fix-594 CHANGED IT.
+    //
+    //     fix-592's version counted EVERY row, removed or not, because that is
+    //     what `(project_id, discipline)` with no predicate does, and a stub that
+    //     filtered `removed_at` would have passed the whole file while prod kept
+    //     refusing. Bobby ruled the index PARTIAL on 2026-09-28 —
+    //     `WHERE removed_at IS NULL` — so the mirror filters now, and it has to:
+    //     leaving it counting removed rows would make the new "a removed
+    //     discipline is offered again" test pass against a server that would
+    //     still refuse the insert.
     const refused = rows.some(
-      (r) => r.discipline.toLowerCase() === d.toLowerCase(),
+      (r) => !r.removed_at && r.discipline.toLowerCase() === d.toLowerCase(),
     );
     inserts.push({ discipline: d, refused });
     if (refused) {
@@ -183,65 +190,73 @@ describe('fix-592 §A — a taken discipline is not offered', () => {
     expect(Array.from(select.options).map((o) => o.value)).not.toContain('Civil');
   });
 
-  it('★★★ a REMOVED consultant does too — the slot the index still holds', async () => {
+  // ═══════════════════════════════════════════════════════════════════════
+  // ★★★ fix-594 (P-291) — FOUR CASES DELETED HERE, NOT SKIPPED
+  // ═══════════════════════════════════════════════════════════════════════
+  //
+  // fix-592 §A asserted that a REMOVED consultant kept its discipline out of the
+  // picker, that a note said why, that the note stayed absent on the other 269
+  // projects, and that no insert was ever attempted against a held slot. All four
+  // described a WORKAROUND for an index that was not partial.
+  //
+  // ★★★ Bobby ruled the index instead (2026-09-28), so the state they described
+  //     cannot occur: a removed row does not hold the slot. They are **deleted**
+  //     rather than skipped — a skipped test is a claim nobody is checking — and
+  //     the case below asserts the opposite behaviour, which is now the correct
+  //     one.
+  //
+  // ★ The LIVE case above is untouched, because that rule did not change: one
+  //   live consultant per discipline, still enforced, still excluded from the
+  //   picker.
+
+  it('★★★ a REMOVED consultant frees its discipline — the ruling', async () => {
+    // The exact option Lindsay was refused three times on 2026-09-23: she had
+    // removed a Civil ninety-one seconds earlier, and the picker was right to
+    // offer it back. Now the database agrees.
     rows = [{ discipline: 'Civil', removed_at: '2026-09-23T15:36:11Z', firm_id: 'f-civil' }];
     mount();
     await act(async () => {
       fireEvent.click(await screen.findByTestId('pd-consultant-add-open'));
     });
     const select = screen.getByTestId('pd-consultant-add-discipline') as HTMLSelectElement;
-    const values = Array.from(select.options).map((o) => o.value);
-    // The exact option Lindsay was offered at 15:37:42.
-    expect(values).not.toContain('Civil');
-    // …and the ones that really are free are still there.
-    expect(values).toContain('Geotech');
-    expect(values).toContain('Structural');
+    expect(Array.from(select.options).map((o) => o.value)).toContain('Civil');
   });
 
-  it('…and says why, rather than just dropping the option', async () => {
-    rows = [
-      { discipline: 'Civil', removed_at: '2026-09-23T15:36:11Z', firm_id: 'f-civil' },
-      { discipline: 'Geotech', removed_at: '2026-09-23T15:38:05Z', firm_id: 'f-geo' },
-    ];
+  it('★★★ …and adding it succeeds rather than being refused', async () => {
+    // The round trip, not just the option list: the partial index lets the
+    // insert through, so the 106 seconds of raw constraint errors cannot recur.
+    rows = [{ discipline: 'Civil', removed_at: '2026-09-23T15:36:11Z', firm_id: 'f-civil' }];
     mount();
-    const note = await screen.findByTestId('pd-consultant-blocked-note');
-    expect(note.textContent).toContain('Civil');
-    expect(note.textContent).toContain('Geotech');
-    expect(note.textContent).toMatch(/removed from this project earlier/);
-    // ★ An option that vanishes with no reason is how the next 106 seconds get
-    //   spent looking for it instead of at an error.
-    expect(note.textContent).toMatch(/admin/i);
+    await act(async () => {
+      fireEvent.click(await screen.findByTestId('pd-consultant-add-open'));
+    });
+    const select = screen.getByTestId('pd-consultant-add-discipline') as HTMLSelectElement;
+    await act(async () => {
+      fireEvent.change(select, { target: { value: 'Civil' } });
+    });
+    await waitFor(() => expect(inserts.length).toBe(1));
+    expect(inserts[0]!.discipline).toBe('Civil');
+    expect(inserts[0]!.refused).toBe(false);
   });
 
-  it('nothing is said on the 269 projects with no removed consultant', async () => {
+  it('★★ a LIVE row still refuses, so the rule itself is unchanged', async () => {
+    // "One LIVE consultant per discipline" is what the index still says. If this
+    // ever passes, the partial predicate has been written too widely.
     rows = [{ discipline: 'Civil', removed_at: null, firm_id: 'f-civil' }];
+    mount();
+    await act(async () => {
+      fireEvent.click(await screen.findByTestId('pd-consultant-add-open'));
+    });
+    const select = screen.getByTestId('pd-consultant-add-discipline') as HTMLSelectElement;
+    // The picker does not offer it, and the mirrored index would refuse it.
+    expect(Array.from(select.options).map((o) => o.value)).not.toContain('Civil');
+  });
+
+  it('★ the "held by a removed record" note is gone entirely', async () => {
+    rows = [{ discipline: 'Civil', removed_at: '2026-09-23T15:36:11Z', firm_id: 'f-civil' }];
     mount();
     await screen.findByTestId('pd-consultant-add-open');
     expect(screen.queryByTestId('pd-consultant-blocked-note')).toBeNull();
-  });
-
-  it('★★★ and so no insert is ever attempted against a held slot', async () => {
-    rows = [{ discipline: 'Civil', removed_at: '2026-09-23T15:36:11Z', firm_id: 'f-civil' }];
-    mount();
-    await act(async () => {
-      fireEvent.click(await screen.findByTestId('pd-consultant-add-open'));
-    });
-    const select = screen.getByTestId('pd-consultant-add-discipline') as HTMLSelectElement;
-    // ★★★ PICK WHATEVER THE PICKER OFFERS FIRST, rather than naming a safe
-    //     option. Hard-coding 'Geotech' here made this test pass with the fix
-    //     reverted — it was asserting my own choice, not the component's. The
-    //     blocked discipline sorts FIRST ('Civil' < 'Geotech' < 'Structural'),
-    //     so on `origin/main` this selects exactly the option Lindsay was handed.
-    const offered = Array.from(select.options)
-      .map((o) => o.value)
-      .filter((v) => v !== '');
-    await act(async () => {
-      fireEvent.change(select, { target: { value: offered[0] } });
-    });
-    await waitFor(() => expect(inserts.length).toBe(1));
-    // §A's ★★: *"Refuse it BEFORE the round trip where you can."*
-    expect(inserts.filter((i) => i.refused)).toEqual([]);
-    expect(inserts[0]!.discipline).not.toBe('Civil');
   });
 });
 
@@ -257,16 +272,31 @@ describe('fix-592 §A — and if it still happens, it says what happened', () =>
     expect(msg).toContain('Civil');
   });
 
-  it('★★ it does NOT claim the discipline is already on the project', () => {
-    // Because it is not — the record holding the slot was REMOVED. Saying
-    // "this project already has a Civil" would send somebody looking for a
-    // consultant who is not there: the same defect as the raw constraint name,
-    // one layer up.
+  it('★★★ fix-594 — it now describes a RACE, not a removed record', () => {
+    // ═════════════════════════════════════════════════════════════════════
+    // THE SAME CONSTRAINT, A DIFFERENT MEANING.
+    // ═════════════════════════════════════════════════════════════════════
+    //
+    // fix-592 asserted this said *"removed"*, and that was right then: with a
+    // non-partial index, a soft-removed row held the slot and that was how most
+    // people hit it. Bobby's partial index makes that case impossible, so the
+    // only way to reach this constraint now is the one it was always for —
+    // **two people adding the same LIVE discipline at once.**
+    //
+    // ★★ THE OLD WORDING WOULD BE ACTIVELY WRONG, not merely stale: it would
+    //    send somebody hunting for a removed record that is not blocking
+    //    anything, and tell them to ask an admin to clear it, when the answer is
+    //    to refresh and look at what their colleague just added.
     const msg = addConsultantMessage(
       new Error(DUP('project_consultants_one_per_discipline')),
       'Civil',
     );
-    expect(msg).toMatch(/removed/i);
+    expect(msg).toMatch(/somebody just added/i);
+    expect(msg).toMatch(/refresh/i);
+    expect(msg).toContain('Civil');
+    // The three things it must NOT say any more.
+    expect(msg).not.toMatch(/removed/i);
+    expect(msg).not.toMatch(/admin/i);
     expect(msg).not.toMatch(/already has/i);
   });
 
@@ -285,7 +315,7 @@ describe('fix-592 §A — and if it still happens, it says what happened', () =>
   it('survives a discipline nobody named', () => {
     expect(
       addConsultantMessage(new Error(DUP('project_consultants_one_per_discipline')), '  '),
-    ).toMatch(/That discipline/);
+    ).toMatch(/a consultant for that discipline/);
   });
 });
 
