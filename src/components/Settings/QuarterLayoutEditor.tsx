@@ -40,6 +40,7 @@ import {
 import { pushToast } from '../../stores/toastStore';
 import { SkeletonRows } from '../Skeleton';
 import QueryError from '../QueryError';
+import QuarterLayoutRestore from './QuarterLayoutRestore';
 
 // fix-182b: per-quarter Draw Schedule column-layout editor (Settings → Team).
 // Builds/edits the saved column order for a quarter so historical quarters can
@@ -471,6 +472,13 @@ export default function QuarterLayoutEditor({ das, dms, ents = [], readOnly = fa
                 : 'Rearranging here creates one for ' + quarter + ' alone.'}
             </div>
           )}
+          {/* ★★★ fix-590 §2 — AND IF THIS QUARTER LOST COLUMNS, OFFER THEM BACK.
+              fix-578's banner above answers *"why am I looking at another
+              quarter's layout"*; it cannot answer *"where did mine go"*, because
+              until fix-590 nothing recorded that they had gone. Renders nothing
+              when nothing was deleted, which is every quarter that never lost
+              anything. */}
+          <QuarterLayoutRestore quarter={quarter} readOnly={readOnly} />
           {/* Manager-group preview strip (mirrors the grid's header spans). */}
           <div
             className="flex gap-1 text-[10px] font-display"
@@ -609,6 +617,13 @@ function EmptyState({
         layout — the Draw Schedule uses the current/default team structure for
         this quarter. Create a layout to arrange it independently:
       </p>
+      {/* ★★★ fix-590 §2 — **THE EXACT SCREEN BOBBY WAS LOOKING AT.** A quarter
+          with no saved layout has two histories and they used to look identical:
+          nobody ever arranged one, or somebody removed the one you arranged. If
+          rows were deleted, this offers them back in one action; if they were
+          never saved, it renders nothing and the sentence above is the true
+          answer. Telling those two apart is the whole of §0. */}
+      <QuarterLayoutRestore quarter={quarter} readOnly={readOnly} />
       {readOnly ? (
         <p className="text-[11px] text-dim italic">
           You need tenant admin to create a layout.
