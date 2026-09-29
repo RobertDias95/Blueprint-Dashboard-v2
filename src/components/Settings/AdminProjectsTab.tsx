@@ -255,6 +255,7 @@ export default function AdminProjectsTab() {
           placeholder="Add permit owner…"
           emptyState="No permit owners yet."
           readOnly={!isAdmin}
+          historyConfigKey={PERMIT_OWNER_KEY}
           testIdPrefix="permit-owner-list"
         />
         {/* ★★ RETIRING ONE REWRITES NOTHING (§B2). The permits keep the text
@@ -292,6 +293,7 @@ export default function AdminProjectsTab() {
           placeholder="Add zone…"
           emptyState="No zones yet. Used by the Project Overview, the setup wizard and the Library filter."
           readOnly={!isAdmin}
+          historyConfigKey={ZONE_OPTIONS_KEY}
           testIdPrefix="zones-list"
         />
       </Section>
@@ -316,6 +318,7 @@ export default function AdminProjectsTab() {
           placeholder="Add type…"
           emptyState="No types yet. Used on the Project create wizard."
           readOnly={!isAdmin}
+          historyConfigKey="productTypeOptions"
           testIdPrefix="product-types-list"
         />
       </Section>
@@ -359,6 +362,7 @@ export default function AdminProjectsTab() {
           placeholder="Add parking option…"
           emptyState="No parking options yet. Used by the unit matrix and the Library filter."
           readOnly={!isAdmin}
+          historyConfigKey={PARKING_OPTIONS_KEY}
           testIdPrefix="unit-parking-list"
         />
         <div className="text-[10px] text-dim mt-1" data-testid="unit-parking-help">
@@ -390,6 +394,7 @@ export default function AdminProjectsTab() {
           placeholder="Add roof deck option…"
           emptyState="No roof deck options yet. Used by the unit matrix and the Library filter."
           readOnly={!isAdmin}
+          historyConfigKey={ROOF_DECK_OPTIONS_KEY}
           testIdPrefix="unit-roof-deck-list"
         />
         <div className="text-[10px] text-dim mt-1" data-testid="unit-roof-deck-help">
@@ -423,6 +428,7 @@ export default function AdminProjectsTab() {
           placeholder="Add stories option…"
           emptyState="No stories options yet. Used by the unit matrix and the Library."
           readOnly={!isAdmin}
+          historyConfigKey={STORIES_OPTIONS_KEY}
           testIdPrefix="unit-stories-list"
         />
         <div className="text-[10px] text-dim mt-1" data-testid="unit-stories-help">
@@ -451,6 +457,7 @@ export default function AdminProjectsTab() {
           placeholder="Add project tag…"
           emptyState="No project tags yet. Used across Reports + project metadata."
           readOnly={!isAdmin}
+          historyConfigKey="projectTagOptions"
           testIdPrefix="project-tags-list"
         />
       </Section>
@@ -477,6 +484,7 @@ export default function AdminProjectsTab() {
           placeholder="Add hold reason…"
           emptyState="No hold reasons yet. Used when putting a project On Hold."
           readOnly={!isAdmin}
+          historyConfigKey="holdReasonOptions"
           testIdPrefix="hold-reasons-list"
         />
       </Section>
@@ -504,6 +512,7 @@ export default function AdminProjectsTab() {
           placeholder="Add cancel reason…"
           emptyState="No cancel reasons yet. Used when cancelling a project."
           readOnly={!isAdmin}
+          historyConfigKey="cancelReasonOptions"
           testIdPrefix="cancel-reasons-list"
         />
       </Section>

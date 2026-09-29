@@ -281,6 +281,28 @@ export const queryKeys = {
   // invalidation; the tenant-scoped keys carry the status filter so
   // Active / Resolved / All can coexist in the cache.
   errorReportsAll: ['error_reports'] as const,
+  // ═══════════════════════════════════════════════════════════════════════
+  // ★★★ fix-590 — ONE ROW'S HISTORY, AND DELIBERATELY NOT STREAMED
+  // ═══════════════════════════════════════════════════════════════════════
+  //
+  // ⚠️ `rowHistoryAll` is **NOT** added to `REALTIME_TABLES.audit_log` below, and
+  //    that is a decision rather than an omission — fix-393's rule is that adding
+  //    the key is half the job, so leaving it out needs its reason stated.
+  //
+  //    `audit_log` takes ~3,030 writes a week (1,297 of them the scraper's) and
+  //    fix-590 adds ~640 more. Streaming every one of them into a panel somebody
+  //    opened to read ONE row's past would re-fetch constantly to show the same
+  //    answer. A history panel is opened deliberately and read once; the only
+  //    change that must appear immediately is a restore, and the restore
+  //    invalidates its own key.
+  rowHistoryAll: ['row_history'] as const,
+  rowHistory: (tenantId: string, table: string, rowId: string) =>
+    ['row_history', tenantId, table, { rowId }] as const,
+  /** ★ fix-590: every deleted row of one quarter's layout — what the
+   *  whole-quarter restore offers. Keyed apart from the per-row history because
+   *  it is a different question (*"what is missing"*, not *"what changed"*). */
+  quarterLayoutDeleted: (tenantId: string, quarter: string) =>
+    ['row_history', tenantId, 'draw_schedule_quarter_layout', 'deleted', { quarter }] as const,
   errorGroups: (tenantId: string, status: string[]) =>
     ['error_reports', tenantId, 'groups', { status }] as const,
   newErrorCount: (tenantId: string) =>

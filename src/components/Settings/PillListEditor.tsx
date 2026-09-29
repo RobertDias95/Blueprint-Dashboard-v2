@@ -1,4 +1,5 @@
 import { useState, type ReactNode, type KeyboardEvent } from 'react';
+import RowHistoryPanel from '../shared/RowHistoryPanel';
 
 // Q7.3.a: reusable pill-list primitive. Renders a list of items as removable
 // pills + an add-input. Carries forward to Q7.3.b (team members), Q7.3.c
@@ -49,6 +50,24 @@ interface Props {
   /** Optional test-id prefix. Each pill gets `<prefix>-pill-<key>`; the
    *  add-input gets `<prefix>-add`; the add-button `<prefix>-add-btn`. */
   testIdPrefix?: string;
+  /**
+   * ★★★ fix-590 §2 — THE `app_config` KEY THIS LIST *IS*, so it can show its own
+   *     past and put a version back.
+   *
+   * ★★★ ONE ROW, NOT ONE PILL, AND THAT IS THE WHOLE REASON THIS SITS HERE
+   *     RATHER THAN ON EACH PILL. `app_config` holds ONE row per key carrying a
+   *     jsonb ARRAY, so removing a tag is an UPDATE to a single row and its
+   *     history is the history of the list. A per-pill history would be asking
+   *     for the past of something that was never a row.
+   *
+   * ★★ THIS IS THE TEXT-KEY CASE the brief names beside the composite one:
+   *    `app_config`'s primary key is `key`, so the identity is a plain string and
+   *    `rowId` carries it — byte-identical to what the trigger writes.
+   *
+   * ★ Opt-in. A list that is not backed by an `app_config` row (a catalog table,
+   *   say) passes nothing and renders exactly as it does today.
+   */
+  historyConfigKey?: string;
 }
 
 export default function PillListEditor({
@@ -61,8 +80,10 @@ export default function PillListEditor({
   readOnly = false,
   emptyState,
   testIdPrefix,
+  historyConfigKey,
 }: Props) {
   const [input, setInput] = useState('');
+  const [historyOpen, setHistoryOpen] = useState(false);
   const [renamingKey, setRenamingKey] = useState<string | null>(null);
   const [renameDraft, setRenameDraft] = useState('');
 
@@ -196,6 +217,33 @@ export default function PillListEditor({
           >
             Add
           </button>
+        </div>
+      )}
+      {/* ★★★ fix-590 §2 — THIS LIST'S OWN PAST, beside the list. Absent unless the
+          caller says which `app_config` row it is editing, so nothing changes for
+          a list that is not backed by one. */}
+      {historyConfigKey && (
+        <div className="mt-1">
+          <button
+            type="button"
+            onClick={() => setHistoryOpen((v) => !v)}
+            className="text-[10px] cursor-pointer"
+            style={{ color: 'var(--color-de)' }}
+            data-testid={testIdPrefix ? `${testIdPrefix}-history-toggle` : undefined}
+            aria-expanded={historyOpen}
+          >
+            {historyOpen ? 'Hide history' : 'History'}
+          </button>
+          {historyOpen && (
+            <div className="mt-1">
+              <RowHistoryPanel
+                table="app_config"
+                rowId={historyConfigKey}
+                label={label}
+                onClose={() => setHistoryOpen(false)}
+              />
+            </div>
+          )}
         </div>
       )}
     </div>

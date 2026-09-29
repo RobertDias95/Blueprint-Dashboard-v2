@@ -3,6 +3,8 @@ import { usePermitTypes } from '../../hooks/usePermitTypes';
 import { usePermitTypeDefaults } from '../../hooks/usePermitTypeDefaults';
 import { useUpsertPermitTypeDefault } from '../../hooks/useUpsertPermitTypeDefault';
 import { useIsTenantAdmin } from '../../hooks/useIsTenantAdmin';
+import RowHistoryPanel from '../shared/RowHistoryPanel';
+import { useAuthStore } from '../../stores/authStore';
 
 // fix-25-feat-Z: inline editor for per-type schedule estimator
 // defaults. One row per catalog permit type; two numeric columns
@@ -23,6 +25,18 @@ export default function PermitTypeDefaultsEditor() {
   const defaultsQ = usePermitTypeDefaults();
   const upsert = useUpsertPermitTypeDefault();
   const isAdmin = useIsTenantAdmin();
+  // ★★★ fix-590 — THE POLICY NUMBERS GET A PAST. §0's table calls these *"the
+  //     policy numbers behind every target"*: 15 rows, hand-typed, feeding every
+  //     projected submit and approval date in the tool, and until now a wrong one
+  //     was indistinguishable from the right one having never been entered.
+  //
+  // ★★ `permit_type_defaults` IS THE COMPOSITE-KEY CASE — `(tenant_id, type)` —
+  //    so the panel is handed a `rowKey` OBJECT and never a string. See
+  //    `RowHistoryTarget`: jsonb normalises key order by length, so the key
+  //    serialises as `{"type":…,"tenant_id":…}` and rebuilding that in TypeScript
+  //    would be encoding a Postgres internal into the client.
+  const tenantId = useAuthStore((s) => s.activeTenantId) ?? '';
+  const [historyFor, setHistoryFor] = useState<string | null>(null);
 
   // Build one row per catalog type. Read current values from the
   // tenant overrides map; missing entries surface as empty inputs
@@ -133,6 +147,11 @@ export default function PermitTypeDefaultsEditor() {
               key={r.type}
               row={r}
               readOnly={!isAdmin}
+              historyOpen={historyFor === r.type}
+              onToggleHistory={() =>
+                setHistoryFor((cur) => (cur === r.type ? null : r.type))
+              }
+              tenantId={tenantId}
               onCommitIntake={(v) => commitIntake(r.type, v)}
               onCommitC1={(v) => commitC1(r.type, v)}
             />
@@ -146,11 +165,18 @@ export default function PermitTypeDefaultsEditor() {
 function PermitTypeRow({
   row,
   readOnly,
+  historyOpen,
+  onToggleHistory,
+  tenantId,
   onCommitIntake,
   onCommitC1,
 }: {
   row: RowState;
   readOnly: boolean;
+  /** ★ fix-590: this row's past, open or shut. */
+  historyOpen: boolean;
+  onToggleHistory: () => void;
+  tenantId: string;
   onCommitIntake: (next: string) => void;
   onCommitC1: (next: string) => void;
 }) {
@@ -169,11 +195,28 @@ function PermitTypeRow({
   }, [row.c1Offset]);
 
   return (
+    <>
     <tr
       className="border-b border-border/40"
       data-testid={`ptd-row-${row.type}`}
     >
-      <td className="py-1.5 text-text">{row.type}</td>
+      <td className="py-1.5 text-text">
+        {row.type}
+        {/* ★★★ fix-590 §2.1 — SEE THE HISTORY OF ONE ROW. Beside the thing it is
+            the history OF, so nobody has to find a second screen; and a plain
+            toggle rather than a modal, because reading the past and comparing it
+            with the value in front of you is one task. */}
+        <button
+          type="button"
+          onClick={onToggleHistory}
+          className="ml-2 text-[10px] cursor-pointer align-middle"
+          style={{ color: 'var(--color-de)' }}
+          data-testid={`ptd-history-toggle-${row.type}`}
+          aria-expanded={historyOpen}
+        >
+          {historyOpen ? 'Hide history' : 'History'}
+        </button>
+      </td>
       <td className="py-1.5 text-right">
         <input
           ref={intakeRef}
@@ -210,5 +253,18 @@ function PermitTypeRow({
         />
       </td>
     </tr>
+    {historyOpen && (
+      <tr data-testid={`ptd-history-row-${row.type}`}>
+        <td colSpan={3} className="pb-2">
+          <RowHistoryPanel
+            table="permit_type_defaults"
+            rowKey={{ tenant_id: tenantId, type: row.type }}
+            label={row.type}
+            onClose={onToggleHistory}
+          />
+        </td>
+      </tr>
+    )}
+    </>
   );
 }
