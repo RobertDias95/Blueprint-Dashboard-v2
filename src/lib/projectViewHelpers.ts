@@ -17,6 +17,7 @@ import {
   rowsForCycle,
 } from './reviewerRollup';
 import { isSubPermit } from './subPermit';
+import { isActiveProject } from './activeProject';
 
 // fix-90: pure helpers for the Project View overhaul. The page composes
 // projects + permits + reviewers into rows, applies multi-select filters
@@ -216,7 +217,8 @@ function summarizeReviewers(
 function successorByOriginalId(projects: readonly Project[]): Map<string, string> {
   const m = new Map<string, string>();
   for (const p of projects) {
-    if (p.archived) continue;
+    // ★ fix-557: a DELETED redesign does not retire its original either.
+    if (!isActiveProject(p)) continue;
     const original = p.redesign_of_project_id;
     if (original && original !== p.id) m.set(original, p.id);
   }
@@ -258,7 +260,8 @@ export function buildProjectRows(
   const rows: ProjectRow[] = [];
   const successorOf = successorByOriginalId(projects);
   for (const project of projects) {
-    if (project.archived) continue;
+    // ★ fix-557: `archived` = deleted. See lib/activeProject.
+    if (!isActiveProject(project)) continue;
     // ★★★ fix-556 §D — A ROW CARRIES ITS **EFFECTIVE** PERMITS.
     //
     //     Today Project View lists `2443 5th Ave W` and its redesign as two

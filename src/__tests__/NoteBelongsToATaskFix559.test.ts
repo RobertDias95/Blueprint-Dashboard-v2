@@ -85,7 +85,11 @@ describe('fix-559 §A — the permit-level note surface stops existing', () => {
     };
     walk(resolve(__dirname, '..'));
     expect(offenders).toEqual([]);
-  });
+    // ★★ fix-557: 15s. Same cause fix-547 records for its own src/ walk — this
+    //    is I/O-bound and grows with the repo, and it tipped past vitest's 5s
+    //    default under full-suite parallelism (6.5s in a full run, 0.8s alone).
+    //    The assertion is unchanged; only the deadline moved.
+  }, 15_000);
 
   it('★★★ `useProjectNotes` went with it — it had exactly one consumer', () => {
     expect(code(read('hooks/useNotes.ts'))).not.toContain('export function useProjectNotes');

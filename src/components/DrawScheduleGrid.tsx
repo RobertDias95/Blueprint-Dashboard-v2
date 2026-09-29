@@ -111,6 +111,7 @@ import {
   type DsParkKind,
 } from '../lib/drawScheduleStatus';
 import { holdKind } from '../lib/database.types';
+import { isActiveProject } from '../lib/activeProject';
 
 // Q6.1: read-only render of all draw_schedule rows. Mirrors v1's
 // renderDrawSchedule layout (index.html lines 7875-8090):
@@ -1598,8 +1599,10 @@ function DrawScheduleBody({
       // ★ The list still starts from PROJECTS (fix-521 §A) and the row is still
       //   the optional half; what changed is one word in the filter.
       .filter(
+        // ★ fix-557: `archived` = DELETED, and it is a different rule from
+        //   retired — one is an admin's act, the other is derived. Both apply.
         (project) =>
-          !project.archived && !isRetiredProject(project.id, retiredSets),
+          isActiveProject(project) && !isRetiredProject(project.id, retiredSets),
       )
       .map((project) => ({ project, row: rowByProject.get(project.id) ?? null }))
       .filter(

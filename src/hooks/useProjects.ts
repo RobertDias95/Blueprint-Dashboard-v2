@@ -87,6 +87,12 @@ export function useProjects() {
             'created_at, updated_at',
           ].join(', '),
         )
+        // ★★★ fix-557: `archived` now means DELETED (P-250). This `.eq` is
+        //     KEPT even though `projects_tenant_select` filters it server-side,
+        //     because the policy deliberately lets an ADMIN read a deleted
+        //     project — otherwise nobody could see the row to restore it. So for
+        //     the one group who can delete, the unfiltered list would arrive
+        //     with deleted projects in it. See lib/activeProject.
         .eq('archived', false)
         .order('address', { ascending: true });
       if (error) throw error;

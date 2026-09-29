@@ -65,7 +65,11 @@ export function useBuilderRegistry() {
         //   app-wide, this asks for the single column that answers the
         //   question, and a view would have needed the security_invoker +
         //   grant dance for a count anybody can already compute.
-        supabase.from('projects').select('builder_id'),
+        // ★★★ fix-557: `.eq('archived', false)` — this count had NO filter at
+        //     all, so a builder's project count would have included the ones an
+        //     admin had deleted. The only client reader of `projects` that was
+        //     missing the rule; found by enumerating them for §A.1.
+        supabase.from('projects').select('builder_id').eq('archived', false),
       ]);
       if (buildersRes.error) throw buildersRes.error;
       if (projectsRes.error) throw projectsRes.error;

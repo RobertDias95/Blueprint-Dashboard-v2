@@ -1,0 +1,799 @@
+-- ===========================================================================
+-- fix-557 (P-250, the conversion half) — delete becomes soft
+-- ===========================================================================
+--
+-- ⚠️⚠️ **NOT APPLIED.** Every statement below is commented out and fix-450's
+--       test keeps it that way. Bobby approves; Claude applies from Cowork.
+--
+-- Companion to fix-549, which shipped the GATE half (admins only). This is the
+-- CONVERSION half: a removal becomes a flag.
+--
+-- ⚠️ MEASURED ON PROD 2026-09-29 (eibnmwthkcuumyclyxoe), not taken from the
+--    brief. The brief was written 2026-09-14 and ~38 fixes have landed since;
+--    five of its numbers had moved and two were false positives. See §0.
+--
+-- ---------------------------------------------------------------------------
+-- §0 — WHAT THE BRIEF SAID, AND WHAT IS ACTUALLY TRUE TODAY
+-- ---------------------------------------------------------------------------
+--
+--   claim (2026-09-14)                       measured 2026-09-29
+--   ──────────────────────────────────────── ─────────────────────────────────
+--   fix-549's gate is live                   ✓ TRUE — policy carries
+--                                              is_tenant_admin and
+--                                              bp_delete_project_row raises
+--                                              42501, even though the staged
+--                                              file is still commented out.
+--                                              **Bobby applied it by hand.**
+--   221 projects                             **271**
+--   archived has never been true             ✓ 0 of 271, and 0 NULL
+--   zero project deletes ever logged         ✓
+--   4 views, 1 filters archived              ✓ exactly right
+--   27 functions, 1 mentions archived        **51 function readers, and ZERO
+--                                              of them filter it**
+--   "31 server-side readers → 29 to review"  **55 readers → 54 to review**
+--
+-- ★★★ THE BRIEF'S TWO "ALREADY FILTERS" FUNCTIONS ARE BOTH FALSE POSITIVES,
+--     and the regex that produced them cannot tell two different columns apart:
+--
+--       `bp_resolve_plan_share`          its only match is
+--                                        `is_archived_fallback`, a column on
+--                                        `project_plan_of_record_sets` about a
+--                                        SUPERSEDED DRAWING (fix-532c). Nothing
+--                                        to do with `projects.archived`.
+--       `bp_update_project_with_permits` matches `archived = CASE WHEN v_patch
+--                                        ? 'archived'` — it WRITES the flag. It
+--                                        is not a reader that filters; it is
+--                                        one of the three holes in §2 below.
+--
+--     So the honest count of server-side readers honouring the flag today is
+--     **one — the view `juris_permit_stats`** — and it is the only place in the
+--     database that has ever had to.
+--
+-- ---------------------------------------------------------------------------
+-- ★★★ §1 — WHY THIS IS NOT 54 COPIES OF `and not archived`
+-- ---------------------------------------------------------------------------
+--
+-- §A.2 asks for ONE derivation, and the reason 54 copies is not the answer is
+-- recorded in this Brain three times over (P-207, P-179, P-244). The measurement
+-- that made one derivation possible:
+--
+--   readers that are SECURITY INVOKER (RLS applies) ............ 18 functions
+--   views that are `security_invoker = true` (RLS applies) ......  3 views
+--   the client's direct reads of `projects` (RLS applies) .......  3 hooks
+--   the view that already filters for itself ...................  1 view
+--   ────────────────────────────────────────────────────────────────────────
+--   reached by ONE RLS predicate ............................... 25 readers
+--   still needing the filter in their own body (SECURITY
+--     DEFINER, so RLS is bypassed) ............................. 13 functions
+--   deliberately NOT filtered (authorisation, by-id resolution,
+--     triggers, writers) ....................................... 20 functions
+--
+-- ★★★ SO THE RULE LIVES IN TWO PLACES AND IS WRITTEN ONCE IN EACH:
+--
+--       step 3   the SELECT policy on `projects` — every reader that respects
+--                RLS, which is the whole client and two thirds of the views
+--       step 2   the view `public.active_projects` — the NAMED derivation the
+--                13 SECURITY DEFINER enumerators select from instead
+--
+--     Both spell the predicate the way `juris_permit_stats` already spells it:
+--     `COALESCE(archived, false) = false`. **Not `NOT archived`** — the column
+--     is NULLABLE (step 1 fixes that, and the COALESCE is what makes the file
+--     correct even before step 1 has run).
+--
+-- ★★ AND THE ADMIN ESCAPE IS WHAT MAKES IT RECOVERABLE. Step 3 lets an admin
+--    still SELECT an archived project. Without that, nobody could see the row
+--    to un-archive it and §B's recovery would be a `psql` session.
+--
+-- ---------------------------------------------------------------------------
+-- ★★★ §2 — THE HOLE THIS TICKET WOULD HAVE SHIPPED, AND IT IS THE BIG ONE
+-- ---------------------------------------------------------------------------
+--
+-- The brief's §A.3 says *"only then change `bp_delete_project_row` to set
+-- `archived = true`"* — and stopping there would have handed every project
+-- member the delete that fix-549 had just taken away from them.
+--
+-- ★★★ A SOFT DELETE IS AN **UPDATE**, SO IT IS NO LONGER GOVERNED BY THE
+--     DELETE POLICY. `projects_tenant_delete` is admin-only. `archived` is an
+--     ordinary column, and it has **three** write paths, measured:
+--
+--       1. `bp_update_project_fields`         SECURITY DEFINER; gate is
+--                                             `bp_may_write_project` (any
+--                                             member); blocklist is only
+--                                             ('id','tenant_id','updated_at'),
+--                                             so `archived` is writable.
+--       2. `bp_update_project_with_permits`   SECURITY DEFINER; gate is
+--                                             **TENANT ONLY** — no membership
+--                                             check at all. The widest of the
+--                                             three.
+--       3. the direct table UPDATE            `authenticated` holds UPDATE on
+--          (`useUpdateProject`'s fallback)    `projects`; governed by
+--                                             `projects_tenant_update`, which
+--                                             is `bp_may_write_project`.
+--
+--     ★★ AND THERE IS ALREADY A CHECKBOX. `ProjectDetailsForm`'s
+--        `psm-archived` — *"Archived (hide from active project lists)"* — has
+--        shipped for some time and writes through path 1 or 3. It does almost
+--        nothing today because nothing filters. **The moment step 7 lands it
+--        becomes a non-admin, unaudited delete button.**
+--
+--     This is [[project_fix410_regular_shape]]'s lesson inverted: that ticket
+--     found a new column needs FOUR write paths taught; this one finds an old
+--     column needs all four GATED before its meaning may change.
+--
+--     Steps 5 and 6 close all three. The client half of fix-557 hides the
+--     checkbox from non-admins so the screen agrees with the server.
+--
+-- ---------------------------------------------------------------------------
+-- §3 — WHAT AN ARCHIVED PROJECT'S PERMITS, CHAT AND PLAN SETS DO
+-- ---------------------------------------------------------------------------
+--
+-- §B asks this out loud because it is [[P-263]]'s shape — a project invisible
+-- on the pipeline while its permits are still live.
+--
+-- ★★★ NOTHING IS DELETED AND NOTHING CASCADES. `permits`, `project_chat`,
+--     `project_plan_of_record_sets`, `permit_tasks`, `notes`, `draw_schedule`
+--     keep every row. What changes is that each of them is reached THROUGH a
+--     project on every surface that shows them, and step 4 filters at the join:
+--
+--       · a permit of an archived project leaves the task lists, the waiting-on
+--         report, the weekly DA report, the gap reports and the correction
+--         clusters — because all six join `projects` and now join
+--         `active_projects`.
+--       · chat and plan sets are only ever reached from a project page, and a
+--         non-admin can no longer read the project row (step 3), so the page is
+--         a 404 for them.
+--       · ★ `bp_generate_city_chase_tasks` stops MINTING for it. That is the
+--         one behaviour here that writes, and leaving it out would have the app
+--         quietly creating tasks for a deleted project for ever
+--         ([[project_fix395_chase_task]]: the gate belongs in the minter).
+--
+-- ⚠️ THE SCRAPER IS DELIBERATELY UNAFFECTED. `bp_ensure_project` (SECURITY
+--    INVOKER, service_role) still finds an archived project by address, so an
+--    overnight scrape does not resurrect it as a NEW row. **That is the whole
+--    reason the delete is soft rather than hard.**
+--
+-- ---------------------------------------------------------------------------
+-- §4 — HOW AN ADMIN UN-DELETES ONE (§B asks for this in the PR)
+-- ---------------------------------------------------------------------------
+--
+-- Untick `psm-archived` on the Project Details modal. An admin can still read
+-- the row (step 3's escape) and still write it (steps 5/6 allow an admin), so
+-- recovery is the same control that performed the delete, run backwards. No
+-- new UI ships and none is needed.
+--
+-- The SQL equivalent, for a project nobody can find in the UI:
+--
+--   UPDATE public.projects SET archived = false
+--    WHERE id = '<uuid>' AND tenant_id = '<tenant>';
+--
+-- ---------------------------------------------------------------------------
+-- ★★★ THE PROBE — EVERY STEP, PROD, ROLLED BACK, 2026-09-29
+-- ---------------------------------------------------------------------------
+--
+-- The fix-153 pattern this repo uses in place of a CI database. The whole file
+-- was executed on eibnmwthkcuumyclyxoe inside `BEGIN; … ROLLBACK;`, verified
+-- from INSIDE the transaction, and absence re-checked afterwards.
+--
+--   THE MIGRATION ITSELF
+--     271 projects, 0 archived after applying ... the migration moves NO rows
+--     archived is NOT NULL ....................... yes
+--     active_projects returns .................... 271 of 271
+--     security_invoker = true .................... yes  ★ see step 2
+--     enumerators reading the view ............... 13 of 13
+--     write gates landed ......................... 2 of 2
+--     bp_delete_project_row sets the flag ........ yes
+--     …and no longer hard deletes ................ confirmed absent
+--
+--   THE GATE — impersonated with BOTH the JWT claims AND `set local role
+--   authenticated`, because fix-549 recorded that setting only the JWT tests
+--   nothing about RLS:
+--     a non-admin editor via the RPC ............. REFUSED 42501
+--     …via `bp_update_project_fields` ............ REFUSED 42501   ★ §2 path 1
+--     …via a DIRECT table UPDATE ................. BLOCKED (0 rows) ★ §2 path 3
+--     an ADMIN via the RPC ....................... deleted = true, conflict = false
+--     the ADMIN clicks a second time ............. deleted = true, conflict = false
+--                                                  ★ idempotent, not a conflict
+--
+--   WHAT SURVIVED AND WHAT DISAPPEARED
+--     the projects row ........................... 1  ★ kept
+--     archived ................................... true
+--     rows in active_projects .................... 0
+--     its permits ................................ 6 → 6
+--     its permit_tasks ........................... 91 → 91
+--     a non-admin SELECTing it ................... 0 rows
+--     an ADMIN SELECTing it ...................... 1 row  ★ recovery is possible
+--     the ADMIN unticks archived ................. RESTORED, back in the view
+--
+--   ★★★ THE SURFACES, READ BEFORE AND AFTER AS A SIGNED-IN ADMIN
+--
+--     3626 164th Pl SE (6 permits, 91 tasks)
+--       bp_list_tasks mentions it ................ true  → **false**
+--       bp_weekly_snapshot mentions it ........... true  → **false**
+--       bp_get_weekly_da_report mentions it ...... true  → **false**
+--     10251 40TH AVE SW
+--       bp_coassign_gap_report rows .............. 1     → **0**
+--     12827 NE 80th St
+--       bp_dm_gap_report rows .................... 1     → **0**
+--     4017 Corliss Ave N
+--       bp_list_waiting_on_tasks rows ............ 2     → **0**
+--
+-- ⚠️⚠️ ★★★ AND THE FIRST RUN OF THAT LAST BLOCK PROVED NOTHING, WHICH IS THE
+--          MOST USEFUL THING THE PROBE FOUND. Called as `postgres` with no JWT,
+--          `bp_list_tasks()` returns an EMPTY list — `auth_tenant_ids()` has
+--          nothing to scope to. So "does the surface mention the project" was
+--          **false before the delete as well as after**, and the assertion
+--          passed while testing nothing at all.
+--
+--          **A surface assertion must establish its baseline as the SAME reader
+--          that will check the result.** Every row above is a real transition
+--          from a non-zero before; the three reports that read 0 → 0 for the
+--          first project are recorded as covering nothing, and a project that
+--          genuinely appears in each was found for them instead.
+--
+-- ★ `bp_lead_drift_report` returns no rows at all on prod today, so it has NO
+--   before/after here. Its swap is asserted structurally (step 8(d)) and its
+--   EXISTS clause is reasoned about above; it is the one enumerator in this file
+--   with no behavioural evidence, and that is stated rather than implied.
+--
+-- ⚠️ THE PROBE'S OWN TEMP TABLE NEEDED `GRANT INSERT … TO authenticated` —
+--    recording a result while still impersonating fails with 42501 on the
+--    scratch table itself, which reads exactly like the gate under test firing.
+--    Not a finding about the migration; a trap for the next probe.
+--
+-- ---------------------------------------------------------------------------
+-- ⚠️ ORDER, AND THE ONE FILE THIS INTERACTS WITH
+-- ---------------------------------------------------------------------------
+--
+-- `fix_588_atomic_save_drops_four_columns_PENDING_APPROVAL.sql` is also on the
+-- shelf and also re-emits `bp_update_project_with_permits` by anchor.
+--
+-- ★★ THE TWO ARE ORDER-INDEPENDENT AND THAT IS BY CONSTRUCTION. fix-588 anchors
+--    on the `is_backfill = CASE WHEN …` line in the UPDATE's SET list; step 5b
+--    below anchors on the TENANT CHECK near the top of the body. Neither
+--    replacement can consume the other's anchor. Both RAISE if their anchor has
+--    moved, so whichever runs second fails loudly rather than silently doing
+--    nothing — fix-540's rule.
+--
+-- ★ Steps 1–6 are safe to apply on their own and change nothing observable: no
+--   row is archived, so every new filter matches every row. **Step 7 is the
+--   only one that changes behaviour, and it must be last.** That is §A's whole
+--   instruction ("teach the readers first, flip the switch last") and it is why
+--   it sits at the bottom of this file behind its own heading.
+--
+-- ⚠️ RUN `scripts/sql/on_conflict_census.sql` AFTERWARDS — fix-547 rule 3
+--    applies four times over (steps 4, 5a, 5b and 7 all replace function
+--    bodies). `42P10` and `42703` must both be 0.
+-- ===========================================================================
+
+
+-- BEGIN;
+-- SET LOCAL lock_timeout = '5s';
+--
+-- ⚠️ ★ Step 1 takes a brief ACCESS EXCLUSIVE lock on `projects`, the app's
+--    busiest table. `lock_timeout` turns a collision into a clean retry rather
+--    than a stall — fix-549 deadlocked against a live reader without it.
+
+-- ---------------------------------------------------------------------------
+-- 1. Remove the third state
+-- ---------------------------------------------------------------------------
+--
+-- ★★★ A FLAG THAT DECIDES VISIBILITY MUST NOT HAVE A "NOT RECORDED". The column
+--     is nullable today with `DEFAULT false`, and 0 of 271 rows are NULL — so
+--     this is free. It matters because `NOT archived` is NULL for a NULL row,
+--     which a `WHERE` treats as FALSE: a project with a NULL flag would vanish
+--     from every surface with nothing to explain why.
+--
+-- ★ This is the opposite call from [[project_fix386_is_backfill]], where
+--   nullable MEANS "not recorded" and is load-bearing. There, the third state is
+--   a fact about history. Here it would be an accident that deletes a project.
+--
+-- UPDATE public.projects SET archived = false WHERE archived IS NULL;  -- 0 rows
+--
+-- ALTER TABLE public.projects
+--   ALTER COLUMN archived SET NOT NULL;
+--
+-- COMMENT ON COLUMN public.projects.archived IS
+--   'fix-557: TRUE means DELETED. Set only by bp_delete_project_row or by an '
+--   'admin unticking/ticking psm-archived; admins only (fix-549''s P-250 '
+--   'ruling). The row, its permits, chat and plan sets are all kept. Read '
+--   'through public.active_projects or rely on the projects_tenant_select '
+--   'policy — never re-spell the predicate.';
+
+-- ---------------------------------------------------------------------------
+-- 2. The named derivation
+-- ---------------------------------------------------------------------------
+--
+-- ★★★ `security_invoker = true` IS NOT OPTIONAL AND IT IS NOT COSMETIC.
+--     Without it the view runs with its OWNER's rights, and `postgres` bypasses
+--     RLS — so the 18 SECURITY INVOKER readers would silently gain the ability
+--     to read across tenants the moment they were pointed at it. This would turn
+--     a visibility fix into a privilege escalation. Asserted in step 8.
+--
+-- ★ `SELECT *`, deliberately: the view must never become a second, drifting
+--   column list. [[project_fix410_regular_shape]] — a new `projects` column is
+--   already a four-place job, and this must not make it five.
+--
+-- CREATE OR REPLACE VIEW public.active_projects
+--   WITH (security_invoker = true) AS
+--   SELECT * FROM public.projects
+--    WHERE COALESCE(archived, false) = false;
+--
+-- COMMENT ON VIEW public.active_projects IS
+--   'fix-557: projects that have not been deleted. THE one derivation of that '
+--   'rule for SECURITY DEFINER readers, which bypass the projects_tenant_select '
+--   'policy. Its TypeScript twin is src/lib/activeProject.ts.';
+--
+-- REVOKE ALL ON public.active_projects FROM PUBLIC, anon;
+-- GRANT SELECT ON public.active_projects TO authenticated, service_role;
+
+-- ---------------------------------------------------------------------------
+-- 3. The SELECT policy — 25 of the 38 readers, in one line
+-- ---------------------------------------------------------------------------
+--
+-- ★★ THE ADMIN ESCAPE IS THE RECOVERY PATH. See §4.
+--
+-- ALTER POLICY projects_tenant_select ON public.projects
+--   USING (tenant_id = ANY (public.auth_tenant_ids())
+--          AND (COALESCE(archived, false) = false
+--               OR public.is_tenant_admin(tenant_id)));
+--
+-- ★ `is_tenant_admin` is STABLE, so it is evaluated once per statement rather
+--   than once per row. Checked before writing this, because a per-row
+--   SECURITY DEFINER call in the hottest policy in the app would not be free.
+
+-- ---------------------------------------------------------------------------
+-- 4. The 13 SECURITY DEFINER enumerators
+-- ---------------------------------------------------------------------------
+--
+-- ★★★ WHY A LOOP AND NOT 13 HAND-WRITTEN BLOCKS: every one of these references
+--     `projects` in the same shape — `JOIN public.projects <alias> ON
+--     <alias>.id = <x>.project_id` — verified on prod one function at a time
+--     before this was written. There is no by-id lookup hiding among them, so
+--     the replacement is total and a per-function count assertion proves it.
+--
+-- ★★ THE TWO `EXISTS` CLAUSES WERE CHECKED BY HAND, because a blanket rewrite
+--    of a guard would be a behaviour change nobody asked for:
+--
+--      `bp_lead_drift_report`        `SELECT 1 FROM projects x WHERE
+--                                    x.entitlement_lead = …` — "does any
+--                                    project still name this lead?" A deleted
+--                                    project must NOT keep a lead alive.
+--                                    Filtering is the correction.
+--      `bp_mark_vendor_report_sent`  `SELECT 1 FROM projects p WHERE p.id = …
+--                                    AND p.tenant_id = …` — an ownership guard.
+--                                    Filtered, you cannot mark a ledger row
+--                                    sent for a deleted project, which is right:
+--                                    it is not in the report any more.
+--
+-- ⚠️ `bp_weekly_snapshot` carries FIVE references and `bp_correction_cluster_*`
+--    two each. The loop counts hits per function and RAISEs on zero, so a body
+--    that has moved since 2026-09-29 stops the migration instead of passing.
+--
+-- ⚠️⚠️ ★★★ EVERY `pg_get_functiondef` SCAN BELOW IS GUARDED BY `prokind = 'f'`,
+--          AND IT IS NOT TIDINESS. Measured while probing this file:
+--
+--            ERROR: 42809: "array_agg" is an aggregate function
+--
+--          `pg_get_functiondef` RAISES on an aggregate, and a filter on
+--          `pg_proc` is applied at the SCAN, **before** the join to
+--          `pg_namespace` — so `WHERE n.nspname = 'public' AND position(… IN
+--          pg_get_functiondef(p.oid)) > 0` calls it on every row of `pg_proc`,
+--          `pg_catalog` included, and dies on the first aggregate it meets.
+--          The schema filter does not protect it. `prokind = 'f'` is cheap, so
+--          the planner orders it first, and it does.
+--
+-- DO $readers$
+-- DECLARE
+--   v_name  text;
+--   v_src   text;
+--   v_new   text;
+--   v_hits  int;
+--   v_names text[] := ARRAY[
+--     -- the task surfaces
+--     'bp_list_tasks',
+--     'bp_my_tasks',
+--     'bp_list_waiting_on_tasks',
+--     'bp_my_post_requests',
+--     -- the reports
+--     'bp_get_weekly_da_report',
+--     'bp_weekly_snapshot',
+--     'bp_coassign_gap_report',
+--     'bp_dm_gap_report',
+--     'bp_lead_drift_report',
+--     'bp_correction_cluster_detail',
+--     'bp_correction_cluster_ranking',
+--     'bp_mark_vendor_report_sent',
+--     -- ★ the minter — see §3
+--     'bp_generate_city_chase_tasks'
+--   ];
+-- BEGIN
+--   FOREACH v_name IN ARRAY v_names LOOP
+--     SELECT pg_get_functiondef(p.oid) INTO v_src
+--       FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
+--      WHERE n.nspname = 'public' AND p.prokind = 'f' AND p.proname = v_name;
+--     IF v_src IS NULL THEN
+--       RAISE EXCEPTION 'fix-557: % not found', v_name;
+--     END IF;
+--
+--     IF position('public.active_projects' IN v_src) > 0 THEN
+--       RAISE NOTICE 'fix-557: % already reads active_projects', v_name;
+--       CONTINUE;
+--     END IF;
+--
+--     v_hits := (length(v_src) - length(replace(v_src, 'public.projects', '')))
+--               / length('public.projects');
+--     IF v_hits = 0 THEN
+--       RAISE EXCEPTION
+--         'fix-557: % names no public.projects — the body has moved since '
+--         '2026-09-29; re-derive it from pg_get_functiondef', v_name;
+--     END IF;
+--
+--     v_new := replace(v_src, 'public.projects', 'public.active_projects');
+--     IF v_new = v_src THEN
+--       RAISE EXCEPTION 'fix-557: % replacement changed nothing', v_name;
+--     END IF;
+--     EXECUTE v_new;
+--     RAISE NOTICE 'fix-557: % now reads active_projects (% references)',
+--       v_name, v_hits;
+--   END LOOP;
+-- END
+-- $readers$;
+
+-- ---------------------------------------------------------------------------
+-- 5a. The write gate — `bp_update_project_fields`
+-- ---------------------------------------------------------------------------
+--
+-- ★★★ THE ADMIN CHECK GOES BESIDE THE EXISTING COLUMN BLOCKLIST, because that
+--     is where a reader already looks to find out what may not be written. The
+--     blocklist rejects ('id','tenant_id','updated_at') with 42703 — "not a
+--     writable column". `archived` IS writable; it is writable BY AN ADMIN, so
+--     it gets its own 42501 and its own sentence.
+--
+-- DO $gate_fields$
+-- DECLARE
+--   v_src text;
+--   v_new text;
+--   v_anchor text :=
+--     '  if p_patch is null or jsonb_typeof(p_patch) <> ''object'' or p_patch = ''{}''::jsonb then';
+-- BEGIN
+--   SELECT pg_get_functiondef(p.oid) INTO v_src
+--     FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
+--    WHERE n.nspname = 'public' AND p.prokind = 'f'
+--      AND p.proname = 'bp_update_project_fields';
+--   IF v_src IS NULL THEN
+--     RAISE EXCEPTION 'fix-557: bp_update_project_fields not found';
+--   END IF;
+--   IF position('fix-557' IN v_src) > 0 THEN
+--     RAISE NOTICE 'fix-557: bp_update_project_fields already gated'; RETURN;
+--   END IF;
+--   IF position(v_anchor IN v_src) = 0 THEN
+--     RAISE EXCEPTION
+--       'fix-557: anchor not found in bp_update_project_fields — re-derive it '
+--       'from pg_get_functiondef; a replace that matches nothing reports success';
+--   END IF;
+--
+--   v_new := replace(v_src, v_anchor,
+--     '  -- ★★★ fix-557: `archived` IS the delete. P-250 ruled it admins only,' || chr(10) ||
+--     '  --     and a soft delete is an UPDATE, so the admin-only DELETE policy' || chr(10) ||
+--     '  --     does not govern it. This is the gate that does.' || chr(10) ||
+--     '  if p_patch ? ''archived''' || chr(10) ||
+--     '     and not public.is_tenant_admin(' || chr(10) ||
+--     '           (select pr.tenant_id from public.projects pr where pr.id = p_project_id)) then' || chr(10) ||
+--     '    raise exception ''only an admin can delete or restore a project''' || chr(10) ||
+--     '      using errcode = ''42501'';' || chr(10) ||
+--     '  end if;' || chr(10) ||
+--     v_anchor);
+--
+--   IF v_new = v_src THEN
+--     RAISE EXCEPTION 'fix-557: bp_update_project_fields gate did not land';
+--   END IF;
+--   EXECUTE v_new;
+-- END
+-- $gate_fields$;
+
+-- ---------------------------------------------------------------------------
+-- 5b. The write gate — `bp_update_project_with_permits` (the widest hole)
+-- ---------------------------------------------------------------------------
+--
+-- ⚠️ This one checks TENANT ONLY today. Any signed-in person in the tenant can
+--    patch any project through it, `archived` included.
+--
+-- ★ The anchor is the tenant check, NOT the SET list — see the ORDER note at
+--   the top of this file for why that keeps fix-588 independent.
+--
+-- DO $gate_atomic$
+-- DECLARE
+--   v_src text;
+--   v_new text;
+--   v_anchor text :=
+--     '  IF auth.role() IS DISTINCT FROM ''service_role''' || chr(10) ||
+--     '     AND NOT (v_tenant = ANY (public.auth_tenant_ids()))' || chr(10) ||
+--     '  THEN' || chr(10) ||
+--     '    RAISE EXCEPTION ''bp_update_project_with_permits: tenant % not in caller scope'', v_tenant' || chr(10) ||
+--     '      USING ERRCODE = ''42501'';' || chr(10) ||
+--     '  END IF;';
+-- BEGIN
+--   SELECT pg_get_functiondef(p.oid) INTO v_src
+--     FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
+--    WHERE n.nspname = 'public' AND p.prokind = 'f'
+--      AND p.proname = 'bp_update_project_with_permits';
+--   IF v_src IS NULL THEN
+--     RAISE EXCEPTION 'fix-557: bp_update_project_with_permits not found';
+--   END IF;
+--   IF position('fix-557' IN v_src) > 0 THEN
+--     RAISE NOTICE 'fix-557: bp_update_project_with_permits already gated'; RETURN;
+--   END IF;
+--   IF position(v_anchor IN v_src) = 0 THEN
+--     RAISE EXCEPTION
+--       'fix-557: tenant-check anchor not found in bp_update_project_with_permits '
+--       '— re-derive it from pg_get_functiondef';
+--   END IF;
+--
+--   v_new := replace(v_src, v_anchor,
+--     v_anchor || chr(10) || chr(10) ||
+--     '  -- ★★★ fix-557: and `archived` is admins only, because it IS the delete.' || chr(10) ||
+--     '  --     The check above is TENANT scope; this one is the P-250 ruling.' || chr(10) ||
+--     '  IF v_patch ? ''archived'' AND NOT public.is_tenant_admin(v_tenant) THEN' || chr(10) ||
+--     '    RAISE EXCEPTION ''only an admin can delete or restore a project''' || chr(10) ||
+--     '      USING ERRCODE = ''42501'';' || chr(10) ||
+--     '  END IF;');
+--
+--   IF v_new = v_src THEN
+--     RAISE EXCEPTION 'fix-557: bp_update_project_with_permits gate did not land';
+--   END IF;
+--   EXECUTE v_new;
+-- END
+-- $gate_atomic$;
+
+-- ---------------------------------------------------------------------------
+-- 6. The write gate — the direct table UPDATE
+-- ---------------------------------------------------------------------------
+--
+-- ★★ THE THIRD PATH, AND IT REACHES NO FUNCTION. `authenticated` holds UPDATE
+--    on `projects`, and `useUpdateProject` falls back to a direct write when the
+--    RPC is missing. Only the policy can stop that one.
+--
+-- ★★★ BOTH HALVES, AND THEY SAY DIFFERENT THINGS.
+--       USING       — you may not write an ALREADY-archived row unless you are
+--                     an admin. A deleted project is read-only; this is what
+--                     stops edits landing on something nobody can see.
+--       WITH CHECK  — you may not leave a row archived unless you are an admin.
+--                     This is what stops the delete itself.
+--     Together they also make the RESTORE admin-only, which is the ruling:
+--     un-deleting is as much an admin act as deleting.
+--
+-- ALTER POLICY projects_tenant_update ON public.projects
+--   USING (tenant_id = ANY (public.auth_tenant_ids())
+--          AND public.bp_may_write_project(id)
+--          AND (COALESCE(archived, false) = false
+--               OR public.is_tenant_admin(tenant_id)))
+--   WITH CHECK (tenant_id = ANY (public.auth_tenant_ids())
+--          AND public.bp_may_write_project(id)
+--          AND (COALESCE(archived, false) = false
+--               OR public.is_tenant_admin(tenant_id)));
+
+-- ===========================================================================
+-- 7. ★★★ THE SWITCH — AND IT IS LAST FOR A REASON
+-- ===========================================================================
+--
+-- §A: *"teach the readers first, flip the switch last."* Steps 1–6 change
+-- nothing observable, because no row is archived. This step is the only one that
+-- changes what "delete" does, and applying it before the others would hide a
+-- project from a Pipeline that was still showing it.
+--
+-- ★★★ THE ADMIN CHECK AND THE OCC TOKEN BOTH STAY EXACTLY AS THEY ARE.
+--     fix-549 put that `42501` there because *"a policy alone would have
+--     lied"* — blocked by RLS, the old `DELETE` matched 0 rows, the function
+--     re-read the row and returned `conflict = true`, i.e. *"changed since you
+--     loaded it"*. That reasoning is now doubly load-bearing: the operation is
+--     an UPDATE, so `projects_tenant_delete` is not consulted at all and this
+--     check plus step 6's policy are the only two guards left.
+--
+-- ★★ AND THE RETURN CONTRACT DOES NOT MOVE. `deleted` still means "it is gone
+--    as far as you are concerned", `conflict` still means "somebody changed it
+--    under you". The client is unchanged — `useDeleteProject` cannot tell the
+--    difference, which is the point.
+--
+-- ★ THE "already gone" BRANCH BECOMES "already archived", and it must stay
+--   idempotent for the same reason: a double-click must not report a conflict.
+--
+-- CREATE OR REPLACE FUNCTION public.bp_delete_project_row(
+--   p_id uuid,
+--   p_expected_updated_at timestamptz
+-- )
+-- RETURNS TABLE(deleted boolean, conflict boolean, current_updated_at timestamptz)
+-- LANGUAGE plpgsql
+-- SET search_path TO 'public'
+-- AS $function$
+-- DECLARE
+--   v_actual timestamptz;
+--   v_tenant uuid;
+--   v_archived boolean;
+-- BEGIN
+--   SELECT pr.tenant_id, COALESCE(pr.archived, false)
+--     INTO v_tenant, v_archived
+--     FROM public.projects pr WHERE pr.id = p_id;
+--   IF v_tenant IS NOT NULL AND NOT public.is_tenant_admin(v_tenant) THEN
+--     RAISE EXCEPTION 'only an admin can delete a project' USING ERRCODE = '42501';
+--   END IF;
+--
+--   -- ★★★ fix-557: A FLAG, NOT A REMOVAL. The row, its permits, its chat and
+--   --     its plan sets all survive; every surface reaches them through a
+--   --     project and every surface now filters. See §3 of this file.
+--   UPDATE public.projects
+--      SET archived = true
+--    WHERE id = p_id
+--      AND updated_at = p_expected_updated_at;
+--
+--   IF FOUND THEN
+--     deleted := true;
+--     conflict := false;
+--     current_updated_at := NULL;
+--     RETURN NEXT;
+--     RETURN;
+--   END IF;
+--
+--   SELECT pr.updated_at INTO v_actual
+--     FROM public.projects pr WHERE pr.id = p_id;
+--
+--   IF v_actual IS NULL OR v_archived THEN
+--     -- ★ Idempotent: the row is gone, or it was already archived. Both are
+--     --   "deleted" from the caller's point of view, and reporting a conflict
+--     --   for a second click would be a lie.
+--     deleted := true;
+--     conflict := false;
+--     current_updated_at := NULL;
+--   ELSE
+--     deleted := false;
+--     conflict := true;
+--     current_updated_at := v_actual;
+--   END IF;
+--   RETURN NEXT;
+-- END;
+-- $function$;
+
+-- ---------------------------------------------------------------------------
+-- 8. The assertions — fix-540's rule: read the LIVE state back
+-- ---------------------------------------------------------------------------
+--
+-- DO $verify$
+-- DECLARE
+--   v_n int; v_txt text; v_archived int; v_total int;
+-- BEGIN
+--   -- (a) the column can no longer be NULL
+--   SELECT count(*) INTO v_n FROM information_schema.columns
+--    WHERE table_schema='public' AND table_name='projects'
+--      AND column_name='archived' AND is_nullable='NO';
+--   IF v_n <> 1 THEN RAISE EXCEPTION 'fix-557: archived is still nullable'; END IF;
+--
+--   -- (b) ★★★ the view exists AND is security_invoker. See step 2 — without
+--   --     the option this migration is a privilege escalation.
+--   SELECT count(*) INTO v_n FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace
+--    WHERE n.nspname='public' AND c.relname='active_projects'
+--      AND 'security_invoker=true' = ANY (c.reloptions);
+--   IF v_n <> 1 THEN
+--     RAISE EXCEPTION 'fix-557: active_projects missing or NOT security_invoker';
+--   END IF;
+--   IF NOT has_table_privilege('authenticated','public.active_projects','SELECT') THEN
+--     RAISE EXCEPTION 'fix-557: authenticated cannot read active_projects';
+--   END IF;
+--   IF has_table_privilege('anon','public.active_projects','SELECT') THEN
+--     RAISE EXCEPTION 'fix-557: anon can read active_projects';
+--   END IF;
+--
+--   -- (c) both policies carry the rule
+--   SELECT pg_get_expr(pol.polqual, pol.polrelid) INTO v_txt
+--     FROM pg_policy pol JOIN pg_class c ON c.oid=pol.polrelid
+--     JOIN pg_namespace n ON n.oid=c.relnamespace
+--    WHERE n.nspname='public' AND c.relname='projects'
+--      AND pol.polname='projects_tenant_select';
+--   IF position('archived' IN v_txt) = 0 OR position('is_tenant_admin' IN v_txt) = 0 THEN
+--     RAISE EXCEPTION 'fix-557: projects_tenant_select does not carry the rule: %', v_txt;
+--   END IF;
+--
+--   SELECT pg_get_expr(pol.polwithcheck, pol.polrelid) INTO v_txt
+--     FROM pg_policy pol JOIN pg_class c ON c.oid=pol.polrelid
+--     JOIN pg_namespace n ON n.oid=c.relnamespace
+--    WHERE n.nspname='public' AND c.relname='projects'
+--      AND pol.polname='projects_tenant_update';
+--   IF position('archived' IN v_txt) = 0 THEN
+--     RAISE EXCEPTION 'fix-557: projects_tenant_update WITH CHECK is ungated: %', v_txt;
+--   END IF;
+--
+--   -- (d) all 13 enumerators read the view
+--   SELECT count(*) INTO v_n FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace
+--    WHERE n.nspname='public' AND p.prokind = 'f'
+--      AND p.proname = ANY (ARRAY['bp_list_tasks','bp_my_tasks','bp_list_waiting_on_tasks',
+--        'bp_my_post_requests','bp_get_weekly_da_report','bp_weekly_snapshot',
+--        'bp_coassign_gap_report','bp_dm_gap_report','bp_lead_drift_report',
+--        'bp_correction_cluster_detail','bp_correction_cluster_ranking',
+--        'bp_mark_vendor_report_sent','bp_generate_city_chase_tasks'])
+--      AND position('public.active_projects' IN pg_get_functiondef(p.oid)) > 0;
+--   IF v_n <> 13 THEN
+--     RAISE EXCEPTION 'fix-557: only % of 13 enumerators read active_projects', v_n;
+--   END IF;
+--
+--   -- (e) both write gates landed
+--   SELECT count(*) INTO v_n FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace
+--    WHERE n.nspname='public' AND p.prokind = 'f'
+--      AND p.proname = ANY (ARRAY['bp_update_project_fields','bp_update_project_with_permits'])
+--      AND position('fix-557' IN pg_get_functiondef(p.oid)) > 0;
+--   IF v_n <> 2 THEN RAISE EXCEPTION 'fix-557: only % of 2 write gates landed', v_n; END IF;
+--
+--   -- (f) the switch is a flag
+--   SELECT pg_get_functiondef(p.oid) INTO v_txt FROM pg_proc p
+--     JOIN pg_namespace n ON n.oid=p.pronamespace
+--    WHERE n.nspname='public' AND p.prokind='f' AND p.proname='bp_delete_project_row';
+--   IF position('DELETE FROM public.projects' IN v_txt) > 0 THEN
+--     RAISE EXCEPTION 'fix-557: bp_delete_project_row still HARD deletes';
+--   END IF;
+--   IF position('SET archived = true' IN v_txt) = 0 THEN
+--     RAISE EXCEPTION 'fix-557: bp_delete_project_row does not set the flag';
+--   END IF;
+--   IF position('is_tenant_admin' IN v_txt) = 0 THEN
+--     RAISE EXCEPTION 'fix-557: fix-549 §D''s admin check was lost';
+--   END IF;
+--
+--   -- (g) ★★★ THE MIGRATION ITSELF DELETED NOTHING. The brief's third test.
+--   SELECT count(*), count(*) FILTER (WHERE archived) INTO v_total, v_archived
+--     FROM public.projects;
+--   IF v_archived <> 0 THEN
+--     RAISE EXCEPTION 'fix-557: % projects became archived — the migration must '
+--       'move no rows', v_archived;
+--   END IF;
+--   RAISE NOTICE 'fix-557: % projects, 0 archived, readers taught, switch flipped',
+--     v_total;
+-- END
+-- $verify$;
+
+-- COMMIT;
+
+
+-- ---------------------------------------------------------------------------
+-- 9. Verify after applying — the behaviour, not the text
+-- ---------------------------------------------------------------------------
+--
+-- ⚠️ ★★ SET BOTH THE JWT CLAIMS AND `set local role authenticated`, or the
+--       policy half is never exercised. fix-549 recorded this the hard way: its
+--       first §D probe reported "DELETED (WRONG)" for a DA because it ran as
+--       `postgres`, so the function-level checks looked right while the policy
+--       was never consulted.
+--
+--   -- a non-admin still cannot delete (fix-549 §D intact)
+--   select set_config('request.jwt.claims','{"sub":"<da uid>","role":"authenticated"}',true);
+--   set local role authenticated;
+--   select * from public.bp_delete_project_row('<uuid>', '<token>');   -- expect 42501
+--   -- …and cannot archive through the field path either (fix-557 §2)
+--   select public.bp_update_project_fields('<uuid>','{"archived":true}'::jsonb,'<token>');
+--                                                                      -- expect 42501
+--   reset role;
+--
+--   -- an admin can, and the row SURVIVES
+--   select set_config('request.jwt.claims','{"sub":"<admin uid>","role":"authenticated"}',true);
+--   set local role authenticated;
+--   select * from public.bp_delete_project_row('<uuid>', '<token>');   -- deleted = true
+--   select count(*) from public.projects      where id = '<uuid>';     -- 1  ★ kept
+--   select count(*) from public.active_projects where id = '<uuid>';   -- 0
+--   select count(*) from public.permits      where project_id = '<uuid>';  -- unchanged
+--   reset role;
+--
+-- ---------------------------------------------------------------------------
+-- Undo
+-- ---------------------------------------------------------------------------
+--
+-- ★ Step 7 first, then the gates, then the filters — the reverse of the apply
+--   order, for the same reason: a hard delete must not be restored while the
+--   readers still hide rows.
+--
+-- UPDATE public.projects SET archived = false;   -- ★ restores anything deleted
+--
+-- ALTER POLICY projects_tenant_select ON public.projects
+--   USING (tenant_id = ANY (public.auth_tenant_ids()));
+-- ALTER POLICY projects_tenant_update ON public.projects
+--   USING (tenant_id = ANY (public.auth_tenant_ids()) AND public.bp_may_write_project(id))
+--   WITH CHECK (tenant_id = ANY (public.auth_tenant_ids()) AND public.bp_may_write_project(id));
+--
+-- ★ Steps 4, 5a, 5b and 7 are reversed by re-running each block against the
+--   then-live definition with the inserted lines removed, and step 2's view by
+--   `DROP VIEW public.active_projects` once nothing reads it. Step 1 by
+--   `ALTER COLUMN archived DROP NOT NULL`.
