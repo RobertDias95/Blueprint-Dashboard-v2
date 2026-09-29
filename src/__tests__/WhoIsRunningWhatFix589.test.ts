@@ -101,7 +101,17 @@ describe('fix-589 §3b — the notice escalates by age, and never forces', () =>
     for (const step of ['ready', 'dated', 'behind', 'stale'] as const) {
       const copy = noticeCopy(step, 9);
       expect(copy.headline.length).toBeGreaterThan(0);
-      expect(copy.detail.toLowerCase()).toContain('nothing reloads on its own');
+      // ★★★ SUPERSEDED BY fix-595, AND STILL A COMMITMENT ON EVERY RUNG.
+      //     fix-589 asserted "nothing reloads on its own", which Bobby's P-292
+      //     ruling made FALSE: the app now reloads itself on return to a window
+      //     left idle 30+ minutes with nothing unsaved. The promise that
+      //     survives — and the one the four conditions actually enforce — is
+      //     that it never does so while somebody is using it. A ladder that
+      //     dropped the commitment at its loudest rung is still the thing this
+      //     guards against.
+      expect(copy.detail.toLowerCase()).toContain(
+        'never reloads while you are using it',
+      );
     }
   });
 

@@ -6,6 +6,7 @@ import AvatarControl from './AvatarControl';
 import { ROLE_TITLE } from '../../lib/roleLabels';
 import { PERSON_FIELD_INPUT, PersonFieldRow } from './personFields';
 import type { RosterPerson } from '../../lib/personDetails';
+import { useDirtySurface } from '../../hooks/useDirtySurface';
 
 // ===========================================================================
 // ★★★ fix-487 §B (P-120) — EDIT A PERSON'S DETAILS
@@ -81,6 +82,19 @@ export default function PersonDetailsDialog({ person, onClose }: Props) {
   //   `person` object with identical values, and re-seeding on identity would
   //   wipe what somebody was halfway through typing.
   const [seeded, setSeeded] = useState<string | null>(null);
+  // ★★ fix-595: three typed fields that survive a blur. **Compared against what
+  //    loaded, not merely "the dialog is open"** — `seeded !== null` would have
+  //    been true for an untouched dialog somebody left on screen, which would
+  //    block the reload for a person who typed nothing. Over-conservative is the
+  //    right default for an unknown surface, not for one whose clean state is
+  //    right here.
+  useDirtySurface(
+    'person-details',
+    seeded !== null &&
+      (first !== (person?.first_name ?? '') ||
+        last !== (person?.last_name ?? '') ||
+        email !== (person?.email ?? '')),
+  );
   if (person && person.name !== seeded) {
     setSeeded(person.name);
     setFirst(person.first_name ?? '');

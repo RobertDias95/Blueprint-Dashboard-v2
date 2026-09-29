@@ -11,6 +11,7 @@ import { ROLE_TITLE } from '../../lib/roleLabels';
 import { PERSON_FIELD_INPUT as INPUT, PersonFieldRow as Row } from './personFields';
 import type { TeamRole } from '../../lib/database.types';
 import type { AddPersonSuccess } from '../../../supabase/functions/admin-create-user/handler';
+import { useDirtySurface } from '../../hooks/useDirtySurface';
 
 // ===========================================================================
 // ★★★ fix-436 §C (P-086) — Bobby adds the person
@@ -61,6 +62,12 @@ const EMPTY: FormState = {
 
 export default function AddPersonDialog({ open, onClose }: Props) {
   const [form, setForm] = useState<FormState>(EMPTY);
+  // ★ fix-595: a half-filled new-person form. `EMPTY` is the clean state, so
+  //   any field with something in it counts.
+  useDirtySurface(
+    'add-person',
+    open && Object.values(form).some((v) => typeof v === 'string' && v.trim() !== ''),
+  );
   // ★ The roster name defaults to the first name (house convention) but stops
   //   following it the moment somebody types a different one — two people
   //   called Chris need two different join keys.

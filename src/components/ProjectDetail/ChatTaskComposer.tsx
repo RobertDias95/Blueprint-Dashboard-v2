@@ -11,6 +11,7 @@ import {
   type ChatTaskDraft,
 } from '../../lib/chatTaskDraft';
 import type { PermitWithCycles } from '../../lib/database.types';
+import { useDirtySurface } from '../../hooks/useDirtySurface';
 
 // fix-330 — create a task from a message ALREADY POSTED, and choose its permit.
 //
@@ -50,6 +51,12 @@ export default function ChatTaskComposer({
   const [draft, setDraft] = useState<ChatTaskDraft>(() =>
     emptyTaskDraft(anchorId, defaultText),
   );
+  // ★ fix-595: a task being composed inside a chat thread — typed text that
+  //   survives a blur, so it blocks the reload until it is sent or dropped.
+  //   ★★ `text` is the only field somebody TYPES; `permitId` is seeded from the
+  //   anchor and the other two are pickers, so a draft that differs only in
+  //   those is not something anybody would mind losing.
+  useDirtySurface('chat-task-composer', draft.text.trim() !== '');
 
   const ready = taskDraftIsReady(draft) && !createTask.isPending;
 

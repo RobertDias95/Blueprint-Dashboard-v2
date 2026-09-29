@@ -165,28 +165,28 @@ export function noticeCopy(step: NoticeStep, ageDays: number | null): NoticeCopy
       return {
         headline: 'A new version of the Bridge is ready.',
         detail:
-          'Reload when you are at a good stopping point — nothing reloads on its own.',
+          'Reload when you are at a good stopping point — it never reloads while you are using it.',
         tone: 'calm',
       };
     case 'dated':
       return {
         headline: `A new version is ready. Yours is ${age}.`,
         detail:
-          'Reload when you are at a good stopping point — nothing reloads on its own.',
+          'Reload when you can, or leave it — it catches up by itself after you have been away a while. It never reloads while you are using it.',
         tone: 'calm',
       };
     case 'behind':
       return {
         headline: `Your version is ${age}.`,
         detail:
-          'Screens may be showing you out-of-date numbers. Reload when you can — nothing reloads on its own.',
+          'Screens may be showing you out-of-date numbers. Reload when you can — it never reloads while you are using it.',
         tone: 'loud',
       };
     case 'stale':
       return {
         headline: `Your version is ${age} — please reload.`,
         detail:
-          'A version this old can show wrong counts and hide fields that already shipped. Nothing reloads on its own; this will keep asking.',
+          'A version this old can show wrong counts and hide fields that already shipped. It never reloads while you are using it; this will keep asking.',
         tone: 'loud',
       };
   }
@@ -196,7 +196,19 @@ export function noticeCopy(step: NoticeStep, ageDays: number | null): NoticeCopy
 // THE HEARTBEAT
 // ---------------------------------------------------------------------------
 
-export type NoticeEvent = 'shown' | 'dismissed' | 'reloaded';
+/**
+ * ★★ fix-595 adds `'auto_reloaded'` — the app reloading itself on return to an
+ *    idle window, as distinct from `'reloaded'`, which is somebody pressing the
+ *    button. **They are recorded apart on purpose**: the success measure for
+ *    P-292 is *"`notice_auto_reloaded_at` is set for the people who never press
+ *    Reload"*, and one column that meant either would not answer it.
+ *
+ * ⚠️ THE SERVER LEARNS THIS LAST. `bp_record_client_build` constrains
+ *    `p_notice_event` to the first three until fix-595's migration is applied, so
+ *    today this value is REJECTED — and `recordClientBuild` swallows that, which
+ *    is why the reload still happens. Asserted in `AutoReloadOnReturnFix595`.
+ */
+export type NoticeEvent = 'shown' | 'dismissed' | 'reloaded' | 'auto_reloaded';
 
 /**
  * Is somebody signed in?
@@ -308,6 +320,14 @@ export interface ClientBuildRow {
   notice_first_shown_at: string | null;
   notice_dismissed_at: string | null;
   notice_reloaded_at: string | null;
+  /**
+   * ★★ fix-595: when the app reloaded ITSELF on return to an idle window.
+   *
+   * ★ `null` until fix-595's migration is applied AND somebody has been away
+   *   thirty minutes with a deploy waiting — so it stays null for everybody on
+   *   day one, and that is the baseline P-292's success measure is read against.
+   */
+  notice_auto_reloaded_at: string | null;
 }
 
 /**

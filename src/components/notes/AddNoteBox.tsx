@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { useDirtySurface } from '../../hooks/useDirtySurface';
 
 // fix-notes-3: shared "add a note" box extracted from NotesPanel (fix-notes-1).
 // Enter commits (Shift+Enter = newline); the parent owns the write via onAdd
@@ -17,6 +18,8 @@ export default function AddNoteBox({
   testidPrefix: string;
 }) {
   const [draft, setDraft] = useState('');
+  // ★ fix-595: a half-written note is exactly fix-371 §4's "paragraph".
+  useDirtySurface('add-note', draft.trim() !== '');
 
   function handleAdd() {
     const body = draft.trim();

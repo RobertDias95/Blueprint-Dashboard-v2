@@ -22,6 +22,7 @@ import type {
   ReportSpecFilter,
   ReportSpecSort,
 } from '../lib/database.types';
+import { useDirtySurface } from '../hooks/useDirtySurface';
 
 // fix-69: freeform report builder. Single entity per report + flat parent
 // convenience columns. List rows only (no aggregation in MVP). Preview via
@@ -108,6 +109,14 @@ export default function ReportBuilder() {
     for (const c of entity?.columns ?? []) m.set(c.key, c);
     return m;
   }, [entity]);
+
+  // ★ fix-595: an unsaved report definition. The same expression `changeEntity`
+  //   already guards with a confirm() — if it is worth a prompt before clearing,
+  //   it is worth blocking a reload.
+  useDirtySurface(
+    'report-builder',
+    columns.length > 0 || filters.length > 0 || sort.length > 0,
+  );
 
   function changeEntity(next: string) {
     if (next === entityKey) return;

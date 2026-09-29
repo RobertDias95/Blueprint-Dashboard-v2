@@ -43,6 +43,7 @@ import {
   UnitCountAndProductTypes,
 } from './ProjectDetailsForm';
 import type { PermitWithCycles, Project } from '../../lib/database.types';
+import { useDirtySurface } from '../../hooks/useDirtySurface';
 
 // ===========================================================================
 // ★★★ fix-506 §G (P-140) — PROJECT DATA · ★★★ fix-514 §A (P-191) — PROJECT DETAILS
@@ -132,6 +133,10 @@ export default function ProjectDetailsModal({
   //     owned here. ONE controller for the whole modal, which is what makes
   //     §B's dirty flag true of the modal rather than of a tab.
   const ctl = useProjectDetailsForm(project, permits);
+  // ★★ fix-595: the atomic Project Details form — buffered permit rows and the
+  //   23 scalar drafts fix-575 §A added. `ctl.dirty` is the flag the footer's
+  //   Save/Exit already reads, so there is no second definition of unsaved here.
+  useDirtySurface(`project-details:${project.id}`, ctl.dirty);
   const reassignSd = useReassignProjectSd();
   // ★★★ §C — search. `query` drives a dropdown of destinations; picking one
   //     switches tabs. State is local because a search is a way of GETTING

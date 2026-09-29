@@ -47,6 +47,10 @@ interface RpcRow {
   out_notice_first_shown_at: string | null;
   out_notice_dismissed_at: string | null;
   out_notice_reloaded_at: string | null;
+  /** ★ fix-595. OPTIONAL, because the migration ships unapplied: an older
+   *  server's row simply does not carry it, and the mapper must not invent a
+   *  value or throw. `undefined ?? null` is the whole handling. */
+  out_notice_auto_reloaded_at?: string | null;
 }
 
 /** PostgREST's code for "no function matches" — the migration-unapplied case. */
@@ -70,6 +74,7 @@ export function mapClientBuildRow(row: RpcRow): ClientBuildRow {
     notice_first_shown_at: row.out_notice_first_shown_at,
     notice_dismissed_at: row.out_notice_dismissed_at,
     notice_reloaded_at: row.out_notice_reloaded_at,
+    notice_auto_reloaded_at: row.out_notice_auto_reloaded_at ?? null,
   };
 }
 
