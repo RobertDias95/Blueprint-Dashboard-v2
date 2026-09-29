@@ -38,8 +38,6 @@ vi.mock('../hooks/useWeeklyDaReport', () => ({
 }));
 
 vi.mock('../hooks/useNotes', () => ({
-  useAddNote: () => ({ mutate: addMutate, isPending: false }),
-  useUpdateNote: () => ({ mutate: updateMutate, isPending: false }),
 }));
 
 vi.mock('../hooks/usePermits', () => ({

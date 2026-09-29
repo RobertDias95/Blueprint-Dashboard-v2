@@ -33,8 +33,6 @@ vi.mock('../hooks/usePermits', () => ({
 }));
 vi.mock('../hooks/useNotes', () => ({
   useProjectNotes: () => ({ data: [], isLoading: false, error: null, refetch: vi.fn() }),
-  useAddNote: () => ({ mutate: vi.fn(), mutateAsync: vi.fn(), isPending: false }),
-  useUpdateNote: () => ({ mutate: vi.fn(), mutateAsync: vi.fn(), isPending: false }),
 }));
 // The card has its own suite; here it only needs to be locatable in the grid.
 vi.mock('../components/ProjectDetail/PlanOfRecordCard', () => ({

@@ -349,8 +349,6 @@ vi.mock('../hooks/useWaitingOnTasks', async (orig) => {
 });
 vi.mock('../hooks/useNotes', () => ({
   useProjectNotes: () => ({ data: [], isLoading: false, error: null, refetch: vi.fn() }),
-  useAddNote: () => ({ mutate: vi.fn(), isPending: false }),
-  useUpdateNote: () => ({ mutate: vi.fn(), isPending: false }),
 }));
 // PermitDetailV2's cycle editor + estimator are irrelevant to the chain.
 vi.mock('../hooks/useUpdatePermit', () => ({

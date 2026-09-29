@@ -579,8 +579,6 @@ vi.mock('../hooks/useMayWriteProject', () => ({
 
 vi.mock('../hooks/useNotes', () => ({
   useProjectNotes: () => ({ data: [], isLoading: false, error: null, refetch: vi.fn() }),
-  useAddNote: () => ({ mutate: vi.fn(), isPending: false }),
-  useUpdateNote: () => ({ mutate: vi.fn(), isPending: false }),
 }));
 vi.mock('../hooks/usePlanOfRecord', () => ({
   usePlanOfRecord: () => ({ data: null, isLoading: false, error: null, refetch: vi.fn() }),

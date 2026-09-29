@@ -1,7 +1,6 @@
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useQuery } from '@tanstack/react-query';
 import { supabase } from '../lib/supabase';
 import { queryKeys } from '../lib/queryKeys';
-import { pushToast } from '../stores/toastStore';
 import { useAuthStore } from '../stores/authStore';
 import type { Note } from '../lib/database.types';
 
@@ -13,34 +12,45 @@ import type { Note } from '../lib/database.types';
 // scopes (holistic + every permit); NotesPanel filters client-side, and the
 // future dashboard card / Weekly Updates report can reuse the same cache.
 //
-// Writes are direct table DML under tenant RLS (the permit_task_assignees
-// pattern): the notes_default_tenant trigger stamps tenant_id, notes_author
-// stamps created_by from auth.uid(), notes_completed_at syncs completed_at.
+// ★★★ fix-570 (P-275): THERE IS NO LONGER A WRITE PATH. `useAddNote` and
+//     `useUpdateNote` were the app's ONLY writers of `public.notes` — measured
+//     on prod 2026-09-29: no RPC and no trigger inserts a row — and both are
+//     deleted below. The four `notes` triggers survive untouched; each only
+//     decorates a write, so with nothing writing they never fire.
 
-// ═══════════════════════════════════════════════════════════════════════
-// ★★★ fix-559 §A (P-218) — `useProjectNotes` IS GONE WITH `NotesPanel`
-// ═══════════════════════════════════════════════════════════════════════
+// ═════════════════════════════════════════════════════════════════════
+// ★★★ THE WRITERS ARE GONE — fix-570 (P-275), THE LAST OF THE 09-15 RULING
+// ═════════════════════════════════════════════════════════════════════
 //
-// It had exactly one consumer — the permit/project notes panel §A removed —
-// so it goes with it rather than lingering as a reader for a surface that no
-// longer exists.
+// Bobby, 2026-09-15: *"remove the permit level note, we only need a tasks
+// level note."* fix-559 removed three mounts, fix-569 the fourth, and a
+// hook-scoped grep found a fifth — the Weekly Updates report's own add/edit
+// surface, built editable on purpose by fix-notes-3. fix-570 removes it, and
+// with it the last two writers in the app.
 //
-// ★★★ THE REST OF THIS FILE STAYS, AND THAT IS NOT AN OVERSIGHT. The brief
-//     said *"remove the component and its hook"*; grepping the hook rather than
-//     the heading (which is what it asked for) found **three more consumers
-//     that are not note-taking surfaces at all**:
+// ★★★ SO `useAddNote` AND `useUpdateNote` ARE DELETED, NOT LEFT UNMOUNTED.
+//     P-275 is literally *"one permit-level note WRITER survives"* — and an
+//     exported mutation hook with no call site IS that writer, still standing.
+//     **Three sweeps in a row have ended with "the hook grep found one more"**
+//     (fix-559 → fix-569 → fix-570). Deleting them ends the sequence rather
+//     than handing the next one something to find.
 //
-//       useAllNotes                → Weekly Updates report (fix-notes-3) — the
-//                                    report IS the notes, grouped
-//       useAddNote / useUpdateNote → Weekly Updates + the Weekly DA report's
-//                                    editable note box (fix-notes-4)
-//       useProjectNoteSearchIndex  → Project View's note-body search
+// ⚠️ THE TWO READERS STAY, AND THE BRIEF PROTECTS THEM BY NAME (*"do not
+//    delete … the hooks the readers still use"*):
 //
-//     Deleting them would delete two reports and a search filter, which Bobby's
-//     ruling does not ask for. **§B's staged delete of the 107 rows leaves all
-//     three rendering empty** — that consequence is stated in the PR and in the
-//     migration header, because it is the thing to decide before applying it,
-//     not after.
+//      useAllNotes                → the Weekly Updates report (fix-notes-3)
+//      useProjectNoteSearchIndex  → Project View's note-body search
+//
+// ★★ BOTH NOW RETURN NOTHING, FOR EVER, AND THAT IS THE CORRECT OUTCOME.
+//    `public.notes` holds 0 rows and has held 0 since fix-559 emptied it —
+//    `max(created_at)` is NULL, so not one row has been written since. 107 sit
+//    in the `notes_deleted_fix559` backup and all 107 are in the General
+//    channel. The report says this on its face rather than rendering a blank.
+//
+// ⛔ AND THE READERS ARE NOT RE-POINTED at chat or at task notes. That is a
+//    product decision nobody has made, and the weekly DA revision is where it
+//    gets made — Bobby: *"we will revise the weekly da concept in the
+//    future."* A revision is not a retirement.
 
 interface NoteSearchRow {
   project_id: string;
@@ -79,76 +89,6 @@ export function useAllNotes() {
       const { data, error } = await supabase.rpc('bp_list_all_notes');
       if (error) throw error;
       return (data ?? []) as Note[];
-    },
-  });
-}
-
-export interface AddNoteInput {
-  projectId: string;
-  /** null/omitted = holistic project note; a permit id = per-permit note. */
-  permitId?: number | null;
-  body: string;
-}
-
-export function useAddNote() {
-  const queryClient = useQueryClient();
-  // fix-notes-4: resolves to the new note's id so an editor bound to
-  // "the newest active note" (Weekly DA Update's per-permit box) can keep
-  // updating the note it just created instead of creating duplicates.
-  return useMutation<string, Error, AddNoteInput>({
-    mutationFn: async (input) => {
-      const { data, error } = await supabase
-        .from('notes')
-        .insert({
-          project_id: input.projectId,
-          permit_id: input.permitId ?? null,
-          body: input.body,
-        })
-        .select('id')
-        .single();
-      if (error) throw error;
-      return (data as { id: string }).id;
-    },
-    onSuccess: () => {
-      // fix-notes-3: invalidate the whole notes prefix (single source), so a
-      // write from ANY surface — permit NotesPanel, Project Overview, or the
-      // Weekly Updates report — refreshes every mounted notes query.
-      queryClient.invalidateQueries({ queryKey: queryKeys.notesAll });
-    },
-    onError: (error) => {
-      pushToast(`Could not add note — ${error.message}`, 'error');
-    },
-  });
-}
-
-export interface UpdateNoteInput {
-  id: string;
-  projectId: string;
-  body?: string;
-  completed?: boolean;
-}
-
-export function useUpdateNote() {
-  const queryClient = useQueryClient();
-  return useMutation<void, Error, UpdateNoteInput>({
-    mutationFn: async (input) => {
-      const patch: Record<string, unknown> = {};
-      if (input.body !== undefined) patch.body = input.body;
-      if (input.completed !== undefined) patch.completed = input.completed;
-      const { error } = await supabase
-        .from('notes')
-        .update(patch)
-        .eq('id', input.id);
-      if (error) throw error;
-    },
-    onSuccess: () => {
-      // fix-notes-3: invalidate the whole notes prefix (single source), so a
-      // write from ANY surface — permit NotesPanel, Project Overview, or the
-      // Weekly Updates report — refreshes every mounted notes query.
-      queryClient.invalidateQueries({ queryKey: queryKeys.notesAll });
-    },
-    onError: (error) => {
-      pushToast(`Could not save note — ${error.message}`, 'error');
     },
   });
 }

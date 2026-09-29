@@ -1,31 +1,30 @@
-import { useState } from 'react';
 import type { Note } from '../../lib/database.types';
 
-// fix-notes-3: shared note row extracted from NotesPanel (fix-notes-1) so the
-// Weekly Updates report and the NotesPanel render notes identically. Purely
-// presentational: date + author, click-to-edit body (Enter/blur commits, Esc
-// cancels), and a complete/restore toggle. Callbacks own the write (both
-// surfaces route them through the fix-notes-1 useUpdateNote hook).
+// ===========================================================================
+// ★★★ fix-570 (P-275) — THE ROW IS READ-ONLY NOW
+// ===========================================================================
+//
+// fix-notes-3 extracted this from `NotesPanel` so the Weekly Updates report and
+// the panel rendered notes identically. The panel went in fix-559; fix-570 takes
+// the report's write surface, which was this row's `onCommitBody` /
+// `onSetCompleted` callbacks and the click-to-edit textarea behind them.
+//
+// ★★★ IT IS KEPT, NOT DELETED, BECAUSE THE READ PATH IS KEPT. The brief is
+//     explicit: *"Delete the write path. Leave the report, its route, its nav
+//     entry and its read path alone."* The report still calls `useAllNotes`, so
+//     if a row ever exists it must render — and this is what renders it.
+//
+// ⚠️ TODAY IT NEVER RENDERS. `public.notes` holds 0 rows and has since fix-559
+//    emptied it. That is not a reason to delete the renderer: a reader with no
+//    rows is a reader, and the weekly DA concept is being revised later
+//    (Bobby: *"we will revise the weekly da concept in the future"*).
+//
+// ★ WHAT WENT, PRECISELY: the `editing`/`draft` state, the `commit()` that
+//   called `onCommitBody`, the textarea, the complete/restore BUTTON, and the
+//   "Click to edit" affordance. The completion MARKER stays — whether a note is
+//   done is information, and this row still shows information.
 
-export default function NoteRow({
-  note,
-  onCommitBody,
-  onSetCompleted,
-}: {
-  note: Note;
-  onCommitBody: (body: string) => void;
-  onSetCompleted: (done: boolean) => void;
-}) {
-  const [editing, setEditing] = useState(false);
-  const [draft, setDraft] = useState(note.body);
-
-  function commit() {
-    setEditing(false);
-    const next = draft.trim();
-    if (next && next !== note.body) onCommitBody(next);
-    else setDraft(note.body);
-  }
-
+export default function NoteRow({ note }: { note: Note }) {
   const date = (
     note.completed ? note.completed_at ?? note.created_at : note.created_at
   ).slice(0, 10);
@@ -39,21 +38,21 @@ export default function NoteRow({
       }}
       data-testid={`note-row-${note.id}`}
     >
-      {/* Complete / restore control */}
-      <button
-        type="button"
-        onClick={() => onSetCompleted(!note.completed)}
-        className="flex-shrink-0 mt-0.5 w-4 h-4 rounded border text-[10px] leading-none inline-flex items-center justify-center transition"
+      {/* ★ A MARKER, NOT A BUTTON. It used to toggle `completed`; it now only
+          says whether the note was done. Same box, same place, no click. */}
+      <span
+        className="flex-shrink-0 mt-0.5 w-4 h-4 rounded border text-[10px] leading-none inline-flex items-center justify-center"
         style={{
           borderColor: note.completed ? 'var(--color-is)' : 'var(--color-border)',
           background: note.completed ? 'var(--color-is-bg)' : 'transparent',
           color: 'var(--color-is)',
         }}
-        title={note.completed ? 'Restore to active' : 'Mark done'}
+        title={note.completed ? 'Done' : 'Active'}
+        aria-label={note.completed ? 'Done' : 'Active'}
         data-testid={`note-complete-${note.id}`}
       >
         {note.completed ? '✓' : ''}
-      </button>
+      </span>
 
       <div className="flex-1 min-w-0">
         <div className="text-[9px] text-dim font-mono">
@@ -62,45 +61,14 @@ export default function NoteRow({
             <span data-testid={`note-author-${note.id}`}> · {note.author_name}</span>
           )}
         </div>
-        {editing ? (
-          <textarea
-            value={draft}
-            onChange={(e) => setDraft(e.target.value)}
-            onBlur={commit}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter' && !e.shiftKey) {
-                e.preventDefault();
-                commit();
-              }
-              if (e.key === 'Escape') {
-                setDraft(note.body);
-                setEditing(false);
-              }
-            }}
-            autoFocus
-            rows={2}
-            className="w-full text-xs p-1 mt-0.5 border rounded outline-none resize-y leading-relaxed"
-            style={{
-              background: 'var(--color-surface)',
-              borderColor: 'var(--color-de)',
-            }}
-            data-testid={`note-edit-${note.id}`}
-          />
-        ) : (
-          <div
-            onClick={() => {
-              setDraft(note.body);
-              setEditing(true);
-            }}
-            className={`text-xs leading-relaxed whitespace-pre-wrap break-words cursor-text ${
-              note.completed ? 'text-dim line-through' : 'text-text'
-            }`}
-            title="Click to edit"
-            data-testid={`note-body-${note.id}`}
-          >
-            {note.body}
-          </div>
-        )}
+        <div
+          className={`text-xs leading-relaxed whitespace-pre-wrap break-words ${
+            note.completed ? 'text-dim line-through' : 'text-text'
+          }`}
+          data-testid={`note-body-${note.id}`}
+        >
+          {note.body}
+        </div>
       </div>
     </li>
   );

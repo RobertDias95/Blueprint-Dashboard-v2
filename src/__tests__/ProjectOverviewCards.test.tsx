@@ -68,8 +68,6 @@ vi.mock('../hooks/useMayWriteProject', () => ({
 
 vi.mock('../hooks/useNotes', () => ({
   useProjectNotes: () => ({ data: [], isLoading: false, error: null, refetch: vi.fn() }),
-  useAddNote: () => ({ mutate: vi.fn(), mutateAsync: vi.fn(), isPending: false }),
-  useUpdateNote: () => ({ mutate: vi.fn(), mutateAsync: vi.fn(), isPending: false }),
 }));
 // The real card, with only its data mocked — so its real banner is rendered.
 vi.mock('../hooks/usePlanOfRecord', () => ({

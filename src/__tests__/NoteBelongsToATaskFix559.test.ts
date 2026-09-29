@@ -95,7 +95,7 @@ describe('fix-559 §A — the permit-level note surface stops existing', () => {
     expect(code(read('hooks/useNotes.ts'))).not.toContain('export function useProjectNotes');
   });
 
-  it('★★★ …and the OTHER four hooks SURVIVE, because they are not note-taking', () => {
+  it('★★★ …and the two READER hooks survive, because they are not note-taking', () => {
     // ★★★ THE BRIEF SAID "remove the component and its hook". Grepping the hook
     //     rather than the heading — which is what it asked for — found three
     //     more consumers that are not note surfaces at all:
@@ -105,14 +105,19 @@ describe('fix-559 §A — the permit-level note surface stops existing', () => {
     //       useProjectNoteSearchIndex → Project View's note-body search
     //     Deleting them would delete two reports and a search filter, which the
     //     ruling does not ask for.
+    //
+    // ⚠️⚠️ SUPERSEDED IN PART BY fix-570 (P-275), 2026-09-29. The reasoning
+    //       above is intact and still correct — what changed is that Bobby was
+    //       then ASKED about the two writers this sweep surfaced, and ruled
+    //       them out. The readers stayed; the writers are gone. This ticket's
+    //       report is what produced that ruling, which is why it was right to
+    //       report rather than improvise.
     const hooks = code(read('hooks/useNotes.ts'));
-    for (const h of [
-      'useAllNotes',
-      'useAddNote',
-      'useUpdateNote',
-      'useProjectNoteSearchIndex',
-    ]) {
+    for (const h of ['useAllNotes', 'useProjectNoteSearchIndex']) {
       expect(hooks).toContain(`export function ${h}`);
+    }
+    for (const h of ['useAddNote', 'useUpdateNote']) {
+      expect(hooks).not.toContain(`export function ${h}`);
     }
   });
 });
