@@ -216,17 +216,50 @@ describe('fix-525 §C — status_override', () => {
 // §B — the Library keeps the redesigned original
 // ---------------------------------------------------------------------------
 
-describe('fix-525 §B — cancelled hidden, redesigned kept and hatched', () => {
+// ═══════════════════════════════════════════════════════════════════════════
+// ★★★ RE-RULED BY fix-593 (D-2026-09-28) — SUPERSEDED, NOT MISTAKEN
+// ═══════════════════════════════════════════════════════════════════════════
+//
+// This block asserted `redesigned.library === 'hatched'`. It is `'hidden'` now,
+// and the two assertions below flip with it — but **fix-525's reasoning was
+// right when it was written and is recorded here rather than overwritten**,
+// because the three rulings together are the only way to read this flag
+// honestly:
+//
+//   09-10  fix-524 briefed  hidden   Bobby's first ruling
+//   09-11  fix-525 shipped  hatched  reversed ON EVIDENCE: 11 of 17 pairs held
+//                                    their ONLY `unit_types` on the original, so
+//                                    hiding it emptied 65% of the pairs out of
+//                                    the matrix the Library exists to be
+//   09-28  fix-593 ships    hidden   Dave's ask — AND the evidence has decayed:
+//                                    21 pairs, the original is the only copy on
+//                                    just 3 (14%). 16 redesigns now carry their
+//                                    own units. They did not in September.
+//
+// ★★★ SO fix-525 IS NOT A MISTAKE THIS TICKET CORRECTS. It is a ruling whose
+//     premise the team dissolved by filling the redesigns in. If `unit_types`
+//     ever drains back out of the redesigns, fix-525's argument becomes true
+//     again and the flag should move again — which is exactly why it is one
+//     record and not an `if` at a call site.
+//
+// ⏸ The 3 pairs that still lose their only unit data are NAMED in fix-593's PR
+//   and deliberately not patched: a fallback to the original when the redesign
+//   is blank is a different rule with a different meaning, and it is Bobby's.
+describe('fix-525 §B / fix-593 — cancelled hidden, and now the redesigned original too', () => {
   const sets = {
     cancelledIds: new Set(['cancelled-1']),
     redesignedIds: new Set(['original-1']),
   };
 
-  it('★★★ the two causes diverge on exactly one surface, and it is declared', () => {
+  it('★★★ the two causes now AGREE on every surface, and it is declared', () => {
     expect(RETIRED_VISIBILITY.cancelled.library).toBe('hidden');
-    expect(RETIRED_VISIBILITY.redesigned.library).toBe('hatched');
-    // ★ Everywhere else they agree, which is what makes the Library the
-    //   exception rather than the start of a pattern.
+    // ★★★ fix-593: was `'hatched'`. See the block above for why that was right
+    //     on 09-11 and why it is not right now.
+    expect(RETIRED_VISIBILITY.redesigned.library).toBe('hidden');
+    // ★ fix-525's own assertion, inverted by the ruling rather than deleted:
+    //   the Library was THE ONE divergence, and there is no divergence left.
+    //   Stated positively so that re-introducing one fails here first.
+    expect(RETIRED_VISIBILITY.cancelled).toEqual(RETIRED_VISIBILITY.redesigned);
     expect(RETIRED_VISIBILITY.cancelled.pipeline).toBe(
       RETIRED_VISIBILITY.redesigned.pipeline,
     );
@@ -235,13 +268,17 @@ describe('fix-525 §B — cancelled hidden, redesigned kept and hatched', () => 
     );
   });
 
-  it('★★★ a cancelled project is hidden from the Library; a redesigned one is not', () => {
+  it('★★★ both are hidden from the Library; NEITHER is hidden anywhere new', () => {
     expect(retiredHiddenFrom('library', 'cancelled-1', sets)).toBe(true);
-    expect(retiredHiddenFrom('library', 'original-1', sets)).toBe(false);
-    // ★ Both are still gone from the Pipeline.
+    // ★★★ fix-593 (D-2026-09-28) — Dave's ask, and the whole of it.
+    expect(retiredHiddenFrom('library', 'original-1', sets)).toBe(true);
+    // ★ Both are still gone from the Pipeline — unchanged.
     expect(retiredHiddenFrom('pipeline', 'cancelled-1', sets)).toBe(true);
     expect(retiredHiddenFrom('pipeline', 'original-1', sets)).toBe(true);
-    // ★ Neither is ever hidden from the board — capacity is the point.
+    // ★★★ AND NEITHER IS EVER HIDDEN FROM THE BOARD — capacity is the point,
+    //     and fix-593 §3 forbids the hide reaching any surface but the Library.
+    //     This is the assertion that catches a "hide it everywhere" reading of
+    //     Dave's request.
     expect(retiredHiddenFrom('drawSchedule', 'cancelled-1', sets)).toBe(false);
     expect(retiredHiddenFrom('drawSchedule', 'original-1', sets)).toBe(false);
   });

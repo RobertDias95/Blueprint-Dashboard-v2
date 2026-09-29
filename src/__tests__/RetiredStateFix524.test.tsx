@@ -340,9 +340,17 @@ describe('fix-524 §B — the four surfaces, both causes', () => {
     // ★★ §B: *"A number that changes because a filter changed, with nothing
     //    saying so, is a bug report waiting to happen."* fix-447 §B5 made
     //    exactly this argument about the unit view's project count; this is the
-    //    same rule applied to a filter the reader did not set. 5 of 220 today.
+    //    same rule applied to a filter the reader did not set.
     expect(lib).toContain('library-retired-hidden');
-    expect(lib).toContain('cancelled hidden');
+    // ★★★ fix-593 §3 — THIS USED TO ASSERT THE LITERAL `'cancelled hidden'`, and
+    //     that string is gone on purpose. `cancelled` was the only cause hidden
+    //     from the Library; the redesign originals join it now (21 of 270), so a
+    //     hard-coded word would have the header calling them "cancelled".
+    //     `retiredHiddenLabel` enumerates whatever is actually hidden — and the
+    //     behaviour this test defends (the drop is NAMED) is asserted against the
+    //     rendered DOM in `LibraryHidesRedesignedOriginalFix593`, which is
+    //     stronger than a substring.
+    expect(lib).toContain('retiredHiddenLabel(hiddenByCause)');
   });
 
   it('★★ the unscheduled lane drops retired projects too', () => {

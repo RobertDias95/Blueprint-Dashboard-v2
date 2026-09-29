@@ -259,13 +259,101 @@ export const RETIRED_VISIBILITY: Record<RetiredCause, RetiredVisibility> = {
   },
   redesigned: {
     pipeline: 'hidden',
-    // ⚠️ RULED 2026-09-11, REVERSING THE 09-10 RULE ON EVIDENCE. 11 of 17
-    //    originals hold unit dimensions their redesign does not, so hiding them
-    //    removes the only copy from the matrix the Library exists to be.
-    library: 'hatched',
+    // ═══════════════════════════════════════════════════════════════════════
+    // ★★★ fix-593 (D-2026-09-28) — RULED A THIRD TIME, AND THE EVIDENCE MOVED
+    // ═══════════════════════════════════════════════════════════════════════
+    //
+    // **Dave, via Bobby:** *"On the library, only show the current unit option,
+    // not the original… we are using the current unit dimensions, not the
+    // original, so we should not visibly show the original in the library
+    // matrix."*
+    //
+    // ⚠️ THIS FLAG HAS NOW BEEN SET THREE TIMES, AND THE HISTORY IS THE POINT:
+    //
+    //      09-10  fix-524 briefed  hidden   (Bobby's first ruling)
+    //      09-11  fix-525 shipped  hatched  ← reversed ON EVIDENCE
+    //      09-28  fix-593 ships    hidden   (Dave's ask)
+    //
+    //    fix-525 did not overrule Bobby on taste; it measured that **11 of 17
+    //    pairs held their only `unit_types` on the ORIGINAL**, so hiding it
+    //    emptied 65% of the redesign pairs out of the matrix the Library exists
+    //    to be. That was the right call on 09-11.
+    //
+    // ★★★ AND IT HAS DECAYED. Re-measured on prod 2026-09-28: **21 pairs, and
+    //     the original is the only copy on just 3 of them (14%)** — 16 of the 21
+    //     redesigns now carry their own unit data, which they did not in
+    //     September. fix-525's objection has largely resolved itself because the
+    //     team filled the redesigns in. **The reversal is safe now in a way it
+    //     was not seventeen days ago**, and that is why this is a one-line change
+    //     rather than an argument.
+    //
+    // ⏸ THE 3 THAT STILL LOSE THEIR DATA ARE NAMED IN THE PR AND NOT PATCHED.
+    //    12238 4th Ave NW · 12836 N 60th St · 137 13th Ave. Falling back to the
+    //    original when the redesign is blank is a DIFFERENT rule with a
+    //    different meaning, and it is Bobby's to make. See fix-593 §2.
+    //
+    // ★ `pipeline` and `drawSchedule` are untouched. This record is per-surface
+    //   precisely so a Library ruling cannot reach the board that plans work or
+    //   the one that accounts for time — fix-593 §3's *"the Library matrix only"*
+    //   is satisfied by construction here rather than by a call-site `if`.
+    library: 'hidden',
     drawSchedule: 'hatched',
   },
 };
+
+/**
+ * How many projects each cause hides from `surface`.
+ *
+ * ★★★ fix-593 §3 — BECAUSE THE COUNT LINE HAS TO STOP SAYING "CANCELLED".
+ *     fix-524 §B's header reads *"N cancelled hidden"*, which was true while
+ *     `cancelled` was the only cause hidden from the Library. It is not any
+ *     more, and a label that calls 21 redesign originals "cancelled" is exactly
+ *     the totals-disagree-with-rows class the brief's ★ warns about — Bobby has
+ *     caught it twice (50-vs-48, 332-vs-65).
+ *
+ * ★ Returned per cause rather than as a total, so the label can enumerate and a
+ *   test can assert the enumeration sums to what actually vanished. A future
+ *   third cause that nobody adds to the copy then fails a test instead of
+ *   quietly hiding rows under somebody else's word.
+ */
+export function retiredHiddenCounts(
+  surface: keyof RetiredVisibility,
+  projectIds: readonly string[],
+  sets: RetiredSets | undefined,
+): Map<RetiredCause, number> {
+  const out = new Map<RetiredCause, number>();
+  for (const id of projectIds) {
+    const cause = retiredCause(id, sets);
+    if (cause !== null && RETIRED_VISIBILITY[cause][surface] === 'hidden') {
+      out.set(cause, (out.get(cause) ?? 0) + 1);
+    }
+  }
+  return out;
+}
+
+/**
+ * The header's phrase for what the hide removed — *"5 cancelled, 21 redesigned
+ * hidden"* — or `null` when nothing was hidden.
+ *
+ * ★★ THE WORDS COME FROM {@link RETIRED_PALETTE}, not from a literal here. The
+ *    Library header used to say *"superseded"* while every other surface said
+ *    *"Redesigned"*; one vocabulary means a reader who learned the purple on the
+ *    Draw Schedule reads this line without being taught a second word.
+ * ★ Cause order is fixed rather than Map-insertion order, so the sentence does
+ *   not reshuffle itself depending on which project sorts first.
+ */
+const CAUSE_ORDER: readonly RetiredCause[] = ['cancelled', 'redesigned'];
+
+export function retiredHiddenLabel(
+  counts: ReadonlyMap<RetiredCause, number>,
+): string | null {
+  const parts: string[] = [];
+  for (const cause of CAUSE_ORDER) {
+    const n = counts.get(cause) ?? 0;
+    if (n > 0) parts.push(`${n} ${RETIRED_PALETTE[cause].label.toLowerCase()}`);
+  }
+  return parts.length === 0 ? null : `${parts.join(', ')} hidden`;
+}
 
 /** Is this project hidden from `surface`? ★ Asking the CAUSE, which is §B's
  *  requirement — not a second predicate beside `retiredCause`. */
