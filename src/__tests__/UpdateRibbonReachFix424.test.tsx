@@ -313,11 +313,31 @@ describe('fix-424 §E: it still only ever offers', () => {
     //     `window.location.reload` must not appear in this component at all.
     // ★ Case-insensitive: the `stale` rung opens the sentence with it, which is
     //   a wording choice and not a different promise.
-    expect(strip(clientBuildSource).match(/nothing reloads on its own/gi) ?? [])
+    // ═══════════════════════════════════════════════════════════════════
+    // ★★★ SUPERSEDED A SECOND TIME, BY fix-595 (P-292) — AND NOT WEAKENED
+    // ═══════════════════════════════════════════════════════════════════
+    //
+    // Bobby ruled on 2026-09-29 that the app MAY reload itself, at the one
+    // moment nothing can be lost: on return to a window left idle 30+ minutes,
+    // with nothing unsaved, nothing in flight and no caret in a field. So
+    // "nothing reloads on its own" is no longer true and the copy no longer
+    // says it.
+    //
+    // ★★★ THE PROMISE THAT REPLACES IT IS THE ONE THE CODE ENFORCES: it never
+    //     reloads while somebody is using it. Still asserted on EVERY rung, for
+    //     fix-424's original reason.
+    expect(strip(clientBuildSource).match(/never reloads while you are using it/gi) ?? [])
       .toHaveLength(4);
     expect(notice).toMatch(/void reloadOntoNewBuild\(\);/);
-    expect(notice.match(/reloadOntoNewBuild/g) ?? []).toHaveLength(2); // import + call
+    // ★★ THE COUNT IS STILL THE POINT, and it is now THREE: the import, the
+    //    button's handler, and fix-595's `maybeAutoReload` — which is gated by
+    //    `shouldAutoReload` and by nothing else. A FOURTH call site would be a
+    //    reload path nobody ruled on, which is exactly what this counts.
+    expect(notice.match(/reloadOntoNewBuild/g) ?? []).toHaveLength(3);
     expect(notice).not.toMatch(/window\.location\.reload/);
+    // ★★★ AND THE ONE NEW CALL IS BEHIND THE RULE. `shouldAutoReload` appears,
+    //     and the call sits after a guard that returns when it is false.
+    expect(notice).toMatch(/if \(!shouldAutoReload\(decision\)\) \{/);
     // ★★ AND THE ONE REAL RELOAD IN THE APP IS STILL ONE, now in appVersion —
     //    inside `reloadOntoNewBuild`, which only ever runs from that click.
     expect((strip(appVersionSource).match(/\.location\.reload\(\)/g) ?? []))

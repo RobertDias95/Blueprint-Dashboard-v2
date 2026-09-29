@@ -27,6 +27,7 @@ import type {
   PermitWithCycles,
   ProjectMessage,
 } from '../../lib/database.types';
+import { useDirtySurface } from '../../hooks/useDirtySurface';
 
 // fix-334 §4 — one message, with everything a person can do to it.
 //
@@ -99,6 +100,9 @@ export default function ChatMessageRow({
   const [composing, setComposing] = useState(false);
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(message.body);
+  // ★ fix-595: only while the editor is OPEN and the text has moved — a
+  //   closed row holds `message.body` and that is not unsaved work.
+  useDirtySurface(`chat-edit:${message.id}`, editing && draft !== message.body);
   const [showOriginal, setShowOriginal] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
 

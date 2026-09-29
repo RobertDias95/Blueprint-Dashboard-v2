@@ -136,6 +136,16 @@ export function newBuildIsLive(): boolean {
   return newBuildLive;
 }
 
+/**
+ * ★ Tests only. The flag above is module state and is deliberately permanent
+ *   for the life of a document — which in vitest means the life of a FILE, so
+ *   one case that finds a new build would hand `true` to every case after it.
+ *   Nothing in `src/` outside a test may call this; the suite asserts that.
+ */
+export function __resetNewBuildLive(): void {
+  newBuildLive = false;
+}
+
 /** The bundle THIS document is running, straight from the DOM. Null in a
  *  context with no module script (a test renderer, an unusual host). */
 export function runningBundleUrl(doc: Document = document): string | null {

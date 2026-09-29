@@ -60,6 +60,7 @@ import { emptyMentionTargets } from '../../lib/projectChat';
 // ★ fix-494: `Permit` is no longer imported — every `permits` prop in this
 //   file is `PermitWithCycles[]` now, because the phase decision reads cycles.
 import type { PermitWithCycles, Project } from '../../lib/database.types';
+import { useDirtySurface } from '../../hooks/useDirtySurface';
 
 // fix-334 — the conversation, organised.
 //
@@ -772,6 +773,10 @@ function ReplyComposer({
 }) {
   const post = usePostMessage();
   const [draft, setDraft] = useState('');
+  // ★★★ fix-595: THE chat composer — the literal "mid-sentence chat post"
+  //     fix-371 §4 refused to interrupt. Pending attachments count too: they are
+  //     uploaded but unattached until the message is sent.
+  useDirtySurface('project-chat', draft.trim() !== '');
   const [pending, setPending] = useState<PendingAttachment[]>([]);
   const [rejected, setRejected] = useState<string | null>(null);
   const [withTask, setWithTask] = useState(false);

@@ -143,6 +143,9 @@ export default function ClientBuildsPanel() {
                 <th className="font-semibold py-1">Behind</th>
                 <th className="font-semibold py-1">Last seen</th>
                 <th className="font-semibold py-1">Notice</th>
+                {/* ★ fix-595: its own column — see the cell for why it is not
+                    folded into "Notice". */}
+                <th className="font-semibold py-1">Caught up by itself</th>
               </tr>
             </thead>
             <tbody>
@@ -192,6 +195,20 @@ export default function ClientBuildsPanel() {
                         : `shown ${row.notice_shown_count}×${
                             row.notice_reloaded_at ? ' · reloaded' : ''
                           }${row.notice_dismissed_at ? ' · dismissed' : ''}`}
+                    </td>
+                    {/* ★★★ fix-595 — ITS OWN COLUMN, not folded into the line
+                        beside it. P-292's success measure is *"`notice_auto_reloaded_at`
+                        is set for the people who never press Reload"*, which is a
+                        question about THIS column crossed with that one — and a
+                        combined cell would make it a sentence somebody has to
+                        parse rather than a column they can scan. */}
+                    <td
+                      className="py-1 text-muted"
+                      data-testid={`client-build-auto-${row.user_id}`}
+                    >
+                      {row.notice_auto_reloaded_at
+                        ? new Date(row.notice_auto_reloaded_at).toLocaleString()
+                        : '—'}
                     </td>
                   </tr>
                 );

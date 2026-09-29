@@ -28,6 +28,7 @@ import {
 import { useSaveFailureStore } from './stores/saveFailureStore';
 import { describeMutation, isNetworkFailure } from './lib/saveFailure';
 import { newBuildIsLive } from './lib/appVersion';
+import { setAppQueryClient } from './lib/appQueryClient';
 
 // Q1: app shell. Wires QueryClient + Router + auth bootstrap.
 //
@@ -172,6 +173,11 @@ const queryClient = new QueryClient({
     },
   },
 });
+
+// ★★ fix-595: hand the client to `lib/appQueryClient` so `NewBuildNotice` can
+//    ask `isMutating()` without a `useQueryClient()` hook — which would make the
+//    ribbon require a provider it does not otherwise need. See that module.
+setAppQueryClient(queryClient);
 
 /** ★ fix-314: the instrument-then-patch half. Before this, error_reports held
  *  ZERO auth/JWT/token rows while Miles hit the bug repeatedly — not because a

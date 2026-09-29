@@ -41,6 +41,7 @@ import { pushToast } from '../../stores/toastStore';
 import { SkeletonRows } from '../Skeleton';
 import QueryError from '../QueryError';
 import QuarterLayoutRestore from './QuarterLayoutRestore';
+import { useDirtySurface } from '../../hooks/useDirtySurface';
 
 // fix-182b: per-quarter Draw Schedule column-layout editor (Settings → Team).
 // Builds/edits the saved column order for a quarter so historical quarters can
@@ -204,6 +205,10 @@ export default function QuarterLayoutEditor({ das, dms, ents = [], readOnly = fa
   }, [quarter, layoutQ.dataUpdatedAt, serverRows, draft]);
 
   const dirty = !readOnly && rowsSig(draft) !== snapshotSig;
+  // ★★ fix-595: an unsaved quarter arrangement. fix-590 exists BECAUSE a
+  //    hand-arranged layout went missing, so reloading one out from under
+  //    somebody is the last thing this app should do.
+  useDirtySurface(`quarter-layout:${quarter}`, dirty);
 
   const groupSpans = useMemo(() => deriveGroupSpans(draft), [draft]);
   const prevQuarter = useMemo(
