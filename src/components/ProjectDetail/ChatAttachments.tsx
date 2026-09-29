@@ -1,8 +1,11 @@
 import { useEffect, useState } from 'react';
 import { useSignedAttachmentUrl } from '../../hooks/useChatAttachments';
 import {
+  attachmentKind,
+  attachmentMeta,
   humanSize,
   isImageAttachment,
+  type AttachmentKind,
   type ChatAttachment,
 } from '../../lib/chatAttachments';
 
@@ -15,6 +18,36 @@ import {
 // ★ An image is a thumbnail; anything else is a named chip. A PDF rendered as a
 // broken <img> is worse than a filename, and the mockup's own example is a
 // named plan set.
+//
+// ════════════════════════════════════════════════════════════════════════
+// ★★★ fix-563 (P-267) — A FILE IN CHAT LOOKS LIKE A FILE
+// ════════════════════════════════════════════════════════════════════════
+//
+// Bobby: *"those kind of show up as, like, gray blobs… it would be nice if
+// there was maybe a logo or something."* Four PDFs in a row were four
+// identical grey rectangles.
+//
+// ★★ MOST OF §A AND §B WERE ALREADY HERE — fix-330 shipped the filename, the
+//    human-readable size and the image thumbnail; fix-411 §4 shipped the
+//    lightbox. Re-derived against origin/main, exactly two things were missing,
+//    and both are below:
+//
+//      §A  a TYPE ICON. The card had no icon at all, so a PDF and a
+//          spreadsheet were the same grey rectangle — Bobby's actual complaint.
+//      §B  a fallback when the THUMBNAIL ITSELF FAILS TO LOAD. The signing
+//          failure was handled; a minted URL whose object 404s was not, and it
+//          left a broken <img> on screen. §B calls that *"the whole risk"* —
+//          *"a thumbnail that 404s is worse than the grey blob it replaced."*
+//
+// ★★★ THAT SECOND GAP WAS PROVED BY A FAILING TEST BEFORE IT WAS FIXED, not by
+//     reading this file — which is also how §B asks for it to be asserted:
+//     *"with a broken path, not by reading the handler."*
+//
+// ⛔ NO PDF PREVIEWS (§C). Bobby chose *"file card now, preview later"*, and the
+//    indexer's renderer is deliberately not reached for: fix-526 renders
+//    plan-set covers from the FILE SHARE into `plan-thumbnails` on a schedule.
+//    A chat upload is a different source with a different lifecycle. Real
+//    ticket, not an extension of this one.
 
 export default function ChatAttachments({
   attachments,
@@ -46,7 +79,26 @@ function AttachmentItem({
 }) {
   const urlQ = useSignedAttachmentUrl(attachment.path);
   const url = urlQ.data ?? null;
-  const image = isImageAttachment(attachment);
+  const kind = attachmentKind(attachment);
+  // ★★★ fix-563 §B — THE LOAD-FAILURE LATCH, AND WHY IT IS SEPARATE FROM
+  //     `urlQ.error`.
+  //
+  //     Those are two different failures and only one of them was handled. A
+  //     signature that cannot be MINTED is a permission or network problem, and
+  //     fix-330 already says so. A signature that mints fine over an object that
+  //     is **gone, moved, or whose signature expired while the tab sat open**
+  //     produced a valid `<img src>` that 404s — and the browser's own broken
+  //     image glyph, which reads as a corrupt file.
+  //
+  // ★★ ONE-WAY, ON PURPOSE. Once a thumbnail has failed for this item it stays
+  //    failed for the life of the component. Retrying on the next render would
+  //    be a request loop against an object that is not coming back, and the
+  //    fallback card can still open the file in a tab — where the browser gives
+  //    its own, better error.
+  const [thumbFailed, setThumbFailed] = useState(false);
+  //★ An image that could not be DRAWN is rendered as a file card, which is
+  //  precisely what §B asks for: *"fall back to the §A card on any load error."*
+  const image = isImageAttachment(attachment) && !thumbFailed;
   /** ★ fix-411 §4: is the in-app viewer open for THIS attachment? Local to the
    *  item, so two snips in one message each own their own viewer. */
   const [viewing, setViewing] = useState(false);
@@ -56,13 +108,21 @@ function AttachmentItem({
   const failed = !!urlQ.error;
 
   if (compact) {
+    // ★★ fix-563: the rail chip used a TWO-way emoji split (image vs
+    //    everything), so a PDF and a spreadsheet were the same glyph here as
+    //    well. It now reads the SAME `attachmentKind` the card does — one
+    //    derivation, two sizes — rather than a second vocabulary that can drift
+    //    from the card's. Emoji are gone with it: they render differently on
+    //    every platform, and the card's icons are already themeable SVG.
     return (
       <span
-        className="text-[10px] text-dim truncate"
-        title={`${attachment.name} · ${humanSize(attachment.size)}`}
+        className="text-[10px] text-dim truncate flex items-center gap-1"
+        title={`${attachment.name} · ${attachmentMeta(attachment)}`}
         data-testid={`chat-attachment-compact-${attachment.path}`}
+        data-kind={kind}
       >
-        {image ? '🖼' : '📄'} {attachment.name}
+        <AttachmentIcon kind={kind} size={10} />
+        <span className="truncate">{attachment.name}</span>
       </span>
     );
   }
@@ -114,7 +174,7 @@ function AttachmentItem({
           title={
             failed
               ? 'This attachment could not be opened'
-              : `${attachment.name} · ${humanSize(attachment.size)}`
+              : `${attachment.name} · ${attachmentMeta(attachment)}`
           }
           data-testid={`chat-attachment-${attachment.path}`}
           data-kind="image"
@@ -130,6 +190,11 @@ function AttachmentItem({
             <img
               src={url}
               alt={attachment.name}
+              // ★★★ §B: THE ONE LINE THIS TICKET TURNS ON. Without it a dead
+              //     object leaves the browser's broken-image glyph inside a card
+              //     that still says "zoom-in" — worse than the grey blob it
+              //     replaced. Proved by a failing test before it was written.
+              onError={() => setThumbFailed(true)}
               style={{ display: 'block', maxHeight: 180, maxWidth: '100%' }}
             />
           ) : (
@@ -173,22 +238,138 @@ function AttachmentItem({
       title={
         failed
           ? 'This attachment could not be opened'
-          : `${attachment.name} · ${humanSize(attachment.size)}`
+          : `${attachment.name} · ${attachmentMeta(attachment)}`
       }
       data-testid={`chat-attachment-${attachment.path}`}
       data-kind="file"
+      // ★ So a test can tell "this is a PDF card" from "this is an image whose
+      //   thumbnail died" without reading the handler that decided it.
+      data-file-kind={kind}
+      data-thumb-failed={thumbFailed ? 'true' : undefined}
     >
       <div
-        className="text-[10px] text-dim px-2 py-1 border-b truncate"
+        className="flex items-center gap-1.5 px-2 py-1 border-b"
         style={{ borderBottomColor: 'var(--color-border)' }}
       >
-        {attachment.name}
-        <span className="ml-1">· {humanSize(attachment.size)}</span>
+        {/* ★★ THE ICON — §A's missing half. `flex-shrink-0` because the
+            filename next to it is the thing allowed to truncate; an icon that
+            squashes is the one element on the card that cannot be read at all. */}
+        <AttachmentIcon kind={kind} size={14} />
+        <span className="text-[10px] text-dim truncate min-w-0">
+          {attachment.name}
+        </span>
       </div>
-      <div className="text-[11px] text-text px-2 py-2">
-        {failed ? 'Could not open this file' : 'Open file →'}
+      <div className="text-[11px] text-text px-2 py-2 flex items-baseline gap-1.5">
+        <span>{failed ? 'Could not open this file' : 'Open file →'}</span>
+        {/* ★★★ §A: *"the size is the cheapest useful signal on the card"* — a
+            17 MB correction letter and a 200 KB one are different objects and
+            currently look identical. `attachmentMeta` drops the separator when
+            the size is missing, so this never renders a dangling middle dot. */}
+        <span className="text-[10px] text-dim ml-auto flex-shrink-0"
+          data-testid={`chat-attachment-meta-${attachment.path}`}>
+          {attachmentMeta(attachment)}
+        </span>
       </div>
     </a>
+  );
+}
+
+/**
+ * ★★★ fix-563 §A — THE TYPE ICON.
+ *
+ * Three glyphs, matching §A's *"PDF · image · generic"* exactly. They follow the
+ * house SVG shape (`PlanOfRecordCard`'s): a 24-unit viewBox, `currentColor`
+ * strokes so they theme with the text beside them, and `aria-hidden` because the
+ * kind is already in the card's `title` and its visible meta line — a screen
+ * reader should not hear "PDF" twice.
+ *
+ * ★ DELIBERATELY NOT EMOJI. The rail chip used 🖼/📄, which render as a different
+ *   picture on every platform and cannot take a colour. These are one
+ *   vocabulary at two sizes.
+ */
+function AttachmentIcon({ kind, size }: { kind: AttachmentKind; size: number }) {
+  const common = {
+    width: size,
+    height: size,
+    viewBox: '0 0 24 24',
+    fill: 'none',
+    'aria-hidden': true,
+    focusable: 'false' as const,
+    className: 'flex-shrink-0',
+    style: { display: 'block' },
+    'data-testid': `attachment-icon-${kind}`,
+  };
+  // ★ A sheet with a folded corner is the shared base; what sits ON it is the
+  //   kind. Same silhouette means the three read as one family at 10px.
+  const page = (
+    <path
+      d="M6 2.75h7.5L19.25 8.5v12.75H6z"
+      stroke="currentColor"
+      strokeWidth="1.6"
+      strokeLinejoin="round"
+    />
+  );
+  const fold = (
+    <path d="M13.5 2.75V8.5h5.75" stroke="currentColor" strokeWidth="1.6" strokeLinejoin="round" />
+  );
+
+  if (kind === 'image') {
+    // ★ A framed picture with a horizon and a sun — the one glyph that is NOT a
+    //   page, because an image is the one kind that usually renders as itself.
+    return (
+      <svg {...common} style={{ display: 'block', color: 'var(--color-de)' }}>
+        <rect x="3" y="5" width="18" height="14" rx="2" stroke="currentColor" strokeWidth="1.6" />
+        <circle cx="8.5" cy="10" r="1.6" stroke="currentColor" strokeWidth="1.4" />
+        <path d="M3.5 16.5 9 12l4 3.5 3-2.5 4.5 4" stroke="currentColor" strokeWidth="1.6" strokeLinejoin="round" />
+      </svg>
+    );
+  }
+
+  if (kind === 'pdf') {
+    // ⚠️⚠️ THIS DREW THE WORD "PDF" AT FIRST, AND THE HARNESS KILLED IT.
+    //
+    //    Three letters inside a 14px box is a smudge — and 10px in the rail chip
+    //    is worse. Every one of the 22 assertions passed on the illegible
+    //    version, because a test can see a <text> node and cannot see that
+    //    nobody could read it. That is exactly what the harness is for
+    //    (fix-406's rule: a styling change nothing renders is indistinguishable
+    //    from one that does nothing).
+    //
+    // ★★★ SO THE MARK IS A SOLID BAND, NOT A WORD. At 14px it reads as
+    //     "page with a heavy label" against generic's "page with thin rules" —
+    //     a difference of WEIGHT, which survives being small in a way letterforms
+    //     do not.
+    //
+    // ★★ AND THE SHAPE CARRIES IT, NOT THE COLOUR. The first version leaned on
+    //    `--color-co` to tell a PDF from a spreadsheet, which is no help to
+    //    anyone who cannot separate those two hues, and no help at all in the
+    //    rail where both are 10px. The colour is still there; it is now the
+    //    second signal rather than the only one.
+    return (
+      <svg {...common} style={{ display: 'block', color: 'var(--color-co)' }}>
+        {page}
+        {fold}
+        <rect
+          x="8.2"
+          y="13.4"
+          width="8.6"
+          height="4.6"
+          rx="1"
+          fill="currentColor"
+          stroke="none"
+        />
+      </svg>
+    );
+  }
+
+  // ★ Generic: the page, with ruled lines. Reached by the 5 XLSX files in chat
+  //   today and by anything the three-way split does not name.
+  return (
+    <svg {...common} style={{ display: 'block', color: 'var(--color-muted)' }}>
+      {page}
+      {fold}
+      <path d="M8.5 12.5h7M8.5 15.5h7M8.5 18h4.5" stroke="currentColor" strokeWidth="1.4" />
+    </svg>
   );
 }
 
