@@ -80,6 +80,76 @@ export function isImageAttachment(a: Pick<ChatAttachment, 'mime'>): boolean {
   return (a.mime ?? '').startsWith('image/');
 }
 
+// ═══════════════════════════════════════════════════════════════════════════
+// ★★★ fix-563 (P-267) — THE FILE TYPE, WHICH WAS ALWAYS THERE
+// ═══════════════════════════════════════════════════════════════════════════
+//
+// Bobby, 2026-09-14: *"those kind of show up as, like, gray blobs… it would be
+// nice if there was maybe a logo or something … Right now it's not super
+// intuitive."* His screenshot: four `10431 - SFR1..4 - Correction Letter
+// CR2.pdf` cards, identical grey rectangles told apart only by reading the
+// filename.
+//
+// ★★★ THE RENDERER HAS HAD THE FILE TYPE ALL ALONG AND NEVER USED IT. Every
+//     entry in `project_messages.attachments` has carried `mime` since fix-330.
+//     **This ticket stores nothing new and backfills nothing** — it reads a
+//     field that was already on all 92 files.
+//
+// ★★ THREE KINDS, WHICH IS WHAT §A ASKS FOR: *"a type icon (PDF · image ·
+//    generic)"*. Not one per mime type. A spreadsheet icon and a Word icon would
+//    be a nicer product and a different ticket; three is the line the brief drew
+//    and the line this stops at.
+//
+// ⚠️ THE GENERIC BRANCH IS NOT HYPOTHETICAL ANY MORE. Re-measured on prod
+//    2026-09-29: **5 XLSX files** live in chat
+//    (`application/vnd.openxmlformats-officedocument.spreadsheetml.sheet`), a
+//    type the brief's own census did not contain. The brief's test for "a mime
+//    the UI does not know" was speculative when it was written; it now covers
+//    real files.
+
+export type AttachmentKind = 'image' | 'pdf' | 'generic';
+
+/**
+ * What KIND of thing is this, for the purpose of picking an icon?
+ *
+ * ★ TOTAL AND NEVER THROWING. A missing, null or malformed `mime` reads as
+ *   `generic` rather than exploding or rendering an empty box. All 92 files on
+ *   prod carry a `mime` today, **which is exactly why a missing one would never
+ *   be noticed** — so the default is the safe one.
+ */
+export function attachmentKind(
+  a: Pick<ChatAttachment, 'mime'> | null | undefined,
+): AttachmentKind {
+  const mime = (a?.mime ?? '').toLowerCase().trim();
+  if (mime.startsWith('image/')) return 'image';
+  if (mime === 'application/pdf') return 'pdf';
+  return 'generic';
+}
+
+/** The word on the card, for a screen reader and for the `title`. */
+export const ATTACHMENT_KIND_LABEL: Record<AttachmentKind, string> = {
+  image: 'Image',
+  pdf: 'PDF',
+  generic: 'File',
+};
+
+/**
+ * ★★ The card's subtitle: `PDF · 17.1 MB`, or just `PDF` when the size is
+ *    missing.
+ *
+ * ★★★ THE SEPARATOR IS CONDITIONAL, AND THAT IS THE WHOLE REASON THIS IS A
+ *     FUNCTION. `humanSize` returns `''` for a missing or non-finite size, so
+ *     `${kind} · ${humanSize(size)}` would render *"PDF · "* — a dangling
+ *     middle dot, which is the "never an empty box" failure in miniature.
+ */
+export function attachmentMeta(
+  a: Pick<ChatAttachment, 'mime' | 'size'> | null | undefined,
+): string {
+  const label = ATTACHMENT_KIND_LABEL[attachmentKind(a)];
+  const size = humanSize(a?.size as number);
+  return size ? `${label} · ${size}` : label;
+}
+
 /**
  * ★ Why a file cannot be attached, in words a person can act on — or null when
  * it can.
