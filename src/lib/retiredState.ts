@@ -1,4 +1,5 @@
 import type { Project } from './database.types';
+import { isActiveProject } from './activeProject';
 
 // ===========================================================================
 // ★★★ fix-524 §A (P-023 + P-220) — ONE HATCH, TWO RETIRED STATES
@@ -78,7 +79,8 @@ export function redesignedAwayProjectIds(
 ): Set<string> {
   const s = new Set<string>();
   for (const p of projects ?? []) {
-    if (p.archived) continue;
+    // ★ fix-557: a DELETED successor cannot retire anything.
+    if (!isActiveProject(p)) continue;
     const original = p.redesign_of_project_id;
     // ★ A row naming ITSELF would retire itself forever. Nothing writes that,
     //   and the guard costs one comparison.

@@ -12,6 +12,7 @@ import type {
   Project,
   UnitType,
 } from '../../lib/database.types';
+import { excludeDeleted } from '../../lib/activeProject';
 
 // fix-216: pure helpers for the REUSE source picker. Kept in their own module
 // (not the component file) so ReuseSourcePicker.tsx only exports a component —
@@ -48,8 +49,7 @@ export function buildReuseSources(
   projects: Project[],
   permitsByProject: Map<string, PermitWithCycles[]>,
 ): ReuseSource[] {
-  return projects
-    .filter((p) => !p.archived)
+  return excludeDeleted(projects)
     .map((p) => ({
       id: p.id,
       address: p.address,

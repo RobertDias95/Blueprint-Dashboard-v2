@@ -11,6 +11,7 @@ import {
   matchRoofDeckOption,
   matchStoriesOption,
 } from './unitVocabulary';
+import { isActiveProject } from './activeProject';
 // ★ fix-486 §D: `isNoWorkUnit` was this module's last reader of `work_scope`,
 //   and it left with the default exclusion above. Nothing here reads the field.
 
@@ -150,7 +151,9 @@ export function buildLibraryRows(
 
   const rows: LibraryRow[] = [];
   for (const proj of projects) {
-    if (proj.archived) continue;
+    // ★ fix-557: `archived` now means DELETED. One derivation — see
+    //   lib/activeProject and public.active_projects.
+    if (!isActiveProject(proj)) continue;
     const projectPermits = permitsByProject.get(proj.id) ?? [];
     if (projectPermits.length === 0) continue;
     // fix-22 Migration 3 read-surface sweep: matrix rows source the physical

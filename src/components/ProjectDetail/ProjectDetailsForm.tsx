@@ -14,6 +14,13 @@ import type { PermitRow } from '../../lib/projectDetailsForm';
 //   with. Both already exist — this tab is the one surface that had neither.
 import { projectDataHref } from '../../lib/projectDataTabs';
 import { displayAddress } from '../../lib/displayAddress';
+import {
+  ARCHIVE_DENIED_NOTE,
+  ARCHIVE_KEEPS_NOTE,
+  ARCHIVE_LABEL,
+  isDeletedProject,
+} from '../../lib/activeProject';
+import { useIsTenantAdmin } from '../../hooks/useIsTenantAdmin';
 
 // ===========================================================================
 // ★★★ fix-514 §A (P-191) — WHAT `ProjectSettingsModal` USED TO RENDER
@@ -702,22 +709,53 @@ export function BuilderOwnerFields({ project }: { project: Project }) {
 
 export function ProjectFlagFields({ project }: { project: Project }) {
   const { commit, occMissing } = useProjectFieldCommit(project);
+  // ═════════════════════════════════════════════════════════════════════════
+  // ★★★ fix-557 (P-250) — THIS CHECKBOX IS THE DELETE, SO IT IS ADMINS ONLY
+  // ═════════════════════════════════════════════════════════════════════════
+  //
+  // ★★★ IT USED TO BE AN ORDINARY EDITABLE FLAG, AND THAT WAS SAFE ONLY BY
+  //     ACCIDENT. `archived` had never been true on any of 271 rows and
+  //     **exactly one server-side reader honoured it**, so ticking this did
+  //     almost nothing. fix-557 makes it mean DELETED — at which point an
+  //     ungated checkbox is a non-admin delete button, and it would have undone
+  //     fix-549 §D's ruling (*"admins only"*) three weeks after it shipped.
+  //
+  // ★★ UNTICKING IT IS THE RECOVERY PATH, which is why it is disabled rather
+  //    than hidden for a non-admin: §B asks how an admin un-deletes a project,
+  //    and the answer is "the same control, backwards". Hiding it would leave an
+  //    admin hunting for a second screen that does not exist.
+  //
+  // ★ Only an admin can see a deleted project at all (`projects_tenant_select`
+  //   carries the escape), so for everybody else this box is always unticked and
+  //   always disabled — which is exactly the truth about what they may do.
+  const isAdmin = useIsTenantAdmin();
+  const mayArchive = isAdmin && !occMissing;
   return (
     <div className="flex flex-col gap-2">
       {/* ★ fix-520 §A: a checkbox has no intermediate state, so ticking IS the
           commit — the same rule the product-type chips follow. */}
-      <label className="flex items-center gap-2 text-[12px] text-text cursor-pointer">
+      <label
+        className={`flex items-center gap-2 text-[12px] text-text ${
+          mayArchive ? 'cursor-pointer' : 'cursor-not-allowed opacity-60'
+        }`}
+        title={isAdmin ? ARCHIVE_KEEPS_NOTE : ARCHIVE_DENIED_NOTE}
+      >
         <input
           type="checkbox"
-          checked={!!project.archived}
-          disabled={occMissing}
+          checked={isDeletedProject(project)}
+          disabled={!mayArchive}
           onChange={(e) =>
-            void commit('archived', e.target.checked, project.archived, 'Archived')
+            void commit('archived', e.target.checked, project.archived, 'Deleted')
           }
           data-testid="psm-archived"
         />
-        <span>Archived (hide from active project lists)</span>
+        <span>{ARCHIVE_LABEL}</span>
       </label>
+      {!isAdmin && (
+        <p className="text-[11px] text-dim m-0 pl-6" data-testid="psm-archived-denied">
+          {ARCHIVE_DENIED_NOTE}
+        </p>
+      )}
       {/* ★★ fix-386 — correcting the wizard's "Backfill?" answer. It is
           editable because whether a project was backfilled is a FACT about how
           it was entered; it is QUIET because it must not become a lever for

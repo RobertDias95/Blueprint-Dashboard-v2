@@ -13,6 +13,7 @@ import AddNoteBox from '../components/notes/AddNoteBox';
 import { SkeletonRows } from '../components/Skeleton';
 import QueryError from '../components/QueryError';
 import type { Note, Permit, Project } from '../lib/database.types';
+import { excludeDeleted } from '../lib/activeProject';
 
 // fix-notes-3: Weekly Updates report — every project's running notes in one
 // place for Bobby's Monday pass. Grouped by project: the holistic project
@@ -64,8 +65,9 @@ export default function WeeklyUpdatesReport() {
   const [onlyWithNotes, setOnlyWithNotes] = useState(false);
 
   const groups = useMemo<ProjectGroup[]>(() => {
+    // ★ fix-557: deleted is not the same rule as cancelled — both apply.
     const projects = excludeCancelled(
-      (projectsQ.data ?? []).filter((p) => !p.archived),
+      excludeDeleted(projectsQ.data),
       cancelledIds,
     );
     const permits = permitsQ.data ?? [];

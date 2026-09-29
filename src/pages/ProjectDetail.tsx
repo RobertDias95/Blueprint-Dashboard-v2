@@ -53,6 +53,7 @@ import {
   useProjectRedesignsWithPermits,
   type RedesignWithPermits,
 } from '../hooks/useProjectRedesigns';
+import { isActiveProject } from '../lib/activeProject';
 
 // Q3 + Q4: Single-project view. Q3 wired editable permit-level fields. Q4
 // adds editable cycles (5 date columns + add/delete) and a tasks section
@@ -189,7 +190,8 @@ function ProjectDetailBody({
   const supersededBy = useMemo(
     () =>
       projectsQ.data?.find(
-        (p) => !p.archived && p.redesign_of_project_id === project.id,
+        // ★ fix-557: a DELETED redesign does not supersede anything.
+        (p) => isActiveProject(p) && p.redesign_of_project_id === project.id,
       ) ?? null,
     [projectsQ.data, project.id],
   );

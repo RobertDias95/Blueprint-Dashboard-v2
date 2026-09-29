@@ -262,5 +262,15 @@ describe('fix-547 §C — the census runs on a rule, not on memory', () => {
     };
     walk(resolve(process.cwd(), 'src'));
     expect(offenders).toEqual([]);
-  });
+    // ★★ fix-557: 15s, and the reason is written four comments up — *"this walk
+    //    is I/O-bound and grows with the repo; under full-suite parallelism it
+    //    had started tipping past vitest's 5s default."* fix-550 bought headroom
+    //    by halving the syscalls; fix-557 added two `src/` modules and a suite
+    //    and it tipped over again (5.1s in a full run, 0.9s alone).
+    //
+    // ★★★ A TIMEOUT, NOT THE ASSERTION, IS WHAT MOVED. This test does not
+    //     measure speed — it measures whether any file names a dropped column —
+    //     so a deadline that fails on repo GROWTH is a false negative that
+    //     would eventually be silenced by deleting the test.
+  }, 15_000);
 });

@@ -234,10 +234,22 @@ describe('fix-567 §D — the screen ASKS the server, it does not re-derive', ()
   });
 
   it('★★ every field on that form is gated by the value the server decided', () => {
-    // ★ The 14 call sites read `occMissing`, whose meaning ("this control
-    //   cannot write") is unchanged — which is why none of them needed editing.
+    // ★ The call sites read `occMissing`, whose meaning ("this control cannot
+    //   write") is unchanged — which is why none of them needed editing.
+    //
+    // ⚠️ fix-557 NARROWED ONE OF THE FOURTEEN, AND THIS IS SUPERSEDED, NOT
+    //    MISTAKEN. The `archived` checkbox is now the project DELETE (P-250,
+    //    admins only), so it is gated by `!mayArchive` — which is
+    //    `isAdmin && !occMissing`, i.e. **strictly stronger** than `occMissing`
+    //    alone. fix-567's rule is "no field on this form is ungated", and that
+    //    still holds; what moved is that one field asks a second question too.
     const src = code(read('components/ProjectDetail/ProjectDetailsForm.tsx'));
     const gated = src.match(/disabled=\{occMissing\}/g) ?? [];
-    expect(gated.length).toBeGreaterThanOrEqual(14);
+    const stricter = src.match(/disabled=\{!mayArchive\}/g) ?? [];
+    expect(gated.length + stricter.length).toBeGreaterThanOrEqual(14);
+    // ★★★ …and the stricter gate must still CONTAIN the one this test is about.
+    //     Without this, "gated by something" would pass for a control gated by
+    //     admin-ness alone, which would let a stale OCC token write.
+    expect(src).toContain('const mayArchive = isAdmin && !occMissing;');
   });
 });
