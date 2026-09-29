@@ -404,8 +404,11 @@ describe('fix-595 §2.3 — which editors were wired', () => {
   //     `LibraryEditCell`, `BufferedDateInput`, `TaskDateField`, the Settings
   //     inline editors, the project data editors — and its draft cannot outlive
   //     the blur that walking away causes.
+  // ⚠️ fix-570 DELETED `AddNoteBox.tsx`, so the nine are now EIGHT. It was the
+  //    Weekly Updates report's add-note control and that report stopped taking
+  //    notes (P-275) — a surface that cannot hold unsaved text because it no
+  //    longer exists. The `dirtyRegistry` key `add-note` went with it.
   const wired: [string, string][] = [
-    ['src/components/notes/AddNoteBox.tsx', 'add-note'],
     ['src/components/ProjectDetail/ProjectChatModal.tsx', 'project-chat'],
     ['src/components/ProjectDetail/ChatTaskComposer.tsx', 'chat-task-composer'],
     ['src/components/ProjectDetail/ChatMessageRow.tsx', 'chat-edit:'],

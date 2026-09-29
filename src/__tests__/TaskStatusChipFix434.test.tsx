@@ -135,8 +135,6 @@ vi.mock('../hooks/useWaitingOnTasks', async (imp) => {
 });
 vi.mock('../hooks/useNotes', () => ({
   useProjectNotes: () => ({ data: [], isLoading: false, error: null, refetch: vi.fn() }),
-  useAddNote: () => ({ mutate: vi.fn(), isPending: false }),
-  useUpdateNote: () => ({ mutate: vi.fn(), isPending: false }),
 }));
 
 import MyTasks from '../pages/MyTasks';

@@ -2,14 +2,13 @@ import { useMemo, useState } from 'react';
 import OriginLink from '../components/OriginLink';
 import { useProjects } from '../hooks/useProjects';
 import { usePermits } from '../hooks/usePermits';
-import { useAllNotes, useAddNote, useUpdateNote } from '../hooks/useNotes';
+import { useAllNotes } from '../hooks/useNotes';
 import {
   useAllProjectHolds,
   cancelledProjectIds,
 } from '../hooks/useProjectHolds';
 import { excludeCancelled } from '../lib/projectViewHelpers';
 import NoteRow from '../components/notes/NoteRow';
-import AddNoteBox from '../components/notes/AddNoteBox';
 import { SkeletonRows } from '../components/Skeleton';
 import QueryError from '../components/QueryError';
 import type { Note, Permit, Project } from '../lib/database.types';
@@ -18,10 +17,30 @@ import { excludeDeleted } from '../lib/activeProject';
 // fix-notes-3: Weekly Updates report — every project's running notes in one
 // place for Bobby's Monday pass. Grouped by project: the holistic project
 // note(s) first, then each permit's active notes (permit_order), newest first.
-// Every note is editable inline and each scope has an add box — all routed
-// through the SAME fix-notes-1 hooks (useAddNote/useUpdateNote), so an edit
-// here writes straight back to public.notes and shows on the permit/project
-// views + dashboard card via the shared notes-prefix invalidation.
+//
+// ═════════════════════════════════════════════════════════════════════
+// ★★★ fix-570 (P-275) — IT READS. IT NO LONGER WRITES.
+// ═════════════════════════════════════════════════════════════════════
+//
+// fix-notes-3 built every note here editable, with an add box per scope. That
+// was the fifth and last permit-level note writer in the app, and Bobby's
+// 2026-09-15 ruling removes it: *"remove the permit level note, we only need a
+// tasks level note."*
+//
+// ★★★ THE REPORT ITSELF STAYS, AND THAT IS THE POINT OF THE TICKET. Retiring
+//     it was offered as option 2 and **explicitly declined**: *"1 - we will
+//     revise the weekly da concept in the future."* A revision needs something
+//     standing to revise. The route, the nav entry, the builtin-report
+//     registration and the read path are all untouched.
+//
+// ★★ NOBODY LOSES ANYTHING. `public.notes` has held 0 rows since fix-559
+//    emptied it, and `max(created_at)` is NULL — **not one row has ever been
+//    written through this surface since**. The editor removed here had no users.
+//
+// ⛔ AND THE READER IS NOT RE-POINTED at chat or at task notes. It still reads
+//    `public.notes` and will render nothing for ever. That is correct, and the
+//    banner and the empty states below are what make it legible instead of
+//    looking broken.
 
 interface PermitScope {
   permit: Permit;
@@ -45,6 +64,24 @@ function permitLabel(p: Permit): string {
   if (p.struct_address) parts.push(p.struct_address);
   return parts.join(' · ');
 }
+
+// ═════════════════════════════════════════════════════════════════════
+// ★★★ fix-570 §C — THE EMPTY STATE, WRITTEN ONCE
+// ═════════════════════════════════════════════════════════════════════
+//
+// §C: *"Give the emptied region a plain empty state that says the notes moved
+// — to the project's General chat channel and to task-level notes — rather
+// than leaving a blank panel that looks broken."*
+//
+// ★★ IT NAMES BOTH DESTINATIONS, and it is the same sentence in both places it
+//    appears (the whole-report branch and the per-project branch) so the two
+//    cannot drift into saying different things about where a note went.
+//
+// ⛔ IT DOES NOT LINK. A link would be re-pointing the reader, which §C forbids.
+//    It says where to look; the reader walks there.
+const NOTES_MOVED_EMPTY =
+  'No notes here — project notes moved to the project\u2019s General channel, '
+  + 'and a note about a task now lives on the task.';
 
 function hasActive(notes: Note[]): boolean {
   return notes.some((n) => !n.completed);
@@ -154,11 +191,20 @@ export default function WeeklyUpdatesReport() {
           <h1 className="text-lg font-display font-extrabold text-text">
             Weekly Updates
           </h1>
+          {/* ★★★ fix-570: the old copy invited the reader to edit, add or
+              complete a note here and said it wrote straight back. There is no
+              writer any more, so that sentence would be the screen telling
+              somebody to do something it cannot do. Read-only is stated, not
+              implied.
+
+              ⚠️ DESCRIBED, NOT QUOTED — for the same reason as the banner
+                 below. A comment-stripping assertion only drops lines starting
+                 `//` or `*`, so reproducing the retired sentence inside a JSX
+                 block comment keeps the "it is gone" test green while the
+                 shipped copy no longer says it. **Eighth time in this repo.** */}
           <p className="text-[11px] text-muted">
             Every project&apos;s running notes — holistic project notes plus each
-            permit&apos;s active notes, newest first. Edit, add, or complete a
-            note here and it writes straight back to the project &amp; permit
-            views.
+            permit&apos;s active notes, newest first. Read-only.
           </p>
         </div>
         <label className="flex items-center gap-1.5 text-[11px] text-text cursor-pointer select-none">
@@ -191,8 +237,20 @@ export default function WeeklyUpdatesReport() {
               never reaches that branch at all.
 
           ⚠️ DELIBERATELY NOT RE-POINTED at chat or at task notes. That is a
-             product decision Bobby has not made (fix-569 §B). This says where
-             the notes went; it does not go and get them. */}
+             product decision Bobby has not made (fix-569 §B, fix-570 §C). This
+             says where the notes went; it does not go and get them.
+
+          ★★★ fix-570 REWORDED THE LAST SENTENCE, WHICH HAD BECOME FALSE.
+              It used to say that anything added here went no further than this
+              report — true while the add boxes existed, and a promise about a
+              control that is now gone.
+
+          ⚠️ THE OLD WORDING IS DESCRIBED, NOT QUOTED. fix-569 asserts the
+             retired sentence is absent from this file, and its comment-stripper
+             only drops lines beginning `//` or `*` — so reproducing the phrase
+             inside THIS block comment would have kept that test green while the
+             shipped copy no longer said it. It went green for exactly that
+             reason once, and this is the fix. */}
       <div
         className="text-[11px] px-3 py-2 mb-3 rounded border"
         style={{
@@ -203,8 +261,8 @@ export default function WeeklyUpdatesReport() {
         data-testid="weekly-updates-notes-moved"
       >
         The 107 project notes moved to each project&rsquo;s General channel, and
-        a note about a task now lives on the task. Anything added here is
-        visible only in this report.
+        a note about a task now lives on the task. This report reads notes; it
+        no longer takes them.
       </div>
 
       {isLoading ? (
@@ -217,7 +275,7 @@ export default function WeeklyUpdatesReport() {
           {/* ★ fix-569 §B: "right now" implied this might fill up again. It
               will not — the notes moved. */}
           {onlyWithNotes
-            ? 'No project notes: they now live in each project\u2019s General channel.'
+            ? NOTES_MOVED_EMPTY
             : 'No active projects.'}
         </div>
       ) : (
@@ -233,6 +291,19 @@ export default function WeeklyUpdatesReport() {
 
 function ProjectGroupCard({ group }: { group: ProjectGroup }) {
   const { project, holistic, permits } = group;
+  // ★★★ fix-570 §C — ONE EMPTY STATE PER PROJECT, NOT ONE PER SCOPE.
+  //
+  //     §C asks for *"a plain empty state that says the notes moved … rather
+  //     than leaving a blank panel that looks broken"*. With the table
+  //     permanently empty EVERY scope is empty, so the honest rendering of a
+  //     project is one sentence — not a holistic scope plus one per permit,
+  //     each repeating "No active notes." beneath its own heading.
+  //
+  //     ★★ THE SCOPES ARE NOT DELETED. If a note ever exists again the scopes
+  //        render exactly as they did, which is what keeps the read path intact.
+  //        This branch is reached only when the whole group is empty.
+  const empty =
+    holistic.length === 0 && permits.every(({ notes }) => notes.length === 0);
   return (
     <section
       className="bg-surface border border-border rounded-xl overflow-hidden"
@@ -259,10 +330,17 @@ function ProjectGroupCard({ group }: { group: ProjectGroup }) {
       </header>
 
       <div className="p-3 space-y-3">
+        {empty ? (
+          <div
+            className="text-[11px] text-dim italic"
+            data-testid={`weekly-updates-moved-${project.id}`}
+          >
+            {NOTES_MOVED_EMPTY}
+          </div>
+        ) : (
+          <>
         {/* Holistic project scope */}
         <NotesScope
-          projectId={project.id}
-          permitId={null}
           label="Project (holistic)"
           notes={holistic}
           testid={`wu-scope-project-${project.id}`}
@@ -271,48 +349,42 @@ function ProjectGroupCard({ group }: { group: ProjectGroup }) {
         {permits.map(({ permit, notes }) => (
           <NotesScope
             key={permit.id}
-            projectId={project.id}
-            permitId={permit.id}
             label={permitLabel(permit)}
             notes={notes}
             testid={`wu-scope-permit-${permit.id}`}
           />
         ))}
+          </>
+        )}
       </div>
     </section>
   );
 }
 
 function NotesScope({
-  projectId,
-  permitId,
   label,
   notes,
   testid,
 }: {
-  projectId: string;
-  permitId: number | null;
   label: string;
   notes: Note[];
   testid: string;
 }) {
-  // ★★★ fix-569 — THIS REPORT IS THE OTHER WRITER, AND IT IS LEFT ALONE.
+  // ★★★ fix-570 — fix-569 REPORTED THIS WRITER; BOBBY RULED; IT IS GONE.
   //
   //     fix-569's brief said *"one writer survived"* — the Weekly DA report's
-  //     note box, which §A removed. Grepping the hooks (which §A asked for)
-  //     found a SECOND: this report has a full add/edit surface of its own
-  //     (fix-notes-3 built it editable on purpose).
+  //     note box, which it removed. Grepping the HOOKS (which its §A asked for)
+  //     found a second: this scope's add box and inline editing. fix-569
+  //     reported it rather than improvising, and P-275 is Bobby's answer:
+  //     **option 1, remove the writer.**
   //
-  // ★★ IT IS NOT THE SAME DEFECT, WHICH IS WHY IT IS STILL HERE. The Weekly
-  //    DA box wrote into the void — it displayed nothing and no surface read
-  //    what it saved. This report READS `notes` as well as writing them, so a
-  //    note added here is visible… here. A self-contained island, not a hole.
+  // ★★ WHAT WENT: `useAddNote`, `useUpdateNote`, the `<AddNoteBox>` and the two
+  //    callbacks `NoteRow` used to write through. Both hooks are deleted from
+  //    `useNotes` — an exported mutation with no call site is still a writer.
   //
-  // ⚠️ REMOVING IT IS A PRODUCT DECISION BOBBY HAS NOT MADE. §B is explicit:
-  //    *"Report, do not improvise."* So it is reported in the PR and the
-  //    banner above says plainly that anything added here goes no further.
-  const addNote = useAddNote();
-  const updateNote = useUpdateNote();
+  // ⚠️ WHAT STAYED: everything that READS. The active/completed split, the
+  //    newest-first order and the history toggle are all untouched, because the
+  //    ruling removed the writer and not the report.
   const [showHistory, setShowHistory] = useState(false);
 
   const active = useMemo(() => notes.filter((n) => !n.completed), [notes]);
@@ -336,34 +408,20 @@ function NotesScope({
         {label}
       </div>
 
-      <AddNoteBox
-        testidPrefix={testid}
-        isPending={addNote.isPending}
-        onAdd={(body, done) =>
-          addNote.mutate({ projectId, permitId, body }, { onSuccess: done })
-        }
-      />
-
       {active.length === 0 ? (
         <div
           className="text-[11px] text-dim italic"
           data-testid={`${testid}-empty`}
         >
-          No active notes.
+          {/* ★ Reached only when this ONE scope is empty while its project has
+              notes elsewhere. A wholly empty project renders the group-level
+              sentence instead — see `ProjectGroupCard`. */}
+          No notes in this scope.
         </div>
       ) : (
         <ul className="flex flex-col gap-1" data-testid={`${testid}-active`}>
           {active.map((n) => (
-            <NoteRow
-              key={n.id}
-              note={n}
-              onCommitBody={(body) =>
-                updateNote.mutate({ id: n.id, projectId, body })
-              }
-              onSetCompleted={(done) =>
-                updateNote.mutate({ id: n.id, projectId, completed: done })
-              }
-            />
+            <NoteRow key={n.id} note={n} />
           ))}
         </ul>
       )}
@@ -384,16 +442,7 @@ function NotesScope({
               data-testid={`${testid}-history`}
             >
               {completed.map((n) => (
-                <NoteRow
-                  key={n.id}
-                  note={n}
-                  onCommitBody={(body) =>
-                    updateNote.mutate({ id: n.id, projectId, body })
-                  }
-                  onSetCompleted={(done) =>
-                    updateNote.mutate({ id: n.id, projectId, completed: done })
-                  }
-                />
+                <NoteRow key={n.id} note={n} />
               ))}
             </ul>
           )}

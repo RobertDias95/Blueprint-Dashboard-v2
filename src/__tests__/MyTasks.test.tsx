@@ -57,13 +57,14 @@ vi.mock('../hooks/useProjects', () => ({
 }));
 
 // fix-294: the task-detail Notes box is now the permit's NotesPanel, so its
-// data hooks have to be inert here. addNoteMutate lets a test assert the box
-// writes to the PERMIT rather than to permit_tasks.notes.
-const addNoteMutate = vi.hoisted(() => vi.fn());
+// data hooks have to be inert here.
+//
+// ★ fix-570 removed the `addNoteMutate` spy that used to sit here. It existed
+//   to assert the box wrote to the PERMIT rather than to `permit_tasks.notes`,
+//   and there is no permit-note writer left to distinguish it from — `useAddNote`
+//   is deleted (P-275). The task-note assertions below are unchanged.
 vi.mock('../hooks/useNotes', () => ({
   useProjectNotes: () => ({ data: [], isLoading: false, error: null, refetch: vi.fn() }),
-  useAddNote: () => ({ mutate: addNoteMutate, isPending: false }),
-  useUpdateNote: () => ({ mutate: vi.fn(), isPending: false }),
 }));
 
 // fix-228: the detail editor reads permits (ent_lead) + projects (schematic)
@@ -1741,10 +1742,6 @@ describe('fix-294 subtasks nest under their parent', () => {
 //     write path a *"loaded gun"* no longer holds. The 27 notes stranded by
 //     that freeze become visible on day one.
 describe('fix-559 the note belongs to the task, and the task shows it', () => {
-  beforeEach(() => {
-    addNoteMutate.mockClear();
-  });
-
   it('★★★ the task detail box is the TASK note — the permit panel is gone', () => {
     tasksRef.current = [task({ id: 'a', permit_id: 42, primary_assignee: 'Trevor' })];
     renderIt();

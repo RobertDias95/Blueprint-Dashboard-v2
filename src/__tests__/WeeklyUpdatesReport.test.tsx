@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
-import { render, screen, fireEvent, waitFor, within } from '@testing-library/react';
+import { render, screen, fireEvent, within } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import type { ReactNode } from 'react';
@@ -206,58 +206,98 @@ describe('WeeklyUpdatesReport grouping', () => {
   });
 });
 
-describe('WeeklyUpdatesReport write-back (single source)', () => {
-  it('adds a holistic note with permit_id null on the right project', async () => {
+// ═══════════════════════════════════════════════════════════════════════════
+// ★★★ fix-570 (P-275) — THE WRITE-BACK BLOCK THAT USED TO LIVE HERE
+// ═══════════════════════════════════════════════════════════════════════════
+//
+// Four tests stood here: adding a holistic note, adding a permit note,
+// editing a body, and marking one complete. Every one of them exercised a
+// control this ticket removed — Bobby's 2026-09-15 ruling, option 1:
+// *"remove the permit level note, we only need a tasks level note."*
+//
+// ★★ THEY ARE DELETED, NOT SKIPPED. A skipped test for a control that cannot
+//    come back is a reader's puzzle. What replaces them is the assertion the
+//    ruling actually needs — that no such control renders — and it lives in
+//    `ReportStopsWritingFix570` beside the rest of the census.
+
+describe('WeeklyUpdatesReport — fix-570: it reads, it does not write', () => {
+  it('★★★ NO add-note box renders in any scope', async () => {
     renderIt();
-    const scope = await screen.findByTestId('wu-scope-project-p1');
-    fireEvent.change(within(scope).getByTestId('wu-scope-project-p1-add'), {
-      target: { value: 'New holistic note' },
-    });
-    fireEvent.click(within(scope).getByTestId('wu-scope-project-p1-add-btn'));
-    await waitFor(() =>
-      expect(mocks.insertFn).toHaveBeenCalledWith({
-        project_id: 'p1',
-        permit_id: null,
-        body: 'New holistic note',
-      }),
-    );
+    await screen.findByTestId('wu-scope-project-p1');
+    // ★ The add box carried `${testid}-add`. Asserted per scope rather than
+    //   once, because there used to be one for the project and one per permit.
+    expect(screen.queryByTestId('wu-scope-project-p1-add')).toBeNull();
+    expect(screen.queryByTestId('wu-scope-permit-20-add')).toBeNull();
+    expect(screen.queryByTestId('wu-scope-permit-10-add')).toBeNull();
   });
 
-  it('adds a permit note carrying its permit_id', async () => {
+  it('★★★ a note body is NOT click-to-edit any more', async () => {
     renderIt();
-    const scope = await screen.findByTestId('wu-scope-permit-20');
-    fireEvent.change(within(scope).getByTestId('wu-scope-permit-20-add'), {
-      target: { value: 'New permit note' },
-    });
-    fireEvent.click(within(scope).getByTestId('wu-scope-permit-20-add-btn'));
-    await waitFor(() =>
-      expect(mocks.insertFn).toHaveBeenCalledWith({
-        project_id: 'p1',
-        permit_id: 20,
-        body: 'New permit note',
-      }),
-    );
+    const body = await screen.findByTestId('note-body-n-p1-20');
+    fireEvent.click(body);
+    // ★★ The editor never appears, and — the load-bearing half — nothing is
+    //    written. A click that silently did nothing but still called the
+    //    mutation would pass a "no textarea" assertion on its own.
+    expect(screen.queryByTestId('note-edit-n-p1-20')).toBeNull();
+    expect(mocks.updateFn).not.toHaveBeenCalled();
   });
 
-  it('editing a note writes an update to public.notes (same row id)', async () => {
-    renderIt();
-    fireEvent.click(await screen.findByTestId('note-body-n-p1-20'));
-    const editor = screen.getByTestId('note-edit-n-p1-20');
-    fireEvent.change(editor, { target: { value: 'Edited body' } });
-    fireEvent.blur(editor);
-    await waitFor(() =>
-      expect(mocks.updateFn).toHaveBeenCalledWith({ body: 'Edited body' }),
-    );
-    expect(mocks.eqFn).toHaveBeenCalledWith('id', 'n-p1-20');
-  });
-
-  it('marking a note complete writes completed=true', async () => {
+  it('★★★ the completion box is a MARKER, not a button', async () => {
     renderIt();
     await screen.findByTestId('note-row-n-p1-20');
-    fireEvent.click(screen.getByTestId('note-complete-n-p1-20'));
-    await waitFor(() =>
-      expect(mocks.updateFn).toHaveBeenCalledWith({ completed: true }),
-    );
-    expect(mocks.eqFn).toHaveBeenCalledWith('id', 'n-p1-20');
+    const marker = screen.getByTestId('note-complete-n-p1-20');
+    // ★ It still SHOWS whether the note was done — that is information, and
+    //   the read path keeps it. It just cannot be pressed.
+    expect(marker.tagName).toBe('SPAN');
+    fireEvent.click(marker);
+    expect(mocks.updateFn).not.toHaveBeenCalled();
+  });
+
+  it('★★★ nothing in the report writes to `notes` at all', async () => {
+    // ★★★ THE WHOLE-SURFACE ASSERTION. The three above name the controls that
+    //     existed; this one catches a fourth nobody remembered, by watching the
+    //     supabase client rather than the DOM.
+    renderIt();
+    await screen.findByTestId('wu-scope-project-p1');
+    for (const el of document.querySelectorAll('button, [data-testid]')) {
+      fireEvent.click(el);
+    }
+    expect(mocks.insertFn).not.toHaveBeenCalled();
+    expect(mocks.updateFn).not.toHaveBeenCalled();
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════════════
+// ★★★ §C — THE EMPTIED REGION SAYS WHERE THE NOTES WENT
+// ═══════════════════════════════════════════════════════════════════════════
+
+describe('WeeklyUpdatesReport — fix-570 §C: the empty state', () => {
+  it('★★★ a project with NO notes renders the sentence, not a blank panel', async () => {
+    // p2 has no notes in the fixtures — which is what EVERY project looks like
+    // on prod, where `public.notes` has held 0 rows since fix-559.
+    renderIt();
+    const moved = await screen.findByTestId('weekly-updates-moved-p2');
+    expect(moved.textContent).toContain('General channel');
+    expect(moved.textContent).toContain('lives on the task');
+  });
+
+  it('★★★ …and it does NOT link anywhere — §C forbids re-pointing', async () => {
+    // ⚠️ §C: *"Do not re-point the reader at chat or at task notes. That is a
+    //    product decision nobody has made."* It says where to look. It does not
+    //    go and get them.
+    renderIt();
+    const moved = await screen.findByTestId('weekly-updates-moved-p2');
+    expect(moved.querySelector('a')).toBeNull();
+    expect(moved.querySelector('button')).toBeNull();
+  });
+
+  it('★★★ a project WITH notes still renders its scopes, unchanged', async () => {
+    // ★★ The guard on the collapse. The empty state replaces the scopes only
+    //    when the whole group is empty — the read path is otherwise untouched,
+    //    which is what the ruling protects.
+    renderIt();
+    await screen.findByTestId('wu-scope-project-p1');
+    expect(screen.getByTestId('wu-scope-permit-20')).toBeTruthy();
+    expect(screen.queryByTestId('weekly-updates-moved-p1')).toBeNull();
   });
 });

@@ -36,12 +36,8 @@ function code(src: string): string {
 }
 
 const WRITE_HOOKS = ['useAddNote', 'useUpdateNote'] as const;
-const ALL_NOTE_HOOKS = [
-  'useAllNotes',
-  'useAddNote',
-  'useUpdateNote',
-  'useProjectNoteSearchIndex',
-] as const;
+/** ⚠️ fix-570: the two WRITERS are gone. What is left is the two readers. */
+const READER_HOOKS = ['useAllNotes', 'useProjectNoteSearchIndex'] as const;
 
 /** Every non-test source file, walked once. */
 function sourceFiles(): string[] {
@@ -98,14 +94,36 @@ describe('fix-569 §A — the Weekly DA report loses its note box', () => {
       }
     }
     const files = [...new Set(offenders.map((f) => f.split(/[\\/]/).pop()))];
-    expect(files).toEqual(['WeeklyUpdatesReport.tsx']);
+    // ⚠️⚠️ SUPERSEDED BY fix-570 (P-275), 2026-09-29 — AND NOT MISTAKEN.
+    //
+    //    This assertion was the honest output of fix-569's own sweep: it
+    //    reported the surviving writer instead of improvising a removal,
+    //    which is what put P-275 in front of Bobby. He ruled option 1,
+    //    *"remove the writer"*, and fix-570 removed it — so the exact list
+    //    this test exists to pin is now EMPTY.
+    //
+    // ★★★ THE EMPTY LIST IS THE STRONGER ASSERTION, and it is the one the
+    //     next sweep needs: three tickets in a row ended with "the hook grep
+    //     found one more" (fix-559 → fix-569 → fix-570). Zero write call
+    //     sites, asserted as a list, is what ends that sequence.
+    expect(files).toEqual([]);
   });
 
-  it('★★ …and that report SAYS a note added there goes no further', () => {
-    // ★ The honest half of leaving it: the banner explains both facts — where
-    //   the 107 went, and that anything typed here is visible only here.
-    const src = read('pages/WeeklyUpdatesReport.tsx');
-    expect(src).toContain('visible only in this report');
+  it('★★ …and that report now says it does not TAKE notes at all', () => {
+    // ⚠️ SUPERSEDED BY fix-570. The banner used to say *"Anything added here
+    //    is visible only in this report"* — the honest half of LEAVING the
+    //    writer. With the writer gone that sentence is a promise about a
+    //    control that no longer exists, so it now reads *"This report reads
+    //    notes; it no longer takes them."*
+    //
+    // ★★★ READ THROUGH `code()`, WHICH STRIPS COMMENTS. fix-570's own source
+    //     comment QUOTES the retired sentence to record what changed — so a
+    //     raw `toContain` on this file passed while the shipped copy no
+    //     longer said it. It went green for the wrong reason, which is the
+    //     exact trap this file's `code()` helper was written for.
+    const src = code(read('pages/WeeklyUpdatesReport.tsx'));
+    expect(src).not.toContain('visible only in this report');
+    expect(src).toContain('it\n        no longer takes them');
   });
 
   it('★★ the rest of the report is untouched — a neighbouring column still renders', () => {
@@ -132,7 +150,12 @@ describe('fix-569 §B — the two readers say why they are empty', () => {
   it('★★★ its empty state stops implying the notes might come back', () => {
     const src = code(read('pages/WeeklyUpdatesReport.tsx'));
     expect(src).not.toContain('No projects have active notes right now.');
-    expect(src).toContain('now live in each project');
+    // ⚠️ fix-570 moved the sentence into ONE named constant used by both
+    //    empty branches, so the whole-report and per-project states cannot
+    //    drift into saying different things about where a note went.
+    expect(src).toContain('const NOTES_MOVED_EMPTY');
+    expect(src).toContain('General channel');
+    expect(src).toContain('lives on the task');
   });
 
   it('★★★ Project View stops PROMISING notes in its search placeholder', () => {
@@ -159,10 +182,18 @@ describe('fix-569 §B — the two readers say why they are empty', () => {
     }
   });
 
-  it('★★ the reader hooks SURVIVE — §B forbids deleting what they need', () => {
+  it('★★ the READER hooks survive — §B forbids deleting what they need', () => {
+    // ⚠️ fix-570 NARROWED THIS FROM FOUR HOOKS TO TWO, and the two it drops
+    //    are the WRITERS. fix-569's §B protected *"the hooks the readers
+    //    still use"* — a carve-out that only ever covered the readers.
+    //    P-275 removed the writers, so `useAddNote` / `useUpdateNote` are
+    //    deleted rather than left exported with no call site.
     const hooks = code(read('hooks/useNotes.ts'));
-    for (const h of ALL_NOTE_HOOKS) {
+    for (const h of READER_HOOKS) {
       expect(hooks).toContain(`export function ${h}`);
+    }
+    for (const h of WRITE_HOOKS) {
+      expect(hooks).not.toContain(`export function ${h}`);
     }
   });
 });

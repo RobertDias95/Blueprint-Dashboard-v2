@@ -124,8 +124,6 @@ vi.mock('../hooks/useBoardReads', () => ({
 }));
 vi.mock('../hooks/useNotes', () => ({
   useProjectNotes: () => ({ data: [], isLoading: false, error: null, refetch: vi.fn() }),
-  useAddNote: () => ({ mutate: vi.fn(), isPending: false }),
-  useUpdateNote: () => ({ mutate: vi.fn(), isPending: false }),
 }));
 
 // ★ THE REAL STORE. Both halves read `useAllTasks`; the write goes through
