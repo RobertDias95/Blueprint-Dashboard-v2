@@ -269,6 +269,9 @@ describe('fix-537 §B — the app stops naming a column it asked to have dropped
     //   GONE: this suite, and fix-521's — whose own scan now runs on
     //   comment-stripped source for the same reason. An exemption that is not
     //   explained is how a scan quietly stops scanning.
+    // ★ fix-558 is a third of the same kind: it names
+    //   `_fix537_color_override_snapshot` — the column's last copy — in order
+    //   to assert that table is DROPPED. It reads no column.
     const offenders: string[] = [];
     const walk = (dir: string) => {
       // ★★ fix-550: `withFileTypes` rather than a `statSync` per entry — one
@@ -280,7 +283,7 @@ describe('fix-537 §B — the app stops naming a column it asked to have dropped
         const entry = ent.name;
         const full = join(dir, entry);
         if (ent.isDirectory()) walk(full);
-        else if (/\.tsx?$/.test(entry) && !/Fix537|Fix521/.test(entry)) {
+        else if (/\.tsx?$/.test(entry) && !/Fix537|Fix521|Fix558/.test(entry)) {
           const stripped = code(readFileSync(full, 'utf8'));
           if (stripped.includes('color_override')) offenders.push(full);
         }
