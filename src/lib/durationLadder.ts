@@ -10,7 +10,7 @@
 // ★★ What lives here is the READER of those rows — the fallback ladder that
 //    `bp_learn_days_explain` walks in SQL, written once more in TS so that
 //      (a) CI, which has no live database, can pin the ladder's behaviour, and
-//      (b) fix-586 can point the client at `bp_learned_durations()` and walk
+//      (b) the client-rewire ticket can point the client at `bp_learned_durations()` and walk
 //          the SAME ladder over the SAME rows, instead of scheduleBenchmarks.ts
 //          keeping its own.
 //    The SQL is the implementation. This is its twin, and

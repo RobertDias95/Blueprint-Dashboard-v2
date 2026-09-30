@@ -13,7 +13,7 @@ import { resolve, relative, join } from 'node:path';
 //
 // ★★★ THIS FAILS when a NEW duration learner appears that does not read
 //     `bp_duration_stats` / `bp_learned_durations`. The grandfathered list is
-//     SHRINK-ONLY: fix-586 rewires the client and deletes entries; nothing is
+//     SHRINK-ONLY: the client-rewire ticket rewires the client and deletes entries; nothing is
 //     ever added to it. A stale entry (no longer a learner) also fails, so the
 //     list cannot quietly outlive its reason.
 //
@@ -41,8 +41,8 @@ const GRANDFATHERED_SQL: Record<string, string> = {
   bp_learn_target_submit_days:
     'anchor → our-submittal lag (dd_end / go_date / BP milestones). A different quantity from the review clocks; out of the brief\'s scope and left as fix-249 set it.',
   bp_target_submit_benchmark: 'fix-249 display-only benchmark of the lag above.',
-  bp_phase_durations: 'fix-253 per-cycle display. Same clocks as bp_duration_stats — fix-586 repoints it.',
-  bp_phase_duration_grid: 'fix-253 per-cycle display grid. fix-586 repoints it.',
+  bp_phase_durations: 'fix-253 per-cycle display. Same clocks as bp_duration_stats — the client-rewire ticket repoints it.',
+  bp_phase_duration_grid: 'fix-253 per-cycle display grid. the client-rewire ticket repoints it.',
 };
 const THE_LEARNER_SQL = 'bp_duration_stats';
 
@@ -96,20 +96,20 @@ const MIGRATIONS = readdirSync(resolve(ROOT, 'migrations'))
 // ---------------------------------------------------------------------------
 
 const GRANDFATHERED_TS: Record<string, string> = {
-  // — the legacy client learner and its twins (fix-586 rewires these) —
-  'src/lib/scheduleBenchmarks.ts': 'the client ladder. Brief: leave it alone here; fix-586 points it at bp_learned_durations.',
-  'src/components/Reports/ScheduleBenchmarks.tsx': 'renders scheduleBenchmarks; goes with it in fix-586.',
+  // — the legacy client learner and its twins (the client-rewire ticket rewires these) —
+  'src/lib/scheduleBenchmarks.ts': 'the client ladder. Brief: leave it alone here; the client-rewire ticket points it at bp_learned_durations.',
+  'src/components/Reports/ScheduleBenchmarks.tsx': 'renders scheduleBenchmarks; goes with it in the client rewire.',
   'src/lib/targetSubmitLearner.ts': 'client twin of bp_learn_target_submit_days (the lag, not the review clocks).',
   'src/lib/targetSubmitPolicy.ts': 'TS twin of bp_target_submit_benchmark (fix-249 display, the lag).',
-  'src/lib/phaseDurations.ts': 'TS twin of bp_phase_durations (fix-253 display); fix-586.',
-  'src/hooks/usePhaseDurationGrid.ts': 'fix-253 display RPC hook; fix-586.',
+  'src/lib/phaseDurations.ts': 'TS twin of bp_phase_durations (fix-253 display); client-rewire ticket.',
+  'src/hooks/usePhaseDurationGrid.ts': 'fix-253 display RPC hook; client-rewire ticket.',
   'src/hooks/useTargetSubmitBenchmark.ts': 'fix-249 display RPC hook for the lag benchmark.',
   // — consumers of computeLearnedSchedule: each is a duration lookup that does
-  //   not read bp_duration_stats yet. fix-586 repoints them. —
-  'src/components/DrawScheduleGrid.tsx': 'computeLearnedSchedule consumer; fix-586.',
-  'src/components/ProjectDetail/ScheduleEstimator.tsx': 'computeLearnedSchedule consumer; fix-586.',
-  'src/components/ProjectDetail/ScheduleHealthTable.tsx': 'computeLearnedSchedule consumer; fix-586.',
-  'src/hooks/useProjectedApprovalFor.ts': 'computeLearnedSchedule consumer; fix-586.',
+  //   not read bp_duration_stats yet. the client-rewire ticket repoints them. —
+  'src/components/DrawScheduleGrid.tsx': 'computeLearnedSchedule consumer; client-rewire ticket.',
+  'src/components/ProjectDetail/ScheduleEstimator.tsx': 'computeLearnedSchedule consumer; client-rewire ticket.',
+  'src/components/ProjectDetail/ScheduleHealthTable.tsx': 'computeLearnedSchedule consumer; client-rewire ticket.',
+  'src/hooks/useProjectedApprovalFor.ts': 'computeLearnedSchedule consumer; client-rewire ticket.',
   // — measurement reports: they describe finished cycles, they do not forecast —
   'src/lib/metricDrillIn.ts': 'report drill-in medians over finished cycles; not a forecast.',
   'src/lib/trendsDrillIn.ts': 'trends drill-in medians over finished cycles; not a forecast.',

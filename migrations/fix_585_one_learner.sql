@@ -23,7 +23,7 @@
 --   bp_learn_days(...)                         = explain(...).days. Signature
 --                                              kept, + p_cycle DEFAULT NULL.
 --   bp_learned_durations()                     read-only RPC, same rows, for the
---                                              client (fix-586 rewires the UI;
+--                                              client (the client-rewire ticket rewires the UI;
 --                                              scheduleBenchmarks.ts untouched).
 --
 -- The ladder — BOBBY'S RULING 2026-09-29, which OVERRIDES the brief's §3:
