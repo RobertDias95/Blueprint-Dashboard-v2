@@ -90,6 +90,131 @@ export const CONSULTANT_DATE_LABEL: Record<ConsultantDateField, string> = {
  */
 export const LEAD_BUSINESS_DAYS = 3;
 
+// ════════════════════════════════════════════════════════════════════════
+// ★★★ fix-560 (P-264) — A SKIPPED RUNG STOPS WRITING A ZERO-DAY TURNAROUND
+// ════════════════════════════════════════════════════════════════════════
+//
+// ★★★ THE STAMPING WAS NEVER BROKEN, WHICH IS THE WHOLE FINDING. Measured on
+//     prod 2026-09-29: 28 completed rounds have `recd = sent`, and **10 have a
+//     real interval — min 5, median 14, max 37 days**. The ladder produces real
+//     numbers when it is walked. The 28 are rounds that went straight
+//     `Scheduled` → `Received`: at that moment `sent` is still null, so both
+//     slots stamped today. **Same-day is the arithmetic of skipping `Pending`.**
+//
+// ⚠️ Cowork first called this a capture bug and ranked it first on invented
+//    urgency. Reading the function corrected it.
+//
+// ★★ SO §A CHANGES ONE THING: arriving at `Received` no longer stamps `sent`.
+//    A 0-day turnaround is worse than no turnaround — **a zero averages into
+//    every future number and a null does not**, and 28 of them would drag a
+//    median of 14 days to near 3. The `Pending` path is untouched.
+
+/**
+ * ★★★ THE STAMPING LADDER, AS A PURE FUNCTION — THE TWIN OF
+ *     `bp_set_consultant_status`.
+ *
+ * The RPC owns every one of these dates; nobody types `sent` or `recd`. This
+ * mirror exists because **CI has no database** (the fix-153 pattern this repo
+ * uses), so the ladder's arithmetic is asserted here and the real function is
+ * proved by a documented rolled-back prod probe. The two must stay in lockstep,
+ * the same way `isPermitInCorrections` ⇄ `bp_permit_in_corrections` do.
+ *
+ * ★★ `sent` IS STAMPED AT `Pending` AND NOWHERE ELSE (fix-560). `coalesce`
+ *    stays on that branch for fix-474's reason: re-entering `Pending` after a
+ *    correction must not overwrite the date it really went out.
+ *
+ * ★ `recd` IS UNTOUCHED BY fix-560. A round that reached `Received` really was
+ *   received today, whatever route it took — the skip costs us the SEND date,
+ *   not the receipt.
+ */
+export function stampConsultantDates(
+  current: Pick<ConsultantRound, 'sent' | 'recd'>,
+  next: ConsultantStatus,
+  today: string,
+): { sent: string | null; recd: string | null } {
+  const sent =
+    next === 'Scheduled'
+      ? null
+      : next === 'Pending'
+        ? (current.sent ?? today)
+        : // ★★★ `Received`: NO coalesce. This single absence is the ticket.
+          current.sent;
+  const recd =
+    next === 'Received' ? (current.recd ?? today) : null;
+  return { sent, recd };
+}
+
+// ---------------------------------------------------------------------------
+// §B — THE CUTOFF
+// ---------------------------------------------------------------------------
+
+/**
+ * ★★★ THE DAY CONSULTANT DATES BECAME TRUSTWORTHY — AND IT IS NOT THE DAY
+ *     BOBBY RULED.
+ *
+ * He ruled on 2026-09-15, but the ruling did not change the function; fix-560's
+ * migration does. **Six of the 28 zeroes were stamped ON OR AFTER 2026-09-15**,
+ * measured — so a cutoff at the ruling date would let exactly those six through
+ * into the first average anybody computes.
+ *
+ * ⚠️ THIS MUST BE >= THE DAY THE MIGRATION IS APPLIED. It is set to the day
+ *    fix-560 shipped. The migration's §4 carries a one-query check that names any
+ *    zero-day round written in the gap; if it returns rows, raise this constant
+ *    to the apply date. The rows themselves stay either way — §B is *"stop
+ *    counting them"*, never *"erase them"*.
+ */
+export const CONSULTANT_DURATION_CUTOFF = '2026-09-29';
+
+/**
+ * How long did this round take, in days — or `null` when the question cannot
+ * honestly be answered.
+ *
+ * ★★★ FOUR WAYS TO GET `null`, AND EACH IS A DIFFERENT KIND OF SILENCE:
+ *
+ *   1. no `sent`   — either the 11 backfilled rows that never went through the
+ *                    RPC, or (after fix-560) a round that skipped `Pending`.
+ *                    **This is the case the whole ticket creates on purpose.**
+ *   2. no `recd`   — the 15 rounds in flight right now. Not finished, not a
+ *                    duration, and it would be wrong to call it zero.
+ *   3. pre-cutoff  — §B. The dates are kept and shown; they are not COUNTED.
+ *   4. recd < sent — a correction typed backwards. A negative turnaround is not
+ *                    a fast one.
+ *
+ * ★★ WHY PRE-CUTOFF EXCLUDES THE 10 GOOD INTERVALS TOO, and this is the one
+ *    judgement worth stating: those ten are genuine (`recd > sent` cannot happen
+ *    by skipping). Keeping them would be more data. But a pre-cutoff round with
+ *    `recd = sent` is **indistinguishable** from a genuine same-day turnaround,
+ *    and §B's rule is per-ROUND, not per-shape — *"pre-cutoff rounds … are never
+ *    counted or rendered as a duration."* Splitting the rule by shape would mean
+ *    silently discarding real same-day work AFTER the cutoff, where it is
+ *    trustworthy. Reported in the PR rather than decided unilaterally.
+ */
+export function consultantRoundDurationDays(
+  round: Pick<ConsultantRound, 'sent' | 'recd'>,
+  cutoff: string = CONSULTANT_DURATION_CUTOFF,
+): number | null {
+  const { sent, recd } = round;
+  if (!sent || !recd) return null;
+  // ★ ISO dates compare correctly as strings; no Date parsing, which is the
+  //   trap fix-433 recorded (a UTC "today" is tomorrow after 17:00 Pacific).
+  if (sent < cutoff) return null;
+  const days = Math.round(
+    (Date.parse(`${recd}T00:00:00Z`) - Date.parse(`${sent}T00:00:00Z`)) / 86_400_000,
+  );
+  if (!Number.isFinite(days) || days < 0) return null;
+  return days;
+}
+
+/** ★ Is this round's duration safe to put in an average? The predicate P-265's
+ *  benchmark and P-214's panel should both read, rather than each inventing one.
+ *  Both are deliberately NOT built by fix-560. */
+export function consultantDurationIsCountable(
+  round: Pick<ConsultantRound, 'sent' | 'recd'>,
+  cutoff: string = CONSULTANT_DURATION_CUTOFF,
+): boolean {
+  return consultantRoundDurationDays(round, cutoff) !== null;
+}
+
 export interface ConsultantRound {
   id: string;
   consultant_id: string;
