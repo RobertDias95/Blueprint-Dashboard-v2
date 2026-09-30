@@ -208,8 +208,16 @@ describe('fix-512 §B — the derivation rule', () => {
       expect(mayDeriveLotSize(w, d)).toBe(complete);
       // The shape is only ASSERTED (a "varies" side) when the dimensions are
       // incomplete AND somebody typed an area to assert it against.
+      //
+      // ⚠️ fix-555 §B.4 DROPPED THE SECOND CLAUSE. This read
+      //    `!complete && (w !== null || d !== null)` — the `||` was fix-488's
+      //    requirement that the OTHER dimension be known, which made a size-only
+      //    lot say nothing. Bobby ruled that case reads `varies × varies`, so
+      //    the condition is now simply "incomplete, with an area to assert it
+      //    against". P-192's predicate and its negation still cannot drift;
+      //    only what counts as incomplete-and-asserted changed.
       const v = lotSizeView(w, d, 7_200);
-      expect(v.widthVaries || v.depthVaries).toBe(!complete && (w !== null || d !== null));
+      expect(v.widthVaries || v.depthVaries).toBe(!complete);
     }
   });
 

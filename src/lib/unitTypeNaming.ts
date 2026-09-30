@@ -152,11 +152,49 @@ export function productTypeRegistry(
     .filter((v) => v !== '');
 }
 
-/** ★ The choices a unit-label picker offers: the registry, plus the stored
- *  value when it is off-list so the control can display what it holds
- *  (fix-415's append rule). `OTHER_UNIT_LABEL` is the deliberate way to add a
- *  new one — §C1's *"an off-list label is a deliberate act"*. */
-export const OTHER_UNIT_LABEL = '__other__';
+// ════════════════════════════════════════════════════════════════════════
+// ★★★ fix-601 §B (P-173) — `OTHER_UNIT_LABEL` IS GONE. NO FREE TEXT.
+// ════════════════════════════════════════════════════════════════════════
+//
+// Bobby, 2026-09-08: *"our drop downs need to match our settings and no free
+// form text."*
+//
+// fix-449 §C1 kept an `Other…` escape on the reasoning that *"an off-list
+// label is a DELIBERATE act"*, so the picker asked for the word through a
+// `window.prompt` rather than letting one be typed by accident. That was the
+// careful version of the thing Bobby has now ruled out entirely: **adding a
+// unit type is a Settings action, full stop.**
+//
+// ★★ THE ESCAPE WAS ALREADY UNUSED. Measured on prod 2026-09-30: **0 of 566**
+//    stored unit labels are off the registry (Detached · Attached · ADU ·
+//    DADU · Remodel), across 239 projects. The 22 off-list labels fix-449
+//    wrote about are gone — cleaned up by the tickets between. So removing the
+//    control takes nothing away from anybody today.
+//
+// ★★★ BUT THE APPEND RULE STAYS, AND IT IS NOW HONEST. fix-415 put an
+//     off-list STORED value into the list so the control could show what it
+//     holds. That is still right — Settings can retire a value tomorrow and
+//     239 projects would otherwise render a blank or, worse, be silently
+//     re-labelled. What changes is that such an option is rendered
+//     **disabled** and marked, so it displays without being offered: a value
+//     that is no longer a type is a fact about THAT row, never a choice for
+//     another one.
+
+/** ★ The suffix on an option that is stored but no longer in the registry.
+ *  One place, because two surfaces render it and a third would otherwise
+ *  invent its own wording. */
+export const UNIT_LABEL_RETIRED_MARKER = ' (not a current type)';
+
+/** ★ Is this option a stored leftover rather than a current choice? The
+ *  predicate both pickers read, so "disabled" and "marked" cannot drift
+ *  apart from each other or from `unitLabelOptions`' append rule. */
+export function unitLabelIsRetired(
+  option: string,
+  productTypeOptions: readonly string[] | null | undefined,
+): boolean {
+  if (!option.trim()) return false;
+  return !(productTypeOptions ?? []).includes(option);
+}
 
 export function unitLabelOptions(
   productTypeOptions: readonly string[] | null | undefined,

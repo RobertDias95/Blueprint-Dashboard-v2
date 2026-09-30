@@ -485,12 +485,16 @@ describe('fix-486: every reader offers the five, because none of them own a list
       />,
     );
     const sel = screen.getByTestId('unit-types-label-0') as HTMLSelectElement;
-    // ★ `''` is "Pick type…" and `__other__` is fix-449's deliberate off-list
-    //   escape. Everything BETWEEN them is the vocabulary, and it is the five.
+    // ★ `''` is "Pick type…". Everything after it is the vocabulary.
+    //
+    // ⚠️ fix-601 §B (P-173) REMOVED fix-449's off-list escape that used to sit
+    //    at the end of this list. Bobby: *"our drop downs need to match our
+    //    settings and no free form text."* **The list is now exactly the
+    //    registry**, which is what this test was always asserting — it simply
+    //    had one deliberate exception to allow for, and no longer does.
     expect(Array.from(sel.options).map((o) => o.value)).toEqual([
       '',
       ...FIVE,
-      '__other__',
     ]);
   });
 });

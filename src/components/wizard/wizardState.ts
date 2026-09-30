@@ -141,14 +141,38 @@ export interface WizardState {
   num_lots: string;
   /** fix-122: corner-lot flag. '' = unset, 'yes' / 'no' = user pick. */
   is_corner_lot: string;
-  /** ★ fix-410: regular-shape flag. 'yes' / 'no'.
+  /**
+   * ════════════════════════════════════════════════════════════════════
+   * ★★★ fix-555 §0b — `is_regular_shape` HAS LEFT THIS STATE, AND WHY
+   * ════════════════════════════════════════════════════════════════════
    *
-   *  ★★ UNLIKE ITS SIBLING IT HAS NO '' STATE IN THE FORM. Bobby: *"default
-   *  should be yes, the other option is no."* Corner Lot is tri-state because
-   *  fix-122 refused to guess for historical projects; this one is answered by
-   *  the form on every new project, so the wire carries a real boolean and the
-   *  NULL state exists only for rows nobody has been through the wizard for. */
-  is_regular_shape: string;
+   * Bobby's model, 2026-09-14: **`varies` IS the irregular indicator. No
+   * checkbox, no "is this irregular?" question.** fix-410's select, its default
+   * and its redesign inheritance all go with the question.
+   *
+   * ⚠️⚠️ THE BRIEF CALLS IT A DEAD FLAG. THAT WAS TRUE WHEN IT WAS WRITTEN AND
+   *       IS NOT NOW. It measured *"`is_regular_shape = false`: **0**"*.
+   *       Measured 2026-09-29: **4 projects hold `false`**, every one created
+   *       2026-09-16 → 09-23 — after the brief. Somebody has been choosing "No".
+   *
+   * ★★★ SO THE AUDIT WAS READ BEFORE ANYTHING WAS REMOVED, and it is decisive:
+   *     of **4,259 audited `projects` changes since 2026-05-14, exactly ONE
+   *     mentions `is_regular_shape`** — and it is a wizard INSERT defaulting
+   *     `null → true`. The field has never once been EDITED after creation,
+   *     because no control anywhere can edit it.
+   *
+   * ★★ THAT IS THE ARGUMENT FOR REMOVING IT, NOT AGAINST. The four "No"s are
+   *    somebody stating a lot is irregular at the one moment the product asks —
+   *    and then having nowhere to see it and no way to change it. **Three of the
+   *    four also carry BOTH dimensions**, so under the new model they are a typed
+   *    size that disagrees with the rectangle, which the Site card already says
+   *    out loud. The fourth, `5616 E Argyle DR`, is a size with NO dimensions —
+   *    §B.4's case, which now reads `varies × varies`. **The new model says more
+   *    about all four than the flag ever did.**
+   *
+   * ⛔ THE COLUMN IS NOT DROPPED and no read is removed. §0b: read it out of the
+   *    write path first, drop it later once nothing reads it (fix-537b's order).
+   */
   /** fix-122: closing/escrow date. ISO YYYY-MM-DD or ''. */
   closing_date: string;
   zone: string;
@@ -258,9 +282,8 @@ export function makeEmptyWizardState(): WizardState {
     //   is precisely the state §C found on three redesigns.
     num_lots: DEFAULT_NUM_LOTS,
     is_corner_lot: '',
-    // ★ fix-410: the form's default, and the ONLY place it is written down.
-    //   The column has no DDL default — see the migration for why.
-    is_regular_shape: 'yes',
+    // ★ fix-555 §0b: no default, because there is no field. See the block on
+    //   `WizardState` above.
     closing_date: '',
     zone: '',
     lot_width: '',
@@ -393,11 +416,11 @@ export function makeRedesignWizardState(
         : parentProject.is_corner_lot === false
           ? 'no'
           : '',
-    // ★ fix-410: inherited like every other site fact. A parent with NO
-    //   recorded answer falls back to the FORM DEFAULT rather than to '' —
-    //   the redesign is a new project, and Bobby's rule for a new project is
-    //   Yes. (There is no '' state in this field's form control anyway.)
-    is_regular_shape: parentProject.is_regular_shape === false ? 'no' : 'yes',
+    // ★ fix-555 §0b: a redesign no longer inherits `is_regular_shape` — there
+    //   is nothing to inherit it INTO. It still inherits the three lot fields
+    //   below, which is where the shape now lives: the same parcel keeps the
+    //   same width, depth and size, so an irregular parent stays irregular on
+    //   every redesign of it without a flag to carry.
     closing_date: parentProject.closing_date ?? '',
     zone: parentProject.zone ?? '',
     lot_width:
