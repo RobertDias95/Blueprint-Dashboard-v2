@@ -295,6 +295,28 @@ describe('fix-474 §4 — what the database guarantees', () => {
     //    must NOT overwrite the date it really went.
     expect(MIGRATION).toContain('coalesce(r.sent, v_today)');
     expect(MIGRATION).toContain('coalesce(r.recd, v_today)');
+
+    // ⚠️⚠️ SUPERSEDED IN PART BY fix-560 (P-264), 2026-09-29 — AND NOT MISTAKEN.
+    //
+    //    The combined `in ('Pending', 'Received')` branch above is what this
+    //    file SHIPPED, and it is asserted here because **an applied migration is
+    //    a record of what was done**. Editing it to match today's behaviour
+    //    would destroy the history it exists to hold, so it is left
+    //    byte-for-byte alone and superseded by a new file.
+    //
+    // ★★★ WHAT CHANGED, AND WHY IT WAS RIGHT HERE AND IS WRONG NOW: stamping
+    //     `sent` on arrival at `Received` is correct when the ladder is walked
+    //     — `coalesce` leaves the real send date alone. It is wrong when the
+    //     rung is SKIPPED: `Scheduled` → `Received` in one step finds `sent`
+    //     null, stamps today into both slots, and writes a **zero-day
+    //     turnaround**. Measured on prod 2026-09-29: 28 such rounds, against 10
+    //     with a real interval (median 14 days). A zero averages into every
+    //     future number and a null does not.
+    //
+    //    fix-560 therefore drops the coalesce on the `Received` branch ONLY.
+    //    The `Pending` stamping asserted above is untouched and must stay — see
+    //    `migrations/fix_560_skipped_rung_no_zero.sql` and
+    //    `SkippedRungNoZeroFix560`, which asserts both halves.
     // ★ Pacific, not UTC — fix-433's rule: a UTC "today" goes silent on
     //   exactly the day it must speak (20:11 PT is already tomorrow in UTC).
     expect(MIGRATION).toContain("now() at time zone 'America/Los_Angeles'");
