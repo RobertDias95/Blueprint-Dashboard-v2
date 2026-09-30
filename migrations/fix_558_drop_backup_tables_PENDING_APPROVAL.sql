@@ -1,0 +1,254 @@
+-- fix-558 — FIFTEEN BACKUP TABLES NOBODY READS  (P-036)
+--
+-- ⚠️⚠️ STAGED AND FULLY COMMENTED OUT (fix-450 shelf rules). Claude applies it
+-- from Cowork. Nothing below executes as checked in: uncomment the block
+-- between BEGIN APPLY / END APPLY and run it as ONE transaction.
+--
+-- ★★★ DESTRUCTIVE — 13 `DROP TABLE`. Read "WHAT IS KEPT" before approving.
+--
+-- MEASURED ON PROD 2026-09-29 (read-only; the brief was written 2026-09-14/15
+-- and every count below is re-derived, not copied from it).
+--
+-- ============================================================================
+-- §0 — THE SCAN COUNTS ARE VOID, SO THIS DROP DOES NOT REST ON THEM
+-- ============================================================================
+-- The brief's evidence was "14 never scanned once" from pg_stat_user_tables,
+-- with the warning that the counters reset. They did:
+--
+--   pg_stat_get_db_stat_reset_time(<this db>) = NULL   (never manually reset)
+--   pg_postmaster_start_time()                = 2026-09-29 15:36:07 UTC
+--   pg_stat_statements_info.stats_reset       = 2026-09-29 15:36:06 UTC
+--   pg_stat_user_tables.n_live_tup on `permits` = 2   (it holds hundreds)
+--
+-- The server restarted at 15:36 today and the statistics did NOT survive it:
+-- n_live_tup reads 0 on tables with 182 rows. Every scan counter, and every
+-- pg_stat_statements entry, covers ~8 hours. ★ "Never scanned" is therefore
+-- UNPROVEN for the weeks before — and this migration's own measurement then
+-- scanned every candidate once (a `count(*)`), so the counters are now
+-- contaminated as well. A zero on a counter reset this morning proves nothing.
+--
+-- ★★ THE EVIDENCE USED INSTEAD — all of it survives a restart:
+--   1. RLS is ENABLED with ZERO policies on every one of the 17 `public._*`
+--      tables (verified 2026-09-29; fix-456 found the same on 08-30). anon and
+--      authenticated cannot read a row. Only the service role / postgres can.
+--   2. No function body, view, materialized view, policy, trigger, foreign
+--      key or non-table pg_depend entry references ANY of the 17 names.
+--   3. No code in Blueprint-Dashboard-v2 (src/, supabase/) or
+--      Blueprint-Dashboard- (permit_scraper/, file_indexer/) reads any of the
+--      13 dropped here. Their only mentions are the migrations that created
+--      them, fix-273's REVOKE TRUNCATE sweep, and fix-456's shelf file.
+--   4. pg_stat_statements (since 15:36 today) holds exactly one statement
+--      naming any of them: this ticket's own row count.
+--   So the only possible reader is a person with the service key typing SQL,
+--   and the three that people DO consult are documented as such and kept.
+--
+-- ============================================================================
+-- WHAT THE BRIEF SAID, AND WHAT IS TRUE NOW
+-- ============================================================================
+-- Brief (09-14): 15 tables, 14 never scanned, keep the one that is read.
+-- Now (09-29): 17 `public._*` tables. fix-456 groups A-C (13 tables) were
+-- applied on 2026-08-30 (schema_migrations `fix_456_drop_backup_tables_groups_abc`).
+-- The 15 the brief counted are fix-456's KEEP pair + its 11 unattributed
+-- Group D tables + fix-486's and fix-537's backups. Two more were created
+-- AFTER the ruling: fix-562's unit-matrix snapshot (09-15) and fix-566's
+-- redesign rename record (09-16).
+--
+-- ★★★ So this drops 13, not 14: the ruling's 14 included one of fix-456's two
+-- parking records, and fix-456 gave BOTH of them no DROP on purpose.
+--
+-- ============================================================================
+-- WHAT IS KEPT — 4 tables, and why each one stays
+-- ============================================================================
+--   _parking_site_archive_2026_08_25   182 rows  64 kB  ★★★ the only record of
+--       project-level site parking (fix-402). Its table COMMENT says the team
+--       checks the per-unit book against it by hand — the one that "is read".
+--       Named in src/lib/database.types.ts and ProjectDataEditors.tsx.
+--   _fix22_permits_dropped_cols_snapshot  173 rows  40 kB  ★★ the second,
+--       older parking record (171 parking_stalls from when they lived on
+--       permits) — fix-456 kept it deliberately; its values exist nowhere else.
+--   _fix562_unit_matrix_snapshot       270 rows 136 kB  ★★★ its COMMENT says
+--       DO NOT DROP: the only record of the per-unit parking / roof-deck /
+--       stories answers fix-562 wiped. Created 09-15, after the ruling.
+--   _fix566_redesign_address_rename     20 rows  16 kB  the pre-fix-566
+--       `[Redesign N]` addresses. Created 09-16, after the ruling — not covered
+--       by it, so not dropped here.
+--
+-- ★ AND ONE THE `_` PATTERN MISSES: `notes_deleted_fix559` (40 kB, RLS on, 0
+--   policies) — fix-559's copy of the 107 deleted notes, the only record of
+--   them. No leading underscore, so neither fix-456's pattern nor this file's
+--   `public._*` count sees it; fix-570's test forbids dropping it. Kept, and
+--   named here so the next sweep does not have to find it the way this one did.
+--
+-- ============================================================================
+-- WHAT IS DROPPED — 13 tables, 306 rows, 336 kB
+-- ============================================================================
+-- The record outlives the data (the fix-537 pattern): name, exact rows, size,
+-- columns, and md5 of the rows sorted by their text form —
+--   md5(string_agg(r::text, chr(10) order by r::text))
+-- so anyone holding a copy can prove it is THIS content. The row data itself is
+-- NOT pasted here: 102 kB of it, including a deleted chat thread's messages,
+-- does not belong in git history.
+--
+--  table                                    rows   bytes  md5                               columns
+--  _dd3056_fix_backup_20260717                 2   16384  b2f5f5ba148617c529c4b4e13a8245b3  kind, ref, old_val
+--  _deleted_test_4017_backup_20260820          2   16384  ed2b13b9021a1e32763a6f9d1e825e5e  src, row jsonb
+--  _deleted_thread_1301_backup_20260819        7   16384  f1395c319d53510a2bf915ac6eb5d495  src, row jsonb
+--  _fix486_types_backup_20260903             211  139264  cab93f7cf8fc79efe2f7b7130c3bb4bd  id, tenant_id, address, product_types text[], unit_types jsonb, backed_up_at
+--  _fix537_color_override_snapshot            14   16384  8323b3ad625d5174d3cb4fc013e9b6e7  project_id, color_override, status_override, notes, manually_placed, status, updated_at, snapshot_at
+--  _gd_108851_cycle_backup_20260819           19   24576  a8bc7f4711c3c2956e40ae4b0bb0a2d6  src, row jsonb
+--  _intake_date_fix_backup_20260728            1   16384  e2cbbc20ee5c942a22ad496a7d4d1f49  intake_records shape + backed_up_at
+--  _mbp_3626_recorr_backup_20260717            8   16384  df337c711c37ff7c06c0d2f9d0596cfa  kind, ref, status, extra, backed_up
+--  _mbp_3626_recorr_backup_20260717b           6   16384  ad67e5d38f8e9fcf83ff219ee03f4181  num, status, corr_rounds, cycle2_corr, backed_up
+--  _mbp_premature_corr_backup_20260713        24   16384  94499992f8b6fb9cbbac952579013bb1  permit_id, num, status, corr_rounds, cycle_index, corr_issued, backed_up_at
+--  _permit_type_fix_backup_20260728            2   16384  38f323d18afaf6d46d530be77ccf98c0  id, num, type, status, backed_up_at
+--  _seattle_cycle_fix_backup_20260728          2   16384  5bb6eff25829009a697018500e0da81c  permit_cycles shape + permit_num, backed_up_at
+--  _seattle_reviewer_orphan_backup_20260728    8   16384  8cb22ebc1851bb7621010b99536e37a7  permit_cycle_reviewers shape + permit_num, backed_up_at
+--
+-- Notes on two of them:
+--   * _fix537_color_override_snapshot: all 14 `color_override` values are ''.
+--     Not one colour was ever set (fix-537b's own index row says the same); the
+--     column it backed up was dropped on 2026-09-13.
+--   * _fix486_types_backup_20260903: pre-vocabulary product/unit types from
+--     2026-09-03, since superseded twice (fix-486's registry, then fix-562's
+--     wipe — whose own snapshot is KEPT above).
+--   The other 11 are fix-456's Group D: unattributed one-off repair backups
+--   from 07-13 → 08-20. This file carries their drops; fix-456's commented
+--   Group D lines are superseded by it and must not be applied as well.
+--
+-- ============================================================================
+-- AFTER APPLYING — the acceptance test, run by Cowork
+-- ============================================================================
+-- The block asserts all of it and rolls back on any failure:
+--   * exactly 13 gone, the 4 keepers present, 4 `public._*` tables left;
+--   * no function body or view definition names a dropped table.
+-- Then run scripts/sql/on_conflict_census.sql as usual (42P10 / 42703 = 0).
+--
+-- ============================== BEGIN APPLY ===============================
+-- begin;
+--
+-- -- 1 — PRE: every table is what this file says it is. A count that moved
+-- --     means somebody wrote to a "dead" table: stop and look.
+-- do $$
+-- declare
+--   expected constant jsonb := '{
+--     "_dd3056_fix_backup_20260717": 2,
+--     "_deleted_test_4017_backup_20260820": 2,
+--     "_deleted_thread_1301_backup_20260819": 7,
+--     "_fix486_types_backup_20260903": 211,
+--     "_fix537_color_override_snapshot": 14,
+--     "_gd_108851_cycle_backup_20260819": 19,
+--     "_intake_date_fix_backup_20260728": 1,
+--     "_mbp_3626_recorr_backup_20260717": 8,
+--     "_mbp_3626_recorr_backup_20260717b": 6,
+--     "_mbp_premature_corr_backup_20260713": 24,
+--     "_permit_type_fix_backup_20260728": 2,
+--     "_seattle_cycle_fix_backup_20260728": 2,
+--     "_seattle_reviewer_orphan_backup_20260728": 8
+--   }';
+--   t text;
+--   n bigint;
+--   refs text;
+-- begin
+--   for t in select jsonb_object_keys(expected) loop
+--     if to_regclass('public.' || t) is null then
+--       raise exception 'fix-558: % is already gone — re-measure before dropping', t;
+--     end if;
+--     execute format('select count(*) from public.%I', t) into n;
+--     if n <> (expected ->> t)::bigint then
+--       raise exception 'fix-558: % holds % rows, this file recorded % — stop',
+--         t, n, expected ->> t;
+--     end if;
+--   end loop;
+--
+--   select string_agg(distinct p.proname || ' -> ' || k.key, ', ') into refs
+--     from pg_proc p
+--     join pg_namespace ns on ns.oid = p.pronamespace
+--     cross join jsonb_object_keys(expected) as k(key)
+--    where ns.nspname not in ('pg_catalog', 'information_schema')
+--      and p.prokind in ('f', 'p')
+--      and p.prosrc ilike '%' || k.key || '%';
+--   if refs is not null then
+--     raise exception 'fix-558: functions still name a table to drop: %', refs;
+--   end if;
+--
+--   select string_agg(distinct c.relname || ' -> ' || k.key, ', ') into refs
+--     from pg_class c
+--     join pg_namespace ns on ns.oid = c.relnamespace
+--     cross join jsonb_object_keys(expected) as k(key)
+--    where c.relkind in ('v', 'm')
+--      and ns.nspname not in ('pg_catalog', 'information_schema')
+--      and pg_get_viewdef(c.oid) ilike '%' || k.key || '%';
+--   if refs is not null then
+--     raise exception 'fix-558: views still name a table to drop: %', refs;
+--   end if;
+-- end $$;
+--
+-- -- 2 — THE DROPS. No IF EXISTS: step 1 proved each one exists, and a table
+-- --     that vanished in between should fail loudly, not be skipped.
+-- drop table public._dd3056_fix_backup_20260717;
+-- drop table public._deleted_test_4017_backup_20260820;
+-- drop table public._deleted_thread_1301_backup_20260819;
+-- drop table public._fix486_types_backup_20260903;
+-- drop table public._fix537_color_override_snapshot;
+-- drop table public._gd_108851_cycle_backup_20260819;
+-- drop table public._intake_date_fix_backup_20260728;
+-- drop table public._mbp_3626_recorr_backup_20260717;
+-- drop table public._mbp_3626_recorr_backup_20260717b;
+-- drop table public._mbp_premature_corr_backup_20260713;
+-- drop table public._permit_type_fix_backup_20260728;
+-- drop table public._seattle_cycle_fix_backup_20260728;
+-- drop table public._seattle_reviewer_orphan_backup_20260728;
+--
+-- -- 3 — POST: exactly 13 gone, the keepers intact, nothing names the dead.
+-- do $$
+-- declare
+--   gone constant text[] := array[
+--     '_dd3056_fix_backup_20260717', '_deleted_test_4017_backup_20260820',
+--     '_deleted_thread_1301_backup_20260819', '_fix486_types_backup_20260903',
+--     '_fix537_color_override_snapshot', '_gd_108851_cycle_backup_20260819',
+--     '_intake_date_fix_backup_20260728', '_mbp_3626_recorr_backup_20260717',
+--     '_mbp_3626_recorr_backup_20260717b', '_mbp_premature_corr_backup_20260713',
+--     '_permit_type_fix_backup_20260728', '_seattle_cycle_fix_backup_20260728',
+--     '_seattle_reviewer_orphan_backup_20260728'];
+--   keep constant text[] := array[
+--     '_parking_site_archive_2026_08_25', '_fix22_permits_dropped_cols_snapshot',
+--     '_fix562_unit_matrix_snapshot', '_fix566_redesign_address_rename'];
+--   t text;
+--   n int;
+-- begin
+--   select count(*) into n from unnest(gone) g where to_regclass('public.' || g) is null;
+--   if n <> 13 then
+--     raise exception 'fix-558: expected 13 tables gone, found %', n;
+--   end if;
+--   foreach t in array keep loop
+--     if to_regclass('public.' || t) is null then
+--       raise exception 'fix-558: KEEPER % is missing — rolling back', t;
+--     end if;
+--   end loop;
+--   select count(*) into n
+--     from pg_class c join pg_namespace ns on ns.oid = c.relnamespace
+--    where ns.nspname = 'public' and c.relkind = 'r' and c.relname like '\_%';
+--   if n <> 4 then
+--     raise exception 'fix-558: expected 4 public._* tables left, found %', n;
+--   end if;
+--   select count(*) into n
+--     from pg_proc p join pg_namespace ns on ns.oid = p.pronamespace,
+--          unnest(gone) g
+--    where ns.nspname not in ('pg_catalog', 'information_schema')
+--      and p.prokind in ('f', 'p') and p.prosrc ilike '%' || g || '%';
+--   if n <> 0 then
+--     raise exception 'fix-558: % function(s) name a dropped table', n;
+--   end if;
+--   select count(*) into n
+--     from pg_class c join pg_namespace ns on ns.oid = c.relnamespace,
+--          unnest(gone) g
+--    where c.relkind in ('v', 'm')
+--      and ns.nspname not in ('pg_catalog', 'information_schema')
+--      and pg_get_viewdef(c.oid) ilike '%' || g || '%';
+--   if n <> 0 then
+--     raise exception 'fix-558: % view(s) name a dropped table', n;
+--   end if;
+-- end $$;
+--
+-- commit;
+-- =============================== END APPLY ================================

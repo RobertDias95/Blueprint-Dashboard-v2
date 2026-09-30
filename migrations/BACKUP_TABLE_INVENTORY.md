@@ -130,3 +130,31 @@ a `COMMENT ON TABLE` naming its fix, its date and its purpose. It took one line
 in the migration that created it, and it is the reason that table needed no
 detective work here. **Every future backup table should carry one** — otherwise
 the next person writes this page again in six weeks, against thirty tables.
+
+---
+
+## fix-558 — re-measured 2026-09-29
+
+**Groups A, B and C are gone** (fix-456, applied 2026-08-30 as
+`fix_456_drop_backup_tables_groups_abc`). 17 `public._*` tables remain, and
+`fix_558_drop_backup_tables_PENDING_APPROVAL.sql` stages the drop of 13 of them:
+all 11 of Group D, plus two backups written after this page —
+`_fix486_types_backup_20260903` (211 rows) and
+`_fix537_color_override_snapshot` (14 rows, every `color_override` value `''`).
+
+**Kept (4):** `_parking_site_archive_2026_08_25` and
+`_fix22_permits_dropped_cols_snapshot` (unchanged from KEEP above),
+`_fix562_unit_matrix_snapshot` (its own COMMENT says DO NOT DROP — the only
+record of the answers fix-562 wiped), and `_fix566_redesign_address_rename`
+(created after the drop was ruled).
+
+★★ **"Never scanned" is not evidence on this database today.** Prod restarted
+at 2026-09-29 15:36 UTC and its statistics did not survive: `n_live_tup` reads 0
+on tables holding 182 rows, and `pg_stat_statements` restarted with them. Any
+future sweep that leans on `pg_stat_user_tables` has to check
+`pg_postmaster_start_time()` and `n_live_tup` against `count(*)` first. fix-558
+used RLS + the object/code reference sweep instead.
+
+★ **One backup table does not start with `_`:** `notes_deleted_fix559` — fix-559's
+copy of the 107 deleted notes, and the only record of them. A `public._*` sweep
+never sees it. Kept by fix-558; fix-570's test forbids dropping it.
