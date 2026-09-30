@@ -219,21 +219,33 @@ describe('fix-205: per-row Stories', () => {
 // rewrite it. Only the WORD in the mark changed, and only for placeholders — a
 // label somebody deliberately typed still gets the off-list mark.
 describe('fix-209 → fix-449: the Label dropdown SHOWS an off-list value', () => {
-  it('★★★ the stored value is IN the options, beside "Other…"', () => {
+  it('★★★ the stored value is IN the options, and DISABLED', () => {
+    // ⚠️⚠️ SUPERSEDED BY fix-601 §B (P-173), 2026-09-30 — AND NOT MISTAKEN.
+    //
+    //    fix-449 §C1 kept a deliberate off-list escape on the reasoning that
+    //    *"an off-list label is a DELIBERATE act"*, so the picker ASKED for the
+    //    word rather than letting one be typed by accident. That was the
+    //    careful version of the thing Bobby has now ruled out outright:
+    //    *"our drop downs need to match our settings and no free form text."*
+    //    Adding a unit type is a Settings action, full stop.
+    //
+    // ★★★ fix-415's APPEND RULE SURVIVES, AND IS THE HALF THAT MATTERED. The
+    //     stored value is still IN the list — a control must be able to display
+    //     what it holds — but it is now DISABLED and marked, so it shows
+    //     without being offered, and is not offered to a sibling row at all.
     setup({
       product_types: ['Detached', 'Attached'],
       unit_types: NAMED_ROW, // legacy label "Type A"
     });
     const select = screen.getByTestId('pd-unit-label-select') as HTMLSelectElement;
     const opts = Array.from(select.options).map((o) => o.value);
-    // ★ fix-415's append rule: a control must be able to display what it holds.
-    expect(opts).toEqual([
-      '',
-      'Detached',
-      'Attached',
-      'Type A',
-      '__other__',
-    ]);
+    expect(opts).toEqual(['', 'Detached', 'Attached', 'Type A']);
+
+    // ★★★ …and the off-list one is the ONLY disabled option, marked so a
+    //     reader knows why it cannot be picked.
+    const disabled = Array.from(select.options).filter((o) => o.disabled);
+    expect(disabled.map((o) => o.value)).toEqual(['Type A']);
+    expect(disabled[0]!.textContent).toContain('not a current type');
   });
 
   it('★★★ …and it is SELECTED, not left on "Pick type…"', () => {
@@ -291,7 +303,10 @@ describe('fix-209 → fix-449: the Label dropdown SHOWS an off-list value', () =
     const select = screen.getByTestId('pd-unit-label-select') as HTMLSelectElement;
     expect(select.value).toBe('Type A');
     const opts = Array.from(select.options).map((o) => o.value);
-    expect(opts).toEqual(['', 'Detached', 'Type A', '__other__']);
+    // ⚠️ fix-601 §B: the off-list escape is gone; the stored value stays,
+    //    disabled. fix-212's rule — a lone product type must not displace a
+    //    stored label — is untouched and is what this test is really about.
+    expect(opts).toEqual(['', 'Detached', 'Type A']);
   });
 
   it('★★ fix-212\'s surviving half: a BLANK label still fills from a lone type', () => {

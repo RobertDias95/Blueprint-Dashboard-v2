@@ -36,7 +36,8 @@ import { useUpdateProject } from '../../hooks/useUpdateProject';
 import { useSavedFlash } from '../../hooks/useSavedFlash';
 import {
   nextUnitTypeLabel,
-  OTHER_UNIT_LABEL,
+  UNIT_LABEL_RETIRED_MARKER,
+  unitLabelIsRetired,
   parseUnitTypes,
   isOffListUnitLabel,
   productTypeRegistry,
@@ -1765,19 +1766,11 @@ function UnitConfigBlock({
               <select
                 value={selectValue}
                 disabled={disabled}
-                onChange={(e) => {
-                  const v = e.target.value;
-                  // ★★★ fix-449 §C1 SURVIVES THE RESTACK: an off-list label is a
-                  //     DELIBERATE act, so `Other…` asks for the word rather
-                  //     than letting one be typed into the picker by accident.
-                  if (v === OTHER_UNIT_LABEL) {
-                    const typed = window.prompt('Type label', row.label || '');
-                    if (typed === null) return;
-                    void commit('label', { label: typed.trim() });
-                    return;
-                  }
-                  void commit('label', { label: v });
-                }}
+                // ★★★ fix-601 §B: fix-449 §C1's `Other…` branch is GONE. It
+                //     opened a `window.prompt` and committed whatever came back,
+                //     which is the free text Bobby ruled out. Adding a unit type
+                //     is a Settings action now.
+                onChange={(e) => void commit('label', { label: e.target.value })}
                 // ★★ fix-422 §8's RULING SURVIVES THE WIDER FIELD. Its own
                 //    worst case — `SFR w/ Accessory Units`, 22 characters — is
                 //    still longer than any track this form gives Type, so a
@@ -1791,15 +1784,21 @@ function UnitConfigBlock({
                 data-testid="pd-unit-label-select"
               >
                 <option value="">Pick type…</option>
-                {/* ★★★ fix-449 §C1: the stored value is IN the list when it is
-                    off-list, so this control shows what it holds rather than
-                    blanking it or substituting the project's lone type. */}
-                {unitLabelOptions(productTypes, selectValue).map((t) => (
-                  <option key={t} value={t}>
-                    {t}
-                  </option>
-                ))}
-                <option value={OTHER_UNIT_LABEL}>Other…</option>
+                {/* ★★★ fix-415's APPEND RULE, MADE HONEST (fix-601 §B2). The
+                    stored value is still IN the list when it is off-list, so the
+                    control shows what it holds rather than blanking it or
+                    substituting the project's lone type — but it is DISABLED and
+                    MARKED, because a value Settings no longer offers is a fact
+                    about this row and not a choice for any other. 0 of 566 rows
+                    are in this state today; Settings can create one tomorrow. */}
+                {unitLabelOptions(productTypes, selectValue).map((t) => {
+                  const retired = unitLabelIsRetired(t, productTypes);
+                  return (
+                    <option key={t} value={t} disabled={retired}>
+                      {retired ? `${t}${UNIT_LABEL_RETIRED_MARKER}` : t}
+                    </option>
+                  );
+                })}
               </select>
               {needsType ? (
                 <span

@@ -10,7 +10,8 @@ import {
   CANONICAL_STORIES,
 } from '../../lib/unitVocabulary';
 import {
-  OTHER_UNIT_LABEL,
+  UNIT_LABEL_RETIRED_MARKER,
+  unitLabelIsRetired,
   nextUnitTypeLabel,
   unitLabelOptions,
 } from '../../lib/unitTypeNaming';
@@ -140,32 +141,47 @@ export default function UnitTypesEditor({
                     Bobby's rule: *"is the set of valid answers fixed? → list."*
                     This box is where the off-list labels came FROM — new rows
                     are seeded by `nextUnitTypeLabel`, which produces "Type A",
-                    "Type B", … and 13 of prod's 22 off-list labels are exactly
-                    those. It is a pick now, with "Other…" for the deliberate
-                    exception, and the seeded value stays visible and marked
-                    rather than being silently swapped for a product type. */}
+                    "Type B", … and 13 of prod's 22 off-list labels were exactly
+                    those.
+
+                    ⚠️ SUPERSEDED IN PART BY fix-601 §B (P-173). fix-449 left a
+                       deliberate escape hatch — an extra option that opened a
+                       browser text prompt — and Bobby has since closed it: *"our drop
+                       downs need to match our settings and no free form text."*
+                       Adding a unit type is a Settings action now.
+
+                       ★ The retired option is DESCRIBED, not named: fix-601
+                         asserts its label is absent from this file, and a
+                         comment-stripper only drops lines beginning `//` or
+                         `*` — so spelling it inside THIS block comment would
+                         keep that test green while the option was gone. It did,
+                         once. Same trap as fix-570.
+
+                    ★ The seeded value still stays VISIBLE and MARKED rather than
+                      being silently swapped for a product type — that half of
+                      fix-449's rule is what §B2 kept, and it is now rendered as a
+                      disabled option so it displays without being offered. */}
                 <select
                   value={row.label}
-                  onChange={(e) => {
-                    const v = e.target.value;
-                    if (v === OTHER_UNIT_LABEL) {
-                      const typed = window.prompt('Type label', row.label);
-                      if (typed === null) return;
-                      update(i, { label: typed.trim() });
-                      return;
-                    }
-                    update(i, { label: v });
-                  }}
+                  // ★★★ fix-601 §B: the `Other…` prompt is GONE here too — this
+                  //     box is where the off-list labels CAME FROM, so it is the
+                  //     one that most needed closing.
+                  onChange={(e) => update(i, { label: e.target.value })}
                   className="bg-surface border border-border rounded px-2 py-1 text-xs font-mono text-text focus:outline-none focus:border-de"
                   data-testid={`unit-types-label-${i}`}
                 >
                   <option value="">Pick type…</option>
-                  {unitLabelOptions(productTypeOptions, row.label).map((t) => (
-                    <option key={t} value={t}>
-                      {t}
-                    </option>
-                  ))}
-                  <option value={OTHER_UNIT_LABEL}>Other…</option>
+                  {/* ★ fix-601 §B2: a stored off-list value still displays, and
+                      is disabled + marked. Same rule as the Project Data
+                      picker, read from the same predicate. */}
+                  {unitLabelOptions(productTypeOptions, row.label).map((t) => {
+                    const retired = unitLabelIsRetired(t, productTypeOptions);
+                    return (
+                      <option key={t} value={t} disabled={retired}>
+                        {retired ? `${t}${UNIT_LABEL_RETIRED_MARKER}` : t}
+                      </option>
+                    );
+                  })}
                 </select>
               </label>
               <label className="col-span-3 flex flex-col gap-0.5">
