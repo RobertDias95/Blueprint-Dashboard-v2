@@ -91,18 +91,48 @@ describe('fix-488 §A: lotSizeView — every combination of {width, depth, size}
     expect(v.irregular).toBe(false);
   });
 
-  it('★★ 5/8 · a size with NO dimensions → the size alone, and no "varies"', () => {
-    // ★★★ COWORK'S CALL, NOT BOBBY'S — flagged in the fix-488 PR. With neither
-    //     dimension known we have an AREA and nothing else; "varies × varies"
-    //     would assert an irregular parcel from an entry that says only "I know
-    //     the square footage".
+  it('★★★ 5/8 · a size with NO dimensions → "varies × varies" (fix-555 §B.4)', () => {
+    // ⚠️⚠️ SUPERSEDED BY fix-555 §B.4 (P-261), 2026-09-29 — AND NOT MISTAKEN.
+    //
+    //    fix-488 rendered no pair at all here and said why: *"with neither
+    //    dimension known we have an AREA and nothing else; 'varies × varies'
+    //    would assert an irregular parcel from an entry that says only ‘I know
+    //    the square footage’."* It called that **Cowork's call, not Bobby's**
+    //    and flagged it in its own PR rather than burying it — which is exactly
+    //    what put the question in front of him.
+    //
+    // ★★★ HIS RULING: *"Neither dimension, size only → allowed; BOTH read
+    //     `varies`."* Under his model **the boxes you filled ARE the
+    //     statement**: a typed size with both dimensions blank is the strongest
+    //     form of "neither dimension is a single number".
+    //
+    // ★★ AND IT IS NO LONGER HYPOTHETICAL. fix-488 measured 0 projects in this
+    //    state and the brief repeated it (*"0 projects today; it will happen"*).
+    //    Measured 2026-09-29: `5616 E Argyle DR`, 14,136 sf, no width, no depth.
     const v = lotSizeView(null, null, 9000);
     expect(v.sizeSf).toBe(9000);
     expect(v.sizeText).toBe('9,000 sf');
     expect(v.sizeDerived).toBe(false);
-    expect(v.pairText).toBeNull();
+    expect(v.widthVaries).toBe(true);
+    expect(v.depthVaries).toBe(true);
+    expect(v.pairText).toBe(`${LOT_VARIES_LABEL} × ${LOT_VARIES_LABEL}`);
+    // ★ STILL NOT `irregular`. That flag is a DISAGREEMENT between a typed size
+    //   and a rectangle, and there is no rectangle here — fix-488's other half,
+    //   untouched.
+    expect(v.irregular).toBe(false);
+  });
+
+  it('★★★ …and a blank dimension with NO size still says NOTHING', () => {
+    // ★★ THE HALF fix-555 DID **NOT** CHANGE, asserted so the reversal above
+    //    cannot quietly widen. `varies` needs a typed size beside it; without
+    //    one a blank dimension is NOT RECORDED, not irregular.
+    const v = lotSizeView(null, null, null);
     expect(v.widthVaries).toBe(false);
     expect(v.depthVaries).toBe(false);
+    expect(v.pairText).toBeNull();
+    const oneSided = lotSizeView(60, null, null);
+    expect(oneSided.depthVaries).toBe(false);
+    expect(oneSided.pairText).toBeNull();
   });
 
   it('★★★ 6/8 · BOBBY\'S CASE — width + size, blank depth → "60 × varies"', () => {

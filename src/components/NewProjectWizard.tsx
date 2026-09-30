@@ -527,9 +527,13 @@ export default function NewProjectWizard({ open, onClose, initialState }: Props)
       // → null is the right "user didn't pick" representation.
       num_lots: intOrNull(state.num_lots),
       is_corner_lot: boolFromTri(state.is_corner_lot),
-      // ★ fix-410: always a real boolean — the form has no blank state for it,
-      //   so every project created here carries a recorded answer.
-      is_regular_shape: boolFromTri(state.is_regular_shape),
+      // ★★★ fix-555 §0b: `is_regular_shape` IS NO LONGER SENT. fix-410 wrote a
+      //     real boolean on every project created here; the shape is now derived
+      //     from which lot boxes are filled (`varies` is the indicator), so the
+      //     question is not asked and the answer is not written. The COLUMN and
+      //     every read of it survive — the audit that justified removing the
+      //     write rather than assuming the control was unused is in
+      //     `wizard/wizardState.ts`.
       closing_date: strOrNull(state.closing_date),
       // fix-126: redesign payload. Only sent when the wizard was
       // opened from a "Spawn Redesign" entry point (parent FK is set);

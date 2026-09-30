@@ -291,7 +291,15 @@ describe('fix-537 §B — the app stops naming a column it asked to have dropped
     };
     walk(resolvePath(process.cwd(), 'src'));
     expect(offenders).toEqual([]);
-  });
+    // ★★ fix-555: 15s. This walk is I/O-bound and grows with the repo; it tipped
+    //    past vitest's 5s default under full-suite parallelism (5.4s in a full
+    //    run, 0.9s alone) once fix-555 added a test file and a data/reports
+    //    entry. **A TIMEOUT MOVED, NOT THE ASSERTION** — the test measures
+    //    whether any file names a dropped column, not how fast it can look, so a
+    //    deadline that fails on repo GROWTH is a false negative that eventually
+    //    gets the test deleted. Fourth time this repo has recorded it
+    //    (fix-547, fix-559, fix-570, here).
+  }, 15_000);
 
   it('★★ `status_override` is deliberately still there, in exactly two places', () => {
     // ★ The asymmetry is the point of the ticket: two equally dead columns,
