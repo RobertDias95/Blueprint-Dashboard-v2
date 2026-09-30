@@ -301,7 +301,32 @@ function permitsAreDirty(
       a.portal_url !== b.portal_url ||
       a.num !== b.num ||
       a.struct_address !== b.struct_address ||
-      a.expected_issue !== b.expected_issue
+      a.expected_issue !== b.expected_issue ||
+      // ═══════════════════════════════════════════════════════════════════
+      // ★★★ fix-601 §A (P-294) — THE EIGHTH EDITABLE FIELD, AND IT WAS MISSING
+      // ═══════════════════════════════════════════════════════════════════
+      //
+      // fix-517 §E brought `Sub-permit of` here when it deleted
+      // `QuickEditPermitModal`, so the field would not become uneditable. It
+      // added the control and the save path and **not this line** — so changing
+      // only that selector left the footer on **Exit** and the edit was silently
+      // dropped on the way out.
+      //
+      // ★★★ THE TAB EDITS EXACTLY EIGHT FIELDS, counted from its own
+      //     `onChange({ … })` call sites rather than from this list: type,
+      //     ent_lead, da, num, portal_url, struct_address, expected_issue and
+      //     this one. Seven were compared. **This is the whole gap** — there is
+      //     no ninth, and `id` / `projectId` / `updated_at` are identity and OCC,
+      //     not edits.
+      //
+      // ★★ AND IT CANNOT STICK DIRTY AFTER A SAVE, which fix-601 §A warns is
+      //    worse than the bug. Both snapshots are built by `permitToRow`, which
+      //    normalises `null → ''` and everything else through `String()`. The
+      //    control is a `<select>` whose blank option is `''`. So a permit with
+      //    no parent compares `'' !== ''` = false on a rebuild, and one with a
+      //    parent compares `'3' !== '3'`. fix-519 §B freezes the rebuild while
+      //    dirty; this field re-reads clean the moment it unfreezes.
+      a.parent_permit_id !== b.parent_permit_id
     ) {
       return true;
     }
