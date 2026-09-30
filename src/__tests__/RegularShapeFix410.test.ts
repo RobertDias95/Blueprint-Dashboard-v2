@@ -1,6 +1,5 @@
 import { describe, it, expect } from 'vitest';
 import migrationSql from '../../migrations/fix_410_is_regular_shape.sql?raw';
-import wizardStateSource from '../components/wizard/wizardState.ts?raw';
 import step1Source from '../components/wizard/Step1ProjectInfo.tsx?raw';
 import newProjectWizardSource from '../components/NewProjectWizard.tsx?raw';
 import useProjectsSource from '../hooks/useProjects.ts?raw';
@@ -52,67 +51,74 @@ import type { PermitWithCycles, Project } from '../lib/database.types';
 // §1 · THE WIZARD DEFAULTS TO YES
 // ---------------------------------------------------------------------------
 
-describe('fix-410 §1: the form carries the default, not the column', () => {
-  it('★★★ a NEW project starts at Yes', () => {
-    expect(makeEmptyWizardState().is_regular_shape).toBe('yes');
+// ⚠️⚠️ §1 IS SUPERSEDED BY fix-555 §0b (P-261), 2026-09-29 — AND NOT MISTAKEN.
+//
+//    Six tests stood here pinning the wizard's Regular Shape select: its default
+//    of Yes, its missing blank option, its helper text, its payload key and its
+//    redesign inheritance. Every one of them was the honest record of fix-410's
+//    ruling — Bobby, 2026-08-26: *"default should be yes, the other option is
+//    no."*
+//
+// ★★★ HE THEN REPLACED THE MODEL, 2026-09-14: **`varies` IS the irregular
+//     indicator. No checkbox, no "is this irregular?" question.** The shape is
+//     derived from which of width / depth / size were filled, so the question is
+//     not asked and the answer is not written. The control, its default and its
+//     redesign inheritance are gone; what replaces these six is the assertion
+//     that they ARE gone, below.
+//
+// ⛔ THE COLUMN AND EVERY READ SURVIVE — §2, §4 and §6 below are untouched and
+//    still pass. §0b: read it out of the write path first, drop it in a later
+//    ticket once nothing reads it (fix-537b's order).
+
+describe('fix-410 §1 → fix-555 §0b: the question is no longer asked', () => {
+  it('★★★ the wizard has NO Regular Shape control', () => {
+    expect(step1Source).not.toContain('wizard-is-regular-shape');
+    expect(step1Source).not.toContain('Regular Shape');
+    // ★ the helper text fix-410 pinned goes with the control it explained
+    expect(step1Source).not.toContain('Equal widths and equal lengths');
   });
 
-  it('★★★ ...and the COLUMN has no default — the migration says so out loud', () => {
-    // ★ A DDL default would have rewritten all 193 existing rows into a claim
-    //   nobody verified, as a side effect of DDL. The backfill is a separate,
-    //   approved, verifiable statement instead.
-    expect(migrationSql).toContain(
-      'ADD COLUMN IF NOT EXISTS is_regular_shape boolean;',
-    );
-    expect(migrationSql).not.toMatch(/is_regular_shape boolean[^;]*DEFAULT/i);
-  });
-
-  it('★★ the control has NO blank option — that is the difference from Corner', () => {
-    // Corner Lot is tri-state because fix-122 refused to guess for historical
-    // projects. This one is answered by the form every time, so irregular lots
-    // are the ones somebody has to flag.
-    const block = step1Source.slice(
-      step1Source.indexOf('wizard-is-regular-shape') - 900,
-      step1Source.indexOf('wizard-is-regular-shape') + 400,
-    );
-    expect(block).toContain('<option value="yes">Yes</option>');
-    expect(block).toContain('<option value="no">No</option>');
-    expect(block).not.toContain('<option value="">—</option>');
-  });
-
-  it('★★ the helper text says what "regular" means', () => {
-    expect(step1Source).toContain(
-      'Equal widths and equal lengths — a rectangle. Choose No for an',
-    );
-  });
-
-  it('★★★ the wizard PAYLOAD carries it — the key the RPC reads', () => {
-    // ★ Without this line the column stays NULL forever and the control is
-    //   decoration. It is the client half of the same trap the RPC is the
-    //   server half of.
-    expect(newProjectWizardSource).toContain(
+  it('★★★ the wizard PAYLOAD no longer carries the key', () => {
+    // ★★ THE INVERSE OF fix-410's OWN ASSERTION. It pinned this line as the
+    //    client half of the trap that would otherwise leave the column NULL
+    //    forever. The column is now deliberately left alone.
+    expect(newProjectWizardSource).not.toContain(
       'is_regular_shape: boolFromTri(state.is_regular_shape)',
     );
   });
 
-  it('★★ a REDESIGN inherits the parent, and falls back to Yes when unanswered', () => {
+  it('★★★ the state has no such field, and a redesign inherits nothing', () => {
+    const empty = makeEmptyWizardState() as unknown as Record<string, unknown>;
+    expect('is_regular_shape' in empty).toBe(false);
     const parent = {
       id: 'p1',
       address: '100 Main St',
       is_regular_shape: false as boolean | null,
     };
-    expect(makeRedesignWizardState(parent).is_regular_shape).toBe('no');
-    expect(
-      makeRedesignWizardState({ ...parent, is_regular_shape: true })
-        .is_regular_shape,
-    ).toBe('yes');
-    // ★ No recorded answer on the parent → the redesign is a NEW project, and
-    //   Bobby's rule for a new project is Yes.
-    expect(
-      makeRedesignWizardState({ ...parent, is_regular_shape: null })
-        .is_regular_shape,
-    ).toBe('yes');
-    expect(wizardStateSource).toContain('is_regular_shape');
+    const redesign = makeRedesignWizardState(parent) as unknown as Record<string, unknown>;
+    expect('is_regular_shape' in redesign).toBe(false);
+    // ★★ …and the three fields the shape now lives in DO still inherit, which
+    //    is what keeps an irregular parent irregular on every redesign of it.
+    expect('lot_width' in redesign).toBe(true);
+    expect('lot_depth' in redesign).toBe(true);
+    expect('lot_size_sf' in redesign).toBe(true);
+  });
+
+  it('★★★ the COLUMN is NOT dropped, and the migration still creates it', () => {
+    // ⛔ fix-555's Do-NOT list names this explicitly. The 4 `false`s and 256
+    //    `true`s on prod are all still there; nothing reads them in the write
+    //    path and several surfaces still read them for display.
+    expect(migrationSql).toContain(
+      'ADD COLUMN IF NOT EXISTS is_regular_shape boolean;',
+    );
+    expect(migrationSql).not.toMatch(/drop\s+column[^;]*is_regular_shape/i);
+  });
+
+  it('★★ the RPCs still ACCEPT the key — the server half is untouched', () => {
+    // ★ fix-410 §6 taught both RPCs the key and those tests still pass. Removing
+    //   the client's use of it does not un-teach the server, and a later ticket
+    //   that drops the column will have to take these out deliberately.
+    expect(migrationSql).toContain('is_regular_shape');
   });
 });
 

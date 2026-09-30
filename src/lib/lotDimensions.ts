@@ -135,12 +135,28 @@ export function formatLotPair(
 //
 //     60  ·  —      ·  —        →  nothing said about the shape
 //     60  ·  —      ·  7,200    →  "60 × varies"          ← the Kirkland case
-//     —   ·  —      ·  7,200    →  no pair at all, just the size
+//     —   ·  —      ·  7,200    →  "varies × varies"      ← ★ fix-555 §B.4
 //
-// ★★ THAT LAST ROW IS COWORK'S CALL, NOT BOBBY'S. With neither dimension known
-//    we have an AREA and nothing else; "varies × varies" would assert an
-//    irregular parcel from an entry that says only "I know the square footage".
-//    Flagged in the fix-488 PR.
+// ⚠️⚠️ THAT LAST ROW WAS COWORK'S CALL AND IS NOW BOBBY'S — fix-555 §B.4
+//       (P-261, 2026-09-14) REVERSES IT, and the reversal is the point.
+//
+//    fix-488 rendered no pair at all, reasoning that with neither dimension
+//    known we have an AREA and nothing else, so *"varies × varies" would
+//    assert an irregular parcel from an entry that says only "I know the
+//    square footage"*. It flagged the choice in its own PR rather than
+//    burying it — which is what put the question in front of Bobby.
+//
+// ★★★ HIS RULING: *"Neither dimension, size only → allowed; BOTH read
+//     `varies`."* And the reasoning holds up: under this model **the boxes
+//     you filled ARE the statement.** Typing a size and leaving both
+//     dimensions blank is not "I only know the area" — it is the strongest
+//     possible form of "neither dimension is a single number", which is
+//     exactly what `varies` says.
+//
+// ★★ AND IT IS NO LONGER HYPOTHETICAL. fix-488 recorded 0 projects in this
+//    state and the brief repeated it (*"0 projects today; it will happen"*).
+//    Measured 2026-09-29: **`5616 E Argyle DR` — 14,136 sf, no width, no
+//    depth**, created 2026-09-16. It happened.
 //
 // ★★★ AND IT SUPERSEDES `formatLotPair`'s "BOTH OR NEITHER". That rule was
 //     right while a half-known lot was always an unknown lot. It no longer is,
@@ -293,7 +309,7 @@ export function mayDeriveLotSize(
  *   ✓  ·  ·   →  "60" and a blank depth. NOT "varies" — nobody said so.
  *   ·  ✓  ·   →  the mirror of the above
  *   ✓  ✓  ·   →  "60 × 100", size 6,000 sf DERIVED (never stored)
- *   ·  ·  ✓   →  the size alone, no pair (see the header — Cowork's call)
+ *   ·  ·  ✓   →  "varies × varies" — ★ fix-555 §B.4 (see the header)
  *   ✓  ·  ✓   →  "60 × varies", size as typed          ← Bobby's case
  *   ·  ✓  ✓   →  "varies × 100", size as typed
  *   ✓  ✓  ✓   →  all three as typed, plus `irregular` if they disagree by >5%
@@ -310,8 +326,17 @@ export function lotSizeView(
   const d = n(depth);
   const typed = n(sizeSf);
 
-  const widthVaries = typed !== null && w === null && d !== null;
-  const depthVaries = typed !== null && d === null && w !== null;
+  // ★★★ fix-555 §B.4: A TYPED SIZE BESIDE A BLANK DIMENSION IS THE
+  //     STATEMENT, and it no longer matters whether the OTHER dimension is
+  //     known. fix-488 required `d !== null` here, which made the size-only
+  //     lot render no pair at all; Bobby ruled that both should read the word.
+  //
+  // ★ A blank dimension with NO size still means NOT RECORDED — that half of
+  //   fix-488's rule is untouched, and it is what keeps `60 · — · —` silent
+  //   about the shape instead of inventing an irregular lot from an
+  //   unfinished row.
+  const widthVaries = typed !== null && w === null;
+  const depthVaries = typed !== null && d === null;
 
   const widthText = w !== null ? formatLotFeet(w) : widthVaries ? LOT_VARIES_LABEL : null;
   const depthText = d !== null ? formatLotFeet(d) : depthVaries ? LOT_VARIES_LABEL : null;
