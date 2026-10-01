@@ -1,7 +1,10 @@
-import { useMemo } from 'react';
+import { useMemo, useState } from 'react';
 import { useDmDaGroups } from '../../hooks/useDmDaGroups';
-import { useUpsertDmDaGroup } from '../../hooks/useUpsertDmDaGroup';
-import { useDeleteDmDaGroup } from '../../hooks/useDeleteDmDaGroup';
+import {
+  describeDmMove,
+  useDmMovePreview,
+  useSetDmForDa,
+} from '../../hooks/useSetDmForDa';
 import { useOpenTaskCounts } from '../../hooks/useOpenTaskCounts';
 import { unmappedActiveDas } from '../../lib/dmCoAssign';
 import type { TeamMember, DmDaGroupRow } from '../../lib/database.types';
@@ -27,6 +30,27 @@ import type { TeamMember, DmDaGroupRow } from '../../lib/database.types';
 // are different sentences, and only the second one gets acted on.
 //
 // ===========================================================================
+// ===========================================================================
+// ★★★ fix-617 — AND NOW THE DRAW SCHEDULE FOLLOWS
+// ===========================================================================
+//
+// ⚖️ Bobby, 2026-10-01: **"Settings decides; the Draw Schedule follows."**
+//
+// Everything the fix-401 header below describes was true and is now fixed at the
+// source: a move here writes `dm_da_groups` AND sets `group_label` on that DA's
+// layout rows for the current quarter and every later one, in ONE server call
+// (`bp_set_dm_for_da`). Past quarters are history and stay as they were.
+//
+// ★★ THE OTHER EDITOR NO LONGER OFFERS THE CHOICE AT ALL. The Draw Schedule
+//    Layout editor shows a DA column's group read-only, with a link back here —
+//    so there is one place to answer "who manages this person", which is what
+//    makes the two stop disagreeing.
+//
+// ★ The move is confirmed, with counts, because it is not only an org chart
+//   edit: fix-379's trigger derives `permits.dm` from this list and fix-346's
+//   adds the DM as a task co-assignee. The dialog says so in plain words.
+//
+// ---------------------------------------------------------------------------
 // ★★★ fix-401 — TWO EDITORS ON THIS TAB LOOK LIKE THEY MOVE A DA. THEY DO NOT
 // ===========================================================================
 //
@@ -99,8 +123,15 @@ export default function TeamStructureEditor({
   readOnly = false,
 }: Props) {
   const groupsQ = useDmDaGroups();
-  const upsert = useUpsertDmDaGroup();
-  const remove = useDeleteDmDaGroup();
+  const setDm = useSetDmForDa();
+  // ★ The move somebody has asked for and not yet confirmed. `null` = no dialog.
+  //   `dmName: null` is the UNMAP case, which is a real choice and not "nothing
+  //   chosen" — hence a tagged object rather than two pieces of state.
+  const [pending, setPending] = useState<{
+    daName: string;
+    dmName: string | null;
+  } | null>(null);
+  const preview = useDmMovePreview(pending?.daName ?? null, pending?.dmName ?? null);
 
   // index: dm_name → DA assignments (rows from dm_da_groups)
   const rowsByDm = useMemo(() => {
@@ -161,29 +192,29 @@ export default function TeamStructureEditor({
     ];
   }, [dms, rowsByDm]);
 
-  function moveDa(da: string, toDm: string) {
-    const existing = rowByDa.get(da);
-    if (!existing) return;
-    if (existing.dm_name === toDm) return;
-    upsert.mutate({
-      op: 'update',
-      row: existing,
-      patch: { dm_name: toDm },
-    });
-  }
-  function removeDa(da: string) {
-    const existing = rowByDa.get(da);
-    if (!existing) return;
-    remove.mutate({ id: existing.id, updated_at: existing.updated_at });
-  }
-  function addDa(toDm: string, da: string) {
+  // ★★★ ONE WRITE PATH FOR ALL THREE VERBS. Add, move and remove were three
+  //     different mutations (insert / update / delete) against one table; they
+  //     are now one question — "who does this DA report to?" — asked of one
+  //     server function. `null` is the answer "nobody", which is what remove
+  //     means, so remove stops being a different kind of operation.
+  //
+  // ★★ AND NONE OF THEM WRITES DIRECTLY ANY MORE: each one opens the confirm
+  //    dialog, because each one can move a permit's derived DM and a task's
+  //    co-assignee. A silent org-chart edit with that reach is the thing §A.4
+  //    exists to stop.
+  function askMove(da: string, toDm: string | null) {
     if (!da) return;
-    if (assignedDaNames.has(da)) {
-      // Move existing assignment instead of adding a dupe.
-      moveDa(da, toDm);
-      return;
-    }
-    upsert.mutate({ op: 'insert', dm_name: toDm, da_name: da });
+    const existing = rowByDa.get(da);
+    if (existing && (existing.dm_name ?? null) === toDm) return;
+    setPending({ daName: da, dmName: toDm });
+  }
+
+  function confirmMove() {
+    if (!pending) return;
+    setDm.mutate(
+      { daName: pending.daName, dmName: pending.dmName },
+      { onSuccess: () => setPending(null) },
+    );
   }
 
   return (
@@ -285,7 +316,7 @@ export default function TeamStructureEditor({
                   {!readOnly && dms.length > 1 && (
                     <select
                       value={dm.current ? dm.name : ''}
-                      onChange={(e) => moveDa(row.da_name, e.target.value)}
+                      onChange={(e) => askMove(row.da_name, e.target.value || null)}
                       className="text-[10px] bg-transparent border-none text-dim outline-none cursor-pointer"
                       title="Move to different DM"
                       data-testid={`team-da-move-${row.da_name}`}
@@ -309,7 +340,7 @@ export default function TeamStructureEditor({
                   )}
                   {!readOnly && (
                     <button
-                      onClick={() => removeDa(row.da_name)}
+                      onClick={() => askMove(row.da_name, null)}
                       className="text-dim hover:text-text text-sm leading-none pl-0.5"
                       title="Remove DA from group"
                       data-testid={`team-chip-remove-${row.da_name}`}
@@ -345,7 +376,7 @@ export default function TeamStructureEditor({
                   onChange={(e) => {
                     const v = e.target.value;
                     if (v) {
-                      addDa(dm.name, v);
+                      askMove(v, dm.name);
                       e.currentTarget.value = '';
                     }
                   }}
@@ -393,6 +424,73 @@ export default function TeamStructureEditor({
                 );
               })}
             </ul>
+          </div>
+        </div>
+      )}
+      {/* ═══ ★★★ §A.4 — THE CONFIRM, AND WHY IT EXISTS ═══
+
+          Moving a DA between managers is not only an org-chart edit. The
+          fix-379 trigger derives `permits.dm` from this list, and fix-346’s
+          adds the DM as a co-assignee on tasks assigned to that DA. So the
+          move reaches work somebody is doing today, and the dialog says so
+          with the counts rather than leaving it to be discovered.
+
+          ★★ THE COUNTS COME FROM THE SERVER (`bp_preview_dm_move`), using the
+             app’s own "open" definition — fix-245’s `isPermitDone` minus
+             fix-264’s cancelled projects. A dialog that counted from a stale
+             client cache would promise a number no other screen shows.
+
+          ★ NO BACKDROP CLICK AND NO ESCAPE — fix-411 §1’s rule. This is a
+            confirm, so the two exits are Cancel and the button that does it. */}
+      {pending && (
+        <div
+          className="fixed inset-0 z-[9000] flex items-start justify-center pt-24 px-4 bg-black/40"
+          role="dialog"
+          aria-modal="true"
+          data-testid="dm-move-confirm"
+        >
+          <div className="bg-surface border border-border rounded-xl shadow-xl w-full max-w-[460px] p-5">
+            <h2 className="text-sm font-display font-extrabold text-text m-0 mb-2">
+              {pending.dmName
+                ? `Move ${pending.daName} to ${pending.dmName}?`
+                : `Remove ${pending.daName} from their design manager?`}
+            </h2>
+            <p
+              className="text-[12px] text-muted m-0 mb-3 leading-relaxed"
+              data-testid="dm-move-consequence"
+            >
+              {preview.isLoading
+                ? 'Checking what this moves…'
+                : describeDmMove(preview.data ?? null)}
+            </p>
+            {setDm.error && (
+              <p
+                className="text-[11px] m-0 mb-3"
+                style={{ color: 'var(--color-co)' }}
+                data-testid="dm-move-error"
+              >
+                {setDm.error.message}
+              </p>
+            )}
+            <div className="flex items-center justify-end gap-2">
+              <button
+                type="button"
+                onClick={() => setPending(null)}
+                className="text-[12px] px-3 py-1.5 rounded border border-border text-muted hover:text-text"
+                data-testid="dm-move-cancel"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={confirmMove}
+                disabled={setDm.isPending || preview.isLoading}
+                className="text-[12px] px-3 py-1.5 rounded border border-de text-de font-semibold disabled:opacity-40"
+                data-testid="dm-move-confirm-btn"
+              >
+                {setDm.isPending ? 'Moving…' : 'Move them'}
+              </button>
+            </div>
           </div>
         </div>
       )}

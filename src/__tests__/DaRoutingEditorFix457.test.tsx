@@ -6,7 +6,7 @@ import {
   removeRuleConsequence,
 } from '../lib/daRouting';
 import type { DaTeamRoutingRow } from '../hooks/useDaTeamRouting';
-import { daHasRoutingFor } from '../hooks/useDaTeamRouting';
+import { daHasRoutingFor } from '../lib/daRouting';
 
 // ===========================================================================
 // ★★★ fix-457 (P-007) — THE DOOR da_team_routing NEVER HAD

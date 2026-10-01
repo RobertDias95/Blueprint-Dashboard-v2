@@ -5,6 +5,9 @@ import adminProjectsSource from '../components/Settings/AdminProjectsTab.tsx?raw
 import queryKeysSource from '../lib/queryKeys.ts?raw';
 import teamStructureSource from '../components/Settings/TeamStructureEditor.tsx?raw';
 import upsertHookSource from '../hooks/useUpsertDmDaGroup.ts?raw';
+// ★ fix-617: the write path Team Structure travels now — see the note on the
+//   superseded assertion below.
+import setDmHookSource from '../hooks/useSetDmForDa.ts?raw';
 import quarterLayoutHookSource from '../hooks/useQuarterLayout.ts?raw';
 import { REALTIME_TABLES, queryKeys } from '../lib/queryKeys';
 import { allRealtimeKeys } from '../hooks/useRealtimeInvalidation';
@@ -247,11 +250,43 @@ describe('fix-401 §3: the relocation note is gone', () => {
 // ---------------------------------------------------------------------------
 
 describe('fix-401 §4: a team move lands in the table consumers read', () => {
-  it('★★★ TeamStructureEditor writes dm_da_groups, through the OCC RPC', () => {
-    // The write path Bobby's move needed to travel. useUpsertDmDaGroup calls
+  it('★★★ TeamStructureEditor writes dm_da_groups — now through bp_set_dm_for_da', () => {
+    // ═══ SUPERSEDED BY fix-617, NOT MISTAKEN ═══
+    //
+    // THE ORIGINAL, AND IT WAS RIGHT WHEN IT WAS WRITTEN: *"The write path
+    // Bobby's move needed to travel. useUpsertDmDaGroup calls
     // bp_upsert_dm_da_group_row with p_expected_updated_at, so a concurrent
-    // edit conflicts rather than clobbering (fix-382's rule, already held here).
-    expect(teamStructureSource).toContain("useUpsertDmDaGroup");
+    // edit conflicts rather than clobbering (fix-382's rule, already held
+    // here)."* fix-401's finding was that the OTHER editor looked like it moved
+    // a DA and did not — so this test pinned WHICH editor reaches the table
+    // every consumer reads. **That finding stands**, and the test below it is
+    // still its other half.
+    //
+    // ★★★ WHAT CHANGED: ⚖️ Bobby, 2026-10-01 — **"Settings decides; the Draw
+    //     Schedule follows."** A move now has to write `dm_da_groups` AND the
+    //     layout's `group_label` for this quarter and every later one, and
+    //     those two must not be able to half-succeed. Two client mutations is
+    //     two failure modes — the mapping moves, the layout does not, and the
+    //     screen shows the disagreement fix-401 found. So it is ONE server
+    //     call: `bp_set_dm_for_da`.
+    //
+    // ★★ AND THAT IS WHY THE OCC TOKEN LEAVES THIS PATH RATHER THAN BEING
+    //    DROPPED. fix-382's rule is "check the expectation BEFORE anything
+    //    writes". The RPC takes no `p_expected_updated_at` because it never
+    //    read-then-writes a row the client holds a copy of: it is one
+    //    `UPDATE … WHERE da_name = $1` plus the layout UPDATE, in one
+    //    transaction, keyed on the DA's NAME — the fact the user actually
+    //    chose. The last writer's answer to "who manages Erick" IS the answer,
+    //    which is the question the confirm dialog asked. `useUpsertDmDaGroup`
+    //    keeps its OCC and its assertions below; it is simply no longer how
+    //    Team Structure moves anybody.
+    expect(teamStructureSource).toContain('useSetDmForDa');
+    expect(teamStructureSource).not.toContain('useUpsertDmDaGroup');
+    expect(setDmHookSource).toContain("supabase.rpc('bp_set_dm_for_da'");
+    expect(setDmHookSource).toContain('queryKeys.dmDaGroups(tenantId)');
+    // ★ BOTH caches, because the one server call changes both tables.
+    expect(setDmHookSource).toContain('queryKeys.drawScheduleQuarterLayoutAll');
+    // ★ The OCC RPC and its guard are untouched, and still asserted.
     expect(upsertHookSource).toContain("supabase.rpc('bp_upsert_dm_da_group_row'");
     expect(upsertHookSource).toContain('p_expected_updated_at');
     expect(upsertHookSource).toContain('queryKeys.dmDaGroups(tenantId)');

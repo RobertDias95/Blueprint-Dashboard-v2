@@ -18,6 +18,11 @@ import { isPermitInCorrections } from './permitStage';
 import { isTerminalNegativeStatus } from './permitTerminalStatus';
 import { statusImpliesSubmitted } from './statusImpliesSubmitted';
 import { isSubPermit } from './subPermit';
+// ★★★ fix-617 (census gap 40): one predicate for "active DA with no manager".
+//     See the header on `unmappedActiveDas` for the three copies this replaced
+//     and the `active === true` divergence that lived right here.
+import { unmappedActiveDas } from './dmCoAssign';
+import { isCurrentMember } from './roster';
 import {
   daQueueAllowsRowKind,
   milestoneCounterparty,
@@ -2384,11 +2389,21 @@ export function teamMappingGap(
     if (da) grouped.set(da.toLowerCase(), (r.dm_name ?? '').trim());
   }
 
-  const activeDas = members.filter(
-    (m) => m.role === 'da' && m.active === true && m.former !== true,
+  // ★★★ fix-617 — `active === true` WAS THE ODD ONE OUT, AND IT WAS WRONG.
+  //     `team_members.active` is NULLABLE (DEFAULT true). fix-321 settled the
+  //     membership rule as `isCurrentMember` = `active !== false && former !==
+  //     true`, so a DA row with a NULL `active` is a current member in every
+  //     picker, on the board, and in Settings — but was silently absent from
+  //     THIS list, the one whose whole job is to name the DAs with no manager.
+  const activeDas = members.filter((m) => m.role === 'da' && isCurrentMember(m));
+  // ★ The unmapped test itself is `unmappedActiveDas` (lib/dmCoAssign), the
+  //   same call Settings and `useBoardLens` make. The load figure is this
+  //   function's own addition and stays here.
+  const unmappedNames = new Set(
+    unmappedActiveDas(activeDas.map((m) => m.name), rows),
   );
   const unassignedDas = activeDas
-    .filter((m) => !grouped.has((m.name ?? '').trim().toLowerCase()))
+    .filter((m) => unmappedNames.has(m.name))
     .map((m) => ({ name: m.name, activePermits: load.get(m.name) ?? 0 }))
     .sort((a, b) => b.activePermits - a.activePermits || a.name.localeCompare(b.name));
 

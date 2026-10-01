@@ -137,16 +137,30 @@ export const SETTINGS_BLOCKS: readonly SettingsBlock[] = [
     id: 'team-structure',
     category: 'teams',
     title: 'Team Structure',
-    summary: 'Which DAs sit under each design manager',
+    // ★★★ fix-617 — "THE one list", not "a list". ⚖️ Bobby, 2026-10-01:
+    //     **"Settings decides; the Draw Schedule follows."** The summary says
+    //     THE because the Draw Schedule Layout block below no longer offers the
+    //     same choice; a reader comparing the two entries should be able to see
+    //     which one answers the question.
+    summary: 'THE one list of which DAs sit under each design manager',
     feeds: [
-      'Draw Schedule',
+      // ★ fix-617 added the first entry: a move here now writes this quarter's
+      //   and every later quarter's Draw Schedule groups too, which is the
+      //   reach a reader most needs to know about before clicking.
+      'Draw Schedule groups (this quarter on)',
       'New project',
       'My Tasks',
       'My Board',
       'Task ownership',
       'DM on a permit',
     ],
-    keywords: 'dm da group manager structure mapping',
+    keywords:
+      'dm da group manager structure mapping reports to move reassign ' +
+      // ★ fix-520's rule: somebody looking for this types what they want to
+      //   DO. "who manages" and "move a da" are the two real searches, and
+      //   "group label" is what they would have typed when the answer was in
+      //   the other editor.
+      'who manages move a da group label draw schedule group',
   },
   {
     id: 'da-routing',
@@ -160,17 +174,40 @@ export const SETTINGS_BLOCKS: readonly SettingsBlock[] = [
     id: 'draw-schedule-layout',
     category: 'teams',
     title: 'Draw Schedule Layout',
-    summary: 'Lane order and group labels, per quarter',
+    // ★★★ fix-617 — "group labels" IS GONE FROM THE SUMMARY, because the
+    //     block no longer offers them for a DA column. Leaving the old wording
+    //     would send the one person looking for "where do I change who manages
+    //     Erick" to the block that stopped answering it — the exact confusion
+    //     P-006 was about, re-created in the search index.
+    summary: 'Lane order, labels and OPEN lanes, per quarter',
     feeds: ['Draw Schedule'],
-    keywords: 'quarter lanes board layout restore deleted',
+    keywords:
+      'quarter lanes board layout restore deleted column order top label ' +
+      'open lane ' +
+      // ★ "group label" stays SEARCHABLE here on purpose: it is still the word
+      //   on the screen, and the block shows the group read-only with a link to
+      //   Team Structure. Finding the place that explains where it moved is
+      //   better than finding nothing.
+      'group label set in team structure',
   },
   {
     id: 'active-quarters',
     category: 'teams',
     title: 'Active Quarters',
-    summary: 'Which quarters each DA has a lane on the board',
+    summary: 'Which quarters each DA has a lane on the board — former DAs too',
     feeds: ['Draw Schedule', 'New project DA picker'],
-    keywords: 'start end quarter lane active',
+    // ★ fix-617 (gap 38): the block now also edits the FORMER & inactive DAs,
+    //   who hold every window prod actually has. Somebody correcting a departed
+    //   teammate's dates searches "former", "alumni" or their own name for it.
+    keywords:
+      // ★ 'alumni' is DELIBERATELY NOT HERE. fix-611's search test pins that
+      //   word to the Everyone table — the block that LISTS the alumni and the
+      //   only one that can restore them. A second hit for the same word is
+      //   not a richer index; it is a reader having to choose between two rows
+      //   when one of them is the answer. 'former', 'inactive' and 'departed'
+      //   are what somebody fixing a departed teammate's DATES types.
+      'start end quarter lane active former inactive departed left ' +
+      'offboarded history past quarter',
   },
   {
     id: 'chat-tags',

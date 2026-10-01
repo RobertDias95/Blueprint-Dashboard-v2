@@ -1,5 +1,7 @@
 import { useCallback, useMemo, useState } from 'react';
 import { useDmDaGroups } from './useDmDaGroups';
+import { unmappedActiveDas } from '../lib/dmCoAssign';
+import { isCurrentMember } from '../lib/roster';
 import { useTeamMembers } from './useTeamMembers';
 import { useSelfScope } from './useSelfScope';
 import { useAuthStore } from '../stores/authStore';
@@ -34,7 +36,7 @@ export interface BoardLensState {
 }
 
 export function useBoardLens(): BoardLensState {
-  const { groups } = useDmDaGroups();
+  const { groups, rows: dmRows } = useDmDaGroups();
   const team = useTeamMembers();
   const { identity } = useSelfScope();
   const userId = useAuthStore((s) => s.user?.id ?? null);
@@ -61,21 +63,22 @@ export function useBoardLens(): BoardLensState {
   // ★ So the gap is SURFACED, not fixed. Adding them to `dm_da_groups` is a
   // data change and Bobby's decision, and it is already on his list; this only
   // makes sure the tool stops hiding the question.
-  const unmanaged = useMemo(() => {
-    const managed = new Set(
-      groups.flatMap((g) => g.das).map((d) => d.trim().toLowerCase()),
-    );
-    return team.all
-      .filter(
-        (m) =>
-          m.role === 'da' &&
-          m.active !== false &&
-          m.former !== true &&
-          !managed.has((m.name ?? '').trim().toLowerCase()),
-      )
-      .map((m) => m.name)
-      .sort((a, b) => a.localeCompare(b));
-  }, [groups, team.all]);
+  //
+  // ★★★ fix-617 (census gap 40) — AND IT IS THE SHARED PREDICATE NOW. This
+  //     used to walk the GROUPED view, which keys by `dm_name`; a row with a
+  //     blank manager therefore made its DA look MANAGED here while
+  //     `unmappedActiveDas` — the copy Settings shows — called the same person
+  //     unmapped. Two screens, two answers, about the same person.
+  const unmanaged = useMemo(
+    () =>
+      unmappedActiveDas(
+        team.all
+          .filter((m) => m.role === 'da' && isCurrentMember(m))
+          .map((m) => m.name),
+        dmRows,
+      ).sort((a, b) => a.localeCompare(b)),
+    [dmRows, team.all],
+  );
 
   // ★ The remembered choice, read once per (user, roster) and overridable for
   // this mount. Same shape as fix-176's scope preference: an explicit choice

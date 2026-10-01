@@ -376,6 +376,10 @@ export const queryKeys = {
   // Keyed by quarter so each quarter's layout caches independently. Nothing on
   // the live grid reads this yet (Phase C).
   drawScheduleQuarterLayoutAll: ['draw_schedule_quarter_layout'] as const,
+  /** ★ fix-617 §A.4: what moving a DA between managers would change. Keyed on
+   *  the PAIR, so re-opening the dialog for a different target re-asks. */
+  dmMovePreview: (tenantId: string, da: string, dm: string) =>
+    ['dm_move_preview', tenantId, { da, dm }] as const,
   drawScheduleQuarterLayout: (tenantId: string, quarter: string) =>
     ['draw_schedule_quarter_layout', tenantId, { quarter }] as const,
   // fix-265: the vendor send ledger — what each external vendor was last told.

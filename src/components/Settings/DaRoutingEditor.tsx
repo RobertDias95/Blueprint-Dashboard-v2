@@ -4,6 +4,7 @@ import { useUpsertDaRouting, useDeleteDaRouting } from '../../hooks/useDaRouting
 import { useJurisdictions } from '../../hooks/useJurisdictions';
 import {
   groupRoutingByDa,
+  isDefaultRule,
   unroutedActiveDas,
   removeRuleConsequence,
   type DaRoutingGroup,
@@ -426,8 +427,9 @@ function RuleRow({
 }) {
   const addressable = row.id != null && row.updated_at != null;
   const confirming = addressable && confirmId === row.id;
-  const isDefault =
-    row.jurisdiction === null || (row.jurisdiction ?? '').trim() === '';
+  // ★ fix-617 (gap 41): the shared test, which is the SERVER'S. A row with a
+  //   blank-string jurisdiction is NOT a default — see `isDefaultRule`.
+  const isDefault = isDefaultRule(row);
 
   return (
     <div className="flex flex-col gap-1" data-testid={`da-routing-rule-${row.id ?? 'x'}`}>

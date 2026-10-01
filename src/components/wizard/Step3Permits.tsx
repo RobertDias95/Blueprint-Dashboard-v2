@@ -4,10 +4,12 @@ import { isCurrentMember } from '../../lib/roster';
 import { useDmDaGroups } from '../../hooks/useDmDaGroups';
 import { usePermitTypes } from '../../hooks/usePermitTypes';
 import {
-  daHasRoutingFor,
   lookupEntLeadForDa,
   useDaTeamRouting,
 } from '../../hooks/useDaTeamRouting';
+// ★ fix-617 (gap 41): the selectability rule moved to the shared lib, so this
+//   row and the Settings editor cannot disagree about what a default rule is.
+import { daHasRoutingFor } from '../../lib/daRouting';
 import PermitAssignmentRow from './PermitAssignmentRow';
 import { findDmForDa } from './dmRouting';
 import {

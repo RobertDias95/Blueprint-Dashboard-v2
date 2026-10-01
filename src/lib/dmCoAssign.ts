@@ -220,10 +220,35 @@ function resolveCoAssign(
  *  SILENT" was the condition, so Settings → Team names them.
  *
  *  Matched trimmed + case-folded, the same way `dmForDa` matches, so a roster
- *  name that differs only in spacing is not reported as a gap it isn't. */
+ *  name that differs only in spacing is not reported as a gap it isn't.
+ *
+ *  ═══ ★★★ fix-617 (census gap 40) — AND NOW IT IS THE ONLY COPY ═══
+ *
+ *  Three places computed "active DA with no manager" and they did not agree:
+ *
+ *    • here — `isCurrentMember`'s rule, and a row with a BLANK `dm_name`
+ *      counts as unmapped (there is no manager in it to derive);
+ *    • `useBoardLens`'s `unmanaged` — same membership rule, but it tested
+ *      presence in the GROUPED view, so a blank-`dm_name` row read as MANAGED
+ *      (the grouping keys by `dm_name`, and '' is a key);
+ *    • `myBoard.teamMappingGap` — `active === true`, which is the one that
+ *      actually bites: ★★★ **`team_members.active` IS NULLABLE** (DEFAULT true,
+ *      but nullable), and fix-321 settled the rule as `active !== false`. A DA
+ *      row whose `active` is NULL is a current member everywhere in this app
+ *      EXCEPT in the gap list that exists to find them — so the one person the
+ *      list could not see is a person nobody had got round to filling in.
+ *
+ *  ★★ Measured on prod 2026-10-01: 16 `role='da'` rows, **0 with a NULL
+ *     `active`**, so all three agreed TODAY. That is why this was a census gap
+ *     and not a bug report: it is a disagreement waiting for its first row.
+ *
+ *  ★ THE ROW SHAPE IS STRUCTURAL ON PURPOSE. `myBoard`'s `DmDaRow` is
+ *    `{dm_name, da_name}` and `DmDaGroupRow` carries six more fields; asking
+ *    for only what the rule reads is what lets all three callers pass their
+ *    own shape instead of one of them keeping its own copy. */
 export function unmappedActiveDas(
-  activeDaNames: string[],
-  rows: DmDaGroupRow[],
+  activeDaNames: readonly string[],
+  rows: ReadonlyArray<{ dm_name: string | null; da_name: string | null }>,
 ): string[] {
   const mapped = new Set(
     rows

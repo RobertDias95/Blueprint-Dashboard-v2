@@ -20,6 +20,8 @@ import type { TeamMember, DrawScheduleQuarterLayoutRow } from '../../lib/databas
 import { formerLabel, formerMemberNames } from '../../lib/roster';
 import { deriveGroupSpans } from '../../lib/quarterLayoutHelpers';
 import { useQuarterLayout } from '../../hooks/useQuarterLayout';
+import { useDmDaGroups } from '../../hooks/useDmDaGroups';
+import { findDmForDa } from '../wizard/dmRouting';
 import { reorderLayoutIds } from '../../hooks/useReorderQuarterLayout';
 import {
   useCloneQuarterLayout,
@@ -216,6 +218,28 @@ export default function QuarterLayoutEditor({ das, dms, ents = [], readOnly = fa
     [quarter],
   );
 
+  // ═══ ★★★ fix-617 §A.2 — THIS EDITOR NOW *READS* THE ONE LIST ═══
+  //
+  // ⚖️ Bobby, 2026-10-01: **"Settings decides; the Draw Schedule follows."**
+  //
+  // `dm_da_groups` is the answer to "who manages this DA". It was already the
+  // answer everywhere that MATTERS — fix-379 derives `permits.dm` from it,
+  // fix-346 co-assigns tasks from it, the wizard's `findDmForDa` reads it — and
+  // this editor was the one place that kept a second, free-text answer in
+  // `group_label`. So it reads the list instead of inviting a new answer.
+  //
+  // ★★ THE SAME HELPER THE WIZARD USES, deliberately. A second lookup written
+  //    here is a second place for the two to drift, which is the shape of the
+  //    bug this ticket closes.
+  //
+  // ★ `null` when the DA is in no group is kept as null, not '' — "nobody
+  //   manages them" is a real state (§A.1's unmap), and `bp_set_dm_for_da`
+  //   writes exactly that.
+  const dmDaGroups = useDmDaGroups();
+  function groupFromTeamStructure(da: string): string | null {
+    return findDmForDa(da, dmDaGroups.rows ?? []);
+  }
+
   // Dropdown / datalist options: roster names + whatever the DRAFT already uses
   // (so a departed person on a backfilled quarter still shows).
   const daNames = useMemo(() => {
@@ -285,7 +309,17 @@ export default function QuarterLayoutEditor({ das, dms, ents = [], readOnly = fa
 
   function addDaColumn(daName: string) {
     if (!daName) return;
-    appendRow({ col_kind: 'da', da_name: daName, group_label: null, label_override: null, top_label: null });
+    // ★ fix-617 §A.2: a new DA column arrives already grouped, from the one
+    //   list. It used to arrive with `group_label: null` and then have to be
+    //   typed in here — which is how a column came to claim a manager the
+    //   roster disagreed with.
+    appendRow({
+      col_kind: 'da',
+      da_name: daName,
+      group_label: groupFromTeamStructure(daName),
+      label_override: null,
+      top_label: null,
+    });
   }
   function addDmColumn(dmName: string) {
     if (!dmName) return;
@@ -548,7 +582,18 @@ export default function QuarterLayoutEditor({ das, dms, ents = [], readOnly = fa
                           row.da_name && daNames.includes(row.da_name)
                             ? row.da_name
                             : daNames[0];
-                        if (da) patchRow(row.id, { col_kind: 'da', da_name: da });
+                        // ★ fix-617 §A.2: becoming a DA column hands the group
+                        //   back to Team Structure. Carrying the old typed label
+                        //   across would re-create the free-text answer this
+                        //   ticket removes — the sync on the next move, or the
+                        //   clone/seed path, fills it from `dm_da_groups`.
+                        if (da) {
+                          patchRow(row.id, {
+                            col_kind: 'da',
+                            da_name: da,
+                            group_label: groupFromTeamStructure(da),
+                          });
+                        }
                       } else {
                         const dm =
                           row.da_name && dmNames.includes(row.da_name)
@@ -858,15 +903,56 @@ function ColumnRow({
         </select>
       )}
 
-      <input
-        list="ql-group-suggestions"
-        value={row.group_label ?? ''}
-        placeholder="Manager (blank = standalone)"
-        disabled={readOnly}
-        onChange={(e) => onChangeGroup(e.target.value)}
-        className="text-xs px-2 py-1 border border-border rounded bg-bg text-text flex-1 min-w-0 disabled:opacity-50"
-        data-testid={`ql-group-${row.id}`}
-      />
+      {/* ═══ ★★★ fix-617 §A.2 — A DA’S GROUP IS SHOWN HERE, NOT EDITED ═══
+
+          ⚖️ Bobby, 2026-10-01: **"Settings decides; the Draw Schedule follows."**
+
+          This box used to be free text, and that is the whole of P-006: it LOOKED
+          like moving a DA between managers and changed nothing about who manages
+          them — not the task co-assignee, not the derived DM on their permits,
+          not the wizard. Two editors, two answers, and the one that mattered was
+          the other one.
+
+          ★★ SO THE CHOICE MOVED RATHER THAN BEING DUPLICATED. Team Structure owns
+             it; a move there writes this column for the current quarter and every
+             later one. What stays editable HERE is what is genuinely the layout’s
+             own business: column order, label overrides, top labels, and OPEN
+             lanes.
+
+          ★ A `dm` column keeps its editable group, because for a manager’s own
+            column the group label IS the column — it is not a claim about who
+            reports to whom. */}
+      {row.col_kind === 'da' ? (
+        <span
+          className="text-xs px-2 py-1 border border-border rounded bg-s2 text-muted flex-1 min-w-0 truncate"
+          title="Set in Settings → Teams & routing → Team Structure. Moving a DA there updates this quarter and every later one."
+          data-testid={`ql-group-${row.id}`}
+          data-readonly="true"
+        >
+          {(row.group_label ?? '').trim() === '' ? (
+            <span className="italic text-dim">No manager</span>
+          ) : (
+            row.group_label
+          )}
+          <a
+            href="/settings/teams#team-structure"
+            className="text-de underline ml-1.5 no-underline hover:underline"
+            data-testid={`ql-group-link-${row.id}`}
+          >
+            Set in Team Structure
+          </a>
+        </span>
+      ) : (
+        <input
+          list="ql-group-suggestions"
+          value={row.group_label ?? ''}
+          placeholder="Manager (blank = standalone)"
+          disabled={readOnly}
+          onChange={(e) => onChangeGroup(e.target.value)}
+          className="text-xs px-2 py-1 border border-border rounded bg-bg text-text flex-1 min-w-0 disabled:opacity-50"
+          data-testid={`ql-group-${row.id}`}
+        />
+      )}
 
       {/* fix-190b: top-tier (regional/ent) header — free text; blank = none. */}
       <input

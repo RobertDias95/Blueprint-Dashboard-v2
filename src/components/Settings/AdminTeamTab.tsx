@@ -136,8 +136,11 @@ export default function AdminTeamTab() {
 
 
       <SettingsBlock id="active-quarters">
+        {/* ★ fix-617 (gap 38): `formerDas` too — they hold every quarter window
+            prod actually has, and the Draw Schedule reads them. */}
         <TeamActiveQuartersEditor
           activeDas={teamQ.activeDas}
+          formerDas={teamQ.formerDas}
           readOnly={!isAdmin}
         />
       </SettingsBlock>
