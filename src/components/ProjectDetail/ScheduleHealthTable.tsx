@@ -54,6 +54,8 @@ import type {
 import ReviewerRollupChip from './ReviewerRollupChip';
 import { LandUsePhaseBadge } from './LandUsePhaseBadge';
 import InlineErrorBoundary from '../InlineErrorBoundary';
+import TemplateTasksOffer from './TemplateTasksOffer';
+import { useAddedPermitsStore } from '../../stores/addedPermitsStore';
 
 // ===========================================================================
 // ★★★ fix-517 §A (P-219) — `SCHEDULE HEALTH` IS NOW `PERMITS`, AND IT IS THE
@@ -141,6 +143,8 @@ interface PermitRowModel extends PermitSortRow {
   structAddress: string | null;
   portalUrl: string | null;
   redesignLabel: string | null;
+  /** ★ fix-609: a backfill project's template offer starts with nothing ticked. */
+  projectIsBackfill: boolean;
 }
 
 interface Props {
@@ -365,6 +369,7 @@ export default function ScheduleHealthTable({
         structAddress: permit.struct_address ?? null,
         portalUrl: permit.portal_url ?? null,
         redesignLabel: redesignLabelByPermitId?.get(permit.id) ?? null,
+        projectIsBackfill: project?.is_backfill === true,
       };
     });
   }, [
@@ -544,7 +549,12 @@ function Row({
     structAddress,
     portalUrl,
     redesignLabel,
+    projectIsBackfill,
   } = model;
+  // ★ fix-609 (P-306): a permit a Project Details save JUST added — the modal
+  //   has closed, so its template-task offer is made here, on its row.
+  const justAdded = useAddedPermitsStore((s) => s.ids.has(permit.id));
+  const dismissAdded = useAddedPermitsStore((s) => s.dismiss);
   const borderL = { borderLeftColor: 'var(--color-border)' } as const;
 
   return (
@@ -602,6 +612,15 @@ function Row({
               </div>
             )}
             <LandUsePhaseBadge permit={permit} />
+            {justAdded && (
+              <TemplateTasksOffer
+                permit={permit}
+                juris={juris}
+                isBackfill={projectIsBackfill}
+                onDismiss={() => dismissAdded(permit.id)}
+                testid={`schedule-health-template-offer-${permit.id}`}
+              />
+            )}
           </div>
           {/* ═══════════════════════════════════════════════════════════
               ★★★ fix-572 §A (P-277) — THE ✎↗ HOVER GLYPH IS REMOVED

@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef } from 'react';
 import { useTaskTemplates } from '../../hooks/useTaskTemplates';
 import TaskReviewSection from './TaskReviewSection';
+import { applicableTemplates } from '../../lib/templateTasks';
 import type { TaskTemplate } from '../../lib/database.types';
 import type { WizardPermit, WizardState } from './wizardState';
 
@@ -45,16 +46,8 @@ interface Props {
   onChange: (patch: Partial<WizardState>) => void;
 }
 
-/** True when a template applies to a given (permit_type, juris) combo. */
-function templateApplies(
-  t: TaskTemplate,
-  permitType: string,
-  juris: string,
-): boolean {
-  if (t.permit_type !== permitType) return false;
-  if (t.jurisdiction === null) return true;
-  return t.jurisdiction === juris;
-}
+// ★ fix-609: which templates apply, and their order, now live in
+//   lib/templateTasks — the add-a-permit-later offer reads the same rule.
 
 export default function Step4TaskReview({ value, onChange }: Props) {
   const tplQ = useTaskTemplates();
@@ -90,15 +83,8 @@ export default function Step4TaskReview({ value, onChange }: Props) {
   const templatesByRow = useMemo(() => {
     const m = new Map<string, TaskTemplate[]>();
     for (const p of selectedPermits) {
-      const list = (tplQ.templates ?? []).filter((t) =>
-        templateApplies(t, p.type, value.juris),
-      );
       // Sort by (sort_order ASC, text ASC) for stable display.
-      list.sort(
-        (a, b) =>
-          (a.sort_order ?? 0) - (b.sort_order ?? 0) ||
-          a.text.localeCompare(b.text),
-      );
+      const list = applicableTemplates(tplQ.templates ?? [], p.type, value.juris);
       m.set(p.rowId, list);
     }
     return m;

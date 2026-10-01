@@ -380,13 +380,15 @@ describe('fix-604 §1 — every write mutation names what it writes', () => {
     }
   });
 
-  it('★★ the census covers the whole app: 120 mutations, 119 named, 1 listed', () => {
+  it('★★ the census covers the whole app: 121 mutations, 120 named, 1 listed', () => {
     // ★ Re-derived at d35ec2d, and pinned so a NEW hook cannot slip in without
     //   this number moving and someone noticing.
+    // ★ fix-609: +1, `useAddTemplateTasks` (bp_add_template_tasks_to_permit) —
+    //   named, so it moves both numbers together.
     const named = all.filter((f) => f.write !== null);
     const listed = all.filter((f) => f.hook in ALLOW_LIST);
-    expect(all.length).toBe(120);
-    expect(named.length).toBe(119);
+    expect(all.length).toBe(121);
+    expect(named.length).toBe(120);
     expect(listed.length).toBe(1);
     expect(named.length + listed.length).toBe(all.length);
   });

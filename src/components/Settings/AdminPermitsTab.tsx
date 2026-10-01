@@ -37,8 +37,8 @@ export default function AdminPermitsTab() {
         </h2>
         <p className="text-[11px] text-muted mb-4">
           Default tasks applied when a new permit is created. Pick a permit
-          type + jurisdiction + stage to edit that scope. The "Base" jurisdiction
-          applies to ALL juris where no specific override exists.
+          type + jurisdiction + stage to edit that scope. "Base" tasks apply in
+          every jurisdiction, alongside that jurisdiction's own tasks.
         </p>
         <TaskTemplateEditor readOnly={!isAdmin} />
       </div>
