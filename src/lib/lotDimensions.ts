@@ -168,18 +168,30 @@ export function formatLotPair(
  *  fourth would otherwise invent "Varies" or "irregular". */
 export const LOT_VARIES_LABEL = 'varies';
 
-/**
- * ★★ How far `width × depth` may sit from a typed size before the lot is called
- * irregular. **5%.**
- *
- * ★★★ THIS NUMBER IS COWORK'S, NOT BOBBY'S — he did not rule on it, and the
- * fix-488 PR says so. It is a NOTE, never an error and never an auto-correct:
- * both numbers are things a person typed, and a tool that "fixed" one of them
- * would be overwriting a survey with arithmetic. 5% is loose enough that a
- * rounded 100.4×72.3 lot does not trip it and tight enough that a genuinely
- * multi-angled parcel does.
- */
-export const LOT_IRREGULAR_TOLERANCE = 0.05;
+// ════════════════════════════════════════════════════════════════════════
+// ★★★ fix-602 §C — `LOT_IRREGULAR_TOLERANCE` IS RETIRED. 2026-09-30.
+// ════════════════════════════════════════════════════════════════════════
+//
+// It held 5% — how far `width × depth` could sit from a typed size before the
+// lot was called irregular. fix-488 wrote it, and said in its own PR that
+// **the number was Cowork's and not Bobby's**; fix-555 measured it again and
+// recommended 2% without acting, for the same reason.
+//
+// ★★★ BOBBY HAS NOW RULED, AND HE DID NOT PICK A NUMBER — HE REJECTED THE
+//     WHOLE QUESTION. 2026-09-30: *"irregular = only one of the two items
+//     input, width or depth. If one is blank, it auto triggers irregular and
+//     inputs varies into the box. Or if both boxes are blank and just a lot
+//     size, then that is irregular too."*
+//
+//     **Irregular is a MISSING DIMENSION, not a disagreeing one.** A lot with
+//     both dimensions is never irregular, whatever the size says.
+//
+// ★★ THE DISAGREEMENT DOES NOT DISAPPEAR — IT STOPS BEING A SHAPE. Measured
+//    2026-09-30, the old rule flagged **20** lots that have both dimensions;
+//    the new rule flags **12** that are missing one. The 20 are a DATA problem
+//    (a survey and a rectangle that do not agree) and they live in
+//    `data/reports/fix_555_lot_size_disagreements.md` for people to correct.
+//    §C.4 is explicit: do not build a second indicator for it.
 
 export interface LotSizeView {
   /** "60" · "varies" · null (nothing recorded). */
@@ -199,7 +211,11 @@ export interface LotSizeView {
    *  one thing a surface must not lose: a derived area is arithmetic, a typed
    *  one is a survey. */
   sizeDerived: boolean;
-  /** ★ All three typed, and `width × depth` is more than 5% from the size. */
+  /**
+   * ★★★ fix-602 §C: A DIMENSION IS MISSING — Bobby's definition, and the whole
+   *     definition. One of width/depth blank, or BOTH blank beside a typed
+   *     size. Never about the size disagreeing with the rectangle.
+   */
   irregular: boolean;
 }
 
@@ -326,17 +342,25 @@ export function lotSizeView(
   const d = n(depth);
   const typed = n(sizeSf);
 
-  // ★★★ fix-555 §B.4: A TYPED SIZE BESIDE A BLANK DIMENSION IS THE
-  //     STATEMENT, and it no longer matters whether the OTHER dimension is
-  //     known. fix-488 required `d !== null` here, which made the size-only
-  //     lot render no pair at all; Bobby ruled that both should read the word.
+  // ★★★ fix-602 §C.2 — A BLANK DIMENSION READS `varies` BESIDE A FILLED ONE,
+  //     WITH OR WITHOUT A SIZE.
   //
-  // ★ A blank dimension with NO size still means NOT RECORDED — that half of
-  //   fix-488's rule is untouched, and it is what keeps `60 · — · —` silent
-  //   about the shape instead of inventing an irregular lot from an
-  //   unfinished row.
-  const widthVaries = typed !== null && w === null;
-  const depthVaries = typed !== null && d === null;
+  //     fix-488 required a typed size before it would say the word, and
+  //     fix-555 §B.4 kept that requirement while widening the both-blank case.
+  //     Bobby's rule does not: *"If one is blank, it auto triggers irregular
+  //     and inputs varies into the box."* A width beside a blank depth IS the
+  //     statement; the size is not part of it.
+  //
+  // ★★ THE SIZE IS STILL WHAT RESCUES THE BOTH-BLANK CASE, which is the half
+  //    of fix-555 §B.4 that survives: two blanks with a size is *"just a lot
+  //    size"* and reads `varies × varies`; two blanks with NOTHING is a row
+  //    nobody has filled in, and must stay silent rather than inventing an
+  //    irregular lot from an unfinished form. 6 projects are in that state.
+  //
+  // ★ 0 lots hold one dimension and no size today — so this widening changes
+  //   nothing on screen right now, and is the rule the next one will meet.
+  const widthVaries = w === null && (d !== null || typed !== null);
+  const depthVaries = d === null && (w !== null || typed !== null);
 
   const widthText = w !== null ? formatLotFeet(w) : widthVaries ? LOT_VARIES_LABEL : null;
   const depthText = d !== null ? formatLotFeet(d) : depthVaries ? LOT_VARIES_LABEL : null;
@@ -358,11 +382,17 @@ export function lotSizeView(
   const size = typed ?? derived;
   const sizeDerived = typed === null && derived !== null;
 
-  const irregular =
-    typed !== null &&
-    derived !== null &&
-    typed > 0 &&
-    Math.abs(derived - typed) / typed > LOT_IRREGULAR_TOLERANCE;
+  // ★★★ fix-602 §C.1 — BOBBY'S DEFINITION, LITERALLY:
+  //     `(width blank XOR depth blank) OR (both blank AND a size is typed)`.
+  //
+  // ★★ A LOT WITH BOTH DIMENSIONS IS NEVER IRREGULAR, whatever the size says.
+  //    That is the clause that retires the old 5% mismatch branch, and it is
+  //    the one that changes what 20 projects render.
+  //
+  // ★ Nothing typed at all = NOT RECORDED, not irregular.
+  const oneBlank = (w === null) !== (d === null);
+  const bothBlankWithSize = w === null && d === null && typed !== null;
+  const irregular = oneBlank || bothBlankWithSize;
 
   return {
     widthText,

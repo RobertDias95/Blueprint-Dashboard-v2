@@ -131,7 +131,18 @@ describe('fix-512 §A — the badge and the column, in the component', () => {
     // …the badge measures against THAT…
     expect(c).toContain('computeHealthDiff(approval.date, target.date)');
     // …and the cell is HANDED it rather than calling again.
-    expect(c).toContain('<TargetApprovalCell permitId={permit.id} target={target} />');
+    //
+    // ⚠️ fix-602 §A.2 ADDED A PROP AND THE JSX WRAPPED, so the one-line form this
+    //    pinned no longer exists. **The invariant is untouched** — `target` is
+    //    still derived once above and passed down; what is new is a `mirrored`
+    //    flag that only picks the tooltip wording. Asserted as the RELATIONSHIP
+    //    rather than as one line of formatting, which is what this test was
+    //    always about.
+    const cell = c.slice(c.indexOf('<TargetApprovalCell'), c.indexOf('/>', c.indexOf('<TargetApprovalCell')));
+    expect(cell).toContain('permitId={permit.id}');
+    expect(cell).toContain('target={target}');
+    // ★ and it does NOT recompute — no second call inside the cell
+    expect(c.match(/targetApproval\(/g) ?? []).toHaveLength(1);
   });
 
   it('★★★ the badge no longer subtracts expected_issue anywhere', () => {
@@ -221,10 +232,19 @@ describe('fix-512 §B — the derivation rule', () => {
     }
   });
 
-  it('★★ …and a derived size can never be irregular, because it IS the product', () => {
-    const v = lotSizeView(60, 100, null);
-    expect(v.irregular).toBe(false);
-    // Irregularity is a disagreement, so it needs two independent numbers.
-    expect(lotSizeView(60, 100, 12_000).irregular).toBe(true);
+  it('★★ …and a lot with BOTH dimensions is never irregular, derived or typed', () => {
+    // ⚠️ SUPERSEDED BY fix-602 §C. This read *"irregularity is a disagreement, so
+    //    it needs two independent numbers"* and asserted that a 12,000 sf size
+    //    against a 6,000 sf rectangle WAS irregular. Bobby ruled 2026-09-30 that
+    //    irregular means a MISSING DIMENSION — so a fully measured lot is never
+    //    irregular, and the disagreement is data rather than shape.
+    //
+    // ★ The half this test was really protecting survives: a DERIVED size cannot
+    //   be irregular, because there is nothing for it to disagree with and both
+    //   dimensions are present.
+    expect(lotSizeView(60, 100, null).irregular).toBe(false);
+    expect(lotSizeView(60, 100, 12_000).irregular).toBe(false);
+    // ★★ …and the case that IS irregular now is the one missing a dimension.
+    expect(lotSizeView(60, null, 12_000).irregular).toBe(true);
   });
 });

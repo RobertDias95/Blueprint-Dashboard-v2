@@ -1,4 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
+// ★ fix-602 §B: THE rule, in one place. See `lib/dateUtils`.
+import { dateInputRejection } from '../lib/dateUtils';
 
 // fix-258: THE one buffered native date input. Use this anywhere a `type=date`
 // commits to the server — do not hand-roll the pattern again.
@@ -70,6 +72,9 @@ export default function BufferedDateInput({
   // closure-read would still hold the pre-revert draft and commit the value the
   // user just escaped out of. The ref is updated synchronously, so it can't.
   const draftRef = useRef(committed);
+  /** ★ fix-602 §B: the sentence under the box, or null. Set on a refused
+   *  commit, cleared on a good one or on Escape. */
+  const [rejection, setRejection] = useState<string | null>(null);
 
   function setDraftBoth(next: string) {
     draftRef.current = next;
@@ -94,8 +99,20 @@ export default function BufferedDateInput({
     // phantom mutation, no OCC round-trip, no toast.
     if (draftRef.current === lastCommittedRef.current) {
       setDirty(false);
+      setRejection(null);
       return;
     }
+    // ★★★ fix-602 §B: AN IMPOSSIBLE YEAR SAVES NOTHING AND KEEPS THE OLD
+    //     VALUE. The draft is left on screen so the typo is visible and
+    //     fixable — reverting under the cursor would look like the box
+    //     eating the keystroke — but `lastCommittedRef` does not move and
+    //     `onCommit` is never called, so nothing reaches the server.
+    const rejection = dateInputRejection(draftRef.current);
+    if (rejection) {
+      setRejection(rejection);
+      return;
+    }
+    setRejection(null);
     lastCommittedRef.current = draftRef.current;
     setDirty(false);
     onCommit(draftRef.current || null);
@@ -104,13 +121,22 @@ export default function BufferedDateInput({
   function revert() {
     setDraftBoth(lastCommittedRef.current);
     setDirty(false);
+    // ★ Escape clears the refusal too — the value it was about is gone.
+    setRejection(null);
     onEditEnd?.();
   }
 
+  // ★★ A FRAGMENT, NOT A WRAPPER DIV. Callers place this input inside their
+  //    own grids and one of them (`ProjectDataEditors`' date rows) sizes the
+  //    cell from the input itself — an extra block element would change every
+  //    layout that has ever used this. The message is a sibling, shown only
+  //    when there is one.
   return (
+    <>
     <input
       type="date"
       value={draft}
+      aria-invalid={rejection ? true : undefined}
       disabled={disabled}
       autoFocus={autoFocus}
       min={min}
@@ -137,5 +163,15 @@ export default function BufferedDateInput({
       style={style}
       data-testid={testId}
     />
+    {rejection && (
+      <span
+        className="text-[10px] block mt-0.5"
+        style={{ color: 'var(--color-co)' }}
+        data-testid={testId ? `${testId}-rejection` : undefined}
+      >
+        {rejection}
+      </span>
+    )}
+    </>
   );
 }

@@ -174,3 +174,71 @@ export function todayIso(now: Date = new Date()): string {
   const d = String(now.getDate()).padStart(2, '0');
   return `${y}-${m}-${d}`;
 }
+
+// ===========================================================================
+// ★★★ fix-602 §B (P-301) — A DATE FIELD REFUSES AN IMPOSSIBLE YEAR
+// ===========================================================================
+//
+// Three permits hold an ACQ target no date input should ever have saved,
+// measured on prod 2026-09-30:
+//
+//   10206  5053 25th Ave SW  Building Permit  `202025-11-30`
+//   10680  2844 35th AVE W   Building Permit  `252025-02-02`
+//   10681  2844 35th AVE W   Demolition       `5252-02-02`
+//
+// ★★★ THE MECHANISM, AND IT IS NOT A MYSTERY. A native `<input type="date">`
+//     fires `onChange` on every intermediate state, and its year segment accepts
+//     **six digits** while you are typing — so `2025` becomes `202025` with one
+//     stray keystroke. `BufferedDateInput` (fix-258) exists because of exactly
+//     this, and commits on blur rather than on change.
+//
+// ★★ BUT BUFFERING IS NOT ENOUGH ON A BATCH FORM. 10680 and 10681 share
+//    `updated_at` 2026-09-22 12:20:29 PT and sit on the SAME project — **one
+//    save wrote both**. That is the Permits tab, whose ACQ field is a plain
+//    `<Input type="date">` in the form's own state, written by the footer's
+//    Save. No amount of blur-buffering helps when the bad value is what the
+//    form is holding.
+//
+// ★★★ SO THE RULE IS A PREDICATE, NOT A COMPONENT BEHAVIOUR. One function,
+//     used by the buffered input AND by the batch form, because those two commit
+//     at genuinely different moments and a rule that lived in only one of them
+//     would have missed the surface that actually did the damage.
+
+/** The years a date box will accept. ★ Wide enough that nobody meets it by
+ *  accident — a 2031 closing date and a 2004 permit are both ordinary — and
+ *  narrow enough that a six-digit year cannot survive. */
+export const DATE_INPUT_MIN_YEAR = 2000;
+export const DATE_INPUT_MAX_YEAR = 2099;
+
+/** What the box says when it refuses. One sentence, one place. */
+export const DATE_INPUT_YEAR_MESSAGE =
+  `Year must be between ${DATE_INPUT_MIN_YEAR} and ${DATE_INPUT_MAX_YEAR}.`;
+
+/**
+ * Why this date cannot be saved — or null when it can.
+ *
+ * ★★ AN EMPTY VALUE IS ALWAYS FINE. Clearing a date is a legitimate edit and
+ *    must stay one; §B's own test says so.
+ *
+ * ★ A value that is not `YYYY-MM-DD` at all is left alone rather than refused.
+ *   A native date input cannot produce one, and refusing it here would put this
+ *   function in the business of parsing, which `todayIso` and the callers
+ *   already handle.
+ */
+export function dateInputRejection(raw: string | null | undefined): string | null {
+  const v = (raw ?? '').trim();
+  if (!v) return null;
+  const m = /^(\d{1,})-(\d{2})-(\d{2})$/.exec(v);
+  if (!m) return null;
+  const year = Number(m[1]);
+  if (!Number.isFinite(year)) return null;
+  if (year < DATE_INPUT_MIN_YEAR || year > DATE_INPUT_MAX_YEAR) {
+    return DATE_INPUT_YEAR_MESSAGE;
+  }
+  return null;
+}
+
+/** ★ The complement, for a caller that only wants a yes/no. */
+export function dateInputIsAcceptable(raw: string | null | undefined): boolean {
+  return dateInputRejection(raw) === null;
+}

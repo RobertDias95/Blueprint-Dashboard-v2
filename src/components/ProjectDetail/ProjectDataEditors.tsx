@@ -1327,12 +1327,19 @@ function SiteLotSizeRow({
         </span>
       )}
       {/* ★ THE IRREGULAR NOTE — quiet, and never an error or an auto-correct.
-          Both numbers are things a person typed. */}
+
+          ⚠️ fix-602 §C.3: IT USED TO DESCRIBE THE OLD MISMATCH RULE — a typed
+             size sitting more than five per cent from width × depth. Bobby
+             ruled 2026-09-30 that irregular means a MISSING DIMENSION and
+             nothing else, so the note now says the thing that is actually true
+             of every lot it appears on. A size that disagrees with the
+             rectangle is a DATA problem and lives in
+             `data/reports/fix_555_lot_size_disagreements.md`. */}
       {view.irregular && (
         <span
           className="text-[9px] italic"
           style={{ color: 'var(--color-co)' }}
-          title="The typed size is more than 5% from width × depth."
+          title="A dimension is missing, so this lot is irregular."
           data-testid="pd-site-lot-irregular"
         >
           irregular lot

@@ -1782,11 +1782,14 @@ function Row({
                 // ★★ A DERIVED SIZE IS MARKED, NOT HIDDEN AND NOT RESTYLED. It
                 //    is the same number in the same face — a `~` and a title
                 //    are the whole distinction.
+                // ⚠️ fix-602 §C.3: the irregular branch used to describe the old
+                //    mismatch rule. Irregular now means a MISSING DIMENSION
+                //    (Bobby, 2026-09-30), so the sentence says that instead.
                 title={
                   v.sizeDerived
                     ? 'Width × depth — nobody has typed a lot size'
                     : v.irregular
-                      ? 'Typed lot size. It is more than 5% from width × depth — an irregular lot.'
+                      ? 'Typed lot size. A dimension is missing, so this lot is irregular.'
                       : 'Typed lot size'
                 }
                 data-derived={v.sizeDerived ? 'true' : 'false'}
