@@ -3,6 +3,7 @@ import projectDetailSource from '../pages/ProjectDetail.tsx?raw';
 import librarySource from '../components/LibraryMatrix.tsx?raw';
 import dashboardSource from '../pages/Dashboard.tsx?raw';
 import adminTeamSource from '../components/Settings/AdminTeamTab.tsx?raw';
+import peopleTableSource from '../components/Settings/PeopleTable.tsx?raw';
 import addrGroupSource from '../components/Dashboard/AddrGroup.tsx?raw';
 import originLinkSource from '../components/OriginLink.tsx?raw';
 import { PREVIOUS_ORIGINS, previousTarget } from '../lib/previousOrigin';
@@ -407,24 +408,30 @@ describe('fix-403 §4: three people, once each', () => {
     expect(dedupeByPerson(rows).map((r) => r.id)).toEqual(['a', 'c']);
   });
 
-  it('★★★ removing a dual-role person removes BOTH rows', () => {
-    // The decision, stated: deleting one row would leave the pill on screen
-    // (the other row still backs it), so the × would look broken. The Settings
-    // list is a list of PEOPLE.
-    expect(adminTeamSource).toContain('function findAllByName');
-    expect(adminTeamSource).toMatch(
-      /function hardDelete[\s\S]{0,200}for \(const m of findAllByName/,
-    );
-    expect(adminTeamSource).toMatch(
-      /function renameSimple[\s\S]{0,200}for \(const m of findAllByName/,
-    );
-    // ★ Each row carries its OWN OCC token into the delete.
-    expect(adminTeamSource).toContain('remove.mutate({ id: m.id, updated_at: m.updated_at })');
+  it('★★★ a dual-role person is ONE row, and Retire stands every role down', () => {
+    // ⚠️⚠️ SUPERSEDED BY fix-613 §A, AND THE REASONING SURVIVES INTACT.
+    //
+    //    This asserted that removing a dual-role person removes BOTH rows,
+    //    because the Settings list is a list of PEOPLE — deleting one row left
+    //    the pill on screen backed by the other, so the × looked broken. That is
+    //    exactly the instinct Bobby's one table formalises.
+    //
+    // ★★★ WHAT CHANGED IS THE VERB. It was a HARD DELETE for every role but DA
+    //     (census gap 37); it is now Retire, which stands every one of a
+    //     person's rows down and deletes nothing — so the name stays readable on
+    //     the ~2,209 assignments that still point at it.
+    expect(peopleTableSource).toContain('retirePersonWrites(person)');
+    expect(peopleTableSource).not.toContain('useDeleteTeamMember');
+    expect(adminTeamSource).not.toContain('useDeleteTeamMember');
   });
 
   it('★★ the ENT family is a named set beside the ACQ one', () => {
+    // ⚠️ fix-613 §A: the role-family LOOKUP went with the nine pill lists — the
+    //    Everyone table's writes carry the roster row itself, so there is no role
+    //    string to resolve. The named SET is what this test is really about, and
+    //    it is untouched in lib/roster.
     expect([...ENT_ROLES].sort()).toEqual(['ent', 'ent_lead']);
-    expect(adminTeamSource).toContain('ENT_ROLES.has(role)');
+    expect(adminTeamSource).not.toContain('ENT_ROLES.has(role)');
   });
 
   it('★ the ACQUISITIONS list is unaffected — fix-401 still holds', () => {

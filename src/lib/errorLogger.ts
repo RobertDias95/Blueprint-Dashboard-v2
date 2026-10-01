@@ -111,6 +111,7 @@ export function shouldLogQueryFailure(
   observers: number,
 ): boolean {
   if (shouldSkipBackendRpcLog(err, key)) return false;
+  if (isQuietNetworkQueryFailure(err, key)) return false;
   return observers > 0;
 }
 
@@ -149,6 +150,86 @@ export const DECORATION_QUERY_KEYS: ReadonlySet<string> = new Set([
   'plan_of_record_thumb',
 ]);
 
+// ===========================================================================
+// ★★★ fix-613 §Z (P-309) — A SIGNATURE THAT NEVER LEFT THE LAPTOP
+// ===========================================================================
+//
+// TRIAGE #752, prod, 2026-10-01 10:49:11 PT, Brittani:
+//
+//   Failed to fetch — avatar_url (00000000-…/a62d67f4-….jpg)
+//   {"kind":"query","operation":"avatar_url","record":"…"}
+//
+// ★★★ THE REQUEST NEVER COMPLETED. Not a 404, not a permission refusal — a
+//     `TypeError: Failed to fetch`, which is the browser saying it could not get
+//     the request onto the wire at all. The object was intact, the signature
+//     would have worked, and she kept working: the circle drew her initials and
+//     she never knew. **Fourth time, and only ever her connection.**
+//
+// ⚖️ Bobby ruled dismiss, and ruled the class quiet: a network blip on a
+//    PICTURE is not something anybody will ever action.
+//
+// ---------------------------------------------------------------------------
+// ★★ WHY THIS IS A KEY LIST AND NOT A MESSAGE REGEX — fix-341 §2's RULE AGAIN
+// ---------------------------------------------------------------------------
+// "Failed to fetch" also appears when the API is down. Silencing those three
+// words by WORDING would silence a real outage; what separates a blip on an
+// avatar from a blip on the permit list is WHICH QUERY FAILED, which is a fact
+// about the request. So the exemption is (specific query key) × (network
+// failure) — both halves required, neither sufficient.
+//
+// ★★★ AND IT IS NARROWER THAN THE DECORATION LIST ABOVE, DELIBERATELY. A
+//     `plan_of_record_thumb` failure is downgraded to WARNING whatever caused
+//     it. This one is silenced only for the cause nobody can act on; an
+//     `Object not found` on the same query still reports at `error`, because
+//     that one means a person's row points at a file that is not in the bucket
+//     — a real defect wearing a transport costume (fix-592 §C's phrase).
+export const NETWORK_QUIET_QUERY_KEYS: ReadonlySet<string> = new Set([
+  // The signed URL for one avatar object. The circle falls back to initials, so
+  // a failure costs the reader nothing — and a failure that never reached the
+  // server costs them nothing to fix either.
+  'avatar_url',
+]);
+
+/**
+ * ★ Is this a network blip on a query whose blips nobody can action?
+ *
+ * ★★ THE NETWORK TEST IS INLINED rather than imported from `lib/saveFailure`.
+ *    That module is imported by App's MutationCache and pulls in the
+ *    save-failure store; `lib/errorLogger` is imported by almost everything,
+ *    including modules that run before any store exists. Two small predicates
+ *    beat a dependency edge in that direction — fix-415's lesson about a lib
+ *    reaching sideways, applied before it could bite.
+ */
+export function isQuietNetworkQueryFailure(err: unknown, key: unknown): boolean {
+  if (!NETWORK_QUIET_QUERY_KEYS.has(queryKeyRoot(key))) return false;
+  return isBareNetworkFailure(err);
+}
+
+/**
+ * A failure that never got a response at all.
+ *
+ * ★★★ A RESPONSE THAT ARRIVED IS NOT A NETWORK FAILURE, whatever it says. A
+ *     Supabase storage error carries a `code` or a `status`; a `TypeError` from
+ *     `fetch` carries neither. That is the whole discriminator, and it is what
+ *     keeps "Object not found" reporting while "Failed to fetch" goes quiet.
+ */
+export function isBareNetworkFailure(err: unknown): boolean {
+  if (err && typeof err === 'object') {
+    const o = err as { code?: unknown; status?: unknown; name?: unknown };
+    if (typeof o.code === 'string' && o.code !== '') return false;
+    if (typeof o.status === 'number' && o.status > 0) return false;
+    if (o.name === 'TypeError') return true;
+  }
+  if (err instanceof TypeError) return true;
+  const text = messageOf(err).toLowerCase();
+  return (
+    text.includes('failed to fetch') ||
+    text.includes('networkerror') ||
+    text.includes('network request failed') ||
+    text.includes('load failed')
+  );
+}
+
 /** The first element of a query key, which is this codebase's cause tag. */
 function queryKeyRoot(key: unknown): string {
   return Array.isArray(key) ? String(key[0] ?? '') : String(key ?? '');
@@ -174,6 +255,11 @@ export function queryFailureLevel(
 ): 'error' | 'warning' | null {
   if (shouldSkipBackendRpcLog(err, key)) return null;
   if (observers <= 0) return null;
+  // ★★★ fix-613 §Z: a network blip on an avatar signature. Checked HERE, in
+  //     the one place that answers "does this log and at what level", so the
+  //     hook does not have to swallow its own errors to stay quiet — §Z.2's
+  //     requirement, and the difference between classifying and hiding.
+  if (isQuietNetworkQueryFailure(err, key)) return null;
   return isDecorationQuery(key) ? 'warning' : 'error';
 }
 

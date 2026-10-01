@@ -1,10 +1,14 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
-import { renderHook, act } from '@testing-library/react';
+import { existsSync } from 'node:fs';
+import { resolve } from 'node:path';
+import { renderHook } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import type { ReactNode } from 'react';
 import { REALTIME_TABLES, queryKeys } from '../lib/queryKeys';
 import { useAuthStore } from '../stores/authStore';
-import type { DaTimeBlock } from '../lib/database.types';
+
+const ROOT = resolve(__dirname, '../..');
+const NEWLINE = String.fromCharCode(10);
 
 // ===========================================================================
 // fix-511 §B (P-067, REOPENED) — THE WRITE PATHS fix-442 DID NOT WIRE
@@ -95,7 +99,6 @@ const DA_TIME_BLOCK_WRITE_RPCS = [
   'bp_upsert_da_time_block_row',
   'bp_delete_da_time_block_row',
   'bp_resize_da_time_block',
-  'bp_rename_da',
   'bp_replace_da_time_blocks',
 ] as const;
 
@@ -134,7 +137,6 @@ describe('fix-511 §B3 — the property: every da_time_blocks writer goes throug
     //   quietly-passing empty loop.
     expect(writers.sort()).toEqual([
       '../hooks/useDeleteDaTimeBlock.ts',
-      '../hooks/useRenameDA.ts',
       '../hooks/useResizeDaTimeBlock.ts',
       '../hooks/useUpsertDaTimeBlock.ts',
     ]);
@@ -184,7 +186,6 @@ const mocks = vi.hoisted(() => {
 vi.mock('../lib/supabase', () => ({ supabase: mocks.supabase }));
 
 import { useRealtimeInvalidation, allRealtimeKeys } from '../hooks/useRealtimeInvalidation';
-import { useRenameDA } from '../hooks/useRenameDA';
 
 const T = 'test-tenant-uuid';
 
@@ -200,20 +201,8 @@ function newClient() {
   });
 }
 
-function block(over: Partial<DaTimeBlock> = {}): DaTimeBlock {
-  return {
-    id: 'np_1786128245182_g3g2',
-    da_name: 'Trevor',
-    type: 'Vacation',
-    label: 'Marketing',
-    start_week: '2026-08-10',
-    end_week: '2026-08-31',
-    created_at: '2026-08-07T18:44:05.437516+00:00',
-    updated_at: '2026-09-09T19:20:00.000000+00:00',
-    project_id: null,
-    ...over,
-  };
-}
+// ★ fix-613: the `block` fixture went with §B1’s rename tests — nothing
+//   builds a da_time_block here any more.
 
 beforeEach(() => {
   mocks.byTable.clear();
@@ -264,11 +253,25 @@ describe('fix-511 §B2 — a surface that did NOT write learns the new token', (
     expect(all).toContain(JSON.stringify(queryKeys.daTimeBlocksAll));
   });
 
-  it('★★ every handler registered still matches the map, one per table', () => {
-    const qc = newClient();
-    renderHook(() => useRealtimeInvalidation(), { wrapper: wrapperFor(qc) });
-    expect(mocks.byTable.size).toBe(Object.keys(REALTIME_TABLES).length);
-    void qc;
+  it('★★★ §B1’s writer is GONE from the client — fix-613 retired the rename', () => {
+    // ⚠️⚠️ SUPERSEDED, AND THIS SUITE WAS RIGHT ABOUT EVERYTHING IT FOUND.
+    //
+    //    fix-511 §B census: four writers touch `da_time_blocks`, and ONE of
+    //    them — `bp_rename_da` via `useRenameDA` — invalidated NOTHING. A
+    //    renamed DA's blocks kept their old `da_name` until a reload. §B1 wired
+    //    it, and this test proved the wiring.
+    //
+    // ⚖️ Bobby, 2026-10-01 then retired the rename path altogether: it renamed
+    //    the roster row and some references and MISSED projects, routing and the
+    //    draw schedule, so what it advertised as a cascade split one person
+    //    into two.
+    //
+    // ★★★ THE CACHE HOLE IS CLOSED BY REMOVAL RATHER THAN BY WIRING, which is
+    //     the stronger end state: there is no client path that renames a DA, so
+    //     there is no stale `da_name` to invalidate. The RPC survives on prod
+    //     with no caller (no migration) — reported in fix-613's PR.
+    expect(existsSync(resolve(ROOT, 'src/hooks/useRenameDA.ts'))).toBe(false);
+    expect(existsSync(resolve(ROOT, 'src/hooks/useRenameDM.ts'))).toBe(false);
   });
 });
 
@@ -276,49 +279,38 @@ describe('fix-511 §B2 — a surface that did NOT write learns the new token', (
 // §B1 — the fourth writer
 // ---------------------------------------------------------------------------
 
-describe('fix-511 §B1 — a rename cannot leave a column of superseded tokens rendered', () => {
-  async function rename(qc: QueryClient, shouldThrow = false) {
-    const { result } = renderHook(() => useRenameDA(), { wrapper: wrapperFor(qc) });
-    await act(async () => {
-      const p = result.current.mutateAsync({ oldName: 'Trevor', newName: 'Trev' });
-      if (shouldThrow) await p.catch(() => undefined);
-      else await p;
-    });
-  }
-
-  it('★★★ the cached list is DROPPED, not left to be refetched under the user', async () => {
-    const qc = newClient();
-    qc.setQueryData(queryKeys.daTimeBlocks(T), [block()]);
-    qc.setQueryData(queryKeys.projectTimeBlocks(T, 'p1'), [block()]);
-    mocks.rpcFn.mockResolvedValue({
-      data: { team_members: 1, da_time_blocks: 4 },
-      error: null,
-    });
-    await rename(qc);
-    // ★★★ bp_rename_da sets `da_name` on EVERY block of that DA, so
-    // bp_set_updated_at mints a new token for every one of them and the RPC
-    // returns only counts. An invalidation leaves these rows ON SCREEN with
-    // tokens that are all superseded — fix-442's bug, times the whole column.
-    expect(qc.getQueryData(queryKeys.daTimeBlocks(T))).toBeUndefined();
-    // ★ …and fix-384's project card reads the same table under the same prefix.
-    expect(qc.getQueryData(queryKeys.projectTimeBlocks(T, 'p1'))).toBeUndefined();
-  });
-
-  it('★★ a no-op rename still forgets — the RPC reports it, the cache cannot', async () => {
-    const qc = newClient();
-    qc.setQueryData(queryKeys.daTimeBlocks(T), [block()]);
-    mocks.rpcFn.mockResolvedValue({ data: { noop: true }, error: null });
-    await rename(qc);
-    // The forget runs BEFORE the noop early-return, deliberately: a helper that
-    // only fires on the interesting branch is a helper somebody forgets.
-    expect(qc.getQueryData(queryKeys.daTimeBlocks(T))).toBeUndefined();
-  });
-
-  it('★ a FAILED rename leaves the cache alone — nothing was written', async () => {
-    const qc = newClient();
-    qc.setQueryData(queryKeys.daTimeBlocks(T), [block()]);
-    mocks.rpcFn.mockResolvedValue({ data: null, error: { message: 'nope' } });
-    await rename(qc, true);
-    expect(qc.getQueryData(queryKeys.daTimeBlocks(T))).toHaveLength(1);
+// ===========================================================================
+// ⚠️⚠️ fix-511 §B1's DESCRIBE IS REPLACED BY ONE ASSERTION — fix-613
+// ===========================================================================
+//
+// fix-511 §B found four writers touching `da_time_blocks` and ONE that
+// invalidated nothing: `bp_rename_da`, via `useRenameDA`. A renamed DA's blocks
+// kept their old `da_name` until a reload. §B1 wired it, and the four tests
+// that stood here proved the wiring: the list is dropped rather than refetched,
+// a no-op rename still forgets, and a FAILED rename leaves the cache alone.
+//
+// ★★★ EVERY ONE OF THOSE WAS CORRECT. What changed is that the writer is gone.
+//     ⚖️ Bobby, 2026-10-01 retired the rename path from Settings: it renamed the
+//     roster row and some references and MISSED projects, routing and the draw
+//     schedule, so what it advertised as a cascade split one person into two.
+//
+// ★★ SO THE CACHE HOLE IS CLOSED BY REMOVAL RATHER THAN BY WIRING, which is the
+//    stronger end state: no client path renames a DA, so there is no stale
+//    `da_name` left to invalidate. `bp_rename_da` and `bp_rename_dm` survive on
+//    prod with NO CLIENT CALLER (no migration) — reported in fix-613's PR, and
+//    the honest state until something cascades all 11 columns.
+describe('fix-511 §B1 — superseded: the rename path is gone', () => {
+  it('★★★ neither rename hook exists, so neither can strand a token', () => {
+    expect(existsSync(resolve(ROOT, 'src/hooks/useRenameDA.ts'))).toBe(false);
+    expect(existsSync(resolve(ROOT, 'src/hooks/useRenameDM.ts'))).toBe(false);
+    // ★ and nothing in src/ calls the RPCs any more
+    const hooks = import.meta.glob('../hooks/*.ts', {
+      query: '?raw',
+      import: 'default',
+      eager: true,
+    }) as Record<string, string>;
+    const all = Object.values(hooks).join(NEWLINE);
+    expect(all).not.toContain("rpc('bp_rename_da'");
+    expect(all).not.toContain("rpc('bp_rename_dm'");
   });
 });

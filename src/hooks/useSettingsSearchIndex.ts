@@ -114,26 +114,25 @@ export function useSettingsSearchIndex(): SettingsBlockValues[] {
       },
     ];
 
-    // ★★ PEOPLE NAMES GO ON EVERY PEOPLE BLOCK, which is deliberate rather than
-    //    lazy: in this ticket the roster is still nine separate editors, so
-    //    "Gena" genuinely is findable in several of them and the brief's own test
-    //    asks for *"'Gena' → People blocks"*, plural. fix-612 collapses these
-    //    into one table and this becomes one entry.
-    const names = clean(people.map((m) => m.name));
-    for (const id of [
-      'design-associates',
-      'design-managers',
-      'entitlement-leads',
-      'acquisition-leads',
-      'schematic',
-      'construction-admin',
-      'names-and-emails',
-      'departments',
-      'agenda-members',
-      'former-and-inactive',
-    ]) {
-      index.push({ blockId: id, values: names });
-    }
+    // ★★★ fix-613 §A/§B: ONE PEOPLE BLOCK, SO ONE ENTRY. fix-611 pushed the
+    //     roster names onto nine block ids because the roster was nine editors;
+    //     it noted that the follow-up would collapse them. It did.
+    //
+    // ★★ AND THE INDEX CARRIES MORE THAN THE CREDITED NAME NOW, because §B asks
+    //    for it: *"Search still finds people by Goes by, full name and email."*
+    //    Searching "Buttrey" or "ana@" has to find the table that holds her, and
+    //    the credited name alone would not — "Ana" is what the app matches on,
+    //    not what somebody looking for her necessarily types.
+    index.push({
+      blockId: 'everyone',
+      values: clean(
+        people.flatMap((m) => [
+          m.name,
+          [m.first_name, m.last_name].filter(Boolean).join(' '),
+          m.email,
+        ]),
+      ),
+    });
 
     return index;
   }, [cfgMap, jurisRows, typeRows, people, builderRows, firmRows]);

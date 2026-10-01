@@ -387,8 +387,10 @@ describe('fix-604 §1 — every write mutation names what it writes', () => {
     //   named, so it moves both numbers together.
     const named = all.filter((f) => f.write !== null);
     const listed = all.filter((f) => f.hook in ALLOW_LIST);
-    expect(all.length).toBe(121);
-    expect(named.length).toBe(120);
+    // ⚠️ fix-613 deleted `useRenameDA` and `useRenameDM` — the partial renames
+    //    Settings could reach. 121 → 119.
+    expect(all.length).toBe(119);
+    expect(named.length).toBe(118);
     expect(listed.length).toBe(1);
     expect(named.length + listed.length).toBe(all.length);
   });
@@ -436,7 +438,6 @@ describe('fix-604 §1 — every write mutation names what it writes', () => {
       useCreateProjectWithPermits: 'bp_create_project_with_permits',
       useDeleteDaTimeBlock: 'bp_delete_da_time_block_row',
       useDeleteIntakeRecord: 'bp_delete_intake_records_row',
-      useRenameDA: 'bp_rename_da',
       useResizeDaTimeBlock: 'bp_resize_da_time_block',
       useRestoreAuditedRow: 'bp_restore_audited_row',
       useRestoreDeletedQuarterLayout: 'bp_restore_deleted_quarter_layout',

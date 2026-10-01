@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import AddWithoutLoginForm from './AddWithoutLoginForm';
 import AddPersonDialog from './AddPersonDialog';
 
 // ===========================================================================
@@ -33,6 +34,10 @@ import AddPersonDialog from './AddPersonDialog';
 
 export default function AddPersonSection({ readOnly }: { readOnly: boolean }) {
   const [open, setOpen] = useState(false);
+  // ★★ fix-613 §A: the second path, for a name that needs to be creditable
+  //    before — or without — a login. It replaces the nine pill "Add…" boxes,
+  //    which made rows with no email and therefore no way to match a login.
+  const [noLogin, setNoLogin] = useState(false);
   if (readOnly) return null;
 
   return (
@@ -59,6 +64,18 @@ export default function AddPersonSection({ readOnly }: { readOnly: boolean }) {
           + Add a person
         </button>
       </div>
+
+      {!noLogin && (
+        <button
+          type="button"
+          onClick={() => setNoLogin(true)}
+          className="text-[11px] text-de underline mt-2"
+          data-testid="add-without-login-open"
+        >
+          Add without a login
+        </button>
+      )}
+      {noLogin && <AddWithoutLoginForm onDone={() => setNoLogin(false)} />}
 
       {/* ★ C4: deactivating is fix-407's job and stays there. Saying so — and
           pointing at where it lives — is cheaper than a second control that
