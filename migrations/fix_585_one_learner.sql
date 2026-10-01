@@ -1,5 +1,12 @@
 -- fix-585: ONE LEARNER, AND THE CYCLE IT IS IN.
 --
+-- ★ Applied 2026-09-30 from Cowork with this correction (provenance 20261001013011).
+--   In the DO $patch$ block, constant r2, the THIRD string segment began with
+--   E' on a continuation line, which Postgres rejects (42601) — the whole
+--   migration would have rolled back. The applied text drops that E:
+--   continuation segments inherit escape processing from the first, so \n
+--   still becomes a newline. fix-605 made the same one-character change here.
+--
 -- ⚠️ NOT APPLIED BY THE PR. Applied from Cowork after the §5 blast-radius dry
 --    run in the PR body has been read. Applying it is NOT inert: the four
 --    target_submit triggers roll the new bp_learn_days out on the next write to
@@ -403,7 +410,7 @@ DECLARE
   r2 constant text :=
     E'    IF COALESCE(v_permit.target_submit_is_manual, false) THEN CONTINUE; END IF;\n'
     '    -- fix-585: done is done. An approved or issued permit''s target is history.\n'
-    E'    IF v_permit.approval_date IS NOT NULL OR v_permit.actual_issue IS NOT NULL THEN CONTINUE; END IF;\n'
+    '    IF v_permit.approval_date IS NOT NULL OR v_permit.actual_issue IS NOT NULL THEN CONTINUE; END IF;\n'
     '    IF v_permit.c0_submitted IS NOT NULL THEN';
 BEGIN
   IF position('fix-585' IN v_def) > 0 THEN

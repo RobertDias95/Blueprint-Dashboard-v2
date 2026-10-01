@@ -1,5 +1,6 @@
 import type { UnitType } from './database.types';
 import { isParkingKind, type ParkingKind } from './unitVocabulary';
+import { RETIRED_OPTION_MARKER, optionIsRetired } from './retiredOption';
 
 /**
  * ★★★ fix-562 §A — THE ONE PAIR `parseUnitTypes` VALIDATES TOGETHER.
@@ -181,19 +182,19 @@ export function productTypeRegistry(
 //     another one.
 
 /** ★ The suffix on an option that is stored but no longer in the registry.
- *  One place, because two surfaces render it and a third would otherwise
- *  invent its own wording. */
-export const UNIT_LABEL_RETIRED_MARKER = ' (not a current type)';
+ *  ★ fix-605: generalised to lib/retiredOption (the permit-type select reads
+ *  it too) — this name is kept as an alias so the two cannot drift. */
+export const UNIT_LABEL_RETIRED_MARKER = RETIRED_OPTION_MARKER;
 
 /** ★ Is this option a stored leftover rather than a current choice? The
  *  predicate both pickers read, so "disabled" and "marked" cannot drift
- *  apart from each other or from `unitLabelOptions`' append rule. */
+ *  apart from each other or from `unitLabelOptions`' append rule.
+ *  ★ fix-605: delegates to the shared `optionIsRetired`. */
 export function unitLabelIsRetired(
   option: string,
   productTypeOptions: readonly string[] | null | undefined,
 ): boolean {
-  if (!option.trim()) return false;
-  return !(productTypeOptions ?? []).includes(option);
+  return optionIsRetired(option, productTypeOptions);
 }
 
 export function unitLabelOptions(
