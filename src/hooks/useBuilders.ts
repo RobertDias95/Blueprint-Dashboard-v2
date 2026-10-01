@@ -1,7 +1,6 @@
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useQuery } from '@tanstack/react-query';
 import { supabase } from '../lib/supabase';
 import { queryKeys } from '../lib/queryKeys';
-import { pushToast } from '../stores/toastStore';
 import { useAuthStore } from '../stores/authStore';
 import type { Builder } from '../lib/database.types';
 
@@ -27,54 +26,21 @@ export function useBuilders() {
   });
 }
 
-export interface UpsertBuilderInput {
-  /** Omit `id` to insert; include `id` to update. */
-  id?: string;
-  name: string;
-  company?: string | null;
-  email?: string | null;
-  phone?: string | null;
-}
-
-export function useUpsertBuilder() {
-  const queryClient = useQueryClient();
-  const tenantId = useAuthStore((s) => s.activeTenantId) ?? '';
-
-  return useMutation<Builder, Error, UpsertBuilderInput>({
-    meta: { write: 'builders.upsert' },
-    mutationFn: async (input) => {
-      const payload = {
-        name: input.name,
-        company: input.company ?? null,
-        email: input.email ?? null,
-        phone: input.phone ?? null,
-      };
-      if (input.id) {
-        const { data, error } = await supabase
-          .from('builders')
-          .update(payload)
-          .eq('id', input.id)
-          .select('*')
-          .single();
-        if (error) throw error;
-        return data as Builder;
-      }
-      const { data, error } = await supabase
-        .from('builders')
-        .insert(payload)
-        .select('*')
-        .single();
-      if (error) throw error;
-      return data as Builder;
-    },
-
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: queryKeys.builders(tenantId) });
-      pushToast('Saved builder', 'success');
-    },
-
-    onError: (error) => {
-      pushToast(`Could not save builder — ${error.message}`, 'error');
-    },
-  });
-}
+// ===========================================================================
+// ★★★ fix-608 (census gap 31) — THE DIRECT-TABLE WRITE IS GONE
+// ===========================================================================
+//
+// This file used to export `useUpsertBuilder` + `UpsertBuilderInput`, which wrote
+// `public.builders` straight through PostgREST — no RPC, no OCC token, no admin
+// check, and `tenant_id` left to the RLS default. **Nothing imported it.** It was
+// superseded by `hooks/useBuilderRegistry`'s `useUpsertBuilderRow`
+// (`bp_upsert_builder`, serialised and token-checked) and simply never deleted.
+//
+// ★★ DELETING IT IS PART OF THE SECURITY CHANGE, NOT TIDYING. fix-608 makes the
+//    `builders` INSERT/UPDATE/DELETE policies admin-only, so this path would have
+//    started failing for non-admins the moment the migration applied — as a raw
+//    PostgREST error, from a code path nobody knew was reachable. Removing it
+//    means there is exactly one write door per intention: the admin RPC for
+//    editing, and `bp_add_builder_from_project` for adding from a project.
+//
+// ★ The READ stays. `useBuilders` above has live callers.

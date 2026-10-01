@@ -64,11 +64,15 @@ const deps: Deps = {
     return data.user?.id ?? null;
   },
 
-  async profileRole(userId) {
+  // ★★★ fix-608 §C.2: the gate reads `tenant_memberships`, the same table
+  //     `useIsTenantAdmin` and `is_tenant_admin()` read. `profiles.role` is still
+  //     WRITTEN by `setProfileRole` below; it is no longer asked.
+  async membershipRole(userId, tenantId) {
     const { data, error } = await admin
-      .from('profiles')
+      .from('tenant_memberships')
       .select('role')
-      .eq('id', userId)
+      .eq('user_id', userId)
+      .eq('tenant_id', tenantId)
       .maybeSingle();
     if (error) throw new Error(error.message);
     return (data?.role as BridgeRole | undefined) ?? null;

@@ -479,8 +479,11 @@ vi.mock('../hooks/useWeeklySnapshot', () => ({
 vi.mock('../hooks/useVendorReportState', () => ({
   useVendorReportState: () => ({ data: [] }),
 }));
+// ★ fix-608 §A: a REAL Map. `useAppConfig().map` is a Map in production, and a
+//   plain `{}` here is the same Map-versus-object confusion that caused P-305 —
+//   the fixture agreeing with the bug is part of why it survived.
 vi.mock('../hooks/useAppConfig', () => ({
-  useAppConfig: () => ({ map: {} }),
+  useAppConfig: () => ({ map: new Map<string, unknown>() }),
   readAppConfigStringArray: () => [],
 }));
 

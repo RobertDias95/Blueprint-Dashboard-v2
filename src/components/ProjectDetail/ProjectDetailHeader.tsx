@@ -1360,6 +1360,9 @@ function BuilderOwnerCell({ project }: { project: Project }) {
       <div>
         <span className={labelStyle}>Owner</span>
         <BuilderPicker
+          // ★ fix-608 §B.3: "Add new builder…" is allowed for whoever may edit
+          //   THIS project's details, so the project id goes with it.
+          projectId={project.id}
           value={
             project.builder_company
               ? `${project.builder_name ?? ''} — ${project.builder_company}`

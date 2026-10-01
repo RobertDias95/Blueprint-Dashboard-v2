@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useBuilderSearch } from '../../hooks/useBuilderSearch';
-import { useUpsertBuilderRow } from '../../hooks/useBuilderRegistry';
+import { useAddBuilderFromProject } from '../../hooks/useBuilderRegistry';
 import type { Builder } from '../../lib/database.types';
 
 // ===========================================================================
@@ -35,6 +35,18 @@ import type { Builder } from '../../lib/database.types';
 // Cooper Thomas Homes, LLC" is.
 
 export interface BuilderPickerProps {
+  /**
+   * ★★★ fix-608 §B.3: the project this picker is mounted on, which is also the
+   * project the "Add new builder…" permission is asked about.
+   *
+   * ★★ REQUIRED, deliberately. The add path now calls
+   *    `bp_add_builder_from_project`, which takes the project as the subject of
+   *    its permission check — so a mount that could not supply one would have to
+   *    fall back to the admin-only RPC and silently stop working for DAs. Making
+   *    it required means a new mount cannot forget. There is exactly one mount
+   *    today (ProjectDetailHeader's Owner cell) and it has the project.
+   */
+  projectId: string;
   /** The linked row's display name, or '' when nothing is linked. */
   value: string;
   /** The company of the linked row, for the "person matches, LLC does not" case. */
@@ -50,6 +62,7 @@ export interface BuilderPickerProps {
 }
 
 export default function BuilderPicker({
+  projectId,
   value,
   onPick,
   onCreated,
@@ -66,7 +79,7 @@ export default function BuilderPicker({
   );
   const blurTimer = useRef<number | null>(null);
   const { data: results, isLoading } = useBuilderSearch(open ? query : '');
-  const upsert = useUpsertBuilderRow();
+  const addBuilder = useAddBuilderFromProject();
 
   // ★★ ACTIVE ONLY. `useBuilderSearch` does not filter — measured on
   //    origin/main, despite a comment elsewhere claiming it does — and a
@@ -247,10 +260,12 @@ export default function BuilderPicker({
         <AddBuilderInline
           initialName={adding.name}
           nameLocked={personMatch !== null}
-          busy={upsert.isPending}
+          busy={addBuilder.isPending}
           onCancel={() => setAdding(null)}
           onSave={(input) => {
-            upsert.mutate(input, {
+            // ★ fix-608 §B.3: the project travels with the request, because it is
+            //   what the server asks its permission question about.
+            addBuilder.mutate({ ...input, projectId }, {
               onSuccess: (row) => {
                 onCreated(row);
                 setAdding(null);

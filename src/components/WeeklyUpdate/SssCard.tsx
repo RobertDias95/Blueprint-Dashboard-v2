@@ -2,7 +2,10 @@ import { useMemo } from 'react';
 import OriginLink from '../OriginLink';
 import { useVendorReportState } from '../../hooks/useVendorReportState';
 import { useAppConfig } from '../../hooks/useAppConfig';
-import { readVendorRecipients, formatAddressList } from '../../lib/vendorReportEmail';
+import {
+  readVendorRecipientsFromConfig,
+  formatAddressList,
+} from '../../lib/vendorReportEmail';
 import { lastSentAt } from '../../lib/vendorReport';
 
 // ===========================================================================
@@ -42,8 +45,12 @@ export default function SssCard() {
   const ledgerQ = useVendorReportState(VENDOR_KEY);
   const configQ = useAppConfig();
 
+  // ★★★ fix-608 §A (P-305): this passed `configQ.map` to a function that wants
+  //     the `vendorReportRecipients` VALUE. A Map has no string index, so the
+  //     lookup was always undefined and the card always said "no recipients" —
+  //     even with recipients configured. The accessor now takes the map.
   const recipients = useMemo(
-    () => readVendorRecipients(configQ.map, VENDOR_KEY),
+    () => readVendorRecipientsFromConfig(configQ.map, VENDOR_KEY),
     [configQ.map],
   );
   const sentAt = useMemo(() => lastSentAt(ledgerQ.data ?? []), [ledgerQ.data]);

@@ -12,8 +12,12 @@ const upsertMutate = vi.hoisted(() => vi.fn());
 vi.mock('../hooks/useBuilderSearch', () => ({
   useBuilderSearch: () => ({ data: results.current, isLoading: false }),
 }));
+// ★★ fix-608 §B.3: the "Add new builder…" path moved from the admin-only
+//    `bp_upsert_builder` to the project-scoped `bp_add_builder_from_project`, so
+//    a DA can add the catalogue row they are about to link. Same call shape plus
+//    the project id.
 vi.mock('../hooks/useBuilderRegistry', () => ({
-  useUpsertBuilderRow: () => ({ mutate: upsertMutate, isPending: false }),
+  useAddBuilderFromProject: () => ({ mutate: upsertMutate, isPending: false }),
 }));
 
 import BuilderPicker from '../components/builder/BuilderPicker';
@@ -39,6 +43,7 @@ const onClear = vi.fn();
 function renderPicker(value = '') {
   return render(
     <BuilderPicker
+      projectId="project-1"
       value={value}
       onPick={onPick}
       onCreated={onCreated}

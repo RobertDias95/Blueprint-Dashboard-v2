@@ -22,7 +22,7 @@
 
 | function | status on prod | `verify_jwt` | who may call it | deploy |
 |---|---|---|---|---|
-| `admin-create-user` | **DEPLOYED** — version 2, updated 2026-09-15 | `true` | a signed-in admin (checked again inside the function against `profiles.role`) | `supabase functions deploy admin-create-user --project-ref eibnmwthkcuumyclyxoe` |
+| `admin-create-user` | ⚠️ **DEPLOYED, BUT STALE** — version 2 (2026-09-15) is live; fix-608 changed the gate and is NOT yet deployed | `true` | a signed-in admin (checked again inside the function — as of fix-608 against the caller’s `tenant_memberships` row for the tenant being written to, no longer `profiles.role`) | `supabase functions deploy admin-create-user --project-ref eibnmwthkcuumyclyxoe` |
 | `plan-share` | ⛔️ **NOT DEPLOYED — this is P-279, live and external-facing** | must be `false` | **anon**; the share token is the whole credential | `supabase functions deploy plan-share --project-ref eibnmwthkcuumyclyxoe --no-verify-jwt` |
 
 ## ⛔️ `plan-share` — the one outstanding action
