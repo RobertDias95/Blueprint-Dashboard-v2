@@ -3,6 +3,7 @@ import type {
   ProjectedApprovalRouteFacts,
 } from './projectedApproval';
 import type { RecencyTier } from './scheduleBenchmarks';
+import type { EstimatorInput, InputResolution } from './estimatorInputs';
 
 // ===========================================================================
 // ★★★ fix-491 (P-117) — THE ESTIMATOR SAYS WHICH ROUTE THE DATE TOOK
@@ -230,5 +231,137 @@ export function routeSentence(
     default:
       // ★ A real recorded date explains itself. Silent, exactly as before.
       return null;
+  }
+}
+
+// ===========================================================================
+// ★★★ fix-585 §7 — WHICH RUNG ANSWERED, FOR EVERY INPUT
+// ===========================================================================
+//
+// `routeSentence` says which ROUTE produced the date. The forecast also needs
+// each of its INPUTS to say where it came from, because most permits sitting
+// on a correction have no parsed letter and the estimate is filling a hole.
+// Same rule, same module: a fallback must not borrow the confident voice.
+//
+// ★★ The words follow the confidence: "measured" is stated flatly; "learned"
+//    names the permits it came from; "policy" names the guardrail; "assumed"
+//    SAYS assumed. The banned vocabulary above applies here too.
+
+function scopeInWords(tier: string, ctx: RouteCopyContext | undefined, cycle?: number): string {
+  const type = (ctx?.type ?? '').trim() || 'this permit type';
+  const juris = (ctx?.juris ?? '').trim();
+  const plural = type === 'this permit type' ? 'permits of this type' : `${type}s`;
+  const inJuris = juris ? ` in ${juris}` : '';
+  const atCycle = cycle != null ? ` at cycle ${cycle}` : '';
+  // ★★★ Both tiers are within one jurisdiction — there is no "every
+  //     jurisdiction" sentence to write, because no such tier exists.
+  if (tier === 'type_juris_cycle') return `${plural}${inJuris}${atCycle}`;
+  return `${plural}${inJuris}, across all cycles`;
+}
+
+const INPUT_NOUN: Record<EstimatorInput, string> = {
+  correction_items: 'The number of correction items',
+  anchor_date: 'The start date',
+  city_review: "The city's review time",
+  our_turnaround: 'Our turnaround time',
+  city_target: "The city's finish date",
+};
+
+/**
+ * ★★★ THE SENTENCE FOR ONE RESOLVED INPUT. Never null: an input that could not
+ * be resolved says what is missing, which is the point.
+ */
+export function inputSentence(
+  res: InputResolution<unknown> & { rawTargetSetAside?: boolean },
+  ctx?: RouteCopyContext & { cycle?: number },
+): string {
+  const noun = INPUT_NOUN[res.input];
+  const missing = res.missing.length ? ` Missing: ${res.missing.join(', ')}.` : '';
+
+  if (res.value == null) {
+    if (res.input === 'anchor_date') {
+      return (
+        'Not enough to estimate: this permit has no intake accepted date, no ' +
+        'cycle-1 submitted date and no intake date.'
+      );
+    }
+    return `${noun} is unknown.${missing}`;
+  }
+
+  const setAside = res.rawTargetSetAside
+    ? " The city's stated target was set aside because this jurisdiction's slip past it has not been measured."
+    : '';
+
+  switch (res.rung) {
+    case 'no_letter':
+      return 'No correction letter has been issued on this cycle.';
+    case 'this_letter':
+      return `${noun} is counted from the parsed correction letter.`;
+    case 'prior_cycles':
+      return (
+        `${noun} is estimated from this permit's earlier letters, because this ` +
+        `cycle's letter has not been parsed yet.`
+      );
+    case 'cohort':
+      return (
+        `${noun} is estimated from similar permits, because this cycle's letter ` +
+        `has not been parsed yet.`
+      );
+    case 'assumption':
+      return (
+        `${noun} was assumed (${String(res.value)}): this cycle's letter has not ` +
+        `been parsed and there is no history to go on.${missing}`
+      );
+    case 'intake_accepted':
+      return 'Measured from the date the city accepted intake.';
+    case 'cycle1_submitted':
+      return 'Measured from the cycle-1 submitted date, because intake acceptance was not recorded.';
+    case 'permit_intake_date':
+      return (
+        "Measured from the permit's intake date, because neither intake acceptance " +
+        'nor a cycle-1 submittal was recorded.'
+      );
+    case 'own_cycles':
+      return `${noun} is taken from this permit's own completed cycles.`;
+    case 'policy':
+      return `${noun} uses the set standard of ${String(res.value)} days — there is not enough history yet.`;
+    case 'hardcoded':
+      return `${noun} was assumed (${String(res.value)} days) — no history and no set standard.`;
+    case 'target_plus_slip':
+      return "The city's stated target, moved out by how late this jurisdiction usually runs.";
+    case 'city_clock':
+      return `Projected from the submittal date plus the city's usual review time.${setAside}`;
+    default: {
+      // A learned ladder tier.
+      const n = res.ladder?.n ?? 0;
+      const clampNote = res.ladder?.clamped
+        ? ` Held to the set standard's range (history said ${String(res.ladder.learnedDays)}).`
+        : '';
+      if (n === 1) {
+        // ★ One sample is not a median, and must not be called one.
+        return (
+          `${noun} is taken from the only past permit on record — ` +
+          `${scopeInWords(res.rung, ctx, ctx?.cycle)}.` + clampNote
+        );
+      }
+      return (
+        `${noun} is the median of ${n} ${scopeInWords(res.rung, ctx, ctx?.cycle)}` +
+        `${res.ladder?.windowTier ? ` (${recencyWindowLabelFor(res.ladder.windowTier)})` : ''}.` +
+        clampNote
+      );
+    }
+  }
+}
+
+function recencyWindowLabelFor(w: string): string {
+  switch (w) {
+    case '90d':
+      return 'last 90 days';
+    case '180d':
+      return 'last 180 days';
+    case '365d':
+      return 'last 365 days';
+    default:
+      return 'all time';
   }
 }
