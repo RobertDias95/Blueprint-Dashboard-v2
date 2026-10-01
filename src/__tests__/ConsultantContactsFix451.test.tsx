@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/react';
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { NOT_REQUIRED, isNotRequired } from '../lib/externalTeam';
 import { groupByDisciplineThenFirm } from '../hooks/useWaitingOnTasks';
 import type { ExternalTeamDirectoryFirm } from '../lib/database.types';
@@ -24,6 +25,23 @@ vi.mock('../hooks/useExternalTeamDirectory', () => ({
 }));
 
 import ExternalTeamDirectoryEditor from '../components/Settings/ExternalTeamDirectoryEditor';
+// ★★ fix-606: this editor now reads `app_config.waitingOnOptions` (its discipline
+//    vocabulary is the admin's Settings list, not a code constant), so it needs a
+//    QueryClientProvider. `renderEditor` supplies one; with no tenant in the
+//    store the config query stays disabled and `firmDisciplineOptions` falls back
+//    to the built-in list — which is exactly what prod shows today, so every
+//    expectation below is unchanged.
+function renderEditor(readOnly = false) {
+  const queryClient = new QueryClient({
+    defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
+  });
+  return render(
+    <QueryClientProvider client={queryClient}>
+      <ExternalTeamDirectoryEditor readOnly={readOnly} />
+    </QueryClientProvider>,
+  );
+}
+
 
 function firm(over: Partial<ExternalTeamDirectoryFirm>): ExternalTeamDirectoryFirm {
   return {
@@ -51,7 +69,7 @@ beforeEach(() => {
 describe('fix-451 §E: the directory editor', () => {
   it('★★★ saving a contact calls the EXISTING writer with the four fields', () => {
     firms.current = [firm({ id: 'f1' })];
-    render(<ExternalTeamDirectoryEditor readOnly={false} />);
+    renderEditor(false);
     fireEvent.click(screen.getByTestId('etd-details-f1'));
     fireEvent.change(screen.getByTestId('etd-contact-name-f1'), {
       target: { value: '  Dana Survey  ' },
@@ -76,7 +94,7 @@ describe('fix-451 §E: the directory editor', () => {
 
   it('★★ §E2: a doubtful email is flagged but never BLOCKS the save', () => {
     firms.current = [firm({ id: 'f1' })];
-    render(<ExternalTeamDirectoryEditor readOnly={false} />);
+    renderEditor(false);
     fireEvent.click(screen.getByTestId('etd-details-f1'));
     const email = screen.getByTestId('etd-contact-email-f1');
     fireEvent.change(email, { target: { value: 'not-an-address' } });
@@ -94,7 +112,7 @@ describe('fix-451 §E: the directory editor', () => {
     firms.current = [
       firm({ id: 'f1', contact_name: 'Dana', contact_email: 'dana@emerald.test' }),
     ];
-    render(<ExternalTeamDirectoryEditor readOnly />);
+    renderEditor(true);
     fireEvent.click(screen.getByTestId('etd-details-f1'));
     expect(screen.getByTestId('etd-contact-email-f1').tagName).not.toBe('INPUT');
     expect(screen.getByTestId('etd-contact-email-f1').textContent).toBe(
@@ -108,7 +126,7 @@ describe('fix-451 §E: the directory editor', () => {
     // 15 of 15 prod firms are in this state; unexplained empty inputs would
     // make Settings look broken rather than unfilled.
     firms.current = [firm({ id: 'f1' })];
-    render(<ExternalTeamDirectoryEditor readOnly={false} />);
+    renderEditor(false);
     fireEvent.click(screen.getByTestId('etd-details-f1'));
     expect(screen.getByTestId('etd-no-contact-f1')).toBeInTheDocument();
   });

@@ -33,7 +33,9 @@ import { usePermitTypes } from '../../hooks/usePermitTypes';
 import { useTeamMembers, activeMemberNamesOf } from '../../hooks/useTeamMembers';
 import { SkeletonRows } from '../Skeleton';
 import QueryError from '../QueryError';
-import { WAITING_ON_OPTIONS } from '../../lib/database.types';
+import { useAppConfig } from '../../hooks/useAppConfig';
+import { waitingOnLabel, waitingOnOptions } from '../../lib/waitingOn';
+import { isRetiredWaitingOn } from '../../lib/waitingOn';
 import type { TaskTemplate, TemplateBucket } from '../../lib/database.types';
 import {
   TEAM_OPTIONS,
@@ -326,6 +328,12 @@ function TemplateRow({
 }) {
   const [adding, setAdding] = useState(false);
   const [subDraft, setSubDraft] = useState('');
+  // ★★ fix-606 §A.1: the Waiting-On list comes from Settings. `waitingOnOptions`
+  //    appends this template's own stored value when an admin has since removed
+  //    it, which is what stops the select rendering blank — fix-364's rule,
+  //    reached here through the same helper the task editors use.
+  const cfg = useAppConfig();
+  const waitingOnChoices = waitingOnOptions(cfg.map, template.default_waiting_on);
   const {
     attributes,
     listeners,
@@ -457,9 +465,22 @@ function TemplateRow({
             data-testid={`task-template-row-${template.id}-waiting-on`}
           >
             <option value="">(none)</option>
-            {WAITING_ON_OPTIONS.map((d) => (
-              <option key={d} value={d}>
-                {d}
+            {/* ★★★ fix-606 §A.1: the admin's list, not the code constant — so a
+                 discipline added in Settings can be a template's default.
+                 ★★ THE FULL LIST, including `City` and `Other`. A template sets a
+                    TASK's waiting-on, and a task may legitimately wait on the
+                    city (fix-364's whole point) or on "Other". Only FIRM pickers
+                    take the narrowed list — see `firmDisciplineOptions`. */}
+            {waitingOnChoices.map((d) => (
+              <option
+                key={d}
+                value={d}
+                // ★ §A.3: a retired value still shows, so this template never
+                //   renders blank — but it cannot be chosen afresh.
+                disabled={d !== (template.default_waiting_on ?? '') &&
+                  isRetiredWaitingOn(cfg.map, d)}
+              >
+                {waitingOnLabel(cfg.map, d)}
               </option>
             ))}
           </select>

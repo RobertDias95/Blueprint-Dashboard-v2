@@ -1,4 +1,5 @@
 import { describe, it, expect } from 'vitest';
+import { firmDisciplineOptions } from '../lib/waitingOn';
 import {
   resolveExternalFirm,
   asExternalTeamBlob,
@@ -11,7 +12,6 @@ import {
 import {
   WAITING_ON_OPTIONS,
   type ExternalTeamDirectoryFirm,
-  type WaitingOnDiscipline,
 } from '../lib/database.types';
 
 function mkFirm(over: Partial<ExternalTeamDirectoryFirm> & { discipline: string; name: string }): ExternalTeamDirectoryFirm {
@@ -97,10 +97,18 @@ describe('distinctExternalFirms (fix-195 datalist source)', () => {
 });
 
 describe('externalTeamShowRules (fix-196 shared show-rules)', () => {
-  const NONE = new Set<WaitingOnDiscipline>();
+  const NONE = new Set<string>();
+
+  // ★★★ fix-606: THE VOCABULARY IS NOW AN ARGUMENT, so every call supplies it.
+  //     It used to be `WAITING_ON_OPTIONS`, read inside the function, which is
+  //     exactly what stopped a Settings-added discipline reaching these rules.
+  //     `VOCAB` is the effective firm list with NO app_config row — i.e. what
+  //     prod shows today, since nobody has edited the list yet: the built-in
+  //     options minus `City` and `Other`, which are not firms.
+  const VOCAB = firmDisciplineOptions(new Map());
 
   it('the common four are always shown, even on an empty blob', () => {
-    const r = externalTeamShowRules({}, NONE);
+    const r = externalTeamShowRules({}, NONE, VOCAB);
     expect(r.shownDisciplines).toEqual(['Civil', 'Surveyor', 'Structural', 'Arborist']);
     expect(EXTERNAL_TEAM_COMMON_DISCIPLINES).toEqual([
       'Civil',
@@ -112,9 +120,9 @@ describe('externalTeamShowRules (fix-196 shared show-rules)', () => {
   });
 
   it('an assigned non-common discipline becomes shown (224 2nd Ave N: only Surveyor set → common four, NOT all 13)', () => {
-    const r = externalTeamShowRules({ Surveyor: 'Emerald' }, NONE);
+    const r = externalTeamShowRules({ Surveyor: 'Emerald' }, NONE, VOCAB);
     // Surveyor is common anyway; assert a NON-common assigned one surfaces:
-    const r2 = externalTeamShowRules({ Geotech: 'GeoCo' }, NONE);
+    const r2 = externalTeamShowRules({ Geotech: 'GeoCo' }, NONE, VOCAB);
     expect(r2.shownDisciplines).toContain('Geotech');
     expect(r2.noneAssigned).toBe(false);
     // 224 case: Surveyor set → exactly the common four are shown (not 13).
@@ -124,15 +132,18 @@ describe('externalTeamShowRules (fix-196 shared show-rules)', () => {
   });
 
   it('a user-added discipline becomes shown + drops out of addable', () => {
-    const r = externalTeamShowRules({}, new Set<WaitingOnDiscipline>(['Energy']));
+    const r = externalTeamShowRules({}, new Set<string>(['Energy']), VOCAB);
     expect(r.shownDisciplines).toContain('Energy');
     expect(r.addableDisciplines).not.toContain('Energy');
   });
 
-  it('addable = WAITING_ON_OPTIONS minus shown', () => {
-    const r = externalTeamShowRules({ Geotech: 'GeoCo' }, NONE);
+  it('addable = the SETTINGS list minus shown (was WAITING_ON_OPTIONS)', () => {
+    // ⚠️ fix-606 renamed what this partition is OVER. The property is unchanged
+    //    and is the one that matters: every discipline in the vocabulary is
+    //    either shown or addable, never both and never neither.
+    const r = externalTeamShowRules({ Geotech: 'GeoCo' }, NONE, VOCAB);
     const shown = new Set(r.shownDisciplines);
-    for (const d of WAITING_ON_OPTIONS) {
+    for (const d of VOCAB) {
       expect(shown.has(d) || r.addableDisciplines.includes(d)).toBe(true);
       expect(shown.has(d) && r.addableDisciplines.includes(d)).toBe(false);
     }
@@ -141,7 +152,7 @@ describe('externalTeamShowRules (fix-196 shared show-rules)', () => {
   });
 
   it('blank / whitespace firm values do not count as assigned', () => {
-    const r = externalTeamShowRules({ Geotech: '   ', Energy: '' }, NONE);
+    const r = externalTeamShowRules({ Geotech: '   ', Energy: '' }, NONE, VOCAB);
     expect(r.assignedDisciplines.has('Geotech')).toBe(false);
     expect(r.shownDisciplines).not.toContain('Geotech');
     expect(r.noneAssigned).toBe(true);
