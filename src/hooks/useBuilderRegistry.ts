@@ -152,6 +152,62 @@ function useInvalidate() {
   };
 }
 
+// ===========================================================================
+// ★★★ fix-608 §B.3 — ADDING A BUILDER FROM A PROJECT IS NOT AN ADMIN ACTION
+// ===========================================================================
+//
+// ⚖️ Bobby, 2026-09-30: *"admins + people of the project. since da's, dm, ent
+//    they can all edit the project details info."*
+//
+// ★★ A SEPARATE RPC, NOT A FLAG ON bp_upsert_builder. The server function is
+//    INSERT-ONLY and gated on `bp_may_write_project` — the rule that already
+//    decides who may edit a project's details. So a DA can create the catalogue
+//    row they need to link, and still cannot rename, merge or deactivate one.
+//
+// ★ No OCC token: an insert has nothing to collide with. `useUpsertBuilderRow`
+//   below keeps its serializer because it also updates.
+export interface AddBuilderFromProjectInput {
+  projectId: string;
+  name: string;
+  company?: string | null;
+  email?: string | null;
+  phone?: string | null;
+  address?: string | null;
+  notes?: string | null;
+}
+
+export function useAddBuilderFromProject() {
+  const invalidate = useInvalidate();
+  return useMutation<Builder, Error, AddBuilderFromProjectInput>({
+    meta: { write: 'bp_add_builder_from_project' },
+    mutationFn: async (input) => {
+      const { data, error } = await supabase.rpc('bp_add_builder_from_project', {
+        p_project_id: input.projectId,
+        p_name: input.name,
+        p_company: input.company ?? null,
+        p_email: input.email ?? null,
+        p_phone: input.phone ?? null,
+        p_address: input.address ?? null,
+        p_notes: input.notes ?? null,
+      });
+      if (error) throw error;
+      return data as Builder;
+    },
+    onSuccess: () => {
+      invalidate();
+      pushToast('Added builder', 'success');
+    },
+    // ★★ §B.2 of the client work: a refusal reads as a SENTENCE. The RPC raises
+    //    42501 with a plain message, and supabase-js puts that message on
+    //    `error.message` — so the existing toast already says *"You cannot add a
+    //    builder from a project you cannot edit."* rather than a bare code. This
+    //    handler is the existing error surface, unchanged in shape.
+    onError: (error) => {
+      pushToast(`Could not add builder — ${error.message}`, 'error');
+    },
+  });
+}
+
 export function useUpsertBuilderRow() {
   const invalidate = useInvalidate();
   return useMutation<Builder, Error, UpsertBuilderInput>({

@@ -27,8 +27,9 @@ import AddPersonDialog from './AddPersonDialog';
 // AdminTeamTab passes `readOnly={!isAdmin}` to everything it renders. This
 // takes the same flag and renders nothing at all without it — the button is not
 // disabled, it is absent, because a control that cannot work should not be
-// there. The function's own `profiles.role='admin'` check is the real gate
-// regardless.
+// there. The function's own admin check is the real gate regardless — and as of
+// fix-608 §C.2 that check reads the caller's `tenant_memberships` row for the
+// tenant being written to, not the legacy global column it used to read.
 
 export default function AddPersonSection({ readOnly }: { readOnly: boolean }) {
   const [open, setOpen] = useState(false);

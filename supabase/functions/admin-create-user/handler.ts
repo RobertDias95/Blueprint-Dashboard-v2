@@ -140,8 +140,21 @@ export interface RosterRow {
 export interface Deps {
   /** Resolve the bearer token to a user id, or null when it is not valid. */
   callerId(jwt: string): Promise<string | null>;
-  /** `profiles.role` for that id — the admin gate (A2). */
-  profileRole(userId: string): Promise<BridgeRole | null>;
+  /**
+   * The caller's `tenant_memberships.role` for the tenant being written to —
+   * the admin gate (A2).
+   *
+   * ★★★ fix-608 §C.2: THIS USED TO BE `profileRole`, reading `profiles.role`.
+   *     Two stored keys answered "is this person an admin" and they had drifted:
+   *     measured on prod 2026-09-30, 8 admins in `tenant_memberships`, 7 in
+   *     `profiles`. The one who differed saw the admin screens and was refused by
+   *     this function. `tenant_memberships` is what `useIsTenantAdmin` and
+   *     `is_tenant_admin()` read, so it is the one source now.
+   *
+   * ★★ `profiles.role` IS STILL WRITTEN — see `setProfileRole`, unchanged. Only
+   *    the GATES stopped reading it.
+   */
+  membershipRole(userId: string, tenantId: string): Promise<BridgeRole | null>;
   /** The tenant the CALLER belongs to. Never taken from the request body. */
   callerTenantId(userId: string): Promise<string | null>;
   createAuthUser(email: string, password: string): Promise<
@@ -330,9 +343,26 @@ export async function createPerson(
   }
 
   // ★★ A2 — THE GATE IS HERE, IN THE FUNCTION, NOT IN THE SCREEN. The screen's
-  //    admin check is a courtesy; this one is the rule. Anything that is not
-  //    profiles.role='admin' gets 403 whatever it sends.
-  const callerRole = await deps.profileRole(callerId);
+  //    admin check is a courtesy; this one is the rule. Anything that is not an
+  //    admin of the tenant being written to gets 403 whatever it sends.
+  //
+  // ★★★ fix-608 §C.2: THE TENANT IS NOW RESOLVED FIRST, BECAUSE THE QUESTION
+  //     NEEDS IT. "Is this person an admin" is not answerable on its own — only
+  //     "is this person an admin OF THE TENANT this row is going into" is, and
+  //     that is the question `tenant_memberships` answers. The reorder is
+  //     deliberate and it changes one thing: somebody with no tenant at all now
+  //     gets `no_tenant` instead of `not_admin`, which is the more accurate of
+  //     the two and is asserted in the tests.
+  const tenantId = await deps.callerTenantId(callerId);
+  if (!tenantId) {
+    return {
+      ok: false,
+      code: 'no_tenant',
+      message: 'Your own account is not attached to an organization.',
+    };
+  }
+
+  const callerRole = await deps.membershipRole(callerId, tenantId);
   if (callerRole !== 'admin') {
     return {
       ok: false,
@@ -344,15 +374,6 @@ export async function createPerson(
   const parsed = validateAddPerson(raw);
   if (!parsed.ok) return parsed;
   const input = parsed.value;
-
-  const tenantId = await deps.callerTenantId(callerId);
-  if (!tenantId) {
-    return {
-      ok: false,
-      code: 'no_tenant',
-      message: 'Your own account is not attached to an organization.',
-    };
-  }
 
   // ★ Checked BEFORE the auth user exists, so the common "this name is already
   //   somebody else's" mistake never needs a rollback at all.
@@ -426,8 +447,9 @@ export async function createPerson(
     const inserted = await deps.ensureMembership(userId, tenantId, input.bridge_role);
     if (input.bridge_role === 'admin') {
       // ★★ BOTH ROWS, because they are read by different things:
-      //    `profiles.role` gates the server-side admin RLS and is what THIS
-      //    function's own gate reads, while `tenant_memberships.role` is what
+      //    `profiles.role` gated the server-side admin RLS and was what THIS
+      //    function's own gate read (fix-608 §C moved both to
+      //    `tenant_memberships`), while `tenant_memberships.role` is what
       //    useIsTenantAdmin reads for the UI. Setting one and not the other is
       //    how somebody ends up able to see the admin screens and not write, or
       //    the reverse.

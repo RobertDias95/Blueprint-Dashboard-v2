@@ -45,6 +45,8 @@ interface Fake {
   rosterRows: RosterRow[];
   authUsers: Set<string>;
   profileRoles: Map<string, 'admin' | 'editor'>;
+  /** ★ fix-608: who, and for which tenant, the gate actually asked about. */
+  gateAskedAbout: { userId: string; tenantId: string } | null;
   inserted: Record<string, unknown> | null;
   updated: { id: string; patch: Record<string, unknown> } | null;
   membershipInserted: boolean;
@@ -63,6 +65,7 @@ function fake(over: Partial<{
     rosterRows: over.rosterRows ?? [],
     authUsers: new Set<string>(),
     profileRoles: new Map(),
+    gateAskedAbout: null,
     inserted: null,
     updated: null,
     membershipInserted: false,
@@ -74,8 +77,12 @@ function fake(over: Partial<{
       state.calls.push('callerId');
       return jwt === 'good' ? 'caller-1' : null;
     },
-    async profileRole() {
-      state.calls.push('profileRole');
+    // ★★ fix-608 §C.2: was `profileRole(userId)` reading `profiles.role`. The
+    //    gate now asks `tenant_memberships` for the tenant being written to, so
+    //    the fake takes the tenant too — and `callerTenantId` is consulted FIRST.
+    async membershipRole(userId, tenantId) {
+      state.calls.push('membershipRole');
+      state.gateAskedAbout = { userId, tenantId };
       return callerRole;
     },
     async callerTenantId() {
@@ -174,7 +181,7 @@ describe('fix-436 §A2 — the caller gate is inside the function', () => {
     if (res.ok) return;
     expect(res.code).toBe('unauthenticated');
     expect(ERROR_STATUS[res.code]).toBe(401);
-    expect(f.calls).not.toContain('profileRole');
+    expect(f.calls).not.toContain('membershipRole');
   });
 
   it('★★ no token at all is 401', async () => {

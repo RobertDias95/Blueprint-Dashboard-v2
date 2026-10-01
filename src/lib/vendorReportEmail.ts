@@ -40,6 +40,57 @@ export interface VendorRecipients {
 
 const EMPTY_RECIPIENTS: VendorRecipients = { label: '', to: [], cc: [] };
 
+// ===========================================================================
+// ★★★ fix-608 §A (P-305) — THE CARD WAS PASSING THE WHOLE CONFIG MAP
+// ===========================================================================
+//
+// `readVendorRecipients(value, key)` wants the `vendorReportRecipients` VALUE.
+// The forecast page passed `configQ.map.get('vendorReportRecipients')` and was
+// right; `WeeklyUpdate/SssCard` passed `configQ.map` — the whole Map — and a Map
+// has no string index, so `value['sss']` was always `undefined` and the card
+// always read "no recipients configured".
+//
+// ★★ IT DEGRADED INSTEAD OF THROWING, WHICH IS WHY IT SURVIVED. The malformed
+//    guard below returns EMPTY_RECIPIENTS for anything that is not a plain
+//    object-of-objects — a deliberate kindness that turned a type error into a
+//    silently wrong screen.
+//
+// ★★★ SO THE KEY STRING NOW LIVES IN ONE PLACE AND BOTH CALLERS TAKE THE MAP.
+//     The brief says reuse the forecast page's accessor rather than writing a
+//     second — there was no accessor, only an inline `.get()` with the key
+//     spelled out at the call site, which is the shape that let the two paths
+//     differ at all.
+
+/** The `app_config` key holding the per-vendor recipient blob. */
+export const VENDOR_RECIPIENTS_CONFIG_KEY = 'vendorReportRecipients';
+
+/**
+ * Read a vendor's recipients straight from the `useAppConfig()` map.
+ *
+ * ★ This is the one both surfaces call. It takes the MAP, so passing the map is
+ *   no longer a mistake you can make — which is the actual fix, not the one-line
+ *   correction at the call site.
+ */
+export function readVendorRecipientsFromConfig(
+  configMap: Map<string, unknown> | null | undefined,
+  vendorKey: string,
+): VendorRecipients {
+  // ★★★ DEGRADES RATHER THAN THROWS, LIKE EVERYTHING ELSE IN THIS MODULE. A bare
+  //     `configMap?.get(…)` raises `configMap?.get is not a function` on anything
+  //     that is not a Map — and two existing test fixtures modelled
+  //     `useAppConfig().map` as a plain `{}`, which is the SAME Map-versus-object
+  //     confusion that caused P-305 in the first place. Those fixtures have been
+  //     corrected, but a reader whose config is not a Map should get "no
+  //     recipients configured" (the state this screen already handles), never a
+  //     crash inside a weekly summary.
+  const get = (configMap as { get?: unknown } | null | undefined)?.get;
+  if (typeof get !== 'function') return EMPTY_RECIPIENTS;
+  return readVendorRecipients(
+    (configMap as Map<string, unknown>).get(VENDOR_RECIPIENTS_CONFIG_KEY),
+    vendorKey,
+  );
+}
+
 /** Read the recipient list for a vendor out of the app_config blob. Shape:
  *  { "<vendor_key>": { label, to: [{name,email}], cc: [...] } }. Anything
  *  malformed degrades to empty rather than throwing — the page renders a

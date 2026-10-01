@@ -45,6 +45,7 @@ import {
   formatWeekOf,
   missingRecipientEmails,
   resolveForecastRecipients,
+  VENDOR_RECIPIENTS_CONFIG_KEY,
 } from '../lib/vendorReportEmail';
 
 // fix-265: Vendor Schedule Forecast — the weekly note Blueprint owes SSS, built
@@ -197,7 +198,9 @@ export default function VendorScheduleForecastReport() {
   const recipients = useMemo(
     () =>
       resolveForecastRecipients(
-        configQ.map.get('vendorReportRecipients'),
+        // ★ fix-608 §A: the key was spelled out here and nowhere else, which is
+        //   how the SSS card came to pass the wrong thing. One constant now.
+        configQ.map.get(VENDOR_RECIPIENTS_CONFIG_KEY),
         vendorKey,
         discipline ?? '',
         directoryQ.data,

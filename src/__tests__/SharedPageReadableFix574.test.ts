@@ -306,7 +306,13 @@ describe('fix-574 §4 — every Edge Function is listed as deployed or not', () 
     const status = readFileSync(STATUS, 'utf8');
     expect(status).toMatch(/\| `plan-share` \| ⛔️ \*\*NOT DEPLOYED/);
     expect(status).toContain('P-279');
-    expect(status).toMatch(/\| `admin-create-user` \| \*\*DEPLOYED\*\*/);
+    // ★★ fix-608 CHANGED THIS ROW, and this assertion is what made it get
+    //    changed — which is the sentence above working as intended. The function
+    //    is still deployed; the LIVE version is now behind the repo, because
+    //    fix-608 moved its admin gate off `profiles.role` and merging is not
+    //    deploying. The row must say both halves.
+    expect(status).toMatch(/\| `admin-create-user` \| ⚠️ \*\*DEPLOYED, BUT STALE\*\*/);
+    expect(status).toMatch(/not yet deployed/i);
   });
 
   it('★★ every function still has its own README beside its row', () => {
