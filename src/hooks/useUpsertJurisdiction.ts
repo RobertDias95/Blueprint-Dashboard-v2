@@ -26,6 +26,7 @@ export function useUpsertJurisdiction() {
   const queryClient = useQueryClient();
   const tenantId = useAuthStore((s) => s.activeTenantId) ?? '';
   return useMutation<Row, Error, UpsertJurisdictionInput>({
+    meta: { write: 'bp_upsert_jurisdiction' },
     mutationFn: async (input) => {
       const { data, error } = await supabase.rpc('bp_upsert_jurisdiction', {
         p_name: input.name,

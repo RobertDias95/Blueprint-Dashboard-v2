@@ -45,6 +45,7 @@ export function useUpsertReportCategory() {
   const queryClient = useQueryClient();
   const tenantId = useAuthStore((s) => s.activeTenantId) ?? '';
   return useMutation<string, Error, UpsertCategoryInput>({
+    meta: { write: 'bp_upsert_report_category' },
     mutationFn: async (input) => {
       const { data, error } = await supabase.rpc('bp_upsert_report_category', {
         p_id: input.id ?? null,
@@ -68,6 +69,7 @@ export function useDeleteReportCategory() {
   const queryClient = useQueryClient();
   const tenantId = useAuthStore((s) => s.activeTenantId) ?? '';
   return useMutation<void, Error, { id: string }>({
+    meta: { write: 'bp_delete_report_category' },
     mutationFn: async ({ id }) => {
       const { error } = await supabase.rpc('bp_delete_report_category', {
         p_id: id,
@@ -98,6 +100,7 @@ export function useUpsertSavedReport() {
   const queryClient = useQueryClient();
   const tenantId = useAuthStore((s) => s.activeTenantId) ?? '';
   return useMutation<string, Error, UpsertSavedReportInput>({
+    meta: { write: 'bp_upsert_saved_report' },
     mutationFn: async (input) => {
       const { data, error } = await supabase.rpc('bp_upsert_saved_report', {
         p_id: input.id ?? null,
@@ -122,6 +125,7 @@ export function useDeleteSavedReport() {
   const queryClient = useQueryClient();
   const tenantId = useAuthStore((s) => s.activeTenantId) ?? '';
   return useMutation<void, Error, { id: string }>({
+    meta: { write: 'bp_delete_saved_report' },
     mutationFn: async ({ id }) => {
       const { error } = await supabase.rpc('bp_delete_saved_report', {
         p_id: id,

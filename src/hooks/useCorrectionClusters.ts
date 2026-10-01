@@ -106,6 +106,7 @@ export function useCorrectionClusterDetail(clusterKey: string | null, juris: Jur
 export function useRebuildCorrectionClusters() {
   const queryClient = useQueryClient();
   return useMutation({
+    meta: { write: 'bp_rebuild_correction_clusters' },
     mutationKey: ['rebuild-correction-clusters'],
     mutationFn: async () => {
       const { data, error } = await supabase.rpc('bp_rebuild_correction_clusters');
@@ -135,6 +136,7 @@ export interface CurationInput {
 export function useSetCorrectionCuration() {
   const queryClient = useQueryClient();
   return useMutation({
+    meta: { write: 'bp_set_correction_curation' },
     mutationKey: ['set-correction-curation'],
     mutationFn: async (input: CurationInput) => {
       const { error } = await supabase.rpc('bp_set_correction_curation', {

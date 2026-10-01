@@ -78,6 +78,7 @@ export function useUpsertPermitTask() {
   const tenantId = useAuthStore((s) => s.activeTenantId) ?? '';
 
   return useMutation<PermitTask, Error, UpsertTaskInput, MutationContext>({
+    meta: { write: 'bp_upsert_permit_task_row' },
     mutationFn: async (input) =>
       occSerialize(input.op === 'insert' ? occInsertKey('permit_tasks') : occRowKey('permit_tasks', input.task.id), occToken(input.op === 'insert' ? null : input.task.updated_at), async (expected) => {
         const value = await (async () => {

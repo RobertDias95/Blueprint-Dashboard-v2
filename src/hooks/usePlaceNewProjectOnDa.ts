@@ -39,6 +39,7 @@ export function usePlaceNewProjectOnDa() {
   const tenantId = useAuthStore((s) => s.activeTenantId) ?? '';
 
   return useMutation<PlaceNewProjectResult, Error, PlaceNewProjectInput>({
+    meta: { write: 'bp_place_new_project_on_da' },
     mutationFn: async (input) => {
       const { data, error } = await supabase.rpc(
         'bp_place_new_project_on_da',

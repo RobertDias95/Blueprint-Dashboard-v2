@@ -33,6 +33,7 @@ export function useSwapIntakeDates() {
   const queryClient = useQueryClient();
   const tenantId = useAuthStore((s) => s.activeTenantId) ?? '';
   return useMutation<boolean, Error, SwapIntakeInput>({
+    meta: { write: 'bp_swap_intake_dates' },
     mutationFn: async ({ idA, idB, expectedA, expectedB }) =>
       occSerialize(occRowKey('intake_records', idA), occToken(expectedA), async (expected) => {
         const value = await (async () => {

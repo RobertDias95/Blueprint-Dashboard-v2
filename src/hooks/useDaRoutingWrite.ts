@@ -46,6 +46,7 @@ export function useUpsertDaRouting() {
   const queryClient = useQueryClient();
   const tenantId = useAuthStore((s) => s.activeTenantId) ?? '';
   return useMutation<{ id: number; updated_at: string }, Error, UpsertDaRoutingInput>({
+    meta: { write: 'bp_upsert_da_team_routing_row' },
     mutationFn: async (input) =>
       occSerialize(input.op === 'insert' ? occInsertKey('da_team_routing') : occRowKey('da_team_routing', input.id), occToken(input.op === 'insert' ? null : input.updated_at), async (expected) => {
         const value = await (async () => {
@@ -94,6 +95,7 @@ export function useDeleteDaRouting() {
   const queryClient = useQueryClient();
   const tenantId = useAuthStore((s) => s.activeTenantId) ?? '';
   return useMutation<void, Error, { id: number; updated_at: string }>({
+    meta: { write: 'bp_delete_da_team_routing_row' },
     mutationFn: async ({ id, updated_at }) =>
       occSerialize(occRowKey('da_team_routing', id), occToken(updated_at), async (expected) => {
         const value = await (async () => {

@@ -41,6 +41,7 @@ export function useUpsertBuilder() {
   const tenantId = useAuthStore((s) => s.activeTenantId) ?? '';
 
   return useMutation<Builder, Error, UpsertBuilderInput>({
+    meta: { write: 'builders.upsert' },
     mutationFn: async (input) => {
       const payload = {
         name: input.name,

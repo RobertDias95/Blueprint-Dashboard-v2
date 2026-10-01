@@ -31,6 +31,7 @@ export function useReorderTaskTemplates() {
   const queryClient = useQueryClient();
   const tenantId = useAuthStore((s) => s.activeTenantId) ?? '';
   return useMutation<void, Error, { ids: string[] }>({
+    meta: { write: 'bp_reorder_task_templates' },
     mutationFn: async ({ ids }) => {
       const { error } = await supabase.rpc('bp_reorder_task_templates', {
         p_ids: ids,

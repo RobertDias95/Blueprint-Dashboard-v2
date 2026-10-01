@@ -30,6 +30,7 @@ export function useUpsertPermitTypeDefault() {
   const tenantId = useAuthStore((s) => s.activeTenantId) ?? '';
 
   return useMutation<PermitTypeDefault, Error, UpsertPermitTypeDefaultInput, MutationContext>({
+    meta: { write: 'bp_upsert_permit_type_default' },
     mutationFn: async (input) => {
       const { data, error } = await supabase.rpc(
         'bp_upsert_permit_type_default',

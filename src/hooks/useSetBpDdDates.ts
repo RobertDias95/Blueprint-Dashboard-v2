@@ -94,6 +94,7 @@ export function useSetBpDdDates() {
   const tenantId = useAuthStore((s) => s.activeTenantId) ?? '';
 
   return useMutation<SetBpDdDatesResult, Error, SetBpDdDatesInput>({
+    meta: { write: 'bp_set_bp_dd_dates' },
     mutationFn: async (input) =>
       occSerialize(occRowKey('draw_schedule', input.projectId), occToken(input.expectedUpdatedAt), async (expected) => {
         const value = await (async () => {

@@ -34,6 +34,7 @@ export function useShiftDaBlocksUp() {
   const tenantId = useAuthStore((s) => s.activeTenantId) ?? '';
 
   return useMutation<ShiftDaBlocksUpResult, Error, ShiftDaBlocksUpInput>({
+    meta: { write: 'bp_shift_da_blocks_up' },
     mutationFn: async (input) => {
       const { data, error } = await supabase.rpc('bp_shift_da_blocks_up', {
         p_da: input.daName,

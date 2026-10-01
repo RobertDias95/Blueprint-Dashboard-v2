@@ -127,6 +127,7 @@ export function useCreatePlanShare() {
     Error,
     { projectId: string; setType: string; variant: string | null }
   >({
+    meta: { write: 'bp_create_plan_share' },
     mutationFn: async ({ projectId, setType, variant }) => {
       const { data, error } = await supabase.rpc('bp_create_plan_share', {
         p_project_id: projectId,
@@ -152,6 +153,7 @@ export function useRevokePlanShare() {
   const qc = useQueryClient();
   const tenantId = useAuthStore((s) => s.activeTenantId);
   return useMutation<boolean, Error, { projectId: string; token: string }>({
+    meta: { write: 'bp_revoke_plan_share' },
     mutationFn: async ({ token }) => {
       const { data, error } = await supabase.rpc('bp_revoke_plan_share', {
         p_token: token,

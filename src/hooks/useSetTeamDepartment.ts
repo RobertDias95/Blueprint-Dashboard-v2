@@ -30,6 +30,7 @@ export function useSetTeamDepartment() {
   const queryClient = useQueryClient();
   const tenantId = useAuthStore((s) => s.activeTenantId) ?? '';
   return useMutation<number, Error, { name: string; department: Department | null }>({
+    meta: { write: 'bp_set_team_department' },
     mutationFn: async ({ name, department }) => {
       const { data, error } = await supabase.rpc('bp_set_team_department', {
         p_name: name,

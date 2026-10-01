@@ -130,6 +130,7 @@ export function useSetPermitHold() {
   const queryClient = useQueryClient();
   const tenantId = useAuthStore((s) => s.activeTenantId) ?? '';
   return useMutation<PermitHold, Error, SetPermitHoldInput>({
+    meta: { write: 'bp_set_permit_hold' },
     mutationFn: async (input) => {
       const { data, error } = await supabase.rpc('bp_set_permit_hold', {
         p_tenant_id: tenantId,
@@ -165,6 +166,7 @@ export function useLiftPermitHold() {
   const queryClient = useQueryClient();
   const tenantId = useAuthStore((s) => s.activeTenantId) ?? '';
   return useMutation<PermitHold, Error, LiftPermitHoldInput>({
+    meta: { write: 'bp_lift_permit_hold' },
     mutationFn: async (input) => {
       const { data, error } = await supabase.rpc('bp_lift_permit_hold', {
         p_tenant_id: tenantId,
@@ -199,6 +201,7 @@ export function useUpdatePermitHold() {
   const queryClient = useQueryClient();
   const tenantId = useAuthStore((s) => s.activeTenantId) ?? '';
   return useMutation<PermitHold, Error, UpdatePermitHoldInput>({
+    meta: { write: 'bp_update_permit_hold' },
     mutationFn: async (input) => {
       const { data, error } = await supabase.rpc('bp_update_permit_hold', {
         p_tenant_id: tenantId,

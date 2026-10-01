@@ -18,6 +18,7 @@ export function useDeleteTaskTemplateSubtask() {
   const queryClient = useQueryClient();
   const tenantId = useAuthStore((s) => s.activeTenantId) ?? '';
   return useMutation<void, Error, { id: string; updated_at: string }>({
+    meta: { write: 'bp_delete_task_template_subtask_row' },
     mutationFn: async ({ id, updated_at }) =>
       occSerialize(occRowKey('task_template_subtasks', id), occToken(updated_at), async (expected) => {
         const value = await (async () => {

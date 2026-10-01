@@ -58,6 +58,7 @@ export interface ReassignSdInput {
 export function useReassignProjectSd() {
   const queryClient = useQueryClient();
   return useMutation<{ tasks_moved: number } | null, Error, ReassignSdInput>({
+    meta: { write: 'bp_reassign_project_sd' },
     mutationFn: async ({ projectId, toSd, note }) => {
       const { data, error } = await supabase.rpc('bp_reassign_project_sd', {
         p_project_id: projectId,

@@ -148,6 +148,7 @@ export interface ConsultantWriteResult {
 export function useAddProjectConsultant(projectId: string | null | undefined) {
   const invalidate = useInvalidate(projectId);
   return useMutation({
+    meta: { write: 'bp_add_project_consultant' },
     mutationFn: async (input: {
       discipline: string;
       firmId: string;
@@ -259,6 +260,7 @@ export interface ConsultantRemoveResult {
 export function useRemoveProjectConsultant(projectId: string | null | undefined) {
   const invalidate = useInvalidate(projectId);
   return useMutation({
+    meta: { write: 'bp_remove_project_consultant' },
     mutationFn: async (input: {
       consultantId: string;
       /** ★ The CONSULTANT's `updated_at` — this write is on that row. */
@@ -309,6 +311,7 @@ export function useRemoveProjectConsultant(projectId: string | null | undefined)
 export function useSetConsultantStatus(projectId: string | null | undefined) {
   const invalidate = useInvalidate(projectId);
   return useMutation({
+    meta: { write: 'bp_set_consultant_status' },
     mutationFn: async (input: {
       consultantId: string;
       status: ConsultantStatus;
@@ -353,6 +356,7 @@ export function useSetConsultantStatus(projectId: string | null | undefined) {
 export function useSetConsultantDate(projectId: string | null | undefined) {
   const invalidate = useInvalidate(projectId);
   return useMutation({
+    meta: { write: 'bp_set_consultant_date' },
     mutationFn: async (input: {
       consultantId: string;
       field: ConsultantDateField;
@@ -382,6 +386,7 @@ export function useSetConsultantDate(projectId: string | null | undefined) {
 export function useSetConsultantPhase(projectId: string | null | undefined) {
   const invalidate = useInvalidate(projectId);
   return useMutation({
+    meta: { write: 'bp_set_consultant_phase' },
     mutationFn: async (input: {
       consultantId: string;
       phase: string;
@@ -414,6 +419,7 @@ export function useSetConsultantPhase(projectId: string | null | undefined) {
 export function useSetConsultantFirm(projectId: string | null | undefined) {
   const invalidate = useInvalidate(projectId);
   return useMutation({
+    meta: { write: 'bp_set_consultant_firm' },
     mutationFn: async (input: {
       consultantId: string;
       firmId: string;

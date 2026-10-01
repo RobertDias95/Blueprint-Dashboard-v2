@@ -47,6 +47,7 @@ export function useMarkVendorReportSent() {
   const queryClient = useQueryClient();
   const tenantId = useAuthStore((s) => s.activeTenantId) ?? '';
   return useMutation<number, Error, MarkVendorReportSentInput>({
+    meta: { write: 'bp_mark_vendor_report_sent' },
     mutationFn: async (input) => {
       const { error } = await supabase.rpc('bp_mark_vendor_report_sent', {
         p_tenant_id: tenantId,

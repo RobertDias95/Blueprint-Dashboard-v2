@@ -30,6 +30,7 @@ export function useReorderQuarterLayout() {
   const queryClient = useQueryClient();
   const tenantId = useAuthStore((s) => s.activeTenantId) ?? '';
   return useMutation<void, Error, { quarter: string; ids: string[] }>({
+    meta: { write: 'bp_reorder_quarter_layout' },
     mutationFn: async ({ quarter, ids }) => {
       const { error } = await supabase.rpc('bp_reorder_quarter_layout', {
         p_quarter: quarter,

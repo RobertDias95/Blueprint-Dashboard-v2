@@ -26,6 +26,7 @@ export function useRenamePermitType() {
   const queryClient = useQueryClient();
   const tenantId = useAuthStore((s) => s.activeTenantId) ?? '';
   return useMutation<Row, Error, { from: string; to: string }>({
+    meta: { write: 'bp_rename_permit_type' },
     mutationFn: async ({ from, to }) => {
       const { data, error } = await supabase.rpc('bp_rename_permit_type', {
         p_old: from,

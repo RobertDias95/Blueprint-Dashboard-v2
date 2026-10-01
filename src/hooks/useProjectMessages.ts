@@ -184,6 +184,7 @@ export function usePostMessage() {
   const queryClient = useQueryClient();
   const upsert = useUpsertTask();
   return useMutation<string | null, Error, PostMessageInput>({
+    meta: { write: 'project_messages.insert' },
     mutationFn: async ({
       projectId,
       body,
@@ -273,6 +274,7 @@ export function useEditMessage() {
     Error,
     { messageId: string; body: string; mentions: string[] }
   >({
+    meta: { write: 'project_messages.update' },
     mutationFn: async ({ messageId, body, mentions }) => {
       const trimmed = body.trim();
       if (!trimmed) throw new Error('A message cannot be edited to nothing.');
@@ -305,6 +307,7 @@ export function useEditMessage() {
 export function useDeleteMessage() {
   const queryClient = useQueryClient();
   return useMutation<void, Error, { messageId: string }>({
+    meta: { write: 'project_messages.update' },
     mutationFn: async ({ messageId }) => {
       const { error } = await supabase
         .from('project_messages')
@@ -352,6 +355,7 @@ export function useCreateTaskFromMessage() {
   const queryClient = useQueryClient();
   const upsert = useUpsertTask();
   return useMutation<string, Error, CreateTaskFromMessageInput>({
+    meta: { write: 'permit_tasks.update' },
     mutationFn: async (input) => {
       const taskId = await upsert.mutateAsync({
         permitId: input.permitId,

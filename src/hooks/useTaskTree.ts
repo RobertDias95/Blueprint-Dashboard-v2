@@ -139,6 +139,7 @@ export function useUpsertTask() {
   // React Query then drops that call's callbacks.
   const { clear: clearStatusOverlay } = useTaskStatusOverlay();
   return useMutation<string, Error, UpsertTaskInput>({
+    meta: { write: 'bp_upsert_permit_task' },
     mutationFn: async (input) => {
       const { data, error } = await supabase.rpc('bp_upsert_permit_task', {
         p_id: input.id ?? null,
@@ -221,6 +222,7 @@ export function useDeleteTask() {
   const queryClient = useQueryClient();
   const tenantId = useAuthStore((s) => s.activeTenantId) ?? '';
   return useMutation<void, Error, { id: string; permitId: number }>({
+    meta: { write: 'bp_delete_permit_task' },
     mutationFn: async ({ id }) => {
       const { error } = await supabase.rpc('bp_delete_permit_task', { p_id: id });
       if (error) throw error;
@@ -246,6 +248,7 @@ export function useSetTaskAssignees() {
     Error,
     { taskId: string; assignees: string[]; permitId: number }
   >({
+    meta: { write: 'bp_set_task_assignees' },
     mutationFn: async ({ taskId, assignees }) => {
       const { error } = await supabase.rpc('bp_set_task_assignees', {
         p_task_id: taskId,

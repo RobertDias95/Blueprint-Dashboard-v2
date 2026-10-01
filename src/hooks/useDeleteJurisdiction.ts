@@ -14,6 +14,7 @@ export function useDeleteJurisdiction() {
   const queryClient = useQueryClient();
   const tenantId = useAuthStore((s) => s.activeTenantId) ?? '';
   return useMutation<boolean, Error, { name: string }>({
+    meta: { write: 'bp_delete_jurisdiction' },
     mutationFn: async ({ name }) => {
       const { data, error } = await supabase.rpc('bp_delete_jurisdiction', {
         p_name: name,

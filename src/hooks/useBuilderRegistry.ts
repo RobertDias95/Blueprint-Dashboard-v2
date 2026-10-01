@@ -155,6 +155,7 @@ function useInvalidate() {
 export function useUpsertBuilderRow() {
   const invalidate = useInvalidate();
   return useMutation<Builder, Error, UpsertBuilderInput>({
+    meta: { write: 'bp_upsert_builder' },
     mutationFn: async (input) =>
       occSerialize(input.id ? occRowKey('builders', input.id) : occInsertKey('builders'), occToken(input.expectedUpdatedAt ?? null), async (expected) => {
         const value = await (async () => {
@@ -187,6 +188,7 @@ export function useUpsertBuilderRow() {
 export function useDeactivateBuilder() {
   const invalidate = useInvalidate();
   return useMutation<Builder, Error, { id: string; active: boolean }>({
+    meta: { write: 'bp_deactivate_builder' },
     mutationFn: async ({ id, active }) => {
       const { data, error } = await supabase.rpc('bp_deactivate_builder', {
         p_id: id,
@@ -214,6 +216,7 @@ export interface MergeResult {
 export function useMergeBuilders() {
   const invalidate = useInvalidate();
   return useMutation<MergeResult, Error, { loserId: string; winnerId: string }>({
+    meta: { write: 'bp_merge_builders' },
     mutationFn: async ({ loserId, winnerId }) => {
       const { data, error } = await supabase.rpc('bp_merge_builders', {
         p_loser_id: loserId,
@@ -269,6 +272,7 @@ export interface RenamePersonResult {
 export function useRenameBuilderPerson() {
   const invalidate = useInvalidate();
   return useMutation<RenamePersonResult, Error, { oldName: string; newName: string }>({
+    meta: { write: 'bp_rename_builder_person' },
     mutationFn: async ({ oldName, newName }) => {
       const { data, error } = await supabase.rpc('bp_rename_builder_person', {
         p_old_name: oldName,

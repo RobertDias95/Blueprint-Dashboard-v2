@@ -66,6 +66,7 @@ export function useMarkWhatsNewRead() {
   const qc = useQueryClient();
   const userId = useAuthStore((s) => s.user?.id ?? null);
   return useMutation<void, Error, string[]>({
+    meta: { write: 'whats_new_reads.upsert' },
     mutationFn: async (entryIds) => {
       if (!userId || entryIds.length === 0) return;
       const { error } = await supabase.from('whats_new_reads').upsert(
@@ -102,6 +103,7 @@ export interface WhatsNewDraft {
 export function useUpsertWhatsNewEntry() {
   const qc = useQueryClient();
   return useMutation<void, Error, WhatsNewDraft>({
+    meta: { write: 'whats_new_entries.upsert' },
     mutationFn: async (draft) => {
       const row = {
         published_on: draft.published_on,
@@ -131,6 +133,7 @@ export function useUpsertWhatsNewEntry() {
 export function useDeleteWhatsNewEntry() {
   const qc = useQueryClient();
   return useMutation<void, Error, string>({
+    meta: { write: 'whats_new_entries.delete' },
     mutationFn: async (id) => {
       const { error } = await supabase.from('whats_new_entries').delete().eq('id', id);
       if (error) throw error;

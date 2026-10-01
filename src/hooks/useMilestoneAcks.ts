@@ -57,6 +57,7 @@ export function useAckMilestone() {
   const userId = useAuthStore((s) => s.user?.id ?? null);
 
   return useMutation<void, Error, AckMilestoneInput>({
+    meta: { write: 'permit_milestone_acks.insert' },
     mutationFn: async (input) => {
       const { error } = await supabase.from('permit_milestone_acks').insert({
         permit_id: input.permitId,

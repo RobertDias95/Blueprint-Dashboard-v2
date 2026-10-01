@@ -113,6 +113,7 @@ export interface ReassignProjectDaInput {
 export function useReassignProjectDa() {
   const qc = useQueryClient();
   return useMutation<ProjectDaHandoff, Error, ReassignProjectDaInput>({
+    meta: { write: 'bp_reassign_project_da' },
     mutationFn: async (input) => {
       const { data, error } = await supabase.rpc('bp_reassign_project_da', {
         p_project_id: input.projectId,
@@ -141,6 +142,7 @@ export function useReassignProjectDa() {
 export function useUndoProjectDaReassign() {
   const qc = useQueryClient();
   return useMutation<void, Error, { handoffId: string }>({
+    meta: { write: 'bp_undo_project_da_reassign' },
     mutationFn: async ({ handoffId }) => {
       const { error } = await supabase.rpc('bp_undo_project_da_reassign', {
         p_handoff_id: handoffId,

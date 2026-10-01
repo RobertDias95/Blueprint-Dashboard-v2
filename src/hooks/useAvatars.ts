@@ -121,6 +121,7 @@ export function useSetAvatar() {
   const tenantId = useAuthStore((s) => s.activeTenantId) ?? '';
 
   return useMutation<string | null, Error, SetAvatarInput>({
+    meta: { write: 'bp_set_avatar_path' },
     mutationFn: async ({ profileId, file, currentPath }) => {
       if (!tenantId) throw new Error('No active tenant.');
 

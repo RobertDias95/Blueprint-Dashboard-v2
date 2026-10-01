@@ -158,6 +158,7 @@ export function useSetProjectHold() {
   const queryClient = useQueryClient();
   const tenantId = useAuthStore((s) => s.activeTenantId) ?? '';
   return useMutation<ProjectHold, Error, SetProjectHoldInput>({
+    meta: { write: 'bp_set_project_hold' },
     mutationFn: async (input) => {
       const { data, error } = await supabase.rpc('bp_set_project_hold', {
         p_tenant_id: tenantId,
@@ -191,6 +192,7 @@ export function useLiftProjectHold() {
   const queryClient = useQueryClient();
   const tenantId = useAuthStore((s) => s.activeTenantId) ?? '';
   return useMutation<ProjectHold, Error, LiftProjectHoldInput>({
+    meta: { write: 'bp_lift_project_hold' },
     mutationFn: async (input) => {
       const { data, error } = await supabase.rpc('bp_lift_project_hold', {
         p_tenant_id: tenantId,
@@ -229,6 +231,7 @@ export function useSetProjectCancel() {
   const queryClient = useQueryClient();
   const tenantId = useAuthStore((s) => s.activeTenantId) ?? '';
   return useMutation<ProjectHold, Error, SetProjectCancelInput>({
+    meta: { write: 'bp_set_project_cancel' },
     mutationFn: async (input) => {
       const { data, error } = await supabase.rpc('bp_set_project_cancel', {
         p_tenant_id: tenantId,
@@ -267,6 +270,7 @@ export function useRestoreProject() {
   const queryClient = useQueryClient();
   const tenantId = useAuthStore((s) => s.activeTenantId) ?? '';
   return useMutation<ProjectHold, Error, RestoreProjectInput>({
+    meta: { write: 'bp_restore_project' },
     mutationFn: async (input) => {
       const { data, error } = await supabase.rpc('bp_restore_project', {
         p_tenant_id: tenantId,
@@ -302,6 +306,7 @@ export function useUpdateProjectHold() {
   const queryClient = useQueryClient();
   const tenantId = useAuthStore((s) => s.activeTenantId) ?? '';
   return useMutation<ProjectHold, Error, UpdateProjectHoldInput>({
+    meta: { write: 'bp_update_project_hold' },
     mutationFn: async (input) => {
       const { data, error } = await supabase.rpc('bp_update_project_hold', {
         p_tenant_id: tenantId,

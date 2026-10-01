@@ -17,6 +17,7 @@ export interface RenameDMResult {
 export function useRenameDM() {
   const queryClient = useQueryClient();
   return useMutation<RenameDMResult, Error, { oldName: string; newName: string }>({
+    meta: { write: 'bp_rename_dm' },
     mutationFn: async ({ oldName, newName }) => {
       const { data, error } = await supabase.rpc('bp_rename_dm', {
         p_old: oldName,

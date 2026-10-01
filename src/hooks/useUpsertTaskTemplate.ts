@@ -69,6 +69,7 @@ export function useUpsertTaskTemplate() {
   const queryClient = useQueryClient();
   const tenantId = useAuthStore((s) => s.activeTenantId) ?? '';
   return useMutation<TaskTemplate, Error, UpsertTaskTemplateInput>({
+    meta: { write: 'bp_upsert_task_template_row' },
     mutationFn: async (input) =>
       occSerialize(input.op === 'insert' ? occInsertKey('task_templates') : occRowKey('task_templates', input.template.id), occToken(input.op === 'insert' ? null : input.template.updated_at), async (expected) => {
         const value = await (async () => {

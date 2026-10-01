@@ -63,6 +63,7 @@ export function useUpsertDirectoryFirm() {
   const tenantId = useAuthStore((s) => s.activeTenantId) ?? '';
 
   return useMutation<ExternalTeamDirectoryFirm, Error, UpsertDirectoryFirmInput>({
+    meta: { write: 'external_team_directory.upsert' },
     mutationFn: async (input) => {
       if (input.id) {
         // Update: only send the fields the caller set (rename / toggle active /

@@ -25,6 +25,7 @@ export function useUpsertPermitType() {
   const queryClient = useQueryClient();
   const tenantId = useAuthStore((s) => s.activeTenantId) ?? '';
   return useMutation<Row, Error, UpsertPermitTypeInput>({
+    meta: { write: 'bp_upsert_permit_type' },
     mutationFn: async (input) => {
       const { data, error } = await supabase.rpc('bp_upsert_permit_type', {
         p_name: input.name,

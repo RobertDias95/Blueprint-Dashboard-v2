@@ -45,6 +45,7 @@ export function useUpsertQuarterLayoutRow() {
     Error,
     UpsertQuarterLayoutInput
   >({
+    meta: { write: 'bp_upsert_quarter_layout_row' },
     mutationFn: async (input) =>
       occSerialize(input.op === 'insert' ? occInsertKey('draw_schedule_quarter_layout') : occRowKey('draw_schedule_quarter_layout', input.row.id), occToken(input.op === 'insert' ? null : input.row.updated_at), async (expected) => {
         const value = await (async () => {

@@ -51,6 +51,7 @@ export function usePermitConditions() {
 export function useAcknowledgeCondition() {
   const queryClient = useQueryClient();
   return useMutation<void, Error, { id: string }>({
+    meta: { write: 'bp_acknowledge_permit_condition' },
     mutationFn: async ({ id }) => {
       const { error } = await supabase.rpc('bp_acknowledge_permit_condition', {
         p_id: id,

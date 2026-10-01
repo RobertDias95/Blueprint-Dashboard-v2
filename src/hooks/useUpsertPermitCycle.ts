@@ -269,6 +269,7 @@ export function useUpsertPermitCycle() {
   const tenantId = useAuthStore((s) => s.activeTenantId) ?? '';
 
   return useMutation<UpsertCycleResult, Error, UpsertCycleInput, MutationContext>({
+    meta: { write: 'bp_upsert_permit_cycle_row' },
     // ★★ fix-341: ONE CYCLE WRITE AT A TIME. React Query runs mutations sharing
     // a scope id in series, so the save on cycle N+1 starts after the save on
     // cycle N has landed AND its snap stamp has been merged — instead of

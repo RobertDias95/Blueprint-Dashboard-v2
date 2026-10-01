@@ -42,6 +42,7 @@ export function useUpdateDrawSchedule() {
   const tenantId = useAuthStore((s) => s.activeTenantId) ?? '';
 
   return useMutation<RpcResult, Error, UpdateDrawScheduleInput, MutationContext>({
+    meta: { write: 'bp_update_draw_schedule_with_dd_sync' },
     mutationFn: async (input) =>
       occSerialize(occRowKey('draw_schedule', input.projectId), occToken(input.expectedUpdatedAt), async (expected) => {
         const value = await (async () => {

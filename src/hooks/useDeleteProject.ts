@@ -28,6 +28,7 @@ export function useDeleteProject() {
   const tenantId = useAuthStore((s) => s.activeTenantId) ?? '';
 
   return useMutation<void, Error, DeleteProjectInput>({
+    meta: { write: 'bp_delete_project_row' },
     mutationFn: async ({ projectId, expectedUpdatedAt }) =>
       occSerialize(occRowKey('projects', projectId), occToken(expectedUpdatedAt), async (expected) => {
         const value = await (async () => {
