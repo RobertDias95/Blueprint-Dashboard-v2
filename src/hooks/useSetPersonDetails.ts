@@ -42,6 +42,7 @@ export function useSetPersonDetails() {
   const queryClient = useQueryClient();
   const tenantId = useAuthStore((s) => s.activeTenantId) ?? '';
   return useMutation<number, Error, PersonDetailsInput>({
+    meta: { write: 'bp_set_person_details' },
     mutationFn: async ({ name, first_name, last_name, email }) => {
       const { data, error } = await supabase.rpc('bp_set_person_details', {
         p_name: name,

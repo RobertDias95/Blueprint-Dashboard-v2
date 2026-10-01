@@ -18,6 +18,7 @@ export function useCloneQuarterLayout() {
     Error,
     { from: string; to: string; force?: boolean }
   >({
+    meta: { write: 'bp_clone_quarter_layout' },
     mutationFn: async ({ from, to, force = false }) => {
       const { data, error } = await supabase.rpc('bp_clone_quarter_layout', {
         p_from: from,
@@ -48,6 +49,7 @@ export function useSeedQuarterLayoutFromCurrent() {
   const queryClient = useQueryClient();
   const tenantId = useAuthStore((s) => s.activeTenantId) ?? '';
   return useMutation<number, Error, { quarter: string; force?: boolean }>({
+    meta: { write: 'bp_seed_quarter_layout_from_current' },
     mutationFn: async ({ quarter, force = false }) => {
       const { data, error } = await supabase.rpc(
         'bp_seed_quarter_layout_from_current',

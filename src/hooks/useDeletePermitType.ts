@@ -12,6 +12,7 @@ export function useDeletePermitType() {
   const queryClient = useQueryClient();
   const tenantId = useAuthStore((s) => s.activeTenantId) ?? '';
   return useMutation<boolean, Error, { name: string }>({
+    meta: { write: 'bp_delete_permit_type' },
     mutationFn: async ({ name }) => {
       const { data, error } = await supabase.rpc('bp_delete_permit_type', {
         p_name: name,

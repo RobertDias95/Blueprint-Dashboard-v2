@@ -52,6 +52,7 @@ export function useReplaceQuarterLayout() {
   const queryClient = useQueryClient();
   const tenantId = useAuthStore((s) => s.activeTenantId) ?? '';
   return useMutation<number, Error, ReplaceQuarterLayoutInput>({
+    meta: { write: 'bp_replace_quarter_layout' },
     mutationFn: async ({ quarter, rows, expectedFingerprint }) => {
       const { data, error } = await supabase.rpc('bp_replace_quarter_layout', {
         p_quarter: quarter,

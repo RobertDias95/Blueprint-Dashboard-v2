@@ -32,6 +32,7 @@ export function useUpdateRedesignDdPhase() {
   const qc = useQueryClient();
 
   return useMutation<RpcRow, Error, UpdateRedesignDdPhaseInput>({
+    meta: { write: 'bp_update_redesign_dd_phase' },
     mutationFn: async (input) =>
       occSerialize(occRowKey('draw_schedule', input.projectId), occToken(input.expectedUpdatedAt), async (expected) => {
         const value = await (async () => {

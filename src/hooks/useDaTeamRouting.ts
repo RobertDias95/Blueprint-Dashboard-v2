@@ -104,6 +104,7 @@ export function useCascadeEntLead() {
   const queryClient = useQueryClient();
   const tenantId = useAuthStore((s) => s.activeTenantId) ?? '';
   return useMutation<number, Error, { projectId: string }>({
+    meta: { write: 'bp_cascade_ent_lead_for_project' },
     mutationFn: async ({ projectId }) => {
       const { data, error } = await supabase.rpc(
         'bp_cascade_ent_lead_for_project',

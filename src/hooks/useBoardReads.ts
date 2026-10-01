@@ -49,6 +49,7 @@ export function useMarkBoardItemsRead() {
   const userId = useAuthStore((s) => s.user?.id ?? null);
 
   return useMutation<void, Error, string[]>({
+    meta: { write: 'board_item_reads.upsert' },
     mutationFn: async (itemKeys) => {
       if (!userId || itemKeys.length === 0) return;
       const { error } = await supabase.from('board_item_reads').upsert(

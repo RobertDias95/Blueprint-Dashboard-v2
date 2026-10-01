@@ -21,6 +21,7 @@ export function useCreatePermit() {
   const tenantId = useAuthStore((s) => s.activeTenantId) ?? '';
 
   return useMutation<PermitWithCycles, Error, CreatePermitInput>({
+    meta: { write: 'permits.insert' },
     mutationFn: async ({ projectId, type, patch }) => {
       // ★★★ fix-498 (P-025): `stage: 'de'` used to be in this literal. The
       //     column is gone — this is a DIRECT table insert, not an RPC, so it

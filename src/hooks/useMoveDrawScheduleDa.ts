@@ -60,6 +60,7 @@ export function useMoveDrawScheduleDa() {
   const tenantId = useAuthStore((s) => s.activeTenantId) ?? '';
 
   return useMutation<MoveDrawScheduleDaResult, Error, MoveDrawScheduleDaInput>({
+    meta: { write: 'bp_move_draw_schedule_da' },
     mutationFn: async (input) =>
       occSerialize(occRowKey('draw_schedule', input.projectId), occToken(input.expectedUpdatedAt), async (expected) => {
         const value = await (async () => {

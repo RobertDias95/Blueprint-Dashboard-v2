@@ -40,6 +40,7 @@ export function useUpsertMentionTag() {
     Error,
     { id?: string | null; name: string; memberIds: string[] }
   >({
+    meta: { write: 'bp_upsert_mention_tag' },
     mutationFn: async ({ id, name, memberIds }) => {
       const { data, error } = await supabase.rpc('bp_upsert_mention_tag', {
         p_id: id ?? null,
@@ -62,6 +63,7 @@ export function useUpsertMentionTag() {
 export function useDeleteMentionTag() {
   const queryClient = useQueryClient();
   return useMutation<void, Error, string>({
+    meta: { write: 'bp_delete_mention_tag' },
     mutationFn: async (id) => {
       const { error } = await supabase.rpc('bp_delete_mention_tag', { p_id: id });
       if (error) throw error;

@@ -76,6 +76,7 @@ export function useSetAgendaMember() {
   const queryClient = useQueryClient();
   const tenantId = useAuthStore((s) => s.activeTenantId) ?? '';
   return useMutation<number, Error, { name: string; member: boolean }>({
+    meta: { write: 'bp_set_team_agenda_member' },
     mutationFn: async ({ name, member }) => {
       const { data, error } = await supabase.rpc('bp_set_team_agenda_member', {
         p_name: name,

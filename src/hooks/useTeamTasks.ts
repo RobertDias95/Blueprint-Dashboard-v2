@@ -231,6 +231,7 @@ export function useSetTeamTaskStatus() {
   const queryClient = useQueryClient();
   const tenantId = useAuthStore((s) => s.activeTenantId) ?? '';
   return useMutation<void, Error, { id: string; status: string }>({
+    meta: { write: 'bp_set_team_task_status' },
     mutationFn: async ({ id, status }) => {
       const { error } = await supabase.rpc('bp_set_team_task_status', {
         p_id: id,

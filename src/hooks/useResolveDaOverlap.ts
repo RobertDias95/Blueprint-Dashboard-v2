@@ -52,6 +52,7 @@ export function useResolveDaOverlap() {
   const tenantId = useAuthStore((s) => s.activeTenantId) ?? '';
 
   return useMutation<RpcResult, Error, ResolveDaOverlapInput, MutationContext>({
+    meta: { write: 'bp_resolve_da_overlap' },
     mutationFn: async (input) =>
       occSerialize(occRowKey('draw_schedule', input.anchorProjectId), occToken(input.expectedUpdatedAt), async (expected) => {
         const value = await (async () => {

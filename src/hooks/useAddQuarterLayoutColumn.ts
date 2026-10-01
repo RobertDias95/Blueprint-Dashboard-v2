@@ -35,6 +35,7 @@ export function useAppendQuarterLayoutColumn() {
   const queryClient = useQueryClient();
   const tenantId = useAuthStore((s) => s.activeTenantId) ?? '';
   return useMutation<number, Error, { quarter: string; col: NewColumn }>({
+    meta: { write: 'bp_append_quarter_layout_column' },
     mutationFn: async ({ quarter, col }) => {
       const { data, error } = await supabase.rpc(
         'bp_append_quarter_layout_column',
@@ -64,6 +65,7 @@ export function useInsertQuarterLayoutColumn() {
     Error,
     { quarter: string; atPosition: number; col: NewColumn }
   >({
+    meta: { write: 'bp_insert_quarter_layout_column' },
     mutationFn: async ({ quarter, atPosition, col }) => {
       const { data, error } = await supabase.rpc(
         'bp_insert_quarter_layout_column',

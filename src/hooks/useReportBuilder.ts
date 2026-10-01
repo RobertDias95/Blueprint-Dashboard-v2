@@ -103,6 +103,7 @@ export interface UpsertCustomReportSpecInput {
 
 export function useUpsertCustomReportSpec() {
   return useMutation<string, Error, UpsertCustomReportSpecInput>({
+    meta: { write: 'bp_upsert_custom_report_spec' },
     mutationFn: async (input) => {
       const { data, error } = await supabase.rpc(
         'bp_upsert_custom_report_spec',

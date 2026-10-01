@@ -39,6 +39,7 @@ export function useUpdateTeamMemberQuarters() {
     Error,
     UpdateTeamMemberQuartersInput
   >({
+    meta: { write: 'bp_update_team_member_quarters' },
     mutationFn: async (input) =>
       occSerialize(occRowKey('team_members', input.memberId), occToken(input.expectedUpdatedAt), async (expected) => {
         const value = await (async () => {

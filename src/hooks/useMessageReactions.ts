@@ -60,6 +60,7 @@ export function useToggleReaction(projectId: string | undefined) {
   const queryClient = useQueryClient();
   const tenantId = useAuthStore((s) => s.activeTenantId) ?? '';
   return useMutation<void, Error, { messageId: string; emoji: string }>({
+    meta: { write: 'bp_toggle_message_reaction' },
     mutationFn: async ({ messageId, emoji }) => {
       const { error } = await supabase.rpc('bp_toggle_message_reaction', {
         p_message_id: messageId,

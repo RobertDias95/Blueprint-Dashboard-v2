@@ -90,6 +90,7 @@ export function useRequestPost() {
     Error,
     { projectId: string; title: string; reason: string }
   >({
+    meta: { write: 'bp_request_post' },
     mutationFn: async ({ projectId, title, reason }) => {
       const { data, error } = await supabase.rpc('bp_request_post', {
         p_project_id: projectId,
@@ -144,6 +145,7 @@ export function useResolvePostRequest() {
       createdPostId?: string | null;
     }
   >({
+    meta: { write: 'bp_resolve_post_request' },
     mutationFn: async ({ id, status, note, createdPostId }) => {
       const { data, error } = await supabase.rpc('bp_resolve_post_request', {
         p_id: id,

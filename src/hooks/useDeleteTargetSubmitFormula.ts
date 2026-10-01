@@ -12,6 +12,7 @@ export function useDeleteTargetSubmitFormula() {
   const queryClient = useQueryClient();
   const tenantId = useAuthStore((s) => s.activeTenantId) ?? '';
   return useMutation<number, Error, { type: string; jurisdiction: string }>({
+    meta: { write: 'bp_delete_target_submit_formula' },
     mutationFn: async ({ type, jurisdiction }) => {
       const { data, error } = await supabase.rpc(
         'bp_delete_target_submit_formula',

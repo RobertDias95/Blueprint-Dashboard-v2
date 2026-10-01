@@ -25,6 +25,7 @@ export function useDeletePermitCycle() {
   const tenantId = useAuthStore((s) => s.activeTenantId) ?? '';
 
   return useMutation<void, Error, DeleteCycleInput, MutationContext>({
+    meta: { write: 'bp_delete_permit_cycle_row' },
     mutationFn: async ({ cycle, permitId }) =>
       occSerialize(occRowKey('permit_cycles', cycle.id), occToken(cycle.updated_at), async (expected) => {
         const value = await (async () => {

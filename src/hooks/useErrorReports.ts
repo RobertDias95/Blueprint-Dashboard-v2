@@ -179,6 +179,7 @@ export interface UpdateErrorGroupStatusInput {
 export function useUpdateErrorGroupStatus() {
   const queryClient = useQueryClient();
   return useMutation<number, Error, UpdateErrorGroupStatusInput>({
+    meta: { write: 'bp_update_error_group_status' },
     mutationKey: ['bp_update_error_group_status'],
     mutationFn: async ({ fingerprint, newStatus, backlogRef }) => {
       const { data, error } = await supabase.rpc(

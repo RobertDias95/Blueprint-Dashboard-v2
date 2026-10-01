@@ -37,6 +37,7 @@ export function useUpdatePermit() {
   const tenantId = useAuthStore((s) => s.activeTenantId) ?? '';
 
   return useMutation<PermitWithCycles, Error, UpdatePermitInput, MutationContext>({
+    meta: { write: 'permits.update' },
     mutationFn: async ({ permitId, expectedUpdatedAt, patch, fieldLabel }) => {
       const { data, error } = await supabase
         .from('permits')

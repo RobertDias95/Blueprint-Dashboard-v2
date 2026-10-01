@@ -28,6 +28,7 @@ export function useUpsertTargetSubmitFormula() {
   const queryClient = useQueryClient();
   const tenantId = useAuthStore((s) => s.activeTenantId) ?? '';
   return useMutation<string, Error, UpsertTargetSubmitFormulaInput>({
+    meta: { write: 'bp_upsert_target_submit_formula' },
     mutationFn: async (input) =>
       occSerialize(occRowKey('target_submit_formulas', `${input.type}|${input.jurisdiction}`), occToken(input.expected_updated_at), async (expected) => {
         const value = await (async () => {

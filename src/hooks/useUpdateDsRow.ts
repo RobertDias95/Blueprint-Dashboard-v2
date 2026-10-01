@@ -45,6 +45,7 @@ export function useUpdateDsRow() {
   const tenantId = useAuthStore((s) => s.activeTenantId) ?? '';
 
   return useMutation<RpcResult, Error, UpdateDsRowInput, MutationContext>({
+    meta: { write: 'bp_upsert_draw_schedule_row' },
     mutationFn: async ({ current, patch }) =>
       occSerialize(occRowKey('draw_schedule', current.project_id), occToken(current.updated_at), async (expected) => {
         const value = await (async () => {

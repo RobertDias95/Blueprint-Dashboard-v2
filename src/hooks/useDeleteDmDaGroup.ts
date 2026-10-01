@@ -19,6 +19,7 @@ export function useDeleteDmDaGroup() {
   const queryClient = useQueryClient();
   const tenantId = useAuthStore((s) => s.activeTenantId) ?? '';
   return useMutation<void, Error, { id: string; updated_at: string }>({
+    meta: { write: 'bp_delete_dm_da_group_row' },
     mutationFn: async ({ id, updated_at }) =>
       occSerialize(occRowKey('dm_da_groups', id), occToken(updated_at), async (expected) => {
         const value = await (async () => {

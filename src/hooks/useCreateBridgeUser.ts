@@ -63,6 +63,7 @@ async function readFailureBody(err: unknown): Promise<AddPersonError | null> {
 export function useCreateBridgeUser() {
   const queryClient = useQueryClient();
   return useMutation<AddPersonSuccess, Error, AddPersonRequest>({
+    meta: { write: 'admin-create-user' },
     mutationFn: async (input) => {
       const { data, error } = await supabase.functions.invoke<AddPersonResult>(
         ADD_PERSON_FUNCTION,

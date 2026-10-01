@@ -24,6 +24,7 @@ export function useDeleteQuarterLayoutRow() {
     Error,
     { id: string; updated_at: string; quarter: string }
   >({
+    meta: { write: 'bp_delete_quarter_layout_row' },
     mutationFn: async ({ id, updated_at }) =>
       occSerialize(occRowKey('draw_schedule_quarter_layout', id), occToken(updated_at), async (expected) => {
         const value = await (async () => {

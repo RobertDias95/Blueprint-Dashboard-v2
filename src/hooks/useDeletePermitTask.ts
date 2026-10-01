@@ -23,6 +23,7 @@ export function useDeletePermitTask() {
   const tenantId = useAuthStore((s) => s.activeTenantId) ?? '';
 
   return useMutation<void, Error, DeleteTaskInput, MutationContext>({
+    meta: { write: 'bp_delete_permit_task_row' },
     mutationFn: async ({ task, permitId }) =>
       occSerialize(occRowKey('permit_tasks', task.id), occToken(task.updated_at), async (expected) => {
         const value = await (async () => {

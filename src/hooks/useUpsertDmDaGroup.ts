@@ -26,6 +26,7 @@ export function useUpsertDmDaGroup() {
   const queryClient = useQueryClient();
   const tenantId = useAuthStore((s) => s.activeTenantId) ?? '';
   return useMutation<{ id: string; updated_at: string }, Error, UpsertDmDaGroupInput>({
+    meta: { write: 'bp_upsert_dm_da_group_row' },
     mutationFn: async (input) =>
       occSerialize(input.op === 'insert' ? occInsertKey('dm_da_groups') : occRowKey('dm_da_groups', input.row.id), occToken(input.op === 'insert' ? null : input.row.updated_at), async (expected) => {
         const value = await (async () => {

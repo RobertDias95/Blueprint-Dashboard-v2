@@ -25,6 +25,7 @@ export function useSetAppConfigKey() {
   const queryClient = useQueryClient();
   const tenantId = useAuthStore((s) => s.activeTenantId) ?? '';
   return useMutation<Row, Error, SetAppConfigKeyInput>({
+    meta: { write: 'bp_set_app_config_key' },
     mutationFn: async (input) => {
       const { data, error } = await supabase.rpc('bp_set_app_config_key', {
         p_key: input.key,

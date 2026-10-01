@@ -48,6 +48,7 @@ export function useUpsertTeamMember() {
   const queryClient = useQueryClient();
   const tenantId = useAuthStore((s) => s.activeTenantId) ?? '';
   return useMutation<TeamMember, Error, UpsertTeamMemberInput>({
+    meta: { write: 'bp_upsert_team_member_row' },
     mutationFn: async (input) =>
       occSerialize(input.op === 'insert' ? occInsertKey('team_members') : occRowKey('team_members', input.member.id), occToken(input.op === 'insert' ? null : input.member.updated_at), async (expected) => {
         const value = await (async () => {
