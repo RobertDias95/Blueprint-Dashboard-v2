@@ -1,5 +1,6 @@
 import type { ReportFilters, TimeRange } from '../../lib/reportMetrics';
 import FilterDropdown from '../FilterDropdown';
+import type { FilterOptionSet } from '../../lib/filterOptions';
 
 // Q7.2.a: global filter bar for the Reports view. 7 controls per Q2c
 // (Acq Lead dropped). State lives on the parent Reports page; this
@@ -10,13 +11,13 @@ interface Props {
   filters: ReportFilters;
   onChange: <K extends keyof ReportFilters>(key: K, value: ReportFilters[K]) => void;
   onClear: () => void;
-  /** Auto-populated from the data. The parent computes distinct values
-   * once per dataset and feeds them in. */
-  typeOptions: string[];
-  jurisOptions: string[];
-  entOptions: string[];
-  productTypeOptions: string[];
-  tagOptions: string[];
+  /** ★ fix-619: the Settings list plus any value still stored, marked
+   *  (lib/filterOptions) — not the stored values alone. */
+  typeOptions: FilterOptionSet;
+  jurisOptions: FilterOptionSet;
+  entOptions: FilterOptionSet;
+  productTypeOptions: FilterOptionSet;
+  tagOptions: FilterOptionSet;
   /** fix-113-a: distinct permit.status values in the unfiltered cohort. */
   permitStatusOptions: string[];
   resultCount: number;
@@ -230,7 +231,7 @@ function SetMultiSelect({
 }: {
   label: string;
   selected: Set<string>;
-  options: string[];
+  options: FilterOptionSet;
   onChange: (next: Set<string>) => void;
   testId: string;
 }) {
@@ -238,7 +239,8 @@ function SetMultiSelect({
     <FieldLabel label={label}>
       <FilterDropdown
         label={label}
-        options={options}
+        options={options.options}
+        unlisted={options.unlisted}
         selected={selected}
         onChange={onChange}
         testId={testId}

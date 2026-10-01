@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
+import { UNLISTED_MARKER } from '../lib/filterOptions';
 
 // Q9.5.f Item 2: generic multi-select dropdown. Click the chip → popover
 // with checkbox list + an "All" toggle pinned at top. Empty Set means "no
@@ -17,6 +18,9 @@ export interface FilterDropdownProps {
   multi?: boolean;
   width?: number;
   testId?: string;
+  /** ★ fix-619: options stored on the data but no longer in the Settings list
+   *  (lib/filterOptions) — shown, so a straggler can be found, and marked. */
+  unlisted?: ReadonlySet<string>;
 }
 
 export default function FilterDropdown({
@@ -27,6 +31,7 @@ export default function FilterDropdown({
   multi = true,
   width = 160,
   testId,
+  unlisted,
 }: FilterDropdownProps) {
   const [open, setOpen] = useState(false);
   const rootRef = useRef<HTMLDivElement>(null);
@@ -148,6 +153,11 @@ export default function FilterDropdown({
                   className="cursor-pointer"
                 />
                 <span className="text-text">{opt}</span>
+                {unlisted?.has(opt) && (
+                  <span className="text-dim italic" data-testid={testId ? `${testId}-unlisted-${opt}` : undefined}>
+                    {UNLISTED_MARKER}
+                  </span>
+                )}
               </label>
             ))
           )}

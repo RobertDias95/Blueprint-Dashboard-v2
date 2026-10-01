@@ -30,7 +30,7 @@ import {
   overviewRowWidthAt,
   resolveOverviewWidths,
 } from '../lib/overviewCardLayout';
-import { parkingLabel, roofDeckLabel, storiesLabel } from '../lib/unitVocabulary';
+import { parkingLabel, roofDeckLabel, storiesLabel, vocabularyTooltip } from '../lib/unitVocabulary';
 
 // ===========================================================================
 // fix-422 — the unit matrix, and the five cards re-shared around it
@@ -247,9 +247,16 @@ describe('fix-422 §C: a cell that does not conflate two answers', () => {
     // ★ fix-572 §C: `unitFieldTooltip` is `unitFieldHint` — the summary now
     //   rides as the control's accessible name beside a VISIBLE word label,
     //   rather than being the only place the meaning existed.
+    // ★★ fix-619 (gap 19) SUPERSEDES the typed legend: the hint names no
+    //    choices (those live in Settings), and the matrix tooltip that does
+    //    name them reads the list — so an added option is in it too.
     const t = unitFieldHint('parking_kind');
-    expect(t).toContain('1-car garage');
-    expect(t).toContain('Surface / None');
+    expect(t).not.toContain('1-car garage');
+    expect(t).toContain('Settings');
+    const tip = vocabularyTooltip('Parking.', ['1-car garage', 'Surface / None', '5-car garage']);
+    expect(tip).toContain('1-car garage');
+    expect(tip).toContain('Surface / None');
+    expect(tip).toContain('5-car garage');
     // ★★ fix-572 §C SHORTENS THE LEGEND, and says so rather than weakening
     //    the assertion silently. The dash was a CELL GLYPH in a 26px matrix
     //    column; the form renders `Not recorded` as a named option in the

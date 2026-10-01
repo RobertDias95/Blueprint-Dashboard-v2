@@ -1981,6 +1981,7 @@ function UnitConfigBlock({
           <RoofDeckSelect
             deck={row.roof_deck}
             penthouse={row.penthouse}
+            storedLabel={row.roof_deck_label}
             options={roofDeckOpts}
             disabled={disabled}
             fill
@@ -1988,6 +1989,7 @@ function UnitConfigBlock({
               void commit('roof_deck', {
                 roof_deck: v?.deck ?? null,
                 penthouse: v?.penthouse ?? null,
+                roof_deck_label: v?.label ?? null,
               })
             }
             testid="pd-unit-roof-deck"

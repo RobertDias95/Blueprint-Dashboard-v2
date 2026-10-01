@@ -21,6 +21,8 @@ import type {
   WeeklyDaReportGroup,
   WeeklyDaReportRow,
 } from '../lib/database.types';
+import { useFilterRegistries } from '../hooks/useFilterRegistries';
+import { filterOptionLabel, filterOptions, type FilterOptionSet } from '../lib/filterOptions';
 
 // fix-67: Weekly DA Update report — the flagship report in the Reports hub
 // (Phase 1). The entitlement lead sends each DA a one-pager: their permits
@@ -109,6 +111,7 @@ export default function WeeklyDaReport() {
   // (already loaded elsewhere) — cheap + keeps the report self-contained.
   const permitsQ = usePermits();
   const projectsQ = useProjects();
+  const registries = useFilterRegistries();
   const options = useMemo(() => {
     const ent = new Set<string>();
     const type = new Set<string>();
@@ -123,14 +126,18 @@ export default function WeeklyDaReport() {
     const juris = new Set<string>();
     for (const pr of projectsQ.data ?? []) if (pr.juris) juris.add(pr.juris);
     const sorted = (s: Set<string>) => Array.from(s).sort();
+    const plain = (s: Set<string>) => ({ options: sorted(s), unlisted: new Set<string>() });
     return {
-      ent: sorted(ent),
-      type: sorted(type),
-      status: sorted(status),
-      juris: sorted(juris),
-      da: sorted(da),
+      // ★ fix-619 (gaps 9, 14, 20): the lists Settings owns — ENT people, permit
+      //   types, cities — offer the Settings list plus any stored value, marked.
+      //   DA and status are not Settings lists here and stay as they were.
+      ent: filterOptions(registries.entPeople, ent),
+      type: filterOptions(registries.permitTypes, type),
+      status: plain(status),
+      juris: filterOptions(registries.jurisdictions, juris),
+      da: plain(da),
     };
-  }, [permitsQ.data, projectsQ.data]);
+  }, [permitsQ.data, projectsQ.data, registries]);
 
   // Auto-refresh: the query key folds in week / window / filters.
   const reportQ = useWeeklyDaReport(weekStart, windowDays, filters);
@@ -537,7 +544,7 @@ function FilterSelect({
   label: string;
   testid: string;
   value: string;
-  options: string[];
+  options: FilterOptionSet;
   onChange: (v: string) => void;
 }) {
   return (
@@ -550,9 +557,9 @@ function FilterSelect({
         data-testid={testid}
       >
         <option value="">All</option>
-        {options.map((o) => (
+        {options.options.map((o) => (
           <option key={o} value={o}>
-            {o}
+            {filterOptionLabel(o, options)}
           </option>
         ))}
       </select>

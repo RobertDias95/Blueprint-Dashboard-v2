@@ -1,4 +1,5 @@
 import type { Permit, Project, TeamMember } from './database.types';
+import { normalizePrimaryTeamKey } from './taskTeam';
 
 // ===========================================================================
 // ★★★ fix-527 §A (P-243) — THE NAMES THE WORK DATA KNOWS, AND WHO THEY ARE
@@ -35,22 +36,33 @@ import type { Permit, Project, TeamMember } from './database.types';
 //   there is no second matcher here and there must not be one. Two matchers
 //   that agree today are two matchers that disagree after the next role.
 
-/** The six columns a person's name is typed into. ★ Named once: the panel, the
- *  counts and the test all read this list, so a seventh column is one edit. */
+/** The columns a person's name is typed into. ★ Named once: the panel, the
+ *  counts and the test all read this list, so a new column is one edit.
+ *
+ *  ★★ fix-619 (census gap 22): the first six were ALL the name columns this
+ *     knew about — six more hold names too, and a name only typed there
+ *     (an acquisition lead, a construction admin, a task owner) was invisible
+ *     to the one screen that asks who each name is. */
 export const WORK_DATA_COLUMNS = [
   'draw_schedule.da_assigned',
   'permits.da',
   'permits.ent_lead',
   'permits.dm',
+  'permits.architect',
+  'permits.ca',
   'projects.design_manager',
   'projects.schematic_designer',
+  'projects.acq_lead',
+  'projects.entitlement_lead',
+  'projects.construction_admin',
+  'permit_tasks.assigned_to',
 ] as const;
 export type WorkDataColumn = (typeof WORK_DATA_COLUMNS)[number];
 
 export interface WorkDataName {
   /** The name exactly as it is typed in the data. */
   name: string;
-  /** Distinct projects this name holds across all six columns. ★ The number
+  /** Distinct projects this name holds across all the columns. ★ The number
    *  Bobby needs in order to see what a mapping decision COSTS. */
   projects: number;
   /** Which columns it appears in, for the ones that look like a typo. */
@@ -70,10 +82,17 @@ function norm(v: string | null | undefined): string {
  */
 export function collectWorkDataNames(
   projects: ReadonlyArray<
-    Pick<Project, 'id' | 'design_manager' | 'schematic_designer'>
+    Pick<Project, 'id' | 'design_manager' | 'schematic_designer'> &
+      Partial<Pick<Project, 'acq_lead' | 'entitlement_lead' | 'construction_admin'>>
   >,
-  permits: ReadonlyArray<Pick<Permit, 'project_id' | 'da' | 'ent_lead' | 'dm'>>,
+  permits: ReadonlyArray<
+    Pick<Permit, 'project_id' | 'da' | 'ent_lead' | 'dm'> &
+      Partial<Pick<Permit, 'id' | 'architect' | 'ca'>>
+  >,
   draw: ReadonlyArray<{ project_id: string; da_assigned: string | null }>,
+  /** ★ fix-619: tasks, by permit — `assigned_to` holds names AND role tokens
+   *  ("Design Manager"); only names are people, so tokens are skipped. */
+  tasks: ReadonlyArray<{ permit_id: number | null; assigned_to: string | null }> = [],
 ): WorkDataName[] {
   const byName = new Map<string, { name: string; projects: Set<string>; columns: Set<WorkDataColumn> }>();
 
@@ -95,14 +114,28 @@ export function collectWorkDataNames(
   }
 
   for (const d of draw) add(d.da_assigned, d.project_id, 'draw_schedule.da_assigned');
+  const projectOfPermit = new Map<number, string>();
   for (const p of permits) {
+    if (p.id != null) projectOfPermit.set(p.id, p.project_id);
     add(p.da, p.project_id, 'permits.da');
     add(p.ent_lead, p.project_id, 'permits.ent_lead');
     add(p.dm, p.project_id, 'permits.dm');
+    add(p.architect, p.project_id, 'permits.architect');
+    add(p.ca, p.project_id, 'permits.ca');
+  }
+  for (const t of tasks) {
+    const projectId = t.permit_id != null ? projectOfPermit.get(t.permit_id) : undefined;
+    if (!projectId) continue;
+    // ★ A role placeholder is not a person — the task picks its person by role.
+    if (normalizePrimaryTeamKey(t.assigned_to) !== null) continue;
+    add(t.assigned_to, projectId, 'permit_tasks.assigned_to');
   }
   for (const pr of projects) {
     add(pr.design_manager, pr.id, 'projects.design_manager');
-    // ★ `schematic_designer` is an ARRAY column — the one of the six that is.
+    add(pr.acq_lead, pr.id, 'projects.acq_lead');
+    add(pr.entitlement_lead, pr.id, 'projects.entitlement_lead');
+    add(pr.construction_admin, pr.id, 'projects.construction_admin');
+    // ★ `schematic_designer` is an ARRAY column — the only one that is.
     for (const sd of pr.schematic_designer ?? []) {
       add(sd, pr.id, 'projects.schematic_designer');
     }

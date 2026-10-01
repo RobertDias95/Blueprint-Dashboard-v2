@@ -61,6 +61,8 @@ import { displayAddress } from '../lib/displayAddress';
 // ★ fix-556 §D: the shared hatch + palette (fix-524 §A) — one treatment for
 //   a retired project, never a second purple.
 import { RETIRED_PALETTE, retiredHatch } from '../lib/retiredState';
+import { useFilterRegistries } from '../hooks/useFilterRegistries';
+import { filterOptionLabel, filterOptions, type FilterOptionSet } from '../lib/filterOptions';
 
 // fix-90: Project View overhaul. Bobby's Monday triage workspace.
 //
@@ -226,11 +228,13 @@ export default function ProjectList() {
     [activeScoped, sort],
   );
 
-  const jurisOptions = useMemo(() => {
-    const set = new Set<string>();
-    for (const r of currentRows) if (r.project.juris) set.add(r.project.juris);
-    return Array.from(set).sort();
-  }, [currentRows]);
+  // ★ fix-619 (gap 14): the Settings city list plus any city still stored on
+  //   a project in view, marked — not the stored cities alone.
+  const { jurisdictions: jurisRegistry } = useFilterRegistries();
+  const jurisOptions = useMemo(
+    () => filterOptions(jurisRegistry, currentRows.map((r) => r.project.juris)),
+    [jurisRegistry, currentRows],
+  );
 
   const entLeadOptions = useMemo(
     () => uniqueNamesByRole(teamQ.all ?? [], (r) => r === 'ent' || r === 'ent_lead'),
@@ -400,7 +404,7 @@ function FilterRow({
   onActiveChange,
 }: {
   filters: ProjectViewFilters;
-  jurisOptions: string[];
+  jurisOptions: FilterOptionSet;
   entLeadOptions: string[];
   daOptions: string[];
   onPatch: (p: Partial<ProjectViewFilters>) => void;
@@ -511,7 +515,8 @@ function FilterRow({
       />
       <MultiSelect
         label="Juris"
-        options={jurisOptions}
+        options={jurisOptions.options}
+        labelOf={(v) => filterOptionLabel(v, jurisOptions)}
         selected={filters.jurises}
         onChange={(next) => onPatch({ jurises: next })}
         testid="project-view-filter-juris"

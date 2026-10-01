@@ -1,18 +1,23 @@
 import { useEffect, useRef, useState } from 'react';
+import { UNLISTED_MARKER } from '../../lib/filterOptions';
 
-// fix-28: multi-select dropdown for entitlement leads. Three checkboxes
-// (Bobby / Briana / Miles) + an "All" master that toggles the lot.
+// fix-28: multi-select dropdown for entitlement leads — one checkbox per lead
+// + an "All" master that toggles the lot. ★ fix-619: the leads are the
+// roster's ENT people (no longer three typed names); a lead still on a row but
+// off the roster is marked.
 // Selection is owned by the parent (ActivityPage) and persisted there;
 // this component is pure UI.
 
 interface Props {
   options: string[];
+  unlisted?: ReadonlySet<string>;
   selected: Set<string>;
   onChange: (next: Set<string>) => void;
 }
 
 export default function EntFilterDropdown({
   options,
+  unlisted,
   selected,
   onChange,
 }: Props) {
@@ -102,7 +107,14 @@ export default function EntFilterDropdown({
                 onChange={() => toggle(opt)}
                 data-testid={`activity-ent-opt-${opt}`}
               />
-              <span>{opt}</span>
+              <span>
+                {opt}
+                {unlisted?.has(opt) && (
+                  <span className="text-dim" data-testid={`activity-ent-unlisted-${opt}`}>
+                    {UNLISTED_MARKER}
+                  </span>
+                )}
+              </span>
             </label>
           ))}
         </div>

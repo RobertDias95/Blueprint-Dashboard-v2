@@ -236,6 +236,7 @@ vi.mock('../hooks/useTeamMembers', async (orig) => {
 import ProjectDetailHeader from '../components/ProjectDetail/ProjectDetailHeader';
 import StageFilters, { EMPTY_DASH_FILTERS, permitPassesDashFilters } from '../components/Dashboard/StageFilters';
 import QuarterLayoutEditor from '../components/Settings/QuarterLayoutEditor';
+import { UNLISTED_MARKER } from '../lib/filterOptions';
 
 function projectFixture(over: Partial<Project> = {}): Project {
   return {
@@ -451,7 +452,9 @@ describe('fix-321 #79: the dashboard DA picker stops at the current roster', () 
     expect(optionsOf('dash-filter-ent').join('|')).not.toContain('Nidhi');
     expect(optionsOf('dash-filter-dm').join('|')).not.toContain('Nidhi');
     // Type is not a person and must be untouched by any of this.
-    const types = optionsOf('dash-filter-type');
+    // ★ fix-619: Type now starts from the permit-type catalogue (empty in this
+    //   harness), so a stored type is offered MARKED — still offered.
+    const types = optionsOf('dash-filter-type').map((t) => t.replace(UNLISTED_MARKER, ''));
     expect(types).toContain('Building Permit');
     expect(types).toContain('Demolition');
   });

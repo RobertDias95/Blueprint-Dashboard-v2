@@ -49,19 +49,32 @@ export function useSetAppConfigKey() {
   });
 }
 
-function humanizeKey(key: string): string {
-  switch (key) {
-    // fix-92: align with the key actually consumed by the wizard +
-    // Library filter (see migrations/fix_91_product_types_array.sql).
-    case 'productTypeOptions':
-      return 'types';
-    case 'projectTagOptions':
-      return 'project tags';
-    case 'holdReasonOptions':
-      return 'hold reasons';
-    case 'learnThresholds':
-      return 'learning thresholds';
-    default:
-      return key;
-  }
+/**
+ * ★★ fix-619 (census gap 25): the WORD a save toast uses for each key, so a
+ * person reads "Saved zones", not "Saved zoneOptions". Every key any Settings
+ * editor writes through this hook is listed — a test scans the callers and
+ * fails on a key with no word. An unlisted key still falls back to itself
+ * rather than printing nothing.
+ */
+export const APP_CONFIG_KEY_LABELS: Readonly<Record<string, string>> = {
+  // fix-92: align with the key actually consumed by the wizard +
+  // Library filter (see migrations/fix_91_product_types_array.sql).
+  productTypeOptions: 'types',
+  projectTagOptions: 'project tags',
+  holdReasonOptions: 'hold reasons',
+  learnThresholds: 'learning thresholds',
+  cancelReasonOptions: 'cancel reasons',
+  zoneOptions: 'zones',
+  permitOwnerOptions: 'permit owners',
+  parkingOptions: 'unit parking options',
+  roofDeckOptions: 'unit roof deck options',
+  storiesOptions: 'unit stories options',
+  jurisdictionLinks: 'jurisdiction links',
+  permitTypeDescriptions: 'permit type descriptions',
+  waitingOnOptions: 'Waiting On list',
+  vendorReportRecipients: 'vendor report recipients',
+};
+
+export function humanizeKey(key: string): string {
+  return APP_CONFIG_KEY_LABELS[key] ?? key;
 }

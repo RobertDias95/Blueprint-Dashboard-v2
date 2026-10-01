@@ -11,6 +11,8 @@ import {
   type PhaseCyclePair,
   type PhaseDurationRow,
 } from '../lib/phaseDurations';
+import { useFilterRegistries } from '../hooks/useFilterRegistries';
+import { filterOptionLabel, filterOptions } from '../lib/filterOptions';
 
 // fix-253: "Phase Durations" — how long each half of the review chain actually
 // takes, per permit type, jurisdiction and cycle.
@@ -39,9 +41,11 @@ export default function PhaseDurationsReport() {
 
   const rows = useMemo(() => gridQ.data ?? [], [gridQ.data]);
 
+  // ★ fix-619 (gap 14): the Settings city list plus any city in the data, marked.
+  const { jurisdictions: jurisRegistry } = useFilterRegistries();
   const jurisdictions = useMemo(
-    () => [...new Set(rows.map((r) => r.juris))].sort((a, b) => a.localeCompare(b)),
-    [rows],
+    () => filterOptions(jurisRegistry, rows.map((r) => r.juris)),
+    [jurisRegistry, rows],
   );
 
   const pairs = useMemo(() => {
@@ -91,9 +95,9 @@ export default function PhaseDurationsReport() {
             data-testid="phase-durations-juris"
           >
             <option value="">All jurisdictions</option>
-            {jurisdictions.map((j) => (
+            {jurisdictions.options.map((j) => (
               <option key={j} value={j}>
-                {j}
+                {filterOptionLabel(j, jurisdictions)}
               </option>
             ))}
           </select>

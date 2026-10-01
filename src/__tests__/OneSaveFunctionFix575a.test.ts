@@ -291,8 +291,10 @@ describe('fix-575a — the catch moved INTO the hook rather than being deleted',
     //    no longer files itself in Error Triage. Counting the literal `pushToast`
     //    would make this assertion about a function name rather than about the
     //    claim it exists to defend, which is that no branch stays silent.
+    // ★ fix-619 §Z: a FOURTH branch — the duplicate-address refusal, which
+    //   says its own plain sentence. Still no branch that says nothing.
     const toastCalls = (onError.match(/push(?:Recovered|Validation)?Toast\(/g) ?? []).length;
-    expect(toastCalls).toBe(3);
+    expect(toastCalls).toBe(4);
   });
 
   it('★★ nothing swallows it a SECOND time at a call site', () => {

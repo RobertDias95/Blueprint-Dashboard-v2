@@ -35,6 +35,8 @@ import type {
   PermitWithCycles,
   Project,
 } from '../../lib/database.types';
+import { useFilterRegistries } from '../../hooks/useFilterRegistries';
+import { filterOptions } from '../../lib/filterOptions';
 
 // Q7.2.b: Reports Overview — FilterBar → MetricCards → 6 charts → Benchmarks
 // → Table + CSV export. Q9.5.d: header restyle + Export CSV button.
@@ -160,39 +162,34 @@ function Body({
     [permits, projectsById, holdsMap, reviewersByPermitId],
   );
 
-  const typeOptions = useMemo(() => {
-    const set = new Set<string>();
-    for (const e of enriched) if (e.permit.type) set.add(e.permit.type);
-    return Array.from(set).sort();
-  }, [enriched]);
-
-  const jurisOptions = useMemo(() => {
-    const set = new Set<string>();
-    for (const e of enriched) if (e.juris) set.add(e.juris);
-    return Array.from(set).sort();
-  }, [enriched]);
-
-  const entOptions = useMemo(() => {
-    const set = new Set<string>();
-    for (const e of enriched) {
-      if (e.permit.ent_lead) set.add(e.permit.ent_lead);
-    }
-    return Array.from(set).sort();
-  }, [enriched]);
-
-  const productTypeOptions = useMemo(() => {
-    // fix-91: productTypes is multi-valued on each enriched row. Union
-    // the distinct values across the whole result set for the picklist.
-    const set = new Set<string>();
-    for (const e of enriched) for (const t of e.productTypes) set.add(t);
-    return Array.from(set).sort();
-  }, [enriched]);
-
-  const tagOptions = useMemo(() => {
-    const set = new Set<string>();
-    for (const e of enriched) for (const t of e.projectTags) set.add(t);
-    return Array.from(set).sort();
-  }, [enriched]);
+  // ★★ fix-619 (census gaps 9, 14, 15, P-173): every filter offers its
+  //    SETTINGS list plus any value still stored on the data, marked — never
+  //    the stored values alone. A type, city, tag or product type that exists
+  //    in Settings but has no permit yet can now be filtered for, and a stored
+  //    straggler is shown as one rather than looking like a real option.
+  const registries = useFilterRegistries();
+  const typeOptions = useMemo(
+    () => filterOptions(registries.permitTypes, enriched.map((e) => e.permit.type)),
+    [registries.permitTypes, enriched],
+  );
+  const jurisOptions = useMemo(
+    () => filterOptions(registries.jurisdictions, enriched.map((e) => e.juris)),
+    [registries.jurisdictions, enriched],
+  );
+  // ENT: the roster's current entitlement people, plus a name still on a permit.
+  const entOptions = useMemo(
+    () => filterOptions(registries.entPeople, enriched.map((e) => e.permit.ent_lead)),
+    [registries.entPeople, enriched],
+  );
+  // fix-91: productTypes / projectTags are multi-valued on each enriched row.
+  const productTypeOptions = useMemo(
+    () => filterOptions(registries.productTypes, enriched.flatMap((e) => e.productTypes)),
+    [registries.productTypes, enriched],
+  );
+  const tagOptions = useMemo(
+    () => filterOptions(registries.projectTags, enriched.flatMap((e) => e.projectTags)),
+    [registries.projectTags, enriched],
+  );
 
   // fix-113-a: distinct permits.status values present in the unfiltered cohort,
   // sorted alphabetically. Drives the new permit-level Status select; values

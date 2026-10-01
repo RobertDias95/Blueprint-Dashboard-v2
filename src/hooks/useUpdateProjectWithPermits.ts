@@ -6,6 +6,7 @@ import { occRowKey, occSerialize } from '../lib/occQueue';
 import { pushToast } from '../stores/toastStore';
 import { useAuthStore } from '../stores/authStore';
 import type { Permit, PermitWithCycles, Project } from '../lib/database.types';
+import { duplicateAddressSentence, expectedUniqueRefusal } from '../lib/errorLogger';
 
 // fix-36: atomic Project Settings save. Replaces the modal's sequential
 // updateProject + per-permit update/create/delete loop (which reused
@@ -231,7 +232,14 @@ export function useUpdateProjectWithPermits() {
       queryClient.invalidateQueries({ queryKey: queryKeys.permits(tenantId) });
     },
 
-    onError: (error) => {
+    onError: (error, input) => {
+      // ★ fix-619 §Z (P-312): a duplicate address is an answer, not a fault —
+      //   said plainly, and kept out of Triage by the reporter's named list.
+      if (expectedUniqueRefusal(error) !== null) {
+        const address = (input.projectPatch as Record<string, unknown>).address;
+        pushToast(duplicateAddressSentence(typeof address === 'string' ? address : null), 'warn');
+        return;
+      }
       pushToast(`Could not save project details — ${error.message}`, 'error');
     },
   });

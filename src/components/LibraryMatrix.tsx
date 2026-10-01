@@ -66,7 +66,7 @@ import { STAGE_LABEL } from '../lib/stageLabel';
 import {
   NOT_RECORDED,
   decodeParking,
-  decodeRoofDeck,
+  roofDeckValueFor,
   decodeStories,
   parkingLabel,
   parkingOptions,
@@ -120,6 +120,8 @@ import {
 import { SkeletonRows } from './Skeleton';
 import QueryError from './QueryError';
 import { ToggleChip } from './shared/TwoStateToggle';
+import { useFilterRegistries } from '../hooks/useFilterRegistries';
+import { filterOptionLabel, filterOptions } from '../lib/filterOptions';
 
 // Q6.3.a: Library matrix view. Per-project
 // lot/unit-dim matrix used to match new lots against past projects.
@@ -443,11 +445,24 @@ function Body({ projects, permits, retiredSets }: BodyProps) {
     [visibleProjects, permits],
   );
 
-  const jurisOptions = useMemo(() => {
-    const set = new Set<string>();
-    for (const r of allRows) if (r.juris) set.add(r.juris);
-    return Array.from(set).sort();
-  }, [allRows]);
+  // ★★ fix-619 (gaps 13, 14): the jurisdiction list is the `jurisdictions`
+  //    TABLE — the one Settings → Project lists edits (19) — and no longer the
+  //    8-name `app_config.jurisdictions` copy nothing edits.
+  const { jurisdictions: jurisRegistry, zones: zoneRegistry } = useFilterRegistries();
+  //    The FILTER: the table's list plus any city still stored on a project,
+  //    marked. fix-562 §G's point survives intact — a stored spelling nothing
+  //    offers can still be FOUND — it is just shown as what it is now.
+  const jurisOptions = useMemo(
+    () => filterOptions(jurisRegistry, allRows.map((r) => r.juris)),
+    [jurisRegistry, allRows],
+  );
+  // ★ fix-619 (gap 16): the zone FILTER is the registry plus any zone still
+  //   stored, marked — a retired zone on a project could not be found before.
+  //   The zone EDITOR (below) stays registry-only: a picker offers the list.
+  const zoneFilter = useMemo(
+    () => filterOptions(zoneRegistry, allRows.map((r) => r.zone)),
+    [zoneRegistry, allRows],
+  );
   // ★★★ fix-562 §G — THE JURIS *EDITOR* READS THE REGISTRY, THE *FILTER* STAYS
   //     DATA-DERIVED, and the two are deliberately different lists.
   //
@@ -455,13 +470,13 @@ function Body({ projects, permits, retiredSets }: BodyProps) {
   //     nothing offers — that is how you discover one exists. An EDITOR must
   //     not be able to create one: free text on `zone` is what produced 33
   //     spellings of 21 zones (fix-415), and this is the same field class.
-  //     `app_config.jurisdictions` holds the 8 canonical names.
-  // ★ Falls back to the derived list when the registry has never been written,
-  //   so a fresh tenant gets a working control rather than an empty one.
-  const jurisEditOptions = useMemo(() => {
-    const configured = readAppConfigStringArray(appConfig.map, 'jurisdictions');
-    return configured.length > 0 ? configured : jurisOptions;
-  }, [appConfig.map, jurisOptions]);
+  //     ★ fix-619: the EDITOR offers the `jurisdictions` table (Settings).
+  // ★ Falls back to the cities on the data when the table is empty, so a fresh
+  //   tenant gets a working control rather than an empty one.
+  const jurisEditOptions = useMemo(
+    () => (jurisRegistry.length > 0 ? jurisRegistry : jurisOptions.options),
+    [jurisRegistry, jurisOptions],
+  );
 
   const filtered = useMemo(
     () => filterLibraryRows(allRows, filters),
@@ -752,8 +767,10 @@ function Body({ projects, permits, retiredSets }: BodyProps) {
                     data-testid="filter-juris"
                   >
                     <option value="">Any</option>
-                    {jurisOptions.map((j) => (
-                      <option key={j}>{j}</option>
+                    {jurisOptions.options.map((j) => (
+                      <option key={j} value={j}>
+                        {filterOptionLabel(j, jurisOptions)}
+                      </option>
                     ))}
                   </select>
                 ) : f.key === 'zone' ? (
@@ -764,9 +781,9 @@ function Body({ projects, permits, retiredSets }: BodyProps) {
                     data-testid="filter-zone"
                   >
                     <option value="">Any</option>
-                    {zoneFilterOptions.map((z) => (
+                    {zoneFilter.options.map((z) => (
                       <option key={z} value={z}>
-                        {z}
+                        {filterOptionLabel(z, zoneFilter)}
                       </option>
                     ))}
                   </select>
@@ -2141,18 +2158,19 @@ function LibraryUnitRow({
         ) : editable && c.sourceKey === 'roof_deck' ? (
           <td key={c.col} className="px-2 py-0.5">
             <LibraryVocabularyCell
-              value={roofDeckLabel(row.roof_deck ?? null, row.penthouse ?? null)}
+              value={roofDeckLabel(row.roof_deck ?? null, row.penthouse ?? null, row.roof_deck_label)}
               options={roofDeckOpts}
               editable
               testId={`library-unit-${projectId}-${index}-${c.testId}`}
               onCommit={(label) => {
-                const parts = label === null ? null : decodeRoofDeck(label);
-                if (label !== null && !parts) return;
+                // ★★ fix-619 (gap 18): an added wording is stored as itself.
+                const v = label === null ? null : roofDeckValueFor(label);
                 onEditUnit?.(
                   index,
                   {
-                    roof_deck: parts?.deck ?? null,
-                    penthouse: parts?.penthouse ?? null,
+                    roof_deck: v?.deck ?? null,
+                    penthouse: v?.penthouse ?? null,
+                    roof_deck_label: v?.label ?? null,
                   },
                   'Roof deck',
                 );

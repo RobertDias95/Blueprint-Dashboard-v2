@@ -60,6 +60,58 @@ export function isUserInputValidationError(e: unknown): boolean {
 }
 
 // ===========================================================================
+// ★★★ fix-619 §Z (P-312) — A DUPLICATE ADDRESS IS A REFUSAL, NOT A FAULT
+// ===========================================================================
+//
+// TRIAGE #753, prod, 2026-10-01 14:34 PT: Shire renamed a new Cloverdale St
+// project to an address another project held at that moment.
+// `bp_update_project_with_permits` refused on `projects_address_unique_non_redesign`
+// — correctly — and the refusal was filed to Triage at `error`, as a raw
+// "duplicate key value violates unique constraint …".
+//
+// ⚖️ Bobby, 2026-10-01: **"Dismiss + quiet both."** The person reads a plain
+//    sentence, and this refusal is NOT filed to Triage.
+//
+// ★★ NAMED, NOT A CODE. 23505 is every unique constraint in the database; most
+//    of them guard invariants whose violation IS a bug. So the exemption is the
+//    CONSTRAINT's name, the same way USER_INPUT_SQLSTATES names its one code —
+//    and any OTHER unique violation still reports.
+
+/** Unique constraints whose refusal is an expected, self-correctable answer,
+ *  mapped to the sentence a person reads. */
+export const EXPECTED_UNIQUE_REFUSALS: Readonly<Record<string, string>> = {
+  projects_address_unique_non_redesign: 'Another project already has this address.',
+};
+
+/** The sentence for an expected unique refusal, or null when `e` is not one.
+ *  Matches on the SQLSTATE (23505) or Postgres' own wording, AND a constraint
+ *  name in the allow-list — never on the wording alone. */
+export function expectedUniqueRefusal(e: unknown): string | null {
+  const code = sqlStateOf(e);
+  const m = messageOf(e);
+  const isUnique =
+    code === '23505' || /duplicate key value violates unique constraint/i.test(m);
+  if (!isUnique) return null;
+  const details =
+    e && typeof e === 'object' && 'details' in e
+      ? String((e as { details?: unknown }).details ?? '')
+      : '';
+  for (const [constraint, sentence] of Object.entries(EXPECTED_UNIQUE_REFUSALS)) {
+    if (m.includes(constraint) || details.includes(constraint)) return sentence;
+  }
+  return null;
+}
+
+/** ★ The duplicate-address sentence, naming the address when the caller has
+ *  it — the other project IS the one at that address, so this names it. */
+export function duplicateAddressSentence(address: string | null | undefined): string {
+  const a = (address ?? '').trim();
+  return a
+    ? `Another project already has the address "${a}".`
+    : EXPECTED_UNIQUE_REFUSALS.projects_address_unique_non_redesign;
+}
+
+// ===========================================================================
 // ★★ fix-341 §2 — a request that was CANCELLED is not a fault
 // ===========================================================================
 //
@@ -268,6 +320,8 @@ export function shouldSkipBackendRpcLog(err: unknown, key: unknown): boolean {
   const k = Array.isArray(key) ? String(key[0] ?? '') : String(key ?? '');
   if (k.startsWith('auth/')) return true;
   if (isUserInputValidationError(err)) return true;
+  // ★ fix-619 §Z (P-312): a NAMED expected refusal — see EXPECTED_UNIQUE_REFUSALS.
+  if (expectedUniqueRefusal(err) !== null) return true;
   if (isCancelledRequest(err)) return true;
   const m = messageOf(err).toLowerCase();
   return m.includes('bp_log_error');

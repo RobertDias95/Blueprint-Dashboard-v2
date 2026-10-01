@@ -10,6 +10,7 @@ import {
   unmappedCount,
   type NameLink,
 } from '../../lib/workDataNames';
+import { useAllPermitTasks } from '../../hooks/useAllPermitTasks';
 
 // ===========================================================================
 // ★★★ fix-527 §A (P-243) — WHO THE WORK DATA IS TALKING ABOUT
@@ -52,6 +53,8 @@ export default function WorkDataNamesPanel({ readOnly }: { readOnly: boolean }) 
   const projectsQ = useProjects();
   const permitsQ = usePermits();
   const drawQ = useDrawSchedule();
+  // ★ fix-619 (gap 22): task owners are names too.
+  const tasksQ = useAllPermitTasks();
   const team = useTeamMembers();
   const accountsQ = useAccountLinks();
 
@@ -60,16 +63,22 @@ export default function WorkDataNamesPanel({ readOnly }: { readOnly: boolean }) 
       projectsQ.data ?? [],
       permitsQ.data ?? [],
       drawQ.data ?? [],
+      tasksQ.data ?? [],
     );
     // ★★★ `accountsQ.data?.rows` is UNDEFINED while the query is in flight, and
     //     `resolveNameLinks` answers `unmapped` for everything in that state.
     //     That is the correct reading: an unknown is not a yes. The heading
     //     below waits for the query rather than announcing 26 gaps for a frame.
     return resolveNameLinks(names, team.all, accountsQ.data?.rows);
-  }, [projectsQ.data, permitsQ.data, drawQ.data, team.all, accountsQ.data]);
+  }, [projectsQ.data, permitsQ.data, drawQ.data, tasksQ.data, team.all, accountsQ.data]);
 
   const loading =
-    projectsQ.isLoading || permitsQ.isLoading || drawQ.isLoading || team.isLoading || accountsQ.isLoading;
+    projectsQ.isLoading ||
+    permitsQ.isLoading ||
+    drawQ.isLoading ||
+    tasksQ.isLoading ||
+    team.isLoading ||
+    accountsQ.isLoading;
   const gaps = unmappedCount(links);
 
   return (
@@ -93,8 +102,8 @@ export default function WorkDataNamesPanel({ readOnly }: { readOnly: boolean }) 
             Read-only until the fix-527 migration is applied.
           </span>{' '}
           Marking someone “no account”, and the Library capability, both need it.
-          Setting an account works today — edit the person’s email in People
-          above.
+          Setting an account works today — edit the person’s email in
+          Settings → People.
         </div>
       )}
 

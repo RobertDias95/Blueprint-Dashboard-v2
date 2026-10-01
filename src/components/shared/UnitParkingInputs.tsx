@@ -2,7 +2,7 @@ import type { ParkingKind } from '../../lib/database.types';
 import {
   NOT_RECORDED,
   decodeParking,
-  decodeRoofDeck,
+  roofDeckValueFor,
   decodeStories,
   parkingLabel,
   roofDeckLabel,
@@ -188,6 +188,7 @@ export function ParkingKindSelect({
 export function RoofDeckSelect({
   deck,
   penthouse,
+  storedLabel,
   options,
   onChange,
   disabled,
@@ -196,13 +197,19 @@ export function RoofDeckSelect({
 }: {
   deck: boolean | null | undefined;
   penthouse: boolean | null | undefined;
+  /** ★ fix-619: `roof_deck_label` — an admin's own wording, stored as itself. */
+  storedLabel?: string | null;
   options: readonly string[];
-  onChange: (next: { deck: boolean; penthouse: boolean } | null) => void;
+  /** ★ fix-619: `label` is set (and both booleans null) for an entry outside
+   *  the three decoded answers — see `roofDeckValueFor`. */
+  onChange: (
+    next: { deck: boolean | null; penthouse: boolean | null; label: string | null } | null,
+  ) => void;
   disabled?: boolean;
   testid: string;
   fill?: boolean;
 }) {
-  const label = roofDeckLabel(deck, penthouse);
+  const label = roofDeckLabel(deck, penthouse, storedLabel);
   return (
     <VocabularySelect
       value={label}
@@ -213,9 +220,9 @@ export function RoofDeckSelect({
       fill={fill}
       onPick={(picked) => {
         if (picked === null) return onChange(null);
-        const parts = decodeRoofDeck(picked);
-        if (!parts) return;
-        onChange(parts);
+        // ★★ fix-619 (gap 18): an entry the three answers cannot decode used to
+        //    be dropped here without a word. It is stored as itself now.
+        onChange(roofDeckValueFor(picked));
       }}
     />
   );

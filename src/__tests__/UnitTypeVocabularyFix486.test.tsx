@@ -430,15 +430,16 @@ describe('fix-486: every reader offers the five, because none of them own a list
     }
   });
 
-  it('★★★ the Reports filter unions the COHORT instead, and so cannot go stale', () => {
-    // ★★ Asserted rather than assumed: if this ever became a fixed list, a
-    //    retired value could outlive the data it described.
+  it('★★★ the Reports filter offers the registry PLUS the cohort, so it cannot go stale', () => {
+    // ★★ fix-619 (gap 15): the registry first, then any value still stored on
+    //    the cohort (marked) — a retired value still finds its rows, and a
+    //    type with no project yet can be filtered for.
     for (const rel of COHORT_READERS) {
       const body = stripComments(
         readFileSync(resolve(process.cwd(), rel), 'utf8'),
       );
       expect(body, rel).toMatch(
-        /const productTypeOptions = useMemo\([\s\S]{0,400}for \(const e of enriched\) for \(const t of e\.productTypes\) set\.add\(t\);/,
+        /const productTypeOptions = useMemo\([\s\S]{0,200}filterOptions\(registries\.productTypes, enriched\.flatMap\(\(e\) => e\.productTypes\)\)/,
       );
     }
   });

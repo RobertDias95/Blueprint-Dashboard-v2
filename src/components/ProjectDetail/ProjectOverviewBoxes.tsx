@@ -17,6 +17,9 @@ import { formatUsDate } from '../../lib/dateUtils';
 import {
   parkingLabel,
   roofDeckLabel,
+  parkingOptions,
+  roofDeckOptions,
+  vocabularyTooltip,
   storiesLabel,
 } from '../../lib/unitVocabulary';
 // ★ fix-508 §D: Target Approval and the ONE definition of "accepted".
@@ -35,6 +38,7 @@ import {
   unitMatrixIsBig,
 } from '../../lib/projectCardLayout';
 import type { PermitWithCycles, Project, UnitType } from '../../lib/database.types';
+import { useAppConfig } from '../../hooks/useAppConfig';
 
 // ===========================================================================
 // ★★★ fix-506 §B/§C/§D (P-139) — THE PROJECT CARD, READ AS A BOOK
@@ -527,7 +531,9 @@ function DateField({
 const UNIT_ATTRIBUTES: ReadonlyArray<{
   key: string;
   label: string;
-  title: string;
+  /** ★ fix-619 (census gap 19): a function where the tooltip names choices —
+   *  it is handed the Settings lists, so an added option is in it too. */
+  title: string | ((vocab: UnitTooltipVocab) => string);
   read: (u: UnitType) => string;
 }> = [
   // ★★★ fix-507 §E — `Type` IS AN ATTRIBUTE ROW, AND THAT IS THE WHOLE POINT OF
@@ -577,7 +583,7 @@ const UNIT_ATTRIBUTES: ReadonlyArray<{
   {
     key: 'parking',
     label: 'Parking',
-    title: 'What kind of parking is proposed — 1-car garage through 4-car garage, or Surface / None. — not recorded',
+    title: (v) => vocabularyTooltip('What kind of parking is proposed.', v.parking),
     read: (u) => parkingLabel(u.parking_kind ?? null, u.parking_count ?? null),
   },
   // ★★★ fix-562 §A: the `Stalls` ROW went with the field — the count is inside
@@ -585,8 +591,8 @@ const UNIT_ATTRIBUTES: ReadonlyArray<{
   {
     key: 'roof_deck',
     label: 'Roof deck',
-    title: 'Whether this type has a roof deck, and a penthouse. W/ PH with penthouse · W/O PH without · None · — not recorded',
-    read: (u) => roofDeckLabel(u.roof_deck ?? null, u.penthouse ?? null),
+    title: (v) => vocabularyTooltip('Whether this type has a roof deck, and a penthouse.', v.roofDeck),
+    read: (u) => roofDeckLabel(u.roof_deck ?? null, u.penthouse ?? null, u.roof_deck_label),
   },
 ];
 
@@ -623,7 +629,17 @@ function num(v: number | null | undefined): string {
  *   `PROJECT_CARD_MIN_WIDTH`. See lib/projectCardLayout for why 19% and 62px
  *   describe the same table at 332.
  */
+interface UnitTooltipVocab {
+  parking: readonly string[];
+  roofDeck: readonly string[];
+}
+
 export function UnitsMatrix({ unitTypes }: { unitTypes: readonly UnitType[] }) {
+  const cfgMap = useAppConfig().map;
+  const vocab = useMemo<UnitTooltipVocab>(
+    () => ({ parking: parkingOptions(cfgMap), roofDeck: roofDeckOptions(cfgMap) }),
+    [cfgMap],
+  );
   if (unitTypes.length === 0) {
     return (
       <OverviewSection title="Units" testId="pd-units-matrix">
@@ -718,7 +734,7 @@ export function UnitsMatrix({ unitTypes }: { unitTypes: readonly UnitType[] }) {
                   color: 'var(--color-text)',
                   borderBottom: '1px solid var(--color-s3)',
                 }}
-                title={attr.title}
+                title={typeof attr.title === 'function' ? attr.title(vocab) : attr.title}
                 data-testid={`pd-units-attr-${attr.key}`}
               >
                 {attr.label}

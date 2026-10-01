@@ -67,7 +67,8 @@ describe('fix-527 §A — every name the work data holds, and what it costs', ()
     expect(names.find((n) => n.name === 'Jade')?.columns).toEqual([
       'projects.schematic_designer',
     ]);
-    expect(WORK_DATA_COLUMNS).toHaveLength(6);
+    // ★ fix-619 (gap 22): six more name columns — see workDataNames.ts.
+    expect(WORK_DATA_COLUMNS).toHaveLength(12);
   });
 
   it('★ blanks and whitespace are not names', () => {

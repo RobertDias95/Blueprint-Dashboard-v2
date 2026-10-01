@@ -3,6 +3,20 @@ import { render, screen } from '@testing-library/react';
 import PhaseDurationsReport from '../pages/PhaseDurationsReport';
 import type { PhaseDurationRow } from '../lib/phaseDurations';
 
+// ★ fix-619: the filters start from the Settings lists (useFilterRegistries);
+//   empty here, so every option below comes from the fixture data.
+vi.mock('../hooks/useFilterRegistries', () => ({
+  useFilterRegistries: () => ({
+    jurisdictions: [],
+    permitTypes: [],
+    productTypes: [],
+    projectTags: [],
+    zones: [],
+    entPeople: [],
+  }),
+}));
+
+
 // fix-253: the Phase Durations report. Read-only surface — it renders the
 // learned city-vs-ours medians per cycle and the recent-window trend.
 

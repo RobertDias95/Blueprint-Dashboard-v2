@@ -54,7 +54,10 @@ import {
   type CorrectionReportRow,
   type CountRow,
   type RepeatTopic,
+  UNKNOWN_JURISDICTION,
 } from '../lib/correctionsReport';
+import { useFilterRegistries } from '../hooks/useFilterRegistries';
+import { filterOptionLabel, filterOptions, type FilterOptionSet } from '../lib/filterOptions';
 
 // fix-277: "Corrections" — every indexed correction-letter comment, across every
 // project, with the analysis the fix-276 per-project panel could not do.
@@ -222,6 +225,19 @@ export default function CorrectionsReport() {
   // Options come off the UNFILTERED set so the dropdowns don't collapse as you
   // narrow — picking Bellevue must not empty the discipline list.
   const options = useMemo(() => correctionFilterOptions(allRows), [allRows]);
+  // ★ fix-619 (gaps 9, 14): the city and permit-type filters offer the Settings
+  //   list plus any stored value, marked. "Unknown" is the report's own bucket
+  //   for a row with no city — not a stored city — so it stays last, unmarked.
+  const registries = useFilterRegistries();
+  const jurisFilter = useMemo(() => {
+    const set = filterOptions(
+      registries.jurisdictions,
+      options.jurisdictions.filter((j) => j !== UNKNOWN_JURISDICTION),
+    );
+    return options.jurisdictions.includes(UNKNOWN_JURISDICTION)
+      ? { options: [...set.options, UNKNOWN_JURISDICTION], unlisted: set.unlisted }
+      : set;
+  }, [registries.jurisdictions, options.jurisdictions]);
   // fix-281: the period narrows BEFORE the filter bar's own from/to, and a
   // preset overrides them — two date controls fighting each other would be
   // unreadable, so choosing a preset is what sets the window.
@@ -301,10 +317,10 @@ export default function CorrectionsReport() {
       if (r.permit_da) das.add(r.permit_da);
     }
     return {
-      types: [...types].sort((a, b) => a.localeCompare(b)),
+      types: filterOptions(registries.permitTypes, types),
       das: [...das].sort((a, b) => a.localeCompare(b)),
     };
-  }, [allRows]);
+  }, [allRows, registries.permitTypes]);
 
   const error = itemsQ.error ?? projectsQ.error ?? permitsQ.error;
   if (error) {
@@ -388,6 +404,7 @@ export default function CorrectionsReport() {
       <FilterBar
         filters={filters}
         options={options}
+        jurisFilter={jurisFilter}
         onChange={patch}
         onReset={() => {
           setFilters(EMPTY_FILTERS);
@@ -560,6 +577,7 @@ export default function CorrectionsReport() {
 function FilterBar({
   filters,
   options,
+  jurisFilter,
   onChange,
   onReset,
   coverage,
@@ -572,11 +590,13 @@ function FilterBar({
 }: {
   filters: CorrectionFilters;
   options: ReturnType<typeof correctionFilterOptions>;
+  /** ★ fix-619: the city filter — Settings list + stored, marked. */
+  jurisFilter: FilterOptionSet;
   onChange: (next: Partial<CorrectionFilters>) => void;
   onReset: () => void;
   coverage: ReturnType<typeof architectCoverage>;
   segmentOptions: Record<string, string[]>;
-  permitOptions: { types: string[]; das: string[] };
+  permitOptions: { types: FilterOptionSet; das: string[] };
   period: PeriodPreset;
   onPeriod: (p: PeriodPreset) => void;
   periodLabel: string;
@@ -591,7 +611,8 @@ function FilterBar({
         label="Jurisdiction"
         value={filters.juris}
         onChange={(v) => onChange({ juris: v })}
-        options={options.jurisdictions}
+        options={jurisFilter.options}
+        optionLabel={(v) => filterOptionLabel(v, jurisFilter)}
         allLabel="All jurisdictions"
         testId="corrections-filter-juris"
       />
@@ -752,7 +773,8 @@ function FilterBar({
             label="Permit type ⚠"
             value={filters.permitType}
             onChange={(v) => onChange({ permitType: v })}
-            options={permitOptions.types}
+            options={permitOptions.types.options}
+            optionLabel={(v) => filterOptionLabel(v, permitOptions.types)}
             allLabel="Any permit type"
             testId="corrections-filter-permit-type"
           />
@@ -782,6 +804,7 @@ function Select({
   options,
   allLabel,
   testId,
+  optionLabel,
 }: {
   label: string;
   value: string;
@@ -789,6 +812,8 @@ function Select({
   options: string[];
   allLabel: string;
   testId: string;
+  /** ★ fix-619: how an option reads (marks a stored value not in Settings). */
+  optionLabel?: (v: string) => string;
 }) {
   return (
     <label className="flex flex-col gap-1">
@@ -804,7 +829,7 @@ function Select({
         <option value="">{allLabel}</option>
         {options.map((o) => (
           <option key={o} value={o}>
-            {o}
+            {optionLabel ? optionLabel(o) : o}
           </option>
         ))}
       </select>
