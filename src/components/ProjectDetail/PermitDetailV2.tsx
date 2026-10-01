@@ -87,6 +87,8 @@ import { usePermitHolds, activePermitHold } from '../../hooks/usePermitHolds';
 import { useProjectHolds, activeHold } from '../../hooks/useProjectHolds';
 import { HoldBadge } from '../shared/HoldBadge';
 import PriorityStar from '../shared/PriorityStar';
+import TemplateTasksOffer from './TemplateTasksOffer';
+import { isEffectivelyIssued } from '../../lib/effectiveIssued';
 
 // Q9.5.e-fix-5: PermitDetailV2 rebuilds the v2 permit edit panel to match
 // v1's _renderPermitDetail at index.html:4787. Visual blocks (top→bottom):
@@ -294,6 +296,15 @@ export default function PermitDetailV2({ permit, project }: Props) {
           <TasksPanel
             permitId={permit.id}
             projectId={permit.project_id}
+            templateOffer={
+              project && permit.type && !isEffectivelyIssued(permit)
+                ? {
+                    permitType: permit.type,
+                    juris: project.juris ?? '',
+                    isBackfill: project.is_backfill === true,
+                  }
+                : null
+            }
           // fix-224: the permit's DA lets each task resolve co-assignee role
           // tokens (design_associate / design_manager via dm_da_groups) to the
           // actual person for display.
@@ -1822,6 +1833,7 @@ const DISCIPLINES = [
 function TasksPanel({
   permitId,
   projectId,
+  templateOffer,
   permitDa,
   permitEntLead,
   projectSchematicDesigners,
@@ -1833,6 +1845,14 @@ function TasksPanel({
   /** fix-149: threaded down to TaskItem so the Waiting On chip can resolve
    *  the project's External Team firm for the picked discipline. */
   projectId: string;
+  /** ★ fix-609 (P-306): what the empty-panel template offer needs. `null`
+   *  when no offer may be made — the permit is effectively issued (fix-221's
+   *  rule: done is done), or the project has not loaded. */
+  templateOffer: {
+    permitType: string;
+    juris: string;
+    isBackfill: boolean;
+  } | null;
   /** fix-224: the permit's DA — threaded to TaskItem for co-assignee role-token
    *  resolution (design_associate / design_manager). */
   permitDa: string | null;
@@ -1936,6 +1956,19 @@ function TasksPanel({
 
   return (
     <div className="flex flex-col" data-testid="pd-v2-tasks-panel">
+      {/* ★ fix-609 (P-306): a permit with NO tasks is offered its template
+          tasks — one click, never created silently. The offer itself draws
+          nothing for a non-editor or when no template applies. */}
+      {treeQ.isSuccess && tasks.length === 0 && templateOffer && (
+        <div className="px-3 pt-2">
+          <TemplateTasksOffer
+            permit={{ id: permitId, type: templateOffer.permitType, project_id: projectId }}
+            juris={templateOffer.juris}
+            isBackfill={templateOffer.isBackfill}
+            testid="pd-v2-template-offer"
+          />
+        </div>
+      )}
       <BucketBars
         active={activeBucket}
         totals={bucketTotals}

@@ -22,6 +22,7 @@ import {
   type ProjectScalarFields,
 } from '../lib/projectDetailsForm';
 import type { PermitWithCycles, Project } from '../lib/database.types';
+import { useAddedPermitsStore } from '../stores/addedPermitsStore';
 
 // ===========================================================================
 // ★★★ fix-514 §A (P-191) — THE CONTROLLER `ProjectSettingsModal` USED TO BE
@@ -109,6 +110,7 @@ export function useProjectDetailsForm(
   const permitTypesQ = usePermitTypes();
   const appConfigQ = useAppConfig();
   const updateProjectWithPermits = useUpdateProjectWithPermits();
+  const markPermitsAdded = useAddedPermitsStore((st) => st.markAdded);
 
   /**
    * ★★★ fix-519 §B (P-227) — THE FORM AND ITS BASELINE ARE ONE STATE.
@@ -589,6 +591,18 @@ export function useProjectDetailsForm(
       //   the permits hostage.
       setState((s) => ({ ...s, baseline: s.form }));
 
+      // ★ fix-609 (P-306): a permit this save ADDED is offered its template
+      //   tasks on its row once the modal closes. New = an id the save
+      //   returned that no row in the form already had.
+      {
+        const known = new Set(
+          form.permits.map((p) => p.id).filter((id): id is number => id != null),
+        );
+        markPermitsAdded(
+          (result.permits ?? []).map((p) => p.id).filter((id) => !known.has(id)),
+        );
+      }
+
       // ═══════════════════════════════════════════════════════════════════
       // ★★★ fix-588 §2a (P-288) — A SAVE THAT CHANGED NOTHING DOES NOT SAY
       //     IT SAVED
@@ -651,7 +665,7 @@ export function useProjectDetailsForm(
     } finally {
       setSaving(false);
     }
-  }, [form, draft, project, bpPermit, updateProjectWithPermits]);
+  }, [form, draft, project, bpPermit, updateProjectWithPermits, markPermitsAdded]);
 
   return {
     form,
