@@ -258,6 +258,13 @@ export function parseUnitTypes(raw: unknown): UnitType[] {
       ...readParking(u.parking_kind, u.parking_count),
       roof_deck: typeof u.roof_deck === 'boolean' ? u.roof_deck : null,
       penthouse: typeof u.penthouse === 'boolean' ? u.penthouse : null,
+      // ★★ fix-619 (gap 18): an admin's own roof-deck wording. This parser is a
+      //    WHITELIST that both editors write back (fix-412), so an unnamed key
+      //    here would be DELETED on the next save. Kept only when present, so a
+      //    unit holding one of the three decoded answers is unchanged.
+      ...(typeof u.roof_deck_label === 'string' && u.roof_deck_label.trim() !== ''
+        ? { roof_deck_label: u.roof_deck_label.trim() }
+        : {}),
       basement: typeof u.basement === 'boolean' ? u.basement : null,
       // ★★★ fix-488 §B (P-150) — `size_sf`, THE UNIT'S TYPED FLOOR AREA.
       //

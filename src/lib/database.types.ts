@@ -95,6 +95,12 @@ export interface UnitType {
   /** ★ fix-562 §A: with a penthouse? A MODIFIER of `roof_deck: true`; the three
    *  answers are `W/ PH` · `W/O PH` · `None`. */
   penthouse?: boolean | null;
+  /** ★★ fix-619 (census gap 18): a roof-deck answer from the Settings list that
+   *  is NOT one of the three decoded ones above. When set it IS the answer and
+   *  `roof_deck` / `penthouse` are null — this app does not guess what an
+   *  admin's own wording means for the deck or the penthouse. Absent on every
+   *  unit that holds one of the three. */
+  roof_deck_label?: string | null;
   // ★★★ fix-562 §A — `parking_stalls` IS REMOVED FROM THE PRODUCT: the column,
   // the filter, the editor input and this type. Bobby folded the count into the
   // parking answer, so a separate stall count is a second way to say the same

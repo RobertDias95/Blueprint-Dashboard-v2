@@ -60,6 +60,20 @@ vi.mock('../hooks/usePermits', () => ({
 
 import CorrectionsReport from '../pages/CorrectionsReport';
 
+// ★ fix-619: the filters start from the Settings lists (useFilterRegistries);
+//   empty here, so every option below comes from the fixture data.
+vi.mock('../hooks/useFilterRegistries', () => ({
+  useFilterRegistries: () => ({
+    jurisdictions: [],
+    permitTypes: [],
+    productTypes: [],
+    projectTags: [],
+    zones: [],
+    entPeople: [],
+  }),
+}));
+
+
 function renderPage() {
   const qc = new QueryClient({
     defaultOptions: { queries: { retry: false }, mutations: { retry: false } },

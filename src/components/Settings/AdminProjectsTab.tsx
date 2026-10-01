@@ -279,14 +279,11 @@ export default function AdminProjectsTab() {
           how is parking driving that? Is it one-car, two-car, three, four, or
           surface/none?"*
 
-          ★★★ AND THE ONE HONEST LIMIT, MARKED RATHER THAN HIDDEN. Parking and
-              Stories decode BY SHAPE, so `5-car garage` and `5+B` work with no
-              deploy. **Roof Deck does not** — its three labels map onto a fixed
-              (deck, penthouse) pair, so a renamed or invented entry has nowhere
-              to be stored. `isStorableVocabularyEntry` marks exactly those
-              pills `⚠`, because dropping an entry from a dropdown and saying
-              nothing is how a Settings screen starts lying about what it
-              controls. */}
+          ★★★ Parking and Stories decode BY SHAPE, so `5-car garage` and `5+B`
+              work with no deploy. ★★ fix-619 (gap 18): Roof Deck's three labels
+              map onto a (deck, penthouse) pair, and any OTHER entry is now
+              stored as its own label — so `isStorableVocabularyEntry` no
+              longer marks any roof-deck pill `⚠`. */}
       {/* ★★★ fix-611 §B — ONE CARD, THREE LISTS. Parking, roof deck and
           stories are the three things a UNIT is described by, and they were
           three cards in a column of fourteen. Same three editors, same keys,
@@ -351,10 +348,9 @@ export default function AdminProjectsTab() {
           testIdPrefix="unit-roof-deck-list"
         />
         <div className="text-[10px] text-dim mt-1" data-testid="unit-roof-deck-help">
-          This list can be REORDERED, but only <code>W/ PH</code>,{' '}
-          <code>W/O PH</code> and <code>None</code> can be stored — each maps to
-          a fixed roof-deck / penthouse pair. A new wording would need a code
-          change.
+          <code>W/ PH</code>, <code>W/O PH</code> and <code>None</code> also
+          record whether there is a deck and a penthouse. Any option you add is
+          saved on the unit as you wrote it.
         </div>
         </SettingsSubBlock>
 

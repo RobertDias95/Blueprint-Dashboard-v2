@@ -23,6 +23,8 @@ import { SkeletonRows } from '../components/Skeleton';
 import QueryError from '../components/QueryError';
 import ActivityToolbar from '../components/activity/ActivityToolbar';
 import ActivityProjectGroup from '../components/activity/ActivityProjectGroup';
+import { useFilterRegistries } from '../hooks/useFilterRegistries';
+import { filterOptions } from '../lib/filterOptions';
 
 // fix-28: full activity page. The bell now navigates here; this page
 // owns the search, ent filter, category chips, and per-row read state.
@@ -38,10 +40,17 @@ import ActivityProjectGroup from '../components/activity/ActivityProjectGroup';
 const ENT_FILTER_STORAGE_KEY = 'bp_activity_ent_filter';
 const SEARCH_DEBOUNCE_MS = 150;
 
-// Authoritative ent set surfaced as filter options. Sourced from the
-// rows themselves below; this constant is the fallback when the
-// initial render has no rows yet.
-const DEFAULT_ENT_OPTIONS = ['Bobby', 'Briana', 'Miles'];
+// ★★ fix-619 (census gap 20): the lead list was three names typed here
+//    ('Bobby', 'Briana', 'Miles') — a new entitlement lead added in Settings
+//    never appeared, and because those three were also the DEFAULT SELECTION,
+//    the new lead's rows were filtered OUT until someone ticked "All". The
+//    options are now the roster's current ENT people plus any name still on a
+//    row (marked), and "nothing chosen" is `null` = everyone.
+//
+//    The three names survive only to recognise the selection the old default
+//    wrote to localStorage for every visitor: that exact set means "never
+//    chose", so it reads as everyone rather than as a narrowed filter.
+const LEGACY_DEFAULT_ENTS = ['Bobby', 'Briana', 'Miles'];
 
 function loadEntFilter(): Set<string> | null {
   try {
@@ -49,7 +58,14 @@ function loadEntFilter(): Set<string> | null {
     if (!raw) return null;
     const parsed = JSON.parse(raw);
     if (Array.isArray(parsed)) {
-      return new Set(parsed.filter((v): v is string => typeof v === 'string'));
+      const names = parsed.filter((v): v is string => typeof v === 'string');
+      if (
+        names.length === LEGACY_DEFAULT_ENTS.length &&
+        LEGACY_DEFAULT_ENTS.every((n) => names.includes(n))
+      ) {
+        return null;
+      }
+      return new Set(names);
     }
   } catch {
     // ignore
@@ -57,12 +73,10 @@ function loadEntFilter(): Set<string> | null {
   return null;
 }
 
-function saveEntFilter(set: Set<string>) {
+function saveEntFilter(set: Set<string> | null) {
   try {
-    localStorage.setItem(
-      ENT_FILTER_STORAGE_KEY,
-      JSON.stringify(Array.from(set)),
-    );
+    if (set === null) localStorage.removeItem(ENT_FILTER_STORAGE_KEY);
+    else localStorage.setItem(ENT_FILTER_STORAGE_KEY, JSON.stringify(Array.from(set)));
   } catch {
     // ignore — localStorage may be unavailable
   }
@@ -99,24 +113,26 @@ export default function ActivityPage() {
 
   const [category, setCategory] = useState<ActivityCategory | 'all'>('all');
 
-  // Ent options surface from the rows + fallback to defaults. Stored
-  // selection is persisted; defaults to "all".
-  const entOptions = useMemo(() => {
-    const set = new Set<string>(DEFAULT_ENT_OPTIONS);
-    for (const r of all) {
-      if (r.ent_lead && r.ent_lead.trim() !== '') set.add(r.ent_lead);
-    }
-    return Array.from(set).sort();
-  }, [all]);
+  // ★ fix-619: the roster's ENT people + any lead still on a row, marked.
+  //   Stored selection is persisted; `null` = everyone (the default).
+  const { entPeople } = useFilterRegistries();
+  const entFilter = useMemo(
+    () => filterOptions(entPeople, all.map((r) => r.ent_lead)),
+    [entPeople, all],
+  );
+  const entOptions = entFilter.options;
 
-  const [selectedEnts, setSelectedEnts] = useState<Set<string>>(() => {
-    const loaded = loadEntFilter();
-    if (loaded) return loaded;
-    return new Set(DEFAULT_ENT_OPTIONS);
-  });
+  const [selectedEnts, setSelectedEnts] = useState<Set<string> | null>(loadEntFilter);
   useEffect(() => {
     saveEntFilter(selectedEnts);
   }, [selectedEnts]);
+  const shownEnts = useMemo(
+    () => selectedEnts ?? new Set(entOptions),
+    [selectedEnts, entOptions],
+  );
+  function changeSelectedEnts(next: Set<string>) {
+    setSelectedEnts(next.size >= entOptions.length ? null : next);
+  }
 
   // Pre-compute summaries once per row — feeds both search matching
   // and rendering. Stable reference per row id keeps deeper memos
@@ -166,7 +182,7 @@ export default function ActivityPage() {
   function clearAllFilters() {
     setSearch('');
     setCategory('all');
-    setSelectedEnts(new Set(entOptions));
+    setSelectedEnts(null);
   }
 
   function markAllVisibleRead() {
@@ -220,8 +236,9 @@ export default function ActivityPage() {
           category={category}
           onCategoryChange={setCategory}
           entOptions={entOptions}
-          selectedEnts={selectedEnts}
-          onSelectedEntsChange={setSelectedEnts}
+          entUnlisted={entFilter.unlisted}
+          selectedEnts={shownEnts}
+          onSelectedEntsChange={changeSelectedEnts}
           onClearFilters={clearAllFilters}
           totalCount={all.length}
           visibleCount={filtered.length}

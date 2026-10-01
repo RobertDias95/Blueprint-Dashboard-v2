@@ -419,7 +419,7 @@ export function matchingUnitIndices(
       // ★ fix-483 §A2: fix-412's `matchWorkScope` conjunct left with its
       //   filter; fix-562 §A's `matchStallsTier` left with `parking_stalls`.
       //   The per-unit AND itself (fix-402) is untouched.
-      matchRoofDeckOption(u.roof_deck, u.penthouse, filters.roofDeck)
+      matchRoofDeckOption(u.roof_deck, u.penthouse, filters.roofDeck, u.roof_deck_label)
     ) {
       out.push(i);
     }

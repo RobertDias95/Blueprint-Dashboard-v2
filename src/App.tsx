@@ -17,6 +17,7 @@ import ToastHost from './components/ToastHost';
 import {
   logError,
   messageOf,
+  expectedUniqueRefusal,
   queryFailureLevel,
   shouldSkipBackendRpcLog,
 } from './lib/errorLogger';
@@ -129,7 +130,8 @@ const queryClient = new QueryClient({
       useSaveFailureStore.getState().report({
         kind: isNetworkFailure(err) ? 'network' : 'rejected',
         what: describeMutation(key),
-        message: messageOf(err),
+        // ★ fix-619 §Z: an expected refusal reads as its sentence here too.
+        message: expectedUniqueRefusal(err) ?? messageOf(err),
         at: Date.now(),
         // fix-371 section 4 already knows whether a new build is live, which
         // makes a deploy restart the likely cause and is worth saying.

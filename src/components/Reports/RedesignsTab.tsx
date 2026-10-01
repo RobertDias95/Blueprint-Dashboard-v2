@@ -24,6 +24,8 @@ import {
   REDESIGNS_KPI_METRICS,
   REDESIGNS_CYCLE_COMPARISON,
 } from '../../lib/metricDefinitions';
+import { useFilterRegistries } from '../../hooks/useFilterRegistries';
+import { filterOptionLabel, filterOptions } from '../../lib/filterOptions';
 
 // fix-134-b: 4th sub-tab on Reports. Surfaces the redesign data fix-126
 // added to the schema so the team can answer "which builders are
@@ -82,11 +84,13 @@ function Body({
   const [dateTo, setDateTo] = useState<string>('');
   const [juris, setJuris] = useState<string>('');
 
-  const jurisOptions = useMemo(() => {
-    const set = new Set<string>();
-    for (const p of projects) if (p.juris) set.add(p.juris);
-    return Array.from(set).sort();
-  }, [projects]);
+  // ★ fix-619 (gap 14): the Settings city list plus any city still stored on a
+  //   project, marked — not the stored cities alone.
+  const { jurisdictions: jurisRegistry } = useFilterRegistries();
+  const jurisOptions = useMemo(
+    () => filterOptions(jurisRegistry, projects.map((p) => p.juris)),
+    [jurisRegistry, projects],
+  );
 
   const filters: RedesignAnalyticsFilters = useMemo(
     () => ({
@@ -188,9 +192,9 @@ function Body({
             data-testid="redesigns-filter-juris"
           >
             <option value="">All</option>
-            {jurisOptions.map((j) => (
+            {jurisOptions.options.map((j) => (
               <option key={j} value={j}>
-                {j}
+                {filterOptionLabel(j, jurisOptions)}
               </option>
             ))}
           </select>

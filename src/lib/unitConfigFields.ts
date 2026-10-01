@@ -113,7 +113,8 @@ export const UNIT_CONFIG_FIELDS: readonly UnitConfigField[] = [
   {
     key: 'parking_kind',
     label: 'Parking',
-    hint: 'What kind of parking is proposed — 1-car garage through 4-car garage, or Surface / None.',
+    // ★ fix-619 (gap 19): no typed list of choices — those live in Settings.
+    hint: 'What kind of parking is proposed — one of the Parking options in Settings → Project lists.',
   },
   {
     key: 'roof_deck',

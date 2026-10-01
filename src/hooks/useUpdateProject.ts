@@ -14,6 +14,7 @@ import {
 import { pushToast, pushRecoveredToast } from '../stores/toastStore';
 import { useAuthStore } from '../stores/authStore';
 import type { Project } from '../lib/database.types';
+import { duplicateAddressSentence, expectedUniqueRefusal } from '../lib/errorLogger';
 
 // Q9.5.e-fix-3: Row-level OCC mutation for project fields. Mirror of
 // useUpdatePermit. The fix-3 migration installs a projects_set_updated_at
@@ -332,6 +333,9 @@ export function useUpdateProject() {
           pushRecoveredToast(error.message, 'warn');
         }
         queryClient.invalidateQueries({ queryKey: queryKeys.projects(tenantId) });
+      } else if (expectedUniqueRefusal(error) !== null) {
+        // ★ fix-619 §Z (P-312): the same plain sentence on this write path.
+        pushToast(duplicateAddressSentence(input.patch.address ?? null), 'warn');
       } else {
         pushToast(`Could not save project — ${error.message}`, 'error');
       }

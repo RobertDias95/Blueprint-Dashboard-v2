@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import { render, screen, within, cleanup } from '@testing-library/react';
 import { UnitsMatrix } from '../components/ProjectDetail/ProjectOverviewBoxes';
 import {
@@ -6,6 +6,13 @@ import {
   UNIT_MATRIX_TYPE_STEPS,
 } from '../lib/projectCardLayout';
 import type { UnitType } from '../lib/database.types';
+
+// ★ fix-619: the matrix tooltips read the unit lists from app_config.
+vi.mock('../hooks/useAppConfig', async (importActual) => ({
+  ...(await importActual<typeof import('../hooks/useAppConfig')>()),
+  useAppConfig: () => ({ map: new Map() }),
+}));
+
 
 // ===========================================================================
 // ★★★ fix-507 §E (P-175) — THE UNITS MATRIX FILLS ITS BOX AND NAMES ITS COLUMNS

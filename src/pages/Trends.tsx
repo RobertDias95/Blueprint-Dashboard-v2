@@ -92,6 +92,8 @@ import {
   type TrendsDrillInKey,
 } from '../lib/trendsDrillIn';
 import type { PermitWithCycles, Project, TargetSubmitFormula } from '../lib/database.types';
+import { useFilterRegistries } from '../hooks/useFilterRegistries';
+import { filterOptionLabel, filterOptions } from '../lib/filterOptions';
 
 // fix-25-feat-T → V → BB: Trends — operational performance + volume +
 // learned target_submit, merged into one sectioned surface. Replaces
@@ -269,11 +271,19 @@ function TrendsBody({ permits, projects, catalogTypes }: BodyProps) {
     return Array.from(set).sort();
   }, [projects]);
 
-  const typeOptions = useMemo(() => {
-    const set = new Set<string>();
-    for (const p of permits) if (p.type) set.add(p.type);
-    return Array.from(set).sort();
-  }, [permits]);
+  // ★ fix-619 (gaps 9, 14): the FILTERS offer the Settings list plus any value
+  //   still stored, marked. `jurisOptions` above stays data-derived on
+  //   purpose — it also sets which cities the Target Submit table builds rows
+  //   for, and a city with no project has nothing to measure there.
+  const registries = useFilterRegistries();
+  const jurisFilter = useMemo(
+    () => filterOptions(registries.jurisdictions, projects.map((p) => p.juris)),
+    [registries.jurisdictions, projects],
+  );
+  const typeFilter = useMemo(
+    () => filterOptions(registries.permitTypes, permits.map((p) => p.type)),
+    [registries.permitTypes, permits],
+  );
 
   // ----- Performance helpers (perfTrends) -----
   // fix-114: `filteredCurrent` is the active cohort (everything below uses
@@ -909,9 +919,9 @@ function TrendsBody({ permits, projects, catalogTypes }: BodyProps) {
             data-testid="trends-juris"
           >
             <option value="">All</option>
-            {jurisOptions.map((j) => (
+            {jurisFilter.options.map((j) => (
               <option key={j} value={j}>
-                {j}
+                {filterOptionLabel(j, jurisFilter)}
               </option>
             ))}
           </select>
@@ -930,9 +940,9 @@ function TrendsBody({ permits, projects, catalogTypes }: BodyProps) {
             data-testid="trends-type"
           >
             <option value="">All</option>
-            {typeOptions.map((t) => (
+            {typeFilter.options.map((t) => (
               <option key={t} value={t}>
-                {t}
+                {filterOptionLabel(t, typeFilter)}
               </option>
             ))}
           </select>

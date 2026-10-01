@@ -3,6 +3,20 @@ import { render, screen, fireEvent } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import type { WeeklyDaReportPayload } from '../lib/database.types';
 
+// ★ fix-619: the filters start from the Settings lists (useFilterRegistries);
+//   empty here, so every option below comes from the fixture data.
+vi.mock('../hooks/useFilterRegistries', () => ({
+  useFilterRegistries: () => ({
+    jurisdictions: [],
+    permitTypes: [],
+    productTypes: [],
+    projectTags: [],
+    zones: [],
+    entPeople: [],
+  }),
+}));
+
+
 // fix-67: Weekly DA Update report component tests. All data hooks are
 // mocked so we drive the payload + capture the RPC inputs directly.
 //

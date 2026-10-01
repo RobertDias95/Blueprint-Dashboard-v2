@@ -188,7 +188,7 @@ export const LIBRARY_UNIT_COLUMNS: readonly LibraryUnitColumn[] = [
     //     Still three states plus the dash: `null` is NOT RECORDED and is a
     //     different fact from a recorded `None`. This is the cell that was
     //     printing `G` (fix-519 §A).
-    read: (u) => ({ text: roofDeckLabel(u.roof_deck ?? null, u.penthouse ?? null) }),
+    read: (u) => ({ text: roofDeckLabel(u.roof_deck ?? null, u.penthouse ?? null, u.roof_deck_label) }),
   },
   {
     col: 'stories',

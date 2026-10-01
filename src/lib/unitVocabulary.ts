@@ -71,13 +71,12 @@
 // string array under one key, a `CANONICAL_*` fallback for a tenant that has
 // never been seeded, a Settings `PillListEditor`.
 //
-// ★★★ AND THE HONEST LIMIT, STATED RATHER THAN HIDDEN. Parking and stories
-//     decode BY SHAPE, so an admin who adds `5-car garage` or `5+B` gets a
-//     working option with no deploy. **Roof deck does not**: its three labels
-//     map onto a fixed (deck, penthouse) pair, so a renamed or invented fourth
-//     entry has nowhere to be stored. `unitVocabularyIssues` names exactly
-//     those entries and Settings marks them, so the failure is visible where
-//     somebody types it rather than silent in a dropdown.
+// ★★★ Parking and stories decode BY SHAPE, so an admin who adds `5-car garage`
+//     or `5+B` gets a working option with no deploy. Roof deck's three labels
+//     map onto a fixed (deck, penthouse) pair; ★★ fix-619 (census gap 18): an
+//     entry an admin ADDS is stored as itself, in `roof_deck_label`, so the
+//     stored set follows the editor. Before, it was offered in the dropdown
+//     and silently refused on pick.
 
 /** How a NULL renders, everywhere. Never "none", never blank. ★ Moved here
  *  from `lib/unitParking` with the vocabulary it belongs to; that module is
@@ -254,7 +253,10 @@ export function parkingLabel(
 export function roofDeckLabel(
   deck: boolean | null | undefined,
   penthouse: boolean | null | undefined,
+  /** ★ fix-619: an admin's own wording, stored as itself — it wins. */
+  label?: string | null,
 ): string {
+  if (typeof label === 'string' && label.trim() !== '') return label.trim();
   if (deck == null) return NOT_RECORDED;
   if (!deck) return 'None';
   return penthouse === true ? 'W/ PH' : 'W/O PH';
@@ -311,6 +313,31 @@ export function storiesOptions(map: Map<string, unknown> | null | undefined): st
 }
 
 /**
+ * ★ fix-619 (census gap 18): what a roof-deck PICK stores. One of the three
+ * decoded answers → its (deck, penthouse) pair and no label; anything else the
+ * Settings list offers → the label itself, with both booleans null.
+ */
+export function roofDeckValueFor(
+  picked: string,
+): { deck: boolean | null; penthouse: boolean | null; label: string | null } {
+  const parts = decodeRoofDeck(picked);
+  if (parts) return { deck: parts.deck, penthouse: parts.penthouse, label: null };
+  return { deck: null, penthouse: null, label: picked.trim() };
+}
+
+/**
+ * ★ fix-619 (census gap 19): a unit tooltip that names its choices reads them
+ * from the Settings list, so an option added there is in the tooltip too —
+ * not a sentence typed when there were four garages.
+ */
+export function vocabularyTooltip(base: string, opts: readonly string[]): string {
+  const list = opts.filter((o) => o.trim() !== '');
+  return list.length > 0
+    ? `${base} Options: ${list.join(' · ')} · ${NOT_RECORDED} not recorded`
+    : `${base} ${NOT_RECORDED} not recorded`;
+}
+
+/**
  * ★★★ THE APPEND RULE (fix-364 / fix-415), APPLIED TO A COMPOSED LABEL.
  *
  * A `<select>` whose value matches no option renders BLANK, which silently
@@ -349,9 +376,8 @@ export function unitVocabularyIssues(
   for (const label of parkingOptions(map)) {
     if (!decodeParking(label)) out.push({ key: PARKING_OPTIONS_KEY, label });
   }
-  for (const label of roofDeckOptions(map)) {
-    if (!decodeRoofDeck(label)) out.push({ key: ROOF_DECK_OPTIONS_KEY, label });
-  }
+  // ★ fix-619: no roof-deck entry is unstorable any more — an undecoded one is
+  //   kept as its own label (`roof_deck_label`).
   for (const label of storiesOptions(map)) {
     if (!decodeStories(label)) out.push({ key: STORIES_OPTIONS_KEY, label });
   }
@@ -361,7 +387,6 @@ export function unitVocabularyIssues(
 /** ★ Is this one entry storable? The per-pill form of the above. */
 export function isStorableVocabularyEntry(key: string, label: string): boolean {
   if (key === PARKING_OPTIONS_KEY) return decodeParking(label) !== null;
-  if (key === ROOF_DECK_OPTIONS_KEY) return decodeRoofDeck(label) !== null;
   if (key === STORIES_OPTIONS_KEY) return decodeStories(label) !== null;
   return true;
 }
@@ -394,9 +419,10 @@ export function matchRoofDeckOption(
   deck: boolean | null | undefined,
   penthouse: boolean | null | undefined,
   want: string,
+  label?: string | null,
 ): boolean {
   if (want === '') return true;
-  const have = roofDeckLabel(deck, penthouse);
+  const have = roofDeckLabel(deck, penthouse, label);
   if (have === NOT_RECORDED) return false;
   return norm(have) === norm(want);
 }

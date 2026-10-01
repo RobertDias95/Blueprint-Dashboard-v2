@@ -300,19 +300,15 @@ describe('fix-562 §A: all three lists are app_config registries', () => {
     expect(storiesLabel(6, true)).toBe('6+B');
   });
 
-  it('★★★ ROOF DECK IS THE ONE THAT CANNOT BE, AND IT SAYS SO', () => {
-    // ★★★ THE HONEST LIMIT, REPORTED RATHER THAN HIDDEN. Its three labels map
-    //     onto a fixed (deck, penthouse) pair, so a fourth entry has nowhere to
-    //     be stored. Dropping it from the dropdown silently is how a Settings
-    //     screen starts lying about what it controls — Settings renders a `⚠`
-    //     on exactly these pills instead.
+  it('★★★ SUPERSEDED by fix-619 (gap 18) — an added roof deck entry IS stored now', () => {
+    // ★★★ fix-562 reported this limit honestly (a `⚠`); fix-619 removes it. An
+    //     entry outside the three decoded answers is stored as its own label
+    //     (`roof_deck_label`), so nothing in the list is unstorable.
     const cfg = new Map<string, unknown>([
       [ROOF_DECK_OPTIONS_KEY, ['W/ PH', 'W/O PH', 'None', 'Rooftop terrace']],
     ]);
-    expect(unitVocabularyIssues(cfg)).toEqual([
-      { key: ROOF_DECK_OPTIONS_KEY, label: 'Rooftop terrace' },
-    ]);
-    expect(isStorableVocabularyEntry(ROOF_DECK_OPTIONS_KEY, 'Rooftop terrace')).toBe(false);
+    expect(unitVocabularyIssues(cfg)).toEqual([]);
+    expect(isStorableVocabularyEntry(ROOF_DECK_OPTIONS_KEY, 'Rooftop terrace')).toBe(true);
     // ★ …and the three that ARE storable are not flagged, so the mark means
     //   something.
     for (const ok of CANONICAL_ROOF_DECK) {

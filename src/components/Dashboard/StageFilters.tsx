@@ -3,6 +3,8 @@ import FilterDropdown from '../FilterDropdown';
 import { useTeamMembers } from '../../hooks/useTeamMembers';
 import { formerMemberNames } from '../../lib/roster';
 import type { Permit } from '../../lib/database.types';
+import { useFilterRegistries } from '../../hooks/useFilterRegistries';
+import { filterOptions } from '../../lib/filterOptions';
 
 // Q9.5.f Item 2: 4 multi-select filter chips above the dashboard buckets.
 // Option lists derived live from the current permit data — distinct
@@ -57,6 +59,7 @@ interface Props {
 export default function StageFilters({ permits, filters, onChange }: Props) {
   const team = useTeamMembers();
   const departed = useMemo(() => formerMemberNames(team.all), [team.all]);
+  const { permitTypes } = useFilterRegistries();
 
   const options = useMemo(() => {
     const ent = new Set<string>();
@@ -74,15 +77,15 @@ export default function StageFilters({ permits, filters, onChange }: Props) {
       Array.from(s)
         .filter((name) => !departed.has(name))
         .sort((a, b) => a.localeCompare(b));
-    const toSorted = (s: Set<string>) =>
-      Array.from(s).sort((a, b) => a.localeCompare(b));
     return {
       ent: toRoster(ent),
       da: toRoster(da),
       dm: toRoster(dm),
-      type: toSorted(type),
+      // ★ fix-619 (gap 9): the permit_types catalogue plus any type still on a
+      //   permit, marked — not the stored types alone.
+      type: filterOptions(permitTypes, type),
     };
-  }, [permits, departed]);
+  }, [permits, departed, permitTypes]);
 
   return (
     <div className="flex items-center gap-2 flex-wrap" data-testid="dash-filters">
@@ -109,7 +112,8 @@ export default function StageFilters({ permits, filters, onChange }: Props) {
       />
       <FilterDropdown
         label="Type"
-        options={options.type}
+        options={options.type.options}
+        unlisted={options.type.unlisted}
         selected={filters.type}
         onChange={(next) => onChange({ ...filters, type: next })}
         testId="dash-filter-type"

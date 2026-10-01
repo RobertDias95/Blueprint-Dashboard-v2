@@ -123,6 +123,8 @@ import {
   type MyTaskNode,
   type TeamMember,
 } from '../lib/database.types';
+import { useFilterRegistries } from '../hooks/useFilterRegistries';
+import { filterOptionLabel, filterOptions, type FilterOptionSet } from '../lib/filterOptions';
 
 // fix-80: My Tasks v1-layout rewrite. fix-78 reverted to "all tasks + filter
 // chips"; this brief restores Bobby's v1 mental model — a three-pane kanban
@@ -1012,11 +1014,13 @@ function Body({
     [filtered, filters.activeOnly],
   );
 
-  const permitTypeOptions = useMemo(() => {
-    const set = new Set<string>();
-    for (const t of tasks) if (t.permit_type) set.add(t.permit_type);
-    return [...set].sort((a, b) => a.localeCompare(b));
-  }, [tasks]);
+  // ★ fix-619 (gap 9): the permit_types catalogue plus any type still on a
+  //   task, marked — not the stored types alone.
+  const { permitTypes: permitTypeRegistry } = useFilterRegistries();
+  const permitTypeOptions = useMemo(
+    () => filterOptions(permitTypeRegistry, tasks.map((t) => t.permit_type)),
+    [permitTypeRegistry, tasks],
+  );
 
   // ★★★ fix-362 §3 — A CLOSED TASK IS STILL REACHABLE, and a filter is not a
   // deletion.
@@ -1278,7 +1282,7 @@ function FilterRow({
     dm: string[];
     internal: string[];
   };
-  permitTypeOptions: string[];
+  permitTypeOptions: FilterOptionSet;
   onPatch: (p: Partial<FilterState>) => void;
   onReset: () => void;
   scopeMode: ScopeMode;
@@ -1403,11 +1407,11 @@ function FilterRow({
             ? 'All stages'
             : 'Add stage filter…'}
         </option>
-        {permitTypeOptions
+        {permitTypeOptions.options
           .filter((p) => !filters.permitTypes.includes(p))
           .map((p) => (
             <option key={p} value={p}>
-              {p}
+              {filterOptionLabel(p, permitTypeOptions)}
             </option>
           ))}
       </select>

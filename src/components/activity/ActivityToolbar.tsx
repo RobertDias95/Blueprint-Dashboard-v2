@@ -27,6 +27,8 @@ interface Props {
   category: ActivityCategory | 'all';
   onCategoryChange: (next: ActivityCategory | 'all') => void;
   entOptions: string[];
+  /** ★ fix-619: leads on a row but not on the roster — shown marked. */
+  entUnlisted?: ReadonlySet<string>;
   selectedEnts: Set<string>;
   onSelectedEntsChange: (next: Set<string>) => void;
   onClearFilters: () => void;
@@ -40,6 +42,7 @@ export default function ActivityToolbar({
   category,
   onCategoryChange,
   entOptions,
+  entUnlisted,
   selectedEnts,
   onSelectedEntsChange,
   onClearFilters,
@@ -90,6 +93,7 @@ export default function ActivityToolbar({
       {/* Ent dropdown */}
       <EntFilterDropdown
         options={entOptions}
+        unlisted={entUnlisted}
         selected={selectedEnts}
         onChange={onSelectedEntsChange}
       />
