@@ -10,6 +10,7 @@ import {
   taskMatchesSelfResolved,
   type TaskOwnershipContext,
 } from '../lib/selfScope';
+import { resolvePrimaryAssignee } from '../lib/taskTeam';
 import type { MyTaskNode } from '../lib/database.types';
 
 /** ★ One frozen empty array, so an unloaded dm_da_groups query does not hand
@@ -67,7 +68,19 @@ export interface TaskOwnership {
   isUnclaimed: (task: OwnableNode) => boolean;
   /** Reachable ONLY through the co-assignee join — shared work, not yours. */
   isCoAssigned: (task: OwnableNode, name: string | null) => boolean;
+  /**
+   * ★ fix-603: WHO the task's `assigned_to` means — a role ("Design Manager")
+   * resolved to the person who fills it on this task's project, from the SAME
+   * context `matches` routes by, so the name shown is the person whose My
+   * Tasks it is in. Not a second resolver: `resolvePrimaryAssignee` (fix-228)
+   * with this hook's context.
+   */
+  primaryAssignee: (task: AssigneeNode) => string | null;
 }
+
+/** What `primaryAssignee` needs — a chat row knows no more than this. */
+export type AssigneeNode = Pick<OwnableNode, 'assigned_to' | 'permit_id' | 'project_id'> &
+  Partial<Pick<OwnableNode, 'permit_da' | 'discipline'>>;
 
 export function useTaskOwnership(): TaskOwnership {
   const permitsQ = usePermits();
@@ -121,7 +134,7 @@ export function useTaskOwnership(): TaskOwnership {
   //    what guarantees `matches` cannot answer from a different context than
   //    the split does.
   const ctxFor = useCallback(
-    (task: OwnableNode): TaskOwnershipContext => {
+    (task: AssigneeNode): TaskOwnershipContext => {
       // ★★ fix-460: a TEAM TASK has no permit and no project, so both lookups
       //    miss and the context comes out empty (da/dm/entLead all null). That
       //    is exactly right, and it is what makes an unassigned team task
@@ -172,6 +185,8 @@ export function useTaskOwnership(): TaskOwnership {
       //    at all.
       isUnclaimed: (task: OwnableNode) =>
         isUnclaimedTask(task, ctxFor(task)),
+      primaryAssignee: (task: AssigneeNode) =>
+        resolvePrimaryAssignee(task.assigned_to, ctxFor(task), task.discipline ?? null),
     }),
     [ctxFor],
   );

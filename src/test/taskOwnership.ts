@@ -68,6 +68,9 @@ export function makeTaskOwnership(
     ownsDirectly: () => false,
     isCoAssigned: () => false,
     isUnclaimed: () => false,
+    // ★ fix-603: the stored value, unresolved — a suite that tests role
+    //   resolution passes its own.
+    primaryAssignee: (task) => task.assigned_to ?? null,
   };
   return { ...base, ...over };
 }
@@ -104,4 +107,5 @@ export const TASK_OWNERSHIP_MEMBERS = [
   'isUnclaimed',
   'matches',
   'ownsDirectly',
+  'primaryAssignee', // fix-603
 ] as const;

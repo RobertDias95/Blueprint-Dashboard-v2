@@ -439,11 +439,14 @@ export const REALTIME_TABLES = {
   // fix-notes-2: a task change also refreshes the dashboard "waiting on" cards.
   // ★ fix-363: a task edit rewrites its own history, so the provenance panel
   // and the notification's "who assigned it" both refresh from the same event.
+  // ★ fix-603: + the chat thread, whose green "task made from this message"
+  // row now shows the task's status, owner and due date.
   permit_tasks: [
     queryKeys.permitTasksAll,
     queryKeys.dashboardPermitCardsAll,
     queryKeys.taskProvenanceAll,
     queryKeys.taskAssignersAll,
+    queryKeys.projectMessagesAll,
   ],
   draw_schedule: [queryKeys.drawScheduleAll, queryKeys.permitsAll],
   // ★★★ fix-511 §B (P-067, reopened) — THE OTHER HALF OF fix-393's INVARIANT.

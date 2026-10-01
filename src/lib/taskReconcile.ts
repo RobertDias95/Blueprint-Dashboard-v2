@@ -55,6 +55,8 @@ export function scheduleTaskReconcile(
     target = null;
     if (!qc) return;
     void qc.invalidateQueries({ queryKey: queryKeys.permitTasksAll });
+    // ★ fix-603: the chat row that made the task shows its status.
+    void qc.invalidateQueries({ queryKey: queryKeys.projectMessagesAll });
   }, delayMs);
 }
 
@@ -67,6 +69,7 @@ export function flushTaskReconcile(): void {
   target = null;
   if (!qc) return;
   void qc.invalidateQueries({ queryKey: queryKeys.permitTasksAll });
+  void qc.invalidateQueries({ queryKey: queryKeys.projectMessagesAll });
 }
 
 /** Drop a pending reconciliation without running it — used when something

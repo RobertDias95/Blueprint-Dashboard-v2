@@ -188,6 +188,8 @@ export function useUpsertTask() {
       });
       // My Tasks may now include/exclude this task.
       queryClient.invalidateQueries({ queryKey: queryKeys.permitTasksAll });
+      // ★ fix-603: the chat row that made the task shows its status/owner/due.
+      queryClient.invalidateQueries({ queryKey: queryKeys.projectMessagesAll });
     },
     onError: (error, input) => {
       pushToast(`Could not save task — ${error.message}`, 'error');
@@ -228,6 +230,7 @@ export function useDeleteTask() {
         queryKey: queryKeys.permitTaskTree(tenantId, permitId),
       });
       queryClient.invalidateQueries({ queryKey: queryKeys.permitTasksAll });
+      queryClient.invalidateQueries({ queryKey: queryKeys.projectMessagesAll });
     },
     onError: (error) => {
       pushToast(`Could not delete task — ${error.message}`, 'error');
