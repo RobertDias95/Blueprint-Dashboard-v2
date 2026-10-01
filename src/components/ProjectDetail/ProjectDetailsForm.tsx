@@ -23,6 +23,7 @@ import {
   isDeletedProject,
 } from '../../lib/activeProject';
 import { useIsTenantAdmin } from '../../hooks/useIsTenantAdmin';
+import { optionIsRetired, retiredOptionLabel } from '../../lib/retiredOption';
 
 // ===========================================================================
 // ★★★ fix-514 §A (P-191) — WHAT `ProjectSettingsModal` USED TO RENDER
@@ -176,6 +177,7 @@ function SelectInput({
   placeholderLabel,
   testid,
   disabled = false,
+  retiredFrom,
 }: {
   value: string;
   onChange: (v: string) => void;
@@ -186,6 +188,11 @@ function SelectInput({
   placeholderLabel: string;
   testid?: string;
   disabled?: boolean;
+  /** ★ fix-605: the registry this select's values must come from. An option
+   *  NOT in it is a stored leftover — rendered DISABLED and marked, so it
+   *  displays without being offered (fix-601's rule, lib/retiredOption).
+   *  Absent for every select whose options are not a Settings vocabulary. */
+  retiredFrom?: readonly string[];
 }) {
   return (
     <select
@@ -200,6 +207,10 @@ function SelectInput({
         o === '' ? (
           <option key="__empty" value="">
             {placeholderLabel}
+          </option>
+        ) : retiredFrom && optionIsRetired(o, retiredFrom) ? (
+          <option key={o} value={o} disabled data-retired="true">
+            {retiredOptionLabel(o, retiredFrom)}
           </option>
         ) : (
           <option key={o} value={o}>
@@ -864,7 +875,9 @@ function PermitRowCard({
     return m;
   }, [parentOptions]);
   // fix-25-feat-d: a row carrying a legacy / custom type not in the catalog
-  // surfaces it as the first option so the user can keep it or replace it.
+  // surfaces it as the first option so the row still SHOWS what it holds.
+  // ★ fix-605: …but it is no longer OFFERED — `retiredFrom` renders it disabled
+  //   and marked, and it is appended only to THIS row's list, never a sibling's.
   const typeOptionsWithLegacy = useMemo(() => {
     if (row.type && !typeOptions.includes(row.type)) return ['', row.type, ...typeOptions];
     return ['', ...typeOptions];
@@ -927,8 +940,10 @@ function PermitRowCard({
             value={row.type}
             onChange={(v) => onChange({ type: v })}
             options={typeOptionsWithLegacy}
+            retiredFrom={typeOptions}
             placeholderLabel="— select —"
             disabled={readOnly}
+            testid={`psm-permit-type-${row.id ?? 'new'}`}
           />
         </TinyField>
         <TinyField label="ENT">
