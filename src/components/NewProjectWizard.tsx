@@ -32,11 +32,9 @@ import { useDmDaGroups } from '../hooks/useDmDaGroups';
 // ★ fix-497 §B: `daHasRoutingFor` + the hook join `lookupEntLeadForDa` here —
 //   submit now has to know which DAs float, using the SAME predicate Step 3's
 //   row uses for its caption.
-import {
-  daHasRoutingFor,
-  lookupEntLeadForDa,
-  useDaTeamRouting,
-} from '../hooks/useDaTeamRouting';
+import { lookupEntLeadForDa, useDaTeamRouting } from '../hooks/useDaTeamRouting';
+// ★ fix-617 (gap 41): one copy of the rule, in lib/daRouting.
+import { daHasRoutingFor } from '../lib/daRouting';
 import { snapToMonday, addDays } from '../lib/dateUtils';
 import type { RedesignTrigger } from '../lib/database.types';
 

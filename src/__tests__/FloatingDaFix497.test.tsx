@@ -3,7 +3,7 @@ import { render, screen } from '@testing-library/react';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import PermitAssignmentRow from '../components/wizard/PermitAssignmentRow';
-import { daHasRoutingFor } from '../hooks/useDaTeamRouting';
+import { daHasRoutingFor } from '../lib/daRouting';
 import type { DaTeamRoutingRow } from '../hooks/useDaTeamRouting';
 import type { TeamMember } from '../lib/database.types';
 

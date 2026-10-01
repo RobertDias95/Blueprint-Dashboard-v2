@@ -1,8 +1,11 @@
 import { describe, it, expect } from 'vitest';
+// ★ fix-617 (gap 41): both moved to lib/daRouting — one copy of the rule, in a
+//   module nothing mocks. The tests below are unchanged and still pass, which
+//   is the point of asserting a MOVE rather than a rewrite.
 import {
   daHasRoutingFor,
   type DaTeamRoutingRow,
-} from '../hooks/useDaTeamRouting';
+} from '../lib/daRouting';
 
 // fix-96-b: pure-helper unit tests for daHasRoutingFor, the predicate
 // the wizard uses to decide whether a DA option is selectable. The

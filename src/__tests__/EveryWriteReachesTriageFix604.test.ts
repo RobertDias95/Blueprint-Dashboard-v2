@@ -389,8 +389,13 @@ describe('fix-604 §1 — every write mutation names what it writes', () => {
     const listed = all.filter((f) => f.hook in ALLOW_LIST);
     // ⚠️ fix-613 deleted `useRenameDA` and `useRenameDM` — the partial renames
     //    Settings could reach. 121 → 119.
-    expect(all.length).toBe(119);
-    expect(named.length).toBe(118);
+    // ⬆️ fix-617 ADDED `useSetDmForDa` — the one write path for "who does this
+    //    DA report to". `useUpsertDmDaGroup` / `useDeleteDmDaGroup` are still
+    //    exported and still counted here: what fix-617 removed is the Team
+    //    Structure editor's USE of them, not the hooks. 119 → 120, and the new
+    //    one is NAMED (`meta: { write: 'bp_set_dm_for_da' }`).
+    expect(all.length).toBe(120);
+    expect(named.length).toBe(119);
     expect(listed.length).toBe(1);
     expect(named.length + listed.length).toBe(all.length);
   });
