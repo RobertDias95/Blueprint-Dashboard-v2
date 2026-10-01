@@ -25,6 +25,7 @@ import WaitingOnView from './components/Reports/WaitingOnView';
 import BoardOrWaitingOn from './components/BoardOrWaitingOn';
 import CorrectionPatterns from './pages/CorrectionPatterns';
 import SettingsPage from './pages/SettingsPage';
+import { SETTINGS_REDIRECTS } from './lib/settingsSections';
 import CustomReport from './pages/CustomReport';
 import ReportBuilder from './pages/ReportBuilder';
 import ErrorsPage from './pages/Errors';
@@ -196,11 +197,43 @@ export const router = createBrowserRouter([
       // open to everyone, the other five are admin-only. A route is guessable
       // in a way a modal tab was not, so the gate is enforced by AdminRoute
       // here as well as by hiding the rail entry.
+      //
+      // ★★★ fix-611 §A — SEVEN CATEGORIES. Still one static route each, for
+      // fix-319's reason: a dynamic `/settings/:id` would sit beside
+      // `settings/errors` below and silently swallow it.
       { path: 'settings/account', element: <SettingsPage /> },
-      { path: 'settings/team', element: <AdminRoute><SettingsPage /></AdminRoute> },
-      { path: 'settings/projects', element: <AdminRoute><SettingsPage /></AdminRoute> },
+      { path: 'settings/people', element: <AdminRoute><SettingsPage /></AdminRoute> },
+      { path: 'settings/teams', element: <AdminRoute><SettingsPage /></AdminRoute> },
+      { path: 'settings/lists', element: <AdminRoute><SettingsPage /></AdminRoute> },
       { path: 'settings/permits', element: <AdminRoute><SettingsPage /></AdminRoute> },
-      { path: 'settings/schedule', element: <AdminRoute><SettingsPage /></AdminRoute> },
+      { path: 'settings/dates', element: <AdminRoute><SettingsPage /></AdminRoute> },
+      { path: 'settings/health', element: <AdminRoute><SettingsPage /></AdminRoute> },
+      //
+      // ★★★ THE THREE RENAMED ROUTES REDIRECT RATHER THAN 404.
+      //
+      // fix-310's rule: a rename that moves a route breaks every bookmark and
+      // every link. `/settings/team`, `/settings/projects` and
+      // `/settings/schedule` have existed since fix-319 — they are in people's
+      // history, and `AddPersonSection` links into the roster — so each lands on
+      // the category that now holds what it used to show.
+      //
+      // ★★ NOT AdminRoute-wrapped, and that is deliberate: the redirect target IS,
+      //    so a non-admin following an old bookmark is refused by the route they
+      //    arrive at rather than by the one they typed. One gate, at the
+      //    destination. The redirect map itself lives in lib/settingsSections so
+      //    a test can assert every entry resolves to a real section.
+      {
+        path: 'settings/team',
+        element: <Navigate to={SETTINGS_REDIRECTS['/settings/team']} replace />,
+      },
+      {
+        path: 'settings/projects',
+        element: <Navigate to={SETTINGS_REDIRECTS['/settings/projects']} replace />,
+      },
+      {
+        path: 'settings/schedule',
+        element: <Navigate to={SETTINGS_REDIRECTS['/settings/schedule']} replace />,
+      },
       // ★★★ fix-367 §1: Saved Reports IS NOT A SETTING, and it was behaving
       // exactly as its address said.
       //

@@ -887,25 +887,50 @@ export const ROUTES_INTENTIONALLY_NOT_IN_RIBBON: ReadonlyArray<{
   // ★★ fix-367: /settings/reporting used to be absent from this list because it
   // WAS the ribbon entry, and a path may not be both. It is now listed, because
   // it is no longer a section and no longer an entry — it is a redirect.
+  //
+  // ★★★ fix-611 §A: SEVEN categories now, and the three renamed routes stay on
+  // this list as REDIRECTS rather than leaving it — a path that used to resolve
+  // and now 404s is the one outcome fix-310's rule exists to prevent, and this
+  // list is where a reader finds out which is which.
   {
     path: '/settings/account',
-    why: 'A section of the Settings page, which is in the ribbon. Reached from its left rail, and linkable so a section survives a reload.',
+    why: 'A category of the Settings page, which is in the ribbon. Reached from its left rail, and linkable so a category survives a reload.',
   },
   {
-    path: '/settings/team',
-    why: 'A section of the Settings page, which is in the ribbon. Admin-only, reached from its left rail.',
+    path: '/settings/people',
+    why: 'A category of the Settings page, which is in the ribbon. Admin-only, reached from its left rail.',
   },
   {
-    path: '/settings/projects',
-    why: 'A section of the Settings page, which is in the ribbon. Admin-only, reached from its left rail.',
+    path: '/settings/teams',
+    why: 'A category of the Settings page, which is in the ribbon. Admin-only, reached from its left rail.',
+  },
+  {
+    path: '/settings/lists',
+    why: 'A category of the Settings page, which is in the ribbon. Admin-only, reached from its left rail.',
   },
   {
     path: '/settings/permits',
-    why: 'A section of the Settings page, which is in the ribbon. Admin-only, reached from its left rail; also where /reports/phase-durations now redirects.',
+    why: 'A category of the Settings page, which is in the ribbon. Admin-only, reached from its left rail; also where /reports/phase-durations now redirects.',
+  },
+  {
+    path: '/settings/dates',
+    why: 'A category of the Settings page, which is in the ribbon. Admin-only, reached from its left rail.',
+  },
+  {
+    path: '/settings/health',
+    why: 'A category of the Settings page, which is in the ribbon. Admin-only, reached from its left rail.',
+  },
+  {
+    path: '/settings/team',
+    why: 'fix-611: redirect only — the roster moved to /settings/people. Kept because this has been a real address since fix-319 and AddPersonSection links into it.',
+  },
+  {
+    path: '/settings/projects',
+    why: 'fix-611: redirect only — the pick lists moved to /settings/lists. Kept because this has been a real address since fix-319.',
   },
   {
     path: '/settings/schedule',
-    why: 'A section of the Settings page, which is in the ribbon. Admin-only, reached from its left rail.',
+    why: 'fix-611: redirect only — the per-type schedule moved to /settings/dates, and the per-city learning windows it held were retired by Bobby. Kept because this has been a real address since fix-319.',
   },
   // ★★★ fix-367 §1: this WAS the ribbon's "Saved reports" entry. It is now a
   // redirect to /reports/saved, which is where that entry points.

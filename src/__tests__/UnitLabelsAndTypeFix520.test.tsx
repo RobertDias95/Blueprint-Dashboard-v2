@@ -178,15 +178,57 @@ function code(src: string): string {
     .replace(/^\s*\/\/.*$/gm, '');
 }
 
+// ⚠️⚠️ ONE LABEL NOW BENDS THIS RULE, ON A NEWER RULING — fix-611.
+//
+//    fix-520 §C (P-229) established that the app says `Type`, never "product
+//    type" or "unit type", because *"unit type and product type are the same
+//    thing"*. That holds everywhere a project is edited, and the sweep below
+//    still enforces it.
+//
+// ★★★ THE EXCEPTION IS THE SETTINGS BLOCK TITLE, and it is deliberate: Bobby's
+//     approved Settings mock (2026-09-30) names that block **"Product Types"**,
+//     and the fix-611 brief spells out the rename — *"Product Types (today
+//     'Types')"*. The reason the two rulings do not actually collide is WHERE
+//     each applies: on a project, `Type` is unambiguous because you are looking
+//     at one project. In a list of fourteen settings blocks, "Types" next to
+//     "Permit Types", "Unit options" and "Project Tags" is the ambiguity §C was
+//     complaining about, pointed the other way — Bobby went looking for this
+//     editor and walked past it once already (fix-415).
+//
+//     So: SUPERSEDED FOR ONE STRING, by a later ruling, with the rule intact
+//     everywhere else. The assertion below names it rather than excluding the
+//     whole file, so a second one cannot sneak in behind it.
 describe('fix-520 §C (P-229) — one word for one thing: `Type`', () => {
+  it('★★ the ONE sanctioned exception is the Settings block title', () => {
+    const blocks = readFileSync(
+      resolve(process.cwd(), 'src/lib/settingsBlocks.ts'),
+      'utf8',
+    );
+    // the exception, pinned so it stays one line and keeps its reason
+    expect(blocks).toContain("title: 'Product Types',");
+    // ★ and nothing else in that file says it — the keywords line is the search
+    //   alias, excluded above for fix-520's own stated reason
+    const offending = code(blocks)
+      .split('\n')
+      .filter((l) => /product type|unit type/i.test(l))
+      .filter((l) => !/\b(terms|keywords):/.test(l));
+    expect(offending.map((l) => l.trim())).toEqual(["title: 'Product Types',"]);
+  });
+
   it('★★★ no user-visible string says "product type" or "unit type"', () => {
-    // ★★ TWO EXCLUSIONS, BOTH NAMED, because a sweep that quietly drops what it
+    // ★★ THREE EXCLUSIONS, ALL NAMED, because a sweep that quietly drops what it
     //    cannot classify proves nothing:
     //
     //    · `terms:` — the search index's ALIASES. Bobby types what he has
     //      always typed, and renaming the label without keeping the old words
     //      findable would make the field unreachable by the only name half the
     //      team knows it by. The third test below asserts they are still there.
+    //    · `keywords:` — ★★★ fix-611's settings-search aliases, which are the
+    //      SAME THING under a different field name: the words that must still
+    //      find a block in Settings → search. This exclusion is not a new
+    //      allowance, it is the `terms:` one applied to the second search index
+    //      the app grew. If anything it matters more here, because Settings is
+    //      where somebody goes when they cannot find the field at all.
     //    · `floorReason:` — prose explaining a derived pixel to whoever reads
     //      `lib/overviewCardLayout` next. It is a comment that lives in data so
     //      a test can hold it, and it is rendered NOWHERE — checked rather than
@@ -198,7 +240,12 @@ describe('fix-520 §C (P-229) — one word for one thing: `Type`', () => {
       for (const line of stripped.split('\n')) {
         if (/floorReason:/.test(line)) inFloorReason = true;
         else if (inFloorReason && /^\s{4}[a-zA-Z}]/.test(line)) inFloorReason = false;
-        if (inFloorReason || /\bterms:/.test(line)) continue;
+        if (inFloorReason || /\b(terms|keywords):/.test(line)) continue;
+        // ★★★ THE ONE SANCTIONED EXCEPTION, matched as a WHOLE LINE so it cannot
+        //     widen: fix-611's Settings block title, from Bobby's approved mock.
+        //     The test above pins that this is the only line in that file saying
+        //     it, so allowing it here does not open the file.
+        if (line.trim() === "title: 'Product Types',") continue;
         if (/product type|unit type/i.test(line)) {
           offenders.push(`${p.replace(process.cwd(), '')} :: ${line.trim().slice(0, 100)}`);
         }

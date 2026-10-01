@@ -8,7 +8,11 @@ import {
   isRibbonEntryActive,
   ribbonExemptPaths,
 } from '../lib/ribbonNav';
-import { SETTINGS_SECTIONS, sectionForPath } from '../lib/settingsSections';
+import {
+  SETTINGS_REDIRECTS,
+  SETTINGS_SECTIONS,
+  sectionForPath,
+} from '../lib/settingsSections';
 import {
   formatProductTypes,
   formatUnits,
@@ -60,32 +64,46 @@ describe('fix-367 §1: the shelf leaves Settings', () => {
     expect(seg).not.toContain('SettingsPage');
   });
 
-  it('★★ Settings no longer offers Reporting, and nothing else moved', () => {
+  it('★★ Settings still does not offer Reporting — now across seven categories', () => {
     // The second half of what he asked for: "system settings would lose the
     // Reporting tab".
-    expect(SETTINGS_SECTIONS.map((s) => s.id)).toEqual([
+    //
+    // ⚠️⚠️ THE LIST WAS SUPERSEDED BY fix-611 §A, NOT THE POINT OF THIS TEST.
+    //    fix-367 pinned the five remaining sections to prove that removing
+    //    Reporting had not disturbed anything else. Bobby's seven approved
+    //    categories disturb all of it on purpose — so what is asserted now is the
+    //    thing fix-367 actually cared about, and it is asserted harder: there is
+    //    no `reporting` section, no section resolves `/settings/reporting`, and
+    //    the one non-admin category is still the first one.
+    const ids = SETTINGS_SECTIONS.map((x) => x.id);
+    expect(ids).toEqual([
       'account',
-      'team',
-      'projects',
+      'people',
+      'teams',
+      'lists',
       'permits',
-      'schedule',
+      'dates',
+      'health',
     ]);
+    expect(ids).not.toContain('reporting');
     expect(sectionForPath('/settings/reporting')).toBeNull();
-    // ★ Every other section keeps its path, its admin flag and its order.
-    expect(SETTINGS_SECTIONS.map((s) => s.path)).toEqual([
-      '/settings/account',
-      '/settings/team',
-      '/settings/projects',
-      '/settings/permits',
-      '/settings/schedule',
-    ]);
-    expect(SETTINGS_SECTIONS.map((s) => s.adminOnly)).toEqual([
+    // ★ My account is the only one every role may read, and it is first so bare
+    //   /settings lands somewhere everybody can see.
+    expect(SETTINGS_SECTIONS.map((x) => x.adminOnly)).toEqual([
       false,
       true,
       true,
       true,
       true,
+      true,
+      true,
     ]);
+    // ★★ and the three renamed paths still RESOLVE, as redirects — fix-310's
+    //    rule, which is why this reshuffle was allowed to rename them at all.
+    for (const [from, to] of Object.entries(SETTINGS_REDIRECTS)) {
+      expect(sectionForPath(from), `${from} should not be a section`).toBeNull();
+      expect(sectionForPath(to), `${to} should be a section`).not.toBeNull();
+    }
   });
 
   it('★ the Reports group still reads Overview + Saved reports', () => {

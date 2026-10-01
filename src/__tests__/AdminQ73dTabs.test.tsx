@@ -127,62 +127,55 @@ describe('<AdminAccountTab />', () => {
   });
 });
 
-describe('<AdminScheduleTab />', () => {
-  it('renders one row per jurisdiction with learn-window input', () => {
+// ⚠️⚠️ THE LEARN-WINDOW TESTS BELOW ARE SUPERSEDED BY fix-611 §E.1 — AND THEY
+//       WERE NEVER WRONG ABOUT THE CODE. They asserted exactly what the input did:
+//       clamp to 30–730 and save on blur. Every one of those assertions passed.
+//
+// ⚖️ Bobby, 2026-09-30: **"Learning window per city: REMOVE."**
+//
+// ★★★ AND THE REASON IS THE THING THESE TESTS COULD NOT SEE: the number never
+//     reached the estimator. `getLearnWindow(juris)` in lib/scheduleBenchmarks
+//     discards its argument and returns the flat default. So the clamping was
+//     correct, the save was correct, and the value did nothing — under a paragraph
+//     telling people it set the schedule baseline. A test that proves an input
+//     saves cannot tell you whether anything reads it.
+//
+// ★ What replaces them is the assertion that the surface is GONE, which is the
+//   only thing left to protect: `jurisdictions.learn_window_days` still exists
+//   (no migration) and `getLearnWindow` still has its one caller, so nothing but
+//   the two editors changed.
+describe('<AdminScheduleTab /> — after §E.1', () => {
+  it('★★★ the per-city learning-window table is gone', () => {
     renderIt(<AdminScheduleTab />);
     expect(screen.getByTestId('admin-schedule-tab')).toBeInTheDocument();
-    expect(screen.getByTestId('schedule-row-Seattle')).toBeInTheDocument();
-    expect(screen.getByTestId('schedule-row-Bellevue')).toBeInTheDocument();
-    const seatInput = screen.getByTestId(
-      'schedule-window-Seattle',
-    ) as HTMLInputElement;
-    expect(seatInput.value).toBe('180');
-    // Null defaults to 180.
-    const bellInput = screen.getByTestId(
-      'schedule-window-Bellevue',
-    ) as HTMLInputElement;
-    expect(bellInput.value).toBe('180');
+    // no row, no input, for any city
+    expect(screen.queryByTestId('schedule-row-Seattle')).toBeNull();
+    expect(screen.queryByTestId('schedule-row-Bellevue')).toBeNull();
+    expect(screen.queryByTestId('schedule-window-Seattle')).toBeNull();
+    // ★★ and the copy that claimed it drove Schedule Benchmarks is gone with it
+    expect(screen.queryByText(/Learning Window/i)).toBeNull();
+    expect(screen.queryByText(/Schedule Benchmarks/i)).toBeNull();
   });
 
-  it('Blur with changed value fires upsert with clamped integer', () => {
+  it('★★ what the tab holds now is the per-type schedule, both halves', () => {
+    // §B: the target-submit formulas moved here from AdminPermitsTab so the two
+    // halves of one question are one card. fix-613 makes them one table.
     renderIt(<AdminScheduleTab />);
-    const input = screen.getByTestId(
-      'schedule-window-Seattle',
-    ) as HTMLInputElement;
-    fireEvent.change(input, { target: { value: '250' } });
-    fireEvent.blur(input);
-    expect(mocks.upsertJuris).toHaveBeenCalledWith({
-      name: 'Seattle',
-      learn_window_days: 250,
-      notes: null,
-    });
+    expect(
+      screen.getByTestId('settings-subblock-Target submit (per type × city)'),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByTestId('settings-subblock-Intake → approval defaults (per type)'),
+    ).toBeInTheDocument();
   });
 
-  it('Below-min input clamps up to 30', () => {
-    renderIt(<AdminScheduleTab />);
-    const input = screen.getByTestId(
-      'schedule-window-Seattle',
-    ) as HTMLInputElement;
-    fireEvent.change(input, { target: { value: '5' } });
-    fireEvent.blur(input);
-    expect(mocks.upsertJuris).toHaveBeenLastCalledWith({
-      name: 'Seattle',
-      learn_window_days: 30,
-      notes: null,
-    });
-  });
-
-  it('Non-admin role disables the inputs', () => {
+  it('★ a non-admin still gets the read-only banner', () => {
     useAuthStore.setState({
       activeTenantId: T,
       memberships: [{ tenant_id: T, role: 'editor' }],
     });
     renderIt(<AdminScheduleTab />);
     expect(screen.getByText(/Read-only/i)).toBeInTheDocument();
-    const input = screen.getByTestId(
-      'schedule-window-Seattle',
-    ) as HTMLInputElement;
-    expect(input.disabled).toBe(true);
   });
 });
 

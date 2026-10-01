@@ -135,12 +135,25 @@ describe('fix-319 #76: Settings is a page', () => {
 
   // ★ Each section reachable by URL, and it survives a reload — which is what
   // "a section is part of the URL" has to mean.
-  it('★★ every section renders from its own URL', () => {
+  it('★★ every category renders from its own URL', () => {
+    // ⚠️ fix-611 §A: SEVEN categories over FIVE tab components, so a category no
+    //    longer maps 1:1 to a stub. What this test protects is unchanged — the URL
+    //    decides what renders, and the rail agrees with the URL — so the
+    //    expectation is now which TAB each category draws its blocks from.
+    const TAB_FOR: Record<string, string> = {
+      account: 'account',
+      people: 'team',
+      teams: 'team',
+      lists: 'projects',
+      permits: 'permits',
+      dates: 'schedule',
+      health: 'team',
+    };
     for (const s of SETTINGS_SECTIONS) {
       const { unmount } = renderAt(s.path);
       expect(
-        screen.getByTestId(`stub-section-${s.id}`),
-        `${s.path} must render the ${s.id} section`,
+        screen.getByTestId(`stub-section-${TAB_FOR[s.id]}`),
+        `${s.path} must render the ${TAB_FOR[s.id]} tab`,
       ).toBeInTheDocument();
       // The rail marks it, so the page agrees with the URL.
       expect(screen.getByTestId(`settings-nav-${s.id}`).dataset.active).toBe('true');
@@ -230,17 +243,25 @@ describe('fix-319 ★★ /settings/reporting and /settings/errors still work', (
 
 describe('fix-319 ★ admin gating survives the move to URLs', () => {
   it('the flags are exactly the ones the modal had', () => {
+    // ⚠️ fix-611 §A renamed and added categories; the RULE this test exists for
+    //    is unchanged and is what is asserted: My account is open to everyone,
+    //    every other category is admin-only, and the open one is first so bare
+    //    /settings lands somewhere every role can see.
     const byId = Object.fromEntries(SETTINGS_SECTIONS.map((s) => [s.id, s.adminOnly]));
     expect(byId).toEqual({
       account: false,
-      team: true,
-      projects: true,
+      people: true,
+      teams: true,
+      lists: true,
       permits: true,
-      schedule: true,
+      dates: true,
+      health: true,
       // ★ fix-367: `reporting` is no longer a section. Its admin gate moved to
       // the route (<AdminRoute> on /reports/saved), which is where fix-234 put
       // every other Reports gate.
     });
+    expect(SETTINGS_SECTIONS[0]!.adminOnly).toBe(false);
+    expect(SETTINGS_SECTIONS.filter((s) => !s.adminOnly)).toHaveLength(1);
   });
 
   it('a non-admin sees only Account in the rail', () => {
@@ -291,18 +312,31 @@ describe('fix-319 #77: Phase Durations lives in Settings → Permits', () => {
   // ★ The brief asked me to check the relationship rather than stack two
   // panels. It sits directly under the target-submit formulas, with a line
   // saying why: those are the target, this is what happened.
-  it('★ and it is placed against the targets it is evidence for', async () => {
+  it('★ and it is still placed against the targets it is evidence for', async () => {
+    // ⚠️⚠️ SUPERSEDED BY fix-611 §B — AND THE SPLIT IT COMPLAINED ABOUT IS FIXED.
+    //
+    //    fix-319 #77 asserted ADJACENCY: phase durations sat directly under the
+    //    target-submit formulas, in one file, because *"those set the target,
+    //    this is what actually happened, and reading one without the other is how
+    //    a formula stays wrong for a year."* Its own comment then flagged that
+    //    the OTHER half of the targets — the per-type defaults — lived on a
+    //    different tab, and declined to move it.
+    //
+    // ★★★ fix-611 MOVED IT. Both halves of the target are now one card on Dates
+    //     & targets, and phase durations is a read-out on Health & tools. So
+    //     adjacency in one FILE is no longer the way the relationship is kept —
+    //     the registry is, and the connecting copy still says it.
     const src = (await import('../components/Settings/AdminPermitsTab.tsx?raw')).default;
-    const formulas = src.indexOf('<TargetSubmitFormulasEditor');
-    const durations = src.indexOf('<PhaseDurationsReport');
-    expect(formulas).toBeGreaterThan(-1);
-    expect(durations).toBeGreaterThan(formulas);
-    // The connecting copy, not just adjacency.
+    const schedule = (await import('../components/Settings/AdminScheduleTab.tsx?raw'))
+      .default;
+    // the two halves of the target, together at last, in one block
+    expect(schedule).toContain('<TargetSubmitFormulasEditor');
+    expect(schedule).toContain('<PermitTypeDefaultsEditor');
+    expect(schedule).toContain('id="per-type-schedule"');
+    // and the evidence read-out keeps its explanatory line
+    expect(src).toContain('<PhaseDurationsReport');
     expect(src).toContain('phase-durations-context');
     expect(src).toMatch(/target/i);
-    // ★ And it points at the OTHER editor these also inform, which the brief
-    // expected on this tab but which actually lives on Settings → Schedule.
-    expect(src).toMatch(/Settings → Schedule/);
   });
 
   it('★ /reports/phase-durations REDIRECTS rather than 404ing', () => {
