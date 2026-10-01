@@ -24,10 +24,20 @@ export function optionIsRetired(
   return !(registry ?? []).includes(option);
 }
 
-/** The label an option shows: itself, or itself + the marker when retired. */
+/**
+ * The label an option shows: itself, or itself + the marker when retired.
+ *
+ * ★★ fix-606: THE MARKER IS A PARAMETER, and the default is unchanged — every
+ *    existing caller keeps the exact string fix-601 and fix-605 pinned. It is
+ *    parameterised because the RULE generalises but the WORD does not: *"(not a
+ *    current type)"* is right for a unit type and a permit type, and wrong for a
+ *    consultant discipline, which is not a type of anything. Reusing the rule
+ *    while saying the wrong word would have been a worse kind of sharing.
+ */
 export function retiredOptionLabel(
   option: string,
   registry: readonly string[] | null | undefined,
+  marker: string = RETIRED_OPTION_MARKER,
 ): string {
-  return optionIsRetired(option, registry) ? `${option}${RETIRED_OPTION_MARKER}` : option;
+  return optionIsRetired(option, registry) ? `${option}${marker}` : option;
 }

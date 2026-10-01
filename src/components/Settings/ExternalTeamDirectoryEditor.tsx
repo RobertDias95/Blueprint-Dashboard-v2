@@ -5,12 +5,11 @@ import {
 } from '../../hooks/useExternalTeamDirectory';
 import {
   directoryFirmsByDiscipline,
-  EXTERNAL_TEAM_COMMON_DISCIPLINES,
+  disciplineSlots,
 } from '../../lib/externalTeam';
-import {
-  WAITING_ON_OPTIONS,
-  type ExternalTeamDirectoryFirm,
-} from '../../lib/database.types';
+import { type ExternalTeamDirectoryFirm } from '../../lib/database.types';
+import { useAppConfig } from '../../hooks/useAppConfig';
+import { firmDisciplineLabel, firmDisciplineOptions } from '../../lib/waitingOn';
 import { SkeletonRows } from '../Skeleton';
 import QueryError from '../QueryError';
 
@@ -193,6 +192,8 @@ function ContactPanel({
 
 export default function ExternalTeamDirectoryEditor({ readOnly }: Props) {
   const dirQ = useExternalTeamDirectory();
+  // ★ the admin's Waiting-On list, which is now this panel's vocabulary
+  const cfg = useAppConfig();
   const byDiscipline = useMemo(
     () => directoryFirmsByDiscipline(dirQ.data),
     [dirQ.data],
@@ -212,14 +213,23 @@ export default function ExternalTeamDirectoryEditor({ readOnly }: Props) {
     return <SkeletonRows count={3} rowClassName="h-10" />;
   }
 
-  const shown = WAITING_ON_OPTIONS.filter(
-    (d) =>
-      EXTERNAL_TEAM_COMMON_DISCIPLINES.includes(d) ||
-      byDiscipline.has(d) ||
-      added.has(d),
+  // ★★★ fix-606 §A.1: THE LIST IS SETTINGS', AND THIS IS THE PICKER THAT
+  //     MATTERS MOST. It used to filter `WAITING_ON_OPTIONS`, so a discipline an
+  //     admin added to Settings → Waiting On could never hold a firm here — and
+  //     because ConsultantBand's "+ Add consultant" offers only disciplines the
+  //     DIRECTORY has an active firm for (fix-474), that discipline could never
+  //     reach a project either. This one edit is what makes the Settings list
+  //     actually arrive on the project surface.
+  //
+  // ★★ The slot rule itself is now `disciplineSlots`, shared with the project's
+  //    blob editor. "Assigned" here means "has firms in the directory"; there it
+  //    means "has a firm in the blob". One rule, two readings of assigned — the
+  //    duplication this file used to carry.
+  const { shown, addable } = disciplineSlots(
+    new Set(byDiscipline.keys()),
+    added,
+    firmDisciplineOptions(cfg.map),
   );
-  const shownSet = new Set(shown);
-  const addable = WAITING_ON_OPTIONS.filter((d) => !shownSet.has(d));
 
   return (
     <div className="space-y-4" data-testid="external-team-directory-editor">
@@ -233,6 +243,10 @@ export default function ExternalTeamDirectoryEditor({ readOnly }: Props) {
         <DisciplineGroup
           key={discipline}
           discipline={discipline}
+          // ★ §A.3: a discipline the admin has since removed from Settings keeps
+          //   its firms and its row, and SAYS SO — it is a fact about this data,
+          //   never an option for another project.
+          label={firmDisciplineLabel(cfg.map, discipline)}
           firms={byDiscipline.get(discipline) ?? []}
           readOnly={readOnly}
         />
@@ -265,10 +279,16 @@ export default function ExternalTeamDirectoryEditor({ readOnly }: Props) {
 
 function DisciplineGroup({
   discipline,
+  label,
   firms,
   readOnly,
 }: {
   discipline: string;
+  /** ★ fix-606: what the heading SAYS — the discipline, plus the retired marker
+   *  when an admin has removed it from Settings. The `discipline` itself stays
+   *  the raw key, because it is what the firm rows are filed under and what the
+   *  test ids are built from. */
+  label: string;
   firms: ExternalTeamDirectoryFirm[];
   readOnly: boolean;
 }) {
@@ -333,7 +353,7 @@ function DisciplineGroup({
       data-testid={`etd-group-${discipline}`}
     >
       <div className="text-[10px] uppercase tracking-wide text-muted font-display font-bold mb-2">
-        {discipline}
+        {label}
       </div>
       <div className="flex flex-wrap gap-1.5 mb-2">
         {firms.length === 0 && (

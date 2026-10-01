@@ -4,7 +4,8 @@ import {
   type ExternalTeamBlob,
   type ExternalTeamShowRules,
 } from '../lib/externalTeam';
-import type { WaitingOnDiscipline } from '../lib/database.types';
+import { useAppConfig } from './useAppConfig';
+import { firmDisciplineOptions } from '../lib/waitingOn';
 
 // fix-196: the SHARED external-team show-rules hook. Owns the local
 // "+ Add discipline" set and derives the show-rules from the project's blob via
@@ -14,7 +15,7 @@ import type { WaitingOnDiscipline } from '../lib/database.types';
 
 export interface UseExternalTeamShowRules extends ExternalTeamShowRules {
   /** Surface a not-yet-shown discipline as a slot (the "+ Add discipline" pick). */
-  addDiscipline: (discipline: WaitingOnDiscipline) => void;
+  addDiscipline: (discipline: string) => void;
   /**
    * ★ fix-423: the disciplines surfaced in THIS session, exposed.
    *
@@ -25,7 +26,7 @@ export interface UseExternalTeamShowRules extends ExternalTeamShowRules {
    * it, picking "Civil" from the collapsed control would do nothing visible.
    * The RULE is untouched; only what the hook admits to knowing changes.
    */
-  addedDisciplines: ReadonlySet<WaitingOnDiscipline>;
+  addedDisciplines: ReadonlySet<string>;
 }
 
 export function useExternalTeamShowRules(
@@ -33,14 +34,21 @@ export function useExternalTeamShowRules(
 ): UseExternalTeamShowRules {
   // Disciplines the user explicitly surfaced. Local-only — once a firm is
   // assigned the row persists on its own via assignedDisciplines.
-  const [added, setAdded] = useState<Set<WaitingOnDiscipline>>(new Set());
+  const [added, setAdded] = useState<Set<string>>(new Set());
+
+  // ★★★ fix-606: THE VOCABULARY COMES FROM SETTINGS, AND THIS IS THE SEAM.
+  //     `externalTeamShowRules` is pure and cannot read a hook, so the list is
+  //     resolved here — `firmDisciplineOptions` is the admin's Waiting-On list
+  //     minus `City` and `Other`, which are answers but not firms.
+  const cfg = useAppConfig();
+  const disciplines = useMemo(() => firmDisciplineOptions(cfg.map), [cfg.map]);
 
   const rules = useMemo(
-    () => externalTeamShowRules(blob, added),
-    [blob, added],
+    () => externalTeamShowRules(blob, added, disciplines),
+    [blob, added, disciplines],
   );
 
-  const addDiscipline = (discipline: WaitingOnDiscipline) =>
+  const addDiscipline = (discipline: string) =>
     setAdded((prev) => {
       if (prev.has(discipline)) return prev;
       const next = new Set(prev);

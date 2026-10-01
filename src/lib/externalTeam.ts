@@ -6,16 +6,18 @@
 // single function against that same store — no second code path, one term, one
 // store (the bidirectional principle).
 //
-// The discipline vocabulary is the shared WAITING_ON_OPTIONS list (canonical
-// survey term = "Surveyor"), so the waiting-on picker and the external-team
-// picker speak the same words and a task waiting on "Surveyor" matches the
-// blob's "Surveyor" key.
+// ★★★ fix-606 (P-302 part 2): THE VOCABULARY IS NO LONGER A CODE CONSTANT. It
+// used to be `WAITING_ON_OPTIONS` from database.types, which meant a discipline
+// an admin added to Settings → Waiting On could never appear here, and therefore
+// never reach the firm directory or a project. It is now PASSED IN — resolved by
+// the caller from `app_config.waitingOnOptions` through
+// `firmDisciplineOptions()` — because this module is pure and cannot read a hook.
+//
+// ★★ The words still match the waiting-on picker's, which was fix-190d's whole
+//    point: a task waiting on "Surveyor" matches the blob's "Surveyor" key. They
+//    match more reliably now, because there is one list instead of two.
 
-import {
-  WAITING_ON_OPTIONS,
-  type ExternalTeamDirectoryFirm,
-  type WaitingOnDiscipline,
-} from './database.types';
+import { type ExternalTeamDirectoryFirm } from './database.types';
 
 /** projects.external_team shape: discipline name -> firm name. */
 export type ExternalTeamBlob = Record<string, string>;
@@ -57,8 +59,13 @@ export function isNotRequired(value: string | null | undefined): boolean {
 // surfaced it via "+ Add discipline"; an empty-state CTA shows when nothing is
 // assigned. One source of the rules (bidirectional principle).
 
-/** fix-193: the near-always-needed disciplines, ALWAYS shown as slots. */
-export const EXTERNAL_TEAM_COMMON_DISCIPLINES: readonly WaitingOnDiscipline[] = [
+/** fix-193: the near-always-needed disciplines, ALWAYS shown as slots.
+ *
+ *  ★ fix-606 widened the type from `WaitingOnDiscipline` to `string`. These four
+ *    are still exactly Bobby's four; what changed is that the surrounding
+ *    vocabulary is now an admin-editable list, so a closed union of 13 literals
+ *    can no longer describe a discipline. See the note on `disciplineSlots`. */
+export const EXTERNAL_TEAM_COMMON_DISCIPLINES: readonly string[] = [
   'Civil',
   'Surveyor',
   'Structural',
@@ -67,39 +74,84 @@ export const EXTERNAL_TEAM_COMMON_DISCIPLINES: readonly WaitingOnDiscipline[] = 
 
 export interface ExternalTeamShowRules {
   /** Disciplines with a non-empty firm in the blob. */
-  assignedDisciplines: Set<WaitingOnDiscipline>;
+  assignedDisciplines: Set<string>;
   /** Disciplines to render as slots: common four ∪ assigned ∪ user-added. */
-  shownDisciplines: WaitingOnDiscipline[];
+  shownDisciplines: string[];
   /** Disciplines not yet shown — the "+ Add discipline" options. */
-  addableDisciplines: WaitingOnDiscipline[];
+  addableDisciplines: string[];
   /** True when the project has NO external firm assigned at all (→ show CTA). */
   noneAssigned: boolean;
 }
 
-/** fix-196: pure show-rule decision given the project's blob + the disciplines
- *  the user has locally surfaced via "+ Add discipline". Both external-team
- *  editors consume this (via useExternalTeamShowRules) so they share one rule. */
-export function externalTeamShowRules(
-  blob: ExternalTeamBlob | null | undefined,
-  added: ReadonlySet<WaitingOnDiscipline>,
-): ExternalTeamShowRules {
-  const assignedDisciplines = new Set<WaitingOnDiscipline>();
-  for (const d of WAITING_ON_OPTIONS) {
-    const firm = blob?.[d];
-    if (typeof firm === 'string' && firm.trim() !== '') assignedDisciplines.add(d);
-  }
-  const shownDisciplines = WAITING_ON_OPTIONS.filter(
+// ===========================================================================
+// ★★★ fix-606 §A.1 — ONE SLOT RULE, TWO KINDS OF "ASSIGNED"
+// ===========================================================================
+//
+// The Settings firm directory and a project's external team ask the same
+// question — *which discipline rows do I render, and which are left to add?* —
+// but they answer "assigned" differently: the project reads its BLOB, the
+// directory reads WHICH DISCIPLINES HOLD FIRMS. Before this ticket they each had
+// their own copy of the rule, and the copies had drifted apart in the one way
+// that mattered: both filtered through `WAITING_ON_OPTIONS`.
+//
+// ★★★ WHICH WAS A LATENT BUG, NOT ONLY A STYLE PROBLEM. Filtering the blob
+//     THROUGH the vocabulary means a blob key outside it is INVISIBLE — the firm
+//     is in the data, the row is not on the screen, and nobody can clear it.
+//     `assignedFrom` below reads the blob's OWN keys, so a stored discipline
+//     always has a row, which is §A.3's rule applied to the slot list rather
+//     than only to a `<select>`.
+/** The slot decision, shared. `disciplines` is the admin's list; `assigned` is
+ *  whatever the caller means by it. */
+export function disciplineSlots(
+  assigned: ReadonlySet<string>,
+  added: ReadonlySet<string>,
+  disciplines: readonly string[],
+): { shown: string[]; addable: string[] } {
+  const shown = disciplines.filter(
     (d) =>
       EXTERNAL_TEAM_COMMON_DISCIPLINES.includes(d) ||
-      assignedDisciplines.has(d) ||
+      assigned.has(d) ||
       added.has(d),
   );
-  const shownSet = new Set(shownDisciplines);
-  const addableDisciplines = WAITING_ON_OPTIONS.filter((d) => !shownSet.has(d));
+  // ★ A stored discipline the admin has since removed keeps its row, APPENDED —
+  //   the same placement `waitingOnOptions` uses, so a retired value reads as
+  //   "this is what it is" rather than as a live choice.
+  const known = new Set(disciplines);
+  const retired = [...assigned].filter((d) => !known.has(d)).sort();
+  const shownSet = new Set([...shown, ...retired]);
+  return {
+    shown: [...shown, ...retired],
+    addable: disciplines.filter((d) => !shownSet.has(d)),
+  };
+}
+
+/** The disciplines a blob actually assigns a firm to — read from ITS OWN KEYS. */
+export function assignedFrom(blob: ExternalTeamBlob | null | undefined): Set<string> {
+  const out = new Set<string>();
+  for (const [discipline, firm] of Object.entries(blob ?? {})) {
+    if (typeof firm === 'string' && firm.trim() !== '') out.add(discipline);
+  }
+  return out;
+}
+
+/** fix-196: pure show-rule decision given the project's blob + the disciplines
+ *  the user has locally surfaced via "+ Add discipline". Both external-team
+ *  editors consume this (via useExternalTeamShowRules) so they share one rule.
+ *
+ *  ★★ fix-606: `disciplines` is REQUIRED rather than defaulted. A default would
+ *     be the code constant again, silently, in exactly the place this ticket
+ *     exists to fix — so the caller must say where its vocabulary came from. */
+export function externalTeamShowRules(
+  blob: ExternalTeamBlob | null | undefined,
+  added: ReadonlySet<string>,
+  disciplines: readonly string[],
+): ExternalTeamShowRules {
+  const assignedDisciplines = assignedFrom(blob);
+  const { shown, addable } = disciplineSlots(assignedDisciplines, added, disciplines);
   return {
     assignedDisciplines,
-    shownDisciplines,
-    addableDisciplines,
+    shownDisciplines: shown,
+    addableDisciplines: addable,
     noneAssigned: assignedDisciplines.size === 0,
   };
 }

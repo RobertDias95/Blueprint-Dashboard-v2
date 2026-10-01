@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/react';
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 
 // fix-227: Settings → Projects → External Team Directory. Admin-editable master
 // firm list by discipline that feeds the per-project picker. We mock the
@@ -23,6 +24,23 @@ vi.mock('../hooks/useExternalTeamDirectory', () => ({
 }));
 
 import ExternalTeamDirectoryEditor from '../components/Settings/ExternalTeamDirectoryEditor';
+// ★★ fix-606: this editor now reads `app_config.waitingOnOptions` (its discipline
+//    vocabulary is the admin's Settings list, not a code constant), so it needs a
+//    QueryClientProvider. `renderEditor` supplies one; with no tenant in the
+//    store the config query stays disabled and `firmDisciplineOptions` falls back
+//    to the built-in list — which is exactly what prod shows today, so every
+//    expectation below is unchanged.
+function renderEditor(readOnly = false) {
+  const queryClient = new QueryClient({
+    defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
+  });
+  return render(
+    <QueryClientProvider client={queryClient}>
+      <ExternalTeamDirectoryEditor readOnly={readOnly} />
+    </QueryClientProvider>,
+  );
+}
+
 
 function firm(discipline: string, name: string, active = true) {
   return { id: `${discipline}-${name}`, discipline, name, active, created_at: '2026-01-01' };
@@ -35,7 +53,7 @@ beforeEach(() => {
 
 describe('ExternalTeamDirectoryEditor (fix-227)', () => {
   it('always shows the common-four discipline groups; hides empty non-common', () => {
-    render(<ExternalTeamDirectoryEditor readOnly={false} />);
+    renderEditor(false);
     for (const d of ['Civil', 'Surveyor', 'Structural', 'Arborist']) {
       expect(screen.getByTestId(`etd-group-${d}`)).toBeInTheDocument();
     }
@@ -44,13 +62,13 @@ describe('ExternalTeamDirectoryEditor (fix-227)', () => {
 
   it('renders a non-common discipline group once it has a firm', () => {
     DIR_REF.rows = [firm('Geotech', 'GeoCo')];
-    render(<ExternalTeamDirectoryEditor readOnly={false} />);
+    renderEditor(false);
     expect(screen.getByTestId('etd-group-Geotech')).toBeInTheDocument();
     expect(screen.getByTestId('etd-firm-name-Geotech-GeoCo')).toHaveTextContent('GeoCo');
   });
 
   it('adding a firm calls upsert with the discipline + name (insert)', () => {
-    render(<ExternalTeamDirectoryEditor readOnly={false} />);
+    renderEditor(false);
     fireEvent.change(screen.getByTestId('etd-add-Civil'), { target: { value: 'Prism' } });
     fireEvent.click(screen.getByTestId('etd-add-btn-Civil'));
     expect(upsertSpy).toHaveBeenCalledTimes(1);
@@ -59,7 +77,7 @@ describe('ExternalTeamDirectoryEditor (fix-227)', () => {
 
   it('renaming a firm calls upsert with the id + new name (update)', () => {
     DIR_REF.rows = [firm('Civil', 'Facet')];
-    render(<ExternalTeamDirectoryEditor readOnly={false} />);
+    renderEditor(false);
     fireEvent.click(screen.getByTestId('etd-firm-name-Civil-Facet'));
     const input = screen.getByTestId('etd-firm-rename-Civil-Facet');
     fireEvent.change(input, { target: { value: 'Facet Land' } });
@@ -74,7 +92,7 @@ describe('ExternalTeamDirectoryEditor (fix-227)', () => {
 
   it('deactivating a firm flips active to false via upsert', () => {
     DIR_REF.rows = [firm('Civil', 'Facet', true)];
-    render(<ExternalTeamDirectoryEditor readOnly={false} />);
+    renderEditor(false);
     fireEvent.click(screen.getByTestId('etd-toggle-Civil-Facet'));
     expect(upsertSpy.mock.calls[0][0]).toEqual({
       id: 'Civil-Facet',
@@ -86,7 +104,7 @@ describe('ExternalTeamDirectoryEditor (fix-227)', () => {
 
   it('an inactive firm shows the inactive badge + Reactivate flips active to true', () => {
     DIR_REF.rows = [firm('Civil', 'Facet', false)];
-    render(<ExternalTeamDirectoryEditor readOnly={false} />);
+    renderEditor(false);
     const row = screen.getByTestId('etd-firm-Civil-Facet');
     expect(row).toHaveAttribute('data-active', 'false');
     expect(row).toHaveTextContent('inactive');
@@ -100,7 +118,7 @@ describe('ExternalTeamDirectoryEditor (fix-227)', () => {
   });
 
   it('+ Add discipline surfaces a hidden discipline group', () => {
-    render(<ExternalTeamDirectoryEditor readOnly={false} />);
+    renderEditor(false);
     expect(screen.queryByTestId('etd-group-Energy')).toBeNull();
     fireEvent.change(screen.getByTestId('etd-add-discipline'), { target: { value: 'Energy' } });
     expect(screen.getByTestId('etd-group-Energy')).toBeInTheDocument();
@@ -108,7 +126,7 @@ describe('ExternalTeamDirectoryEditor (fix-227)', () => {
 
   it('read-only (non-admin): no add inputs, no toggles, names are not click-to-rename', () => {
     DIR_REF.rows = [firm('Civil', 'Facet')];
-    render(<ExternalTeamDirectoryEditor readOnly={true} />);
+    renderEditor(true);
     expect(screen.queryByTestId('etd-add-Civil')).toBeNull();
     expect(screen.queryByTestId('etd-add-discipline')).toBeNull();
     expect(screen.queryByTestId('etd-toggle-Civil-Facet')).toBeNull();
