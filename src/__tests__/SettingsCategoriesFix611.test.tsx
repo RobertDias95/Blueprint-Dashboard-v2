@@ -107,29 +107,35 @@ describe('fix-611 §A — the seven categories', () => {
 // where it goes now] — and "where it goes now" is either a block id in the
 // registry or the title of one of the two blocks Bobby retired.
 //
-// ★★ WHERE THIS DIVERGES FROM THE MOCK, AND WHY. The mock's own map sends nine
-//    People editors into a single "Everyone" table. The brief's §B category list
-//    does not: it keeps today's editors and says *"fix-612 replaces them"*. This
-//    ticket is the layout, so the destinations below are this ticket's blocks.
-//    The merge the brief DOES ask for by name — Former DAs + Inactive into
-//    "Former & inactive" — is here.
+// ★★ IT NO LONGER DIVERGES FROM THE MOCK. fix-611 kept the nine People editors
+//    as nine blocks and recorded that the mock's map pointed at a single
+//    "Everyone" table; fix-613 built it. Every destination below is now the
+//    mock's own.
 const TODAY_TO_NEW: ReadonlyArray<readonly [string, string, string]> = [
   ['Account', 'Your picture', 'your-picture'],
   ['Account', 'Sign-in info', 'sign-in-info'],
   ['Account', 'DB tools', 'export-backup'],
 
   ['Team', 'Add person', 'add-person'],
-  ['Team', 'Design Associates', 'design-associates'],
-  ['Team', 'Design Managers', 'design-managers'],
-  ['Team', 'Entitlement leads', 'entitlement-leads'],
-  ['Team', 'Acquisition leads', 'acquisition-leads'],
-  ['Team', 'Schematic', 'schematic'],
-  ['Team', 'Construction admin', 'construction-admin'],
-  ['Team', 'Names and emails', 'names-and-emails'],
-  ['Team', 'Departments', 'departments'],
-  ['Team', 'Agenda members', 'agenda-members'],
-  ['Team', 'Former DAs (alumni)', 'former-and-inactive'],
-  ['Team', 'Inactive (other roles)', 'former-and-inactive'],
+  // ★★★ fix-613 §A: ELEVEN ROWS NOW LAND ON ONE BLOCK. The mock's map always
+  //     pointed here — nine roster editors into a single "Everyone" table — and
+  //     fix-611 kept them as nine because the layout came first. ⚖️ Bobby,
+  //     2026-09-30: **People = one table.**
+  //
+  // ★★ Former & inactive goes in with them: it is the same people answered the
+  //    other way round, and it is a list INSIDE the table rather than a tenth
+  //    block, so this map has one destination for the whole roster.
+  ['Team', 'Design Associates', 'everyone'],
+  ['Team', 'Design Managers', 'everyone'],
+  ['Team', 'Entitlement leads', 'everyone'],
+  ['Team', 'Acquisition leads', 'everyone'],
+  ['Team', 'Schematic', 'everyone'],
+  ['Team', 'Construction admin', 'everyone'],
+  ['Team', 'Names and emails', 'everyone'],
+  ['Team', 'Departments', 'everyone'],
+  ['Team', 'Agenda members', 'everyone'],
+  ['Team', 'Former DAs (alumni)', 'everyone'],
+  ['Team', 'Inactive (other roles)', 'everyone'],
 
   ['Team', 'Team Structure', 'team-structure'],
   ['Team', 'DA Routing (permitting lead)', 'da-routing'],
@@ -258,18 +264,12 @@ describe('fix-611 §B — every one of today’s 43 blocks has a home', () => {
       'Export backup',
     ]);
     // People keeps today's editors — fix-612 replaces them with one table.
+    // ⚠️ fix-613 §A: nine roster editors and the retired list became ONE table.
+    //    People is now the mock's People panel exactly: Add person, then
+    //    Everyone (which holds Former & inactive at its foot).
     expect(blocksForCategory('people').map((b) => b.title)).toEqual([
       'Add person',
-      'Design Associates',
-      'Design Managers',
-      'Entitlement leads',
-      'Acquisition leads',
-      'Schematic',
-      'Construction admin',
-      'Names and emails',
-      'Departments',
-      'Agenda members',
-      'Former & inactive',
+      'Everyone',
     ]);
   });
 
@@ -466,8 +466,7 @@ describe('fix-611 §D — search finds a setting by what is in it', () => {
     { blockId: 'jurisdictions', values: ['Seattle', 'Kirkland', 'Bellevue'] },
     { blockId: 'permit-types', values: ['Building Permit', 'ULS', 'SEPA'] },
     { blockId: 'hold-and-cancel-reasons', values: ['MHA', 'Builder pulled out'] },
-    { blockId: 'design-associates', values: ['Gena', 'Francesca'] },
-    { blockId: 'departments', values: ['Gena', 'Francesca'] },
+    { blockId: 'everyone', values: ['Gena', 'Francesca'] },
     { blockId: 'per-type-schedule', values: ['ULS', 'Building Permit'] },
   ];
 
@@ -479,16 +478,16 @@ describe('fix-611 §D — search finds a setting by what is in it', () => {
     expect(hits('Kirkland')).toEqual(['jurisdictions']);
   });
 
-  it('★★★ "Gena" → People blocks', () => {
+  it('★★★ "Gena" → the People table', () => {
+    // ⚠️ fix-613: the brief's example said *"People blocks"*, plural, because the
+    //    roster was nine editors and a name was findable in several. It is one
+    //    table now, so the honest expectation is one hit — and it is still a
+    //    People block, which is what the example was protecting.
     const found = hits('Gena');
-    expect(found).toContain('design-associates');
-    expect(found).toContain('departments');
-    for (const id of found) {
-      expect(
-        SETTINGS_BLOCKS.find((b) => b.id === id)?.category,
-        `${id} should be a People block`,
-      ).toBe('people');
-    }
+    expect(found).toEqual(['everyone']);
+    expect(
+      SETTINGS_BLOCKS.find((b) => b.id === 'everyone')?.category,
+    ).toBe('people');
   });
 
   it('★★★ "MHA" → Hold & cancel reasons', () => {
@@ -531,8 +530,9 @@ describe('fix-611 §D — search finds a setting by what is in it', () => {
     // "backup" is nowhere in "Export backup"'s title? It is — so use a real
     // synonym instead: the DB tools name it was called until this ticket.
     expect(hits('db tools')).toEqual(['export-backup']);
-    // and an old name for the roster block
-    expect(hits('alumni')).toEqual(['former-and-inactive']);
+    // ★ and an old name for the roster block — the retired list is inside the
+    //   Everyone table now, so "alumni" has to land there or it lands nowhere
+    expect(hits('alumni')).toEqual(['everyone']);
   });
 
   it('★★ exactly ONE query was added for the index, and it is named', () => {

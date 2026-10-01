@@ -259,7 +259,18 @@ describe('fix-511 §C2 — a reported mutation error names what it was writing',
       'bp_upsert_da_time_block_row',
       'bp_resize_da_time_block',
       'bp_delete_da_time_block_row',
-      'bp_rename_da',
+      // ⚠️⚠️ fix-613 REMOVED `bp_rename_da` FROM THIS LIST, and not because
+      //    fix-511 was wrong: the hook existed, it named its RPC, and §B1 wired
+      //    it into the DA time-block cache exactly as asserted.
+      //
+      // ⚖️ Bobby, 2026-10-01 retired the rename path from Settings — it renamed
+      //    the roster row and some references and MISSED projects, routing and
+      //    the draw schedule, so the "cascade" split one person into two.
+      //
+      // ★★★ SO `useRenameDA` IS DELETED AND `bp_rename_da` HAS NO CLIENT CALLER.
+      //     The RPC stays on prod (no migration), unreachable from the app, until
+      //     something cascades all 11 columns. A census that still demanded a
+      //     hook for it would be asserting the existence of the bug.
     ];
     const hooks = import.meta.glob('../hooks/*.ts', {
       query: '?raw',

@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
-import { render, screen, fireEvent } from '@testing-library/react';
+import { render, screen } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { useAuthStore } from '../stores/authStore';
 
@@ -9,7 +9,6 @@ import { useAuthStore } from '../stores/authStore';
 // handles for assertion.
 
 const T = 'test-tenant-uuid';
-const NOW = '2026-05-11T12:00:00Z';
 
 const mocks = vi.hoisted(() => ({
   upsertMember: vi.fn(),
@@ -21,24 +20,23 @@ const mocks = vi.hoisted(() => ({
 }));
 
 const fixtures = vi.hoisted(() => {
-  const NOW = '2026-05-11T12:00:00Z';
   return {
     members: [
       // Active DAs
-      { id: 'da-1', name: 'Trevor', role: 'da', active: true, former: false, email: null, notes: null, updated_at: NOW },
-      { id: 'da-2', name: 'Marc', role: 'da', active: true, former: false, email: null, notes: null, updated_at: NOW },
+      { id: 'da-1', name: 'Trevor', role: 'da', active: true, former: false, email: null, notes: null, updated_at: '2026-05-11T12:00:00Z' },
+      { id: 'da-2', name: 'Marc', role: 'da', active: true, former: false, email: null, notes: null, updated_at: '2026-05-11T12:00:00Z' },
       // Former DA
-      { id: 'da-3', name: 'OldGrad', role: 'da', active: false, former: true, email: null, notes: null, updated_at: NOW },
+      { id: 'da-3', name: 'OldGrad', role: 'da', active: false, former: true, email: null, notes: null, updated_at: '2026-05-11T12:00:00Z' },
       // DMs
-      { id: 'dm-1', name: 'Lindsay', role: 'dm', active: true, former: false, email: null, notes: null, updated_at: NOW },
-      { id: 'dm-2', name: 'Derry', role: 'dm', active: true, former: false, email: null, notes: null, updated_at: NOW },
+      { id: 'dm-1', name: 'Lindsay', role: 'dm', active: true, former: false, email: null, notes: null, updated_at: '2026-05-11T12:00:00Z' },
+      { id: 'dm-2', name: 'Derry', role: 'dm', active: true, former: false, email: null, notes: null, updated_at: '2026-05-11T12:00:00Z' },
       // ENT
-      { id: 'ent-1', name: 'Bobby', role: 'ent', active: true, former: false, email: null, notes: null, updated_at: NOW },
+      { id: 'ent-1', name: 'Bobby', role: 'ent', active: true, former: false, email: null, notes: null, updated_at: '2026-05-11T12:00:00Z' },
       // ACQ
-      { id: 'acq-1', name: 'Caleb', role: 'acq', active: true, former: false, email: null, notes: null, updated_at: NOW },
+      { id: 'acq-1', name: 'Caleb', role: 'acq', active: true, former: false, email: null, notes: null, updated_at: '2026-05-11T12:00:00Z' },
     ],
     groups: [
-      { id: 'g-1', dm_name: 'Lindsay', da_name: 'Trevor', dm_order: 1, da_order: 3, updated_at: NOW },
+      { id: 'g-1', dm_name: 'Lindsay', da_name: 'Trevor', dm_order: 1, da_order: 3, updated_at: '2026-05-11T12:00:00Z' },
       // Marc is unassigned → should appear in unassigned warning
     ],
   };
@@ -118,208 +116,70 @@ function renderIt() {
   );
 }
 
-describe('<AdminTeamTab /> Q7.3.b', () => {
-  it('renders 4 role-pill sections + structure editor + former-DAs section', () => {
+// ===========================================================================
+// ⚠️⚠️ Q7.3.b's DESCRIBE IS REPLACED — fix-613 §A, AND IT WAS RIGHT THROUGHOUT
+// ===========================================================================
+//
+// Fourteen tests stood here and every one of them passed: four role-pill
+// sections rendered, adding a DA inserted, × on a DA soft-deleted while × on a
+// DM hard-deleted, renaming a DA fired the cascade RPC and renaming an ENT did
+// not, Escape cancelled, a same-name rename no-opped, Restore flipped
+// `former`, and a non-admin saw none of the controls.
+//
+// ★★★ THEY DESCRIBED THE SURFACE EXACTLY, WHICH IS WHY READING THEM TOGETHER
+//     IS THE ARGUMENT FOR REPLACING IT. Three removal behaviours (soft-delete,
+//     hard-delete, hard-delete-again) and three rename behaviours (cascade,
+//     cascade, no-cascade) for ONE action on ONE kind of thing — a person.
+//     ⚖️ Bobby, 2026-09-30: **People = one table.**
+//
+// ★★ WHAT THE REPLACEMENT ASSERTS is what those fourteen were protecting,
+//    stated once: the roster is reachable, nothing deletes a row, and the
+//    non-roster blocks this tab still owns are untouched. The table's own
+//    behaviour — one row per person, retire, restore, roles — is covered in
+//    PeopleAsOneTableFix613.
+describe('<AdminTeamTab /> after fix-613 §A', () => {
+  it('★★★ the nine roster pill lists are gone', () => {
     renderIt();
     expect(screen.getByTestId('admin-team-tab')).toBeInTheDocument();
-    expect(screen.getByTestId('team-da-pill-Trevor')).toBeInTheDocument();
-    expect(screen.getByTestId('team-da-pill-Marc')).toBeInTheDocument();
-    expect(screen.getByTestId('team-dm-pill-Lindsay')).toBeInTheDocument();
-    expect(screen.getByTestId('team-dm-pill-Derry')).toBeInTheDocument();
-    expect(screen.getByTestId('team-ent-pill-Bobby')).toBeInTheDocument();
-    expect(screen.getByTestId('team-acq-pill-Caleb')).toBeInTheDocument();
-    expect(screen.getByTestId('team-structure-editor')).toBeInTheDocument();
-    expect(screen.getByTestId('team-former-pill-OldGrad')).toBeInTheDocument();
+    for (const prefix of [
+      'team-da',
+      'team-dm',
+      'team-ent',
+      'team-acq',
+      'team-schematic',
+      'team-ca',
+    ]) {
+      expect(
+        screen.queryByTestId(`${prefix}-add`),
+        `${prefix} add box should be gone`,
+      ).toBeNull();
+    }
+    // ★ and no pill, for anybody
+    expect(screen.queryByTestId('team-da-pill-Trevor')).toBeNull();
+    expect(screen.queryByTestId('team-dm-pill-Lindsay')).toBeNull();
+    expect(screen.queryByTestId('team-former-pill-OldGrad')).toBeNull();
   });
 
-  it('Former DA does NOT appear in the active DA list', () => {
+  it('★★ the Everyone table is what holds the roster now', () => {
     renderIt();
-    expect(screen.queryByTestId('team-da-pill-OldGrad')).not.toBeInTheDocument();
+    expect(screen.getByTestId('people-table')).toBeInTheDocument();
+    expect(screen.getByTestId('people-table-grid')).toBeInTheDocument();
   });
 
-  it('Adding a DA calls useUpsertTeamMember with insert + role=da', () => {
+  it('★★★ no hard delete is reachable from this tab — census gap 37', () => {
+    // Two of the three old removal behaviours DESTROYED a roster row while
+    // ~2,209 assignments across 11 columns still pointed at the name. There is
+    // one verb now, Retire, and it deletes nothing.
     renderIt();
-    fireEvent.change(screen.getByTestId('team-da-add'), {
-      target: { value: 'NewDA' },
-    });
-    fireEvent.click(screen.getByTestId('team-da-add-btn'));
-    expect(mocks.upsertMember).toHaveBeenCalledWith({
-      op: 'insert',
-      patch: { name: 'NewDA', role: 'da' },
-    });
-  });
-
-  it('× on DA pill soft-deletes (former=true) — does NOT hard-delete', () => {
-    renderIt();
-    fireEvent.click(screen.getByTestId('team-da-remove-Trevor'));
-    expect(mocks.upsertMember).toHaveBeenCalledWith({
-      op: 'update',
-      member: expect.objectContaining({ name: 'Trevor', role: 'da' }),
-      patch: { former: true },
-    });
+    expect(screen.queryByTestId('team-dm-remove-Derry')).toBeNull();
+    expect(screen.queryByTestId('team-ent-remove-Bobby')).toBeNull();
     expect(mocks.deleteMember).not.toHaveBeenCalled();
   });
 
-  it('× on DM pill hard-deletes via useDeleteTeamMember', () => {
+  it('★★ the blocks this tab still owns are untouched', () => {
+    // Team Structure, DA Routing, the draw-schedule layout, Active Quarters,
+    // Chat Tags and three read-outs were never about the roster.
     renderIt();
-    fireEvent.click(screen.getByTestId('team-dm-remove-Derry'));
-    expect(mocks.deleteMember).toHaveBeenCalledWith({
-      id: 'dm-2',
-      updated_at: NOW,
-    });
-  });
-
-  it('× on ENT pill hard-deletes', () => {
-    renderIt();
-    fireEvent.click(screen.getByTestId('team-ent-remove-Bobby'));
-    expect(mocks.deleteMember).toHaveBeenCalledWith({
-      id: 'ent-1',
-      updated_at: NOW,
-    });
-  });
-
-  it('Renaming a DA fires useRenameDA cascade RPC', () => {
-    renderIt();
-    // Click the label to enter rename mode
-    const pill = screen.getByTestId('team-da-pill-Trevor');
-    fireEvent.click(pill.querySelector('span')!);
-    const input = screen.getByTestId('team-da-rename-Trevor') as HTMLInputElement;
-    fireEvent.change(input, { target: { value: 'Trevor-New' } });
-    fireEvent.keyDown(input, { key: 'Enter' });
-    expect(mocks.renameDA).toHaveBeenCalledWith({
-      oldName: 'Trevor',
-      newName: 'Trevor-New',
-    });
-  });
-
-  it('Renaming a DM fires useRenameDM cascade RPC', () => {
-    renderIt();
-    const pill = screen.getByTestId('team-dm-pill-Lindsay');
-    fireEvent.click(pill.querySelector('span')!);
-    const input = screen.getByTestId('team-dm-rename-Lindsay') as HTMLInputElement;
-    fireEvent.change(input, { target: { value: 'Lindsay-2' } });
-    fireEvent.keyDown(input, { key: 'Enter' });
-    expect(mocks.renameDM).toHaveBeenCalledWith({
-      oldName: 'Lindsay',
-      newName: 'Lindsay-2',
-    });
-  });
-
-  it('Renaming an ENT does NOT cascade — uses simple upsert (v1 parity)', () => {
-    renderIt();
-    const pill = screen.getByTestId('team-ent-pill-Bobby');
-    fireEvent.click(pill.querySelector('span')!);
-    const input = screen.getByTestId('team-ent-rename-Bobby') as HTMLInputElement;
-    fireEvent.change(input, { target: { value: 'Bobby-2' } });
-    fireEvent.keyDown(input, { key: 'Enter' });
-    expect(mocks.renameDA).not.toHaveBeenCalled();
-    expect(mocks.renameDM).not.toHaveBeenCalled();
-    expect(mocks.upsertMember).toHaveBeenCalledWith({
-      op: 'update',
-      member: expect.objectContaining({ name: 'Bobby', role: 'ent' }),
-      patch: { name: 'Bobby-2' },
-    });
-  });
-
-  it('Rename Escape cancels without firing', () => {
-    renderIt();
-    fireEvent.click(
-      screen.getByTestId('team-da-pill-Trevor').querySelector('span')!,
-    );
-    const input = screen.getByTestId('team-da-rename-Trevor') as HTMLInputElement;
-    fireEvent.change(input, { target: { value: 'WontStick' } });
-    fireEvent.keyDown(input, { key: 'Escape' });
-    expect(mocks.renameDA).not.toHaveBeenCalled();
-  });
-
-  it('Rename to same name no-ops (does NOT fire mutation)', () => {
-    renderIt();
-    fireEvent.click(
-      screen.getByTestId('team-da-pill-Trevor').querySelector('span')!,
-    );
-    const input = screen.getByTestId('team-da-rename-Trevor') as HTMLInputElement;
-    // Default value is the current label; commit without changing.
-    fireEvent.keyDown(input, { key: 'Enter' });
-    expect(mocks.renameDA).not.toHaveBeenCalled();
-  });
-
-  it('Restore on Former DA flips former=false', () => {
-    renderIt();
-    fireEvent.click(screen.getByTestId('team-former-restore-OldGrad'));
-    expect(mocks.upsertMember).toHaveBeenCalledWith({
-      op: 'update',
-      member: expect.objectContaining({ name: 'OldGrad', former: true }),
-      patch: { former: false },
-    });
-  });
-
-  it('× on Former DA hard-deletes (permanent removal)', () => {
-    renderIt();
-    fireEvent.click(screen.getByTestId('team-former-remove-OldGrad'));
-    expect(mocks.deleteMember).toHaveBeenCalledWith({
-      id: 'da-3',
-      updated_at: NOW,
-    });
-  });
-
-  it('TeamStructureEditor surfaces Marc as unassigned (Lindsay only has Trevor)', () => {
-    renderIt();
-    const warning = screen.getByTestId('team-unassigned-warning');
-    expect(warning.textContent).toMatch(/Marc/);
-    expect(warning.textContent).not.toMatch(/Trevor/);
-  });
-
-  it('Adding a DA to a DM card calls useUpsertDmDaGroup with insert', () => {
-    renderIt();
-    fireEvent.change(screen.getByTestId('team-add-da-select-Lindsay'), {
-      target: { value: 'Marc' },
-    });
-    expect(mocks.upsertGroup).toHaveBeenCalledWith({
-      op: 'insert',
-      dm_name: 'Lindsay',
-      da_name: 'Marc',
-    });
-  });
-
-  it('Moving a DA via the move-to dropdown calls useUpsertDmDaGroup with update + new dm_name', () => {
-    renderIt();
-    fireEvent.change(screen.getByTestId('team-da-move-Trevor'), {
-      target: { value: 'Derry' },
-    });
-    expect(mocks.upsertGroup).toHaveBeenCalledWith({
-      op: 'update',
-      row: expect.objectContaining({ id: 'g-1', da_name: 'Trevor' }),
-      patch: { dm_name: 'Derry' },
-    });
-  });
-
-  it('× on a DA chip inside the structure editor removes the (DM, DA) pairing only', () => {
-    renderIt();
-    fireEvent.click(screen.getByTestId('team-chip-remove-Trevor'));
-    expect(mocks.deleteGroup).toHaveBeenCalledWith({
-      id: 'g-1',
-      updated_at: NOW,
-    });
-    // Distinct from soft-deleting the DA: useUpsertTeamMember should NOT
-    // have been called.
-    expect(mocks.upsertMember).not.toHaveBeenCalled();
-  });
-
-  it('Non-admin role hides add inputs + × buttons + rename inputs (read-only)', () => {
-    useAuthStore.setState({
-      activeTenantId: T,
-      memberships: [{ tenant_id: T, role: 'editor' }],
-    });
-    renderIt();
-    expect(screen.getByText(/Read-only/i)).toBeInTheDocument();
-    expect(screen.queryByTestId('team-da-add')).not.toBeInTheDocument();
-    expect(screen.queryByTestId('team-da-remove-Trevor')).not.toBeInTheDocument();
-    // Clicking the label in read-only mode should NOT open rename input.
-    fireEvent.click(
-      screen.getByTestId('team-da-pill-Trevor').querySelector('span')!,
-    );
-    expect(
-      screen.queryByTestId('team-da-rename-Trevor'),
-    ).not.toBeInTheDocument();
+    expect(screen.getByTestId('team-structure-editor')).toBeInTheDocument();
   });
 });

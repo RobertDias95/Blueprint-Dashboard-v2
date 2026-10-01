@@ -1,24 +1,17 @@
-import PillListEditor from './PillListEditor';
-import SettingsBlock, { SettingsSubBlock } from './SettingsBlock';
+import SettingsBlock from './SettingsBlock';
+import PeopleTable from './PeopleTable';
 import TeamStructureEditor from './TeamStructureEditor';
 import DaRoutingEditor from './DaRoutingEditor';
 import PermitsMissingLeadPanel from './PermitsMissingLeadPanel';
-import DepartmentEditor from './DepartmentEditor';
-import AgendaMembersPanel from './AgendaMembersPanel';
 // ★★★ fix-487 §B (P-120): the third person-level panel, beside Departments and
 //   Agenda members. It lists PEOPLE (not role rows) so it can reach the seven
 //   viewers and the director who appear in none of the role lists below.
-import PersonDetailsEditor from './PersonDetailsEditor';
 import WorkDataNamesPanel from './WorkDataNamesPanel';
 import MentionTagsEditor from './MentionTagsEditor';
 import TeamActiveQuartersEditor from './TeamActiveQuartersEditor';
 import QuarterLayoutEditor from './QuarterLayoutEditor';
 import { useTeamMembers } from '../../hooks/useTeamMembers';
-import { ACQ_ROLES, ENT_ROLES, formerMemberNames } from '../../lib/roster';
-import { useUpsertTeamMember } from '../../hooks/useUpsertTeamMember';
-import { useDeleteTeamMember } from '../../hooks/useDeleteTeamMember';
-import { useRenameDA } from '../../hooks/useRenameDA';
-import { useRenameDM } from '../../hooks/useRenameDM';
+import { formerMemberNames } from '../../lib/roster';
 import { useIsTenantAdmin } from '../../hooks/useIsTenantAdmin';
 // ★★★ fix-436 (P-086): the first card on this tab. Adding a person and
 // retiring one are the same job a month apart, and fix-407 already put
@@ -28,41 +21,39 @@ import AddPersonSection from './AddPersonSection';
 import ClientBuildsPanel from './ClientBuildsPanel';
 import { SkeletonRows } from '../Skeleton';
 import QueryError from '../QueryError';
-import { ROLE_TITLE, ROLE_TITLE_PLURAL } from '../../lib/roleLabels';
-import type { TeamMember, TeamRole } from '../../lib/database.types';
 
-// Q7.3.b: Settings → Team tab. Four role-filtered PillListEditors
-// (Design Associates, Design Managers, Entitlement Leads, Acquisition
-// Leads) + Team Structure (DM → DA assignments) + Former DAs alumni.
+// ===========================================================================
+// ★★★ fix-613 §A — WHAT THIS TAB IS NOW, AND WHAT IT STOPPED BEING
+// ===========================================================================
 //
-// Rename behavior depends on role:
-//   - DA: useRenameDA — atomic cascade across team_members + dm_da_groups
-//         + permits.da + permits.architect + permit_tasks.assigned_to +
-//         da_time_blocks.da_name. Server-verified end-to-end.
-//   - DM: useRenameDM — cascade across team_members + dm_da_groups.dm_name
-//         + permits.dm.
-//   - ENT/ACQ: useUpsertTeamMember with patch {name}. No cascade — v1
-//         parity (old name lives on in historical permits.ent_lead).
+// It held nine roster lists, each knowing one role, plus three different removal
+// behaviours and three different rename behaviours. ⚖️ Bobby, 2026-09-30:
+// **People = one table.** So the roster is `PeopleTable` — one row per person,
+// roles as chips — and this file keeps only the blocks that were never about the
+// roster: Team Structure, DA Routing, the draw-schedule layout, Active Quarters,
+// Chat Tags, and three read-outs.
 //
-// Removal behavior:
-//   - DA: soft-delete (set former=true) — moves to the Former section.
-//   - DM/ENT/ACQ: hard delete via useDeleteTeamMember.
-//   - Former DA: ↩ restores (former=false); × hard-deletes.
-
-// ★ fix-343: this map moved to lib/roleLabels (ROLE_TITLE_PLURAL) — the same
-// place the user chip gets its singular titles from, so a role can never be
-// called two things in one app. The values are unchanged; `viewer` joined them
-// there when the role landed on prod. The local alias keeps every call site
-// below reading as it did.
-const ROLE_LABEL = ROLE_TITLE_PLURAL;
+// ---------------------------------------------------------------------------
+// ★★★ THE THREE REMOVAL BEHAVIOURS BECAME ONE, AND THE RENAMES BECAME NONE
+// ---------------------------------------------------------------------------
+// Removal was: DA → soft-delete (`former = true`); DM / ENT / ACQ → **hard
+// delete**; former DA → × hard-deletes. Two of those three destroyed a roster
+// row while ~2,209 assignments across 11 columns still pointed at the name
+// (census gap 37). Now there is one verb, Retire, and no hard delete on any
+// People surface.
+//
+// Renaming was `useRenameDA` / `useRenameDM`, advertised as cascades. They
+// missed projects, routing and the draw schedule — so they split one person in
+// two. **Both hooks are deleted** (⚖️ 2026-10-01), which also leaves
+// `bp_rename_da` / `bp_rename_dm` with no client caller: the RPCs stay on prod
+// (no migration), unreachable from the app, until something cascades all 11
+// columns. "Goes by" is read-only everywhere in this feature.
 
 export default function AdminTeamTab() {
   const teamQ = useTeamMembers();
   const isAdmin = useIsTenantAdmin();
-  const upsert = useUpsertTeamMember();
-  const remove = useDeleteTeamMember();
-  const renameDA = useRenameDA();
-  const renameDM = useRenameDM();
+  // ★ `useUpsertTeamMember` moved into PeopleTable with the roster; the three
+  //   write hooks this tab used for renaming and deleting are gone entirely.
 
   if (teamQ.error) {
     return (
@@ -92,101 +83,25 @@ export default function AdminTeamTab() {
    * the pill on screen, which reads as "the button did nothing" and is exactly
    * the failure fix-401 fixed one layer up.
    */
-  function findAllByName(role: TeamRole, name: string): TeamMember[] {
-    const family = ACQ_ROLES.has(role)
-      ? ACQ_ROLES
-      : ENT_ROLES.has(role)
-        ? ENT_ROLES
-        : null;
-    if (family) {
-      return teamQ.all.filter((m) => family.has(m.role) && m.name === name);
-    }
-    return teamQ.all.filter((m) => m.role === role && m.name === name);
-  }
-
-  function findByName(role: TeamRole, name: string): TeamMember | undefined {
-    return findAllByName(role, name)[0];
-  }
-
-  function addMember(role: TeamRole, name: string) {
-    if (teamQ.all.some((m) => m.role === role && m.name === name)) return;
-    upsert.mutate({ op: 'insert', patch: { name, role } });
-  }
-
-  function softDeleteDa(name: string) {
-    const m = findByName('da', name);
-    if (m) upsert.mutate({ op: 'update', member: m, patch: { former: true } });
-  }
-
-  function restoreDa(name: string) {
-    const m = findByName('da', name);
-    if (m) upsert.mutate({ op: 'update', member: m, patch: { former: false } });
-  }
-
-  /** ★★ Removing a DUAL-ROLE person removes BOTH rows — the decision, stated.
-   *
-   *  The alternatives were worse. Deleting one row leaves the pill on screen
-   *  (the other row still backs it), so the × looks broken. Asking "which
-   *  role?" surfaces a storage detail nobody outside this file thinks about —
-   *  the Settings list is a list of PEOPLE, and its × means "this person is not
-   *  an Entitlement Lead any more".
-   *
-   *  ★ Each row is deleted with its OWN OCC token, so a concurrent edit to one
-   *  of them conflicts on that row rather than being clobbered. */
-  function hardDelete(role: TeamRole, name: string) {
-    for (const m of findAllByName(role, name)) {
-      remove.mutate({ id: m.id, updated_at: m.updated_at });
-    }
-  }
-
-  /** ★★ ...and renaming one renames BOTH, for the same reason inverted: the
-   *  name is the join key the rest of the app matches on, so leaving one row
-   *  under the old spelling would split one person into two. */
-  function renameSimple(role: TeamRole, oldName: string, newName: string) {
-    for (const m of findAllByName(role, oldName)) {
-      upsert.mutate({ op: 'update', member: m, patch: { name: newName } });
-    }
-  }
-
-  const daItems = teamQ.activeDas.map((d) => ({ key: d.name, label: d.name }));
-  const dmItems = teamQ.dms.map((m) => ({ key: m.name, label: m.name }));
-  const entItems = teamQ.ents.map((m) => ({ key: m.name, label: m.name }));
-  const acqItems = teamQ.acqs.map((m) => ({ key: m.name, label: m.name }));
-  const schematicItems = teamQ.schematics.map((m) => ({
-    key: m.name,
-    label: m.name,
-  }));
-  // ★★★ fix-487 (P-144): the Construction Admins — Steve and David.
+  // ★★★ fix-613 §A — NINE LISTS’ WORTH OF MACHINERY IS GONE WITH THEM.
   //
-  // ★ `?? []` IS THE PARTIALLY-MOCKED-MODULE GUARD, the same one `otherInactive`
-  //   below carries and for the same reason: roughly forty test files mock
-  //   `hooks/useTeamMembers` with a hand-written object, so a NEW field on the
-  //   result is `undefined` at the call site and `.map` throws inside a render.
-  //   fix-390 hit it, fix-401 hit it again, fix-407 recorded it.
-  const caItems = (teamQ.cas ?? []).map((m) => ({ key: m.name, label: m.name }));
-  const formerItems = teamQ.formerDas.map((d) => ({
-    key: d.name,
-    label: d.name,
-  }));
-  /** ★★★ fix-407: the names the roster explicitly says are retired, any role.
-   *  Shared by the Team Structure chips and the alumni section below so the two
-   *  cannot disagree about who has left. */
+  //     `findAllByName` / `findByName` / `addMember` / `softDeleteDa` /
+  //     `restoreDa` / `hardDelete` / `renameSimple`, and the seven `*Items`
+  //     arrays, existed to drive one pill list each. The Everyone table reads
+  //     the roster once and `lib/peopleTable` owns the retire/restore rules,
+  //     so there is one definition of each instead of nine call sites.
+  //
+  // ★★ AND `hardDelete` IS GONE RATHER THAN RELOCATED — census gap 37.
+  //    `bp_delete_team_member_row` is no longer reachable from any People
+  //    surface: a deleted row takes a name off the roster while ~2,209
+  //    assignments across 11 columns still point at that string, which is
+  //    exactly how a name nobody can map gets made.
   const retiredNames = formerMemberNames(teamQ.all);
-  /** ★★★ fix-407: inactive people who are NOT DAs — Caleb is the live case.
-   *  He is `acq_lead` with `active=false`, so fix-401's `isCurrentMember`
-   *  filter correctly keeps him out of the Acquisitions picker, and the alumni
-   *  section below has always been DA-only. Net effect before this ticket: a
-   *  man who is named on 20 live projects appeared on NO Settings surface at
-   *  all. You cannot clean up what the screen will not show you.
-   *
-   *  ★★★ `?? []` IS THE PARTIALLY-MOCKED-MODULE GUARD, not defensive noise.
-   *  Roughly forty test files mock `hooks/useTeamMembers` with a hand-written
-   *  object, so a NEW field on the result is `undefined` at the call site and
-   *  `.filter` throws inside a render — 18 AdminTeamTab tests failed exactly
-   *  that way before this. Same trap fix-390 hit and fix-401 hit again; the
-   *  difference here is that the field genuinely belongs on this hook, so it
-   *  is guarded rather than relocated. */
-  const otherInactive = (teamQ.inactive ?? []).filter((m) => m.role !== 'da');
+  // ★★ fix-613 §A:  went with the alumni list. fix-407 added it
+  //    because Caleb (acq_lead, active=false) appeared on NO Settings surface
+  //    at all — the alumni card was DA-only. PeopleTable’s Former & inactive
+  //    list now covers every role AND offers Restore for every role, which is
+  //    the half fix-407 could not finish.
 
   return (
     <div className="space-y-4" data-testid="admin-team-tab">
@@ -208,20 +123,17 @@ export default function AdminTeamTab() {
           in the roster below" is a real link and not a description. */}
       <div id="team-roster" />
 
-      <SettingsBlock id="design-associates">
-        <PillListEditor
-          label={ROLE_LABEL.da}
-          items={daItems}
-          onAdd={(name) => addMember('da', name)}
-          onRemove={(name) => softDeleteDa(name)}
-          onRename={(oldName, newName) =>
-            renameDA.mutate({ oldName, newName })
-          }
-          placeholder="Add Design Associate…"
-          readOnly={!isAdmin}
-          testIdPrefix="team-da"
-        />
+      {/* ★★★ fix-613 §A — NINE PILL LISTS BECAME ONE TABLE.
+          ⚖️ Bobby, 2026-09-30: **People = one table.**
+
+          Design Associates · Design Managers · Entitlement leads · Acquisition
+          leads · Schematic · Construction admin · Names and emails · Departments ·
+          Agenda members — nine cards, each knowing one role, none of which could
+          say that Jade is one person holding three of them. See PeopleTable. */}
+      <SettingsBlock id="everyone">
+        <PeopleTable readOnly={!isAdmin} />
       </SettingsBlock>
+
 
       <SettingsBlock id="active-quarters">
         <TeamActiveQuartersEditor
@@ -230,20 +142,6 @@ export default function AdminTeamTab() {
         />
       </SettingsBlock>
 
-      <SettingsBlock id="design-managers">
-        <PillListEditor
-          label={ROLE_LABEL.dm}
-          items={dmItems}
-          onAdd={(name) => addMember('dm', name)}
-          onRemove={(name) => hardDelete('dm', name)}
-          onRename={(oldName, newName) =>
-            renameDM.mutate({ oldName, newName })
-          }
-          placeholder="Add Design Manager…"
-          readOnly={!isAdmin}
-          testIdPrefix="team-dm"
-        />
-      </SettingsBlock>
 
       <SettingsBlock id="team-structure">
         <TeamStructureEditor
@@ -292,9 +190,6 @@ export default function AdminTeamTab() {
           on this tab, in the same warning shape as the other three on purpose.
 
           ★ A DEPARTMENT IS NOT A PERMISSION. Nothing gates on it. */}
-      <SettingsBlock id="departments">
-        <DepartmentEditor members={teamQ.all} readOnly={!isAdmin} />
-      </SettingsBlock>
 
       {/* ★★★ fix-462 §B2 (P-045): who is in the weekly meeting.
           ★ BESIDE Departments, because both answer "what is true of this
@@ -303,9 +198,6 @@ export default function AdminTeamTab() {
           person. Membership is a per-person checkbox by ruling, NOT a
           department: gating by department would mean adding one person to the
           meeting moves their whole department. */}
-      <SettingsBlock id="agenda-members">
-        <AgendaMembersPanel members={teamQ.all} readOnly={!isAdmin} />
-      </SettingsBlock>
 
       {/* ★★★ fix-487 §B (P-120) — NAMES AND EMAILS.
           Bobby: *"have the ability to edit our team database so i can enter
@@ -320,9 +212,6 @@ export default function AdminTeamTab() {
           and a director hold no DA/DM/ENT/ACQ/Schematic/CA row, so an edit
           button hung off those pills would have missed a quarter of the roster
           while looking complete. */}
-      <SettingsBlock id="names-and-emails">
-        <PersonDetailsEditor members={teamQ.all} readOnly={!isAdmin} />
-      </SettingsBlock>
 
       {/* ★★★ fix-527 §A (P-243) — THE FOURTH ROSTER-GAP SURFACE, AND IN THE
           SAME SHAPE AS THE THREE ABOVE IT. fix-457's "active DA with no routing
@@ -389,48 +278,10 @@ export default function AdminTeamTab() {
         />
       </SettingsBlock>
 
-      <SettingsBlock id="entitlement-leads">
-        <PillListEditor
-          label={ROLE_LABEL.ent}
-          items={entItems}
-          onAdd={(name) => addMember('ent', name)}
-          onRemove={(name) => hardDelete('ent', name)}
-          onRename={(oldName, newName) => renameSimple('ent', oldName, newName)}
-          placeholder="Add Permitting Lead…"
-          readOnly={!isAdmin}
-          testIdPrefix="team-ent"
-        />
-      </SettingsBlock>
 
-      <SettingsBlock id="acquisition-leads">
-        <PillListEditor
-          label={ROLE_LABEL.acq}
-          items={acqItems}
-          onAdd={(name) => addMember('acq', name)}
-          onRemove={(name) => hardDelete('acq', name)}
-          onRename={(oldName, newName) => renameSimple('acq', oldName, newName)}
-          placeholder="Add Acquisition Lead…"
-          readOnly={!isAdmin}
-          testIdPrefix="team-acq"
-        />
-      </SettingsBlock>
 
       {/* fix-222: Schematic Team roster — feeds the wizard's Schematic Designer
           picker and routes 'Schematic Team' template tasks. */}
-      <SettingsBlock id="schematic">
-        <PillListEditor
-          label={ROLE_LABEL.schematic}
-          items={schematicItems}
-          onAdd={(name) => addMember('schematic', name)}
-          onRemove={(name) => hardDelete('schematic', name)}
-          onRename={(oldName, newName) =>
-            renameSimple('schematic', oldName, newName)
-          }
-          placeholder="Add Schematic Designer…"
-          readOnly={!isAdmin}
-          testIdPrefix="team-schematic"
-        />
-      </SettingsBlock>
 
       {/* ★★★ fix-487 (P-144) — CONSTRUCTION ADMINS, the sixth role list.
           Bobby: *"We want to add one more internal position, construction
@@ -440,117 +291,13 @@ export default function AdminTeamTab() {
             role-parameterised, so nothing new is needed for either. There is no
             lead/second grade for this role, so `findAllByName`'s family
             branches do not apply and its plain `else` is correct. */}
-      <SettingsBlock id="construction-admin">
-        <PillListEditor
-          label={ROLE_LABEL.ca}
-          items={caItems}
-          onAdd={(name) => addMember('ca', name)}
-          onRemove={(name) => hardDelete('ca', name)}
-          onRename={(oldName, newName) => renameSimple('ca', oldName, newName)}
-          placeholder="Add Construction Admin…"
-          readOnly={!isAdmin}
-          testIdPrefix="team-ca"
-        />
-      </SettingsBlock>
 
-      {/* ★★★ fix-611 §B — FORMER & INACTIVE, ONE CARD. Two lists of people off
-          the active roster, which were two cards for no reason beyond coming
-          from two different fields of one hook. Each half still renders only
-          when it has somebody in it, and the card itself only when either does —
-          so an empty roster shows nothing, exactly as before. */}
-      {(formerItems.length > 0 || otherInactive.length > 0) && (
-        <SettingsBlock id="former-and-inactive">
-          {formerItems.length > 0 && (
-            <SettingsSubBlock title="Former Design Associates">
-          <p className="text-[11px] text-muted mb-2">
-            Restored DAs return to the active list. Permanent removal cannot be
-            undone — historical permits referencing the name keep the string.
-          </p>
-          <div className="flex flex-wrap gap-1.5">
-            {teamQ.formerDas.map((d) => (
-              <span
-                key={d.id}
-                className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full bg-surface border border-border text-xs text-muted"
-                data-testid={`team-former-pill-${d.name}`}
-              >
-                <span>{d.name}</span>
-                {isAdmin && (
-                  <>
-                    <button
-                      onClick={() => restoreDa(d.name)}
-                      className="text-pm hover:text-pm/70 text-sm pl-0.5"
-                      title="Restore to active"
-                      data-testid={`team-former-restore-${d.name}`}
-                    >
-                      ↩
-                    </button>
-                    <button
-                      onClick={() => hardDelete('da', d.name)}
-                      className="text-co hover:text-co/70 text-sm pl-0.5"
-                      title="Permanently remove"
-                      data-testid={`team-former-remove-${d.name}`}
-                    >
-                      ×
-                    </button>
-                  </>
-                )}
-              </span>
-            ))}
-          </div>
-            </SettingsSubBlock>
-          )}
-
-      {/* ★★★ fix-407 — THE ALUMNI SECTION STOPS BEING DA-ONLY.
-          Bobby: *"a wholistic clean … to ensure our ecosystem is update to
-          date and aligned."* The section above has covered `role='da'` since
-          Q7.3.b, which meant every inactive person in any other role was
-          invisible here — while still being named on live rows.
-
-          ★★ NO RESTORE OR REMOVE BUTTON, deliberately. Those two actions are
-          the DA flow (`restoreDa` sets the DA flags; `hardDelete` drops the
-          row), and offering a permanent-remove on somebody who is still the
-          acquisitions lead of twenty live projects would be handing over a
-          footgun in the name of tidiness. This section's job is to make them
-          VISIBLE; who inherits their rows is fix-407's transition report, and
-          Bobby's call. */}
-          {otherInactive.length > 0 && (
-            <SettingsSubBlock title="Inactive (other roles)">
-          <p className="text-[11px] text-muted mb-2">
-            On the roster but not active, so they are offered by no picker. They
-            may still be named on live records — see the fix-407 transition
-            report before reassigning anyone.
-          </p>
-          <div className="flex flex-wrap gap-1.5">
-            {otherInactive.map((m) => (
-              <span
-                key={m.id}
-                className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-surface border border-border text-xs text-muted"
-                data-testid={`team-inactive-pill-${m.name}`}
-              >
-                <span className="line-through decoration-dim/60">{m.name}</span>
-                {/* ★★ fix-343's rule, and it caught me: NEVER interpolate a
-                    stored role into the screen. Printing the member's role
-                    field directly would put the raw enum — "acq_lead" — in
-                    front of a person; ROLE_TITLE is the one map that turns it
-                    into words.
-
-                    ★ And note the shape of the catch: fix-343's scan reads the
-                    SOURCE, so even quoting the offending expression in a
-                    comment trips it. Left described rather than quoted. */}
-                <span className="text-[9px] uppercase tracking-wide font-bold">
-                  {ROLE_TITLE[m.role]}
-                </span>
-              </span>
-            ))}
-          </div>
-            </SettingsSubBlock>
-          )}
-        </SettingsBlock>
-      )}
+      {/* ★★★ fix-613 §A: FORMER & INACTIVE MOVED INTO THE TABLE, because it
+          is the same question asked of the same people. fix-611 merged the two
+          halves (Former DAs + Inactive other roles) into one card; this makes
+          it one list that covers EVERY role and offers Restore for every role
+          — today only DAs could be restored, which is why Caleb (acq_lead,
+          active=false) sat on no Settings surface at all. See PeopleTable. */}
     </div>
   );
 }
-
-// ★ fix-611: the local `Section` helper is gone — `SettingsBlock` is the one
-//   card chrome now, and it takes the title from the registry rather than from a
-//   prop, so a block's name lives in exactly one place.

@@ -16,6 +16,7 @@ import {
   type AvatarPathRow,
 } from '../lib/avatars';
 import { resizeToSquareJpeg } from '../lib/avatarImage';
+import { isBareNetworkFailure } from '../lib/errorLogger';
 
 // ===========================================================================
 // ★★★ fix-505 (P-162) — READING AND WRITING PROFILE PICTURES
@@ -94,7 +95,23 @@ export function useSignedAvatarUrl(path: string | null | undefined) {
     // Re-sign with ten minutes to spare rather than at the instant of expiry.
     staleTime: (SIGNED_URL_TTL_SECONDS - 600) * 1000,
     gcTime: SIGNED_URL_TTL_SECONDS * 1000,
-    retry: false,
+    // ★★★ fix-613 §Z.1 (P-309) — RETRY A BLIP, NEVER A REFUSAL.
+    //
+    //     Triage #752: `TypeError: Failed to fetch` on this exact query — the
+    //     request never left Brittani's laptop. Fourth time, only her. A signing
+    //     call that never reached the server is the one failure where trying
+    //     again is the whole fix.
+    //
+    // ★★ AND ONLY FOR THAT CAUSE. `Object not found` means her row points at a
+    //    file that is not in the bucket; retrying twice would just fail three
+    //    times, slower, and delay the initials the circle falls back to. So the
+    //    predicate is the same one the reporter uses to go quiet — one rule, two
+    //    consequences, which is what stops them drifting apart.
+    retry: (failureCount, error) =>
+      failureCount < 2 && isBareNetworkFailure(error),
+    // ★ Short, because a picture is not worth waiting on: 300ms then 900ms, both
+    //   inside the time somebody spends reading the line the circle sits next to.
+    retryDelay: (attempt) => 300 * 3 ** attempt,
     queryFn: async () => {
       const { data, error } = await supabase.storage
         .from(AVATAR_BUCKET)

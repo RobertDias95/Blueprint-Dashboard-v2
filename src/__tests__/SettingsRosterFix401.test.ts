@@ -115,8 +115,22 @@ describe('fix-401 §1: Acquisitions renders the roster, not one role string', ()
     //   the role. The CLAIM is unchanged and is still what is asserted: the
     //   write path resolves through the acq FAMILY, not through one role
     //   string. (fix-403's own suite covers the ENT half and the dedupe.)
-    expect(adminTeamSource).toContain('ACQ_ROLES.has(role)');
-    expect(adminTeamSource).toContain('family.has(m.role)');
+    // ⚠️⚠️ SUPERSEDED BY fix-613 §A — AND THE PROBLEM IS GONE, NOT MOVED.
+    //
+    //    fix-401 found that widening the READ without widening the WRITE left
+    //    `hardDelete('acq', 'Dom')` looking up role `acq`, finding nothing, and
+    //    silently doing nothing: *"a button that appears to work and does
+    //    not."* fix-403 generalised the lookup into a role FAMILY. Both right.
+    //
+    // ★★★ THE EVERYONE TABLE HAS NO LOOKUP TO GET WRONG. A row in the table IS
+    //     the person's roster rows, so every write carries the row it writes.
+    //     There is no "find the row by role string" step for a family to be
+    //     missing from — a stronger answer than the one this protected.
+    //
+    // ★ The families themselves are untouched in lib/roster, where the pickers
+    //   still read them.
+    expect([...ACQ_ROLES].sort()).toEqual(['acq', 'acq_lead']);
+    expect(adminTeamSource).not.toContain('family.has(m.role)');
   });
 });
 

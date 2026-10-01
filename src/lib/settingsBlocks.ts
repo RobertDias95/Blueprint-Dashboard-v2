@@ -84,12 +84,17 @@ export const SETTINGS_BLOCKS: readonly SettingsBlock[] = [
 
   // ══════════════════════════════════════════════════════════════ People ══
   //
-  // ★★★ TODAY'S EDITORS, REGROUPED — NOT fix-612's ONE TABLE. The mock's map
-  //     sends nine of these into a single "Everyone" table; the brief's §B
-  //     category list keeps them as they are and says fix-612 replaces them.
-  //     This ticket is the layout, so the blocks are today's blocks in the new
-  //     home. The only People merge made here is Former & inactive, because the
-  //     brief asks for it by name.
+  // ★★★ fix-613 §A FINISHED WHAT fix-611 STAGED. fix-611 kept the nine roster
+  //     editors as nine blocks and said the follow-up would replace them; the
+  //     mock's own map always pointed here. ⚖️ Bobby, 2026-09-30: **People = one
+  //     table.** So Design Associates · Design Managers · Entitlement leads ·
+  //     Acquisition leads · Schematic · Construction admin · Names and emails ·
+  //     Departments · Agenda members are ONE block, and Former & inactive is a
+  //     list inside it rather than a tenth — it is the same people, answered the
+  //     other way round.
+  //
+  // ★★ People is now THREE blocks: Add person · Everyone · (the retired list,
+  //    inside Everyone). That is the mock's People panel exactly.
   {
     id: 'add-person',
     category: 'people',
@@ -99,85 +104,32 @@ export const SETTINGS_BLOCKS: readonly SettingsBlock[] = [
     keywords: 'add person new user invite login create bridge account',
   },
   {
-    id: 'design-associates',
+    id: 'everyone',
     category: 'people',
-    title: 'Design Associates',
-    summary: 'The DA roster · rename, retire, restore',
-    feeds: ['Draw Schedule', 'New project', 'My Tasks', 'Task ownership'],
-    keywords: 'da design associate roster',
-  },
-  {
-    id: 'design-managers',
-    category: 'people',
-    title: 'Design Managers',
-    summary: 'The DM roster',
-    feeds: ['Team Structure', 'Task co-assignment', 'DM on a permit'],
-    keywords: 'dm design manager roster',
-  },
-  {
-    id: 'entitlement-leads',
-    category: 'people',
-    title: 'Entitlement leads',
-    summary: 'The permitting-lead roster',
-    feeds: ['DA Routing', 'New project', 'ENT cascade', 'My Board'],
-    keywords: 'ent entitlement lead permitting roster',
-  },
-  {
-    id: 'acquisition-leads',
-    category: 'people',
-    title: 'Acquisition leads',
-    summary: 'The ACQ roster',
-    feeds: ['New project', 'Project details'],
-    keywords: 'acq acquisition lead roster',
-  },
-  {
-    id: 'schematic',
-    category: 'people',
-    title: 'Schematic',
-    summary: 'The schematic-designer roster',
-    feeds: ['Project details', 'Task ownership'],
-    keywords: 'schematic designer sd roster',
-  },
-  {
-    id: 'construction-admin',
-    category: 'people',
-    title: 'Construction admin',
-    summary: 'The CA roster',
-    feeds: ['Project details'],
-    keywords: 'ca construction admin roster',
-  },
-  {
-    id: 'names-and-emails',
-    category: 'people',
-    title: 'Names and emails',
-    summary: 'First and last name, email and notes for each person',
-    feeds: ['Sign-in matching', 'Mentions', 'Who the work data means'],
-    keywords: 'name email first last contact detail person',
-  },
-  {
-    id: 'departments',
-    category: 'people',
-    title: 'Departments',
-    summary: 'Which department each person belongs to',
-    feeds: ['Agenda', 'Weekly update'],
-    keywords: 'department team group',
-  },
-  {
-    id: 'agenda-members',
-    category: 'people',
-    title: 'Agenda members',
-    summary: 'Who appears on the weekly agenda',
-    feeds: ['Agenda', 'Weekly update'],
-    keywords: 'agenda weekly meeting member',
-  },
-  {
-    id: 'former-and-inactive',
-    category: 'people',
-    title: 'Former & inactive',
-    summary: 'People off the active roster · restore or remove',
-    feeds: ['Historical permits keep the name'],
-    keywords: 'former alumni inactive retired left departed restore',
-    merged: '2 → 1',
+    title: 'Everyone',
+    summary: 'One row per person · roles, email, department and agenda',
+    feeds: [
+      'Every assignee picker',
+      'Draw Schedule',
+      'New project',
+      'My Tasks',
+      'Agenda',
+      'Weekly update',
+      'Sign-in matching',
+    ],
+    keywords:
+      'people person roster everyone team member role da dm ent acq schematic ' +
+      'ca director viewer name email department agenda retire restore goes by ' +
+      // ★ the old names, kept findable: somebody looking for the alumni list
+      //   types "alumni" or "former", not "Everyone" — fix-520's `terms:` rule,
+      //   which is why search keywords exist at all.
+      'alumni former inactive names and emails departments agenda members',
+    // ★★ ELEVEN, not nine — and the fix-611 map test caught me writing nine. The
+    //    nine roster editors PLUS Former DAs (alumni) PLUS Inactive (other
+    //    roles), because the retired list is now a list inside this table rather
+    //    than a block of its own. A badge a reader trusts instead of counting
+    //    has to be right.
+    merged: '11 → 1',
   },
 
   // ══════════════════════════════════════════════════════ Teams & routing ══
