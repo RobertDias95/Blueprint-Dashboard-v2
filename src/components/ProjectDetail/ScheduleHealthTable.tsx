@@ -31,6 +31,7 @@ import { hasActiveHold } from '../../lib/holdOverlap';
 //   only write on this table was that one box.
 import {
   TARGET_APPROVAL_DRIVER_LABEL,
+  TARGET_APPROVAL_DRIVER_LABEL_MIRRORED,
   targetApproval,
   type TargetApproval,
 } from '../../lib/targetApproval';
@@ -800,7 +801,16 @@ function Row({
         className="px-2 py-2 align-middle text-center border-l"
         style={borderL}
       >
-        <TargetApprovalCell permitId={permit.id} target={target} />
+        <TargetApprovalCell
+          permitId={permit.id}
+          target={target}
+          // ★★★ fix-602 §A.2: a row carrying a redesign label is one this page
+          //     is showing on somebody else's behalf, so the project-level
+          //     dates behind its target are the ORIGINAL's. The note has to
+          //     say so, or it reads as the redesign's own GO — which is the
+          //     number the header was wrong by.
+          mirrored={!!redesignLabel}
+        />
       </td>
       {/* 9. Schedule Health */}
       <td className="px-2 py-2 align-middle text-center border-l" style={borderL}>
@@ -842,9 +852,13 @@ function Row({
 function TargetApprovalCell({
   permitId,
   target,
+  mirrored = false,
 }: {
   permitId: number;
   target: TargetApproval;
+  /** ★ fix-602 §A.2: true when the dates behind this target belong to the
+   *  ORIGINAL, not the project whose page this is. */
+  mirrored?: boolean;
 }) {
   if (!target.date) {
     return (
@@ -861,8 +875,11 @@ function TargetApprovalCell({
       //   overview, and a reader comparing drift against a target is the one
       //   person who needs to know which of the three set it.
       title={`Target Approval — the latest of the ACQ date, the closing date, and the GO date plus 6 months. Set here by ${
-        TARGET_APPROVAL_DRIVER_LABEL[target.driver ?? 'acq']
+        (mirrored ? TARGET_APPROVAL_DRIVER_LABEL_MIRRORED : TARGET_APPROVAL_DRIVER_LABEL)[
+          target.driver ?? 'acq'
+        ]
       }. Edit the ACQ date in Project Details → Permits.`}
+      data-mirrored={mirrored ? 'true' : undefined}
       data-testid={`schedule-health-target-approval-${permitId}`}
       data-driver={target.driver ?? undefined}
     >

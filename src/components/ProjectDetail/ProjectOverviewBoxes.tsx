@@ -20,7 +20,11 @@ import {
   storiesLabel,
 } from '../../lib/unitVocabulary';
 // ★ fix-508 §D: Target Approval and the ONE definition of "accepted".
-import { intakeDisplay, targetApproval } from '../../lib/targetApproval';
+import {
+  intakeDisplay,
+  targetApproval,
+  targetApprovalDateSource,
+} from '../../lib/targetApproval';
 import {
   DATES_LABEL_WIDTH,
   SITE_DATES_PAIR_CLASS,
@@ -300,9 +304,13 @@ export function SiteDataBox({
 export function DatesBox({
   project,
   bp,
+  allProjects,
 }: {
   project: Project;
   bp: PermitWithCycles | null;
+  /** ★ fix-602 §A: needed only to find a reuse-redesign's ORIGINAL. The
+   *  parent already holds this list for `SiteDataBox`. */
+  allProjects: readonly Project[];
 }) {
   const sd = schematicWindow(bp?.dd_start ?? null);
   // ★★ The SAME function the consultant forecast email uses (`vendorTargetSend`,
@@ -318,7 +326,25 @@ export function DatesBox({
 
   // ★★★ fix-508 §D — the two new rows, both computed in `lib/targetApproval`.
   const intake = intakeDisplay(bp);
-  const target = targetApproval(project, bp);
+  // ══════════════════════════════════════════════════════════════
+  // ★★★ fix-602 §A (P-281) — THIS CARD WAS THE ONE THAT WAS WRONG
+  // ══════════════════════════════════════════════════════════════
+  //
+  // ★★ MEASURED, AND NARROWER THAN THE BRIEF ASSUMED: `ScheduleHealthTable`
+  //    looks its project up by the PERMIT's `project_id`, so on a
+  //    reuse-redesign it already resolved to the original and was already
+  //    right. This card is handed the PAGE's project — the redesign — so the
+  //    header and the table beneath it printed two different Target
+  //    Approvals for the same project.
+  //
+  //    `4000 SW Concord St [Redesign]`: the header read **2026-12-25** (the
+  //    redesign's own GO + 6), the table **2026-10-09** (the original's BP
+  //    ACQ). The second one is right.
+  //
+  // ★ `bp` needs no such resolution — it is already the mirrored permit
+  //   (fix-556), which is why the ACQ candidate was never the wrong one.
+  const dateSource = targetApprovalDateSource(project, allProjects) ?? project;
+  const target = targetApproval(dateSource, bp);
 
   return (
     <OverviewSection title="Dates" testId="pd-dates-card">
@@ -782,7 +808,7 @@ export function SiteAndDates({
         style={{ minWidth: 0 }}
         data-testid="pd-site-dates-dates"
       >
-        <DatesBox project={project} bp={bp} />
+        <DatesBox project={project} bp={bp} allProjects={allProjects} />
         <div className="mt-auto">{datesFoot}</div>
       </div>
     </div>

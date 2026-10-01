@@ -4,7 +4,6 @@ import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import migrationSql from '../../migrations/fix_488_lot_size.sql?raw';
 import {
-  LOT_IRREGULAR_TOLERANCE,
   LOT_VARIES_LABEL,
   formatLotPair,
   formatLotSizeSf,
@@ -59,25 +58,35 @@ describe('fix-488 §A: lotSizeView — every combination of {width, depth, size}
     expect(v.widthVaries || v.depthVaries).toBe(false);
   });
 
-  it('★★★ 2/8 · a width alone is NOT "varies" — nobody said the lot was irregular', () => {
-    // ★★★ THE DISTINCTION THE WHOLE FEATURE RESTS ON. A blank depth on its own
-    //     means NOT RECORDED. It only becomes "varies" beside a typed SIZE,
-    //     because that is what says somebody knew the area and could not give a
-    //     single depth. Getting this wrong would relabel 205 ordinary prod lots
-    //     as irregular the moment one dimension went missing.
+  it('★★★ 2/8 · a width alone IS "varies" — fix-602 §C.2', () => {
+    // ⚠️⚠️ SUPERSEDED BY fix-602 §C.2 (2026-09-30) — AND NOT MISTAKEN.
+    //
+    //    fix-488 reasoned that a blank depth on its own means NOT RECORDED, and
+    //    only becomes "varies" beside a typed SIZE — because that is what says
+    //    somebody knew the area and could not give a single depth. It worried
+    //    that getting it wrong would relabel 205 ordinary lots as irregular.
+    //
+    // ★★★ BOBBY RULED THE OTHER WAY, and the worry does not apply: *"irregular
+    //     = only one of the two items input … If one is blank, it auto triggers
+    //     irregular and inputs varies into the box."* A lot with BOTH
+    //     dimensions is still never irregular, so the 253 fully-measured lots
+    //     are untouched. Only the 9 genuinely half-measured ones change.
     const v = lotSizeView(60, null, null);
     expect(v.widthText).toBe('60');
-    expect(v.depthText).toBeNull();
-    expect(v.depthVaries).toBe(false);
-    expect(v.pairText).toBeNull();
+    expect(v.depthText).toBe(LOT_VARIES_LABEL);
+    expect(v.depthVaries).toBe(true);
+    expect(v.pairText).toBe(`60 × ${LOT_VARIES_LABEL}`);
+    expect(v.irregular).toBe(true);
+    // ★ the SIZE is still not invented — nobody typed one
     expect(v.sizeSf).toBeNull();
   });
 
-  it('★ 3/8 · a depth alone, mirrored', () => {
+  it('★ 3/8 · a depth alone, mirrored (fix-602 §C.2)', () => {
     const v = lotSizeView(null, 100, null);
     expect(v.depthText).toBe('100');
-    expect(v.widthVaries).toBe(false);
-    expect(v.pairText).toBeNull();
+    expect(v.widthVaries).toBe(true);
+    expect(v.pairText).toBe(`${LOT_VARIES_LABEL} × 100`);
+    expect(v.irregular).toBe(true);
   });
 
   it('★★★ 4/8 · width + depth, no size → the size is DERIVED, never stored', () => {
@@ -116,23 +125,23 @@ describe('fix-488 §A: lotSizeView — every combination of {width, depth, size}
     expect(v.widthVaries).toBe(true);
     expect(v.depthVaries).toBe(true);
     expect(v.pairText).toBe(`${LOT_VARIES_LABEL} × ${LOT_VARIES_LABEL}`);
-    // ★ STILL NOT `irregular`. That flag is a DISAGREEMENT between a typed size
-    //   and a rectangle, and there is no rectangle here — fix-488's other half,
-    //   untouched.
-    expect(v.irregular).toBe(false);
+    // ⚠️ fix-602 §C FLIPPED THIS TOO. fix-488 kept `irregular` false here
+    //    because the flag meant a DISAGREEMENT and there was no rectangle to
+    //    disagree with. Bobby names this case explicitly: *"if both boxes are
+    //    blank and just a lot size, then that is irregular too."* 3 projects.
+    expect(v.irregular).toBe(true);
   });
 
-  it('★★★ …and a blank dimension with NO size still says NOTHING', () => {
-    // ★★ THE HALF fix-555 DID **NOT** CHANGE, asserted so the reversal above
-    //    cannot quietly widen. `varies` needs a typed size beside it; without
-    //    one a blank dimension is NOT RECORDED, not irregular.
+  it('★★★ …and NOTHING typed at all still says nothing (fix-602 §C.1)', () => {
+    // ★★ THE HALF THAT SURVIVES EVERY REVISION, and the one that keeps an
+    //    unfinished form from inventing an irregular lot. fix-488 asserted it
+    //    of a one-sided row too; §C.2 moved that case, but two blanks with no
+    //    size is still NOT RECORDED. 6 projects.
     const v = lotSizeView(null, null, null);
     expect(v.widthVaries).toBe(false);
     expect(v.depthVaries).toBe(false);
     expect(v.pairText).toBeNull();
-    const oneSided = lotSizeView(60, null, null);
-    expect(oneSided.depthVaries).toBe(false);
-    expect(oneSided.pairText).toBeNull();
+    expect(v.irregular).toBe(false);
   });
 
   it('★★★ 6/8 · BOBBY\'S CASE — width + size, blank depth → "60 × varies"', () => {
@@ -143,7 +152,10 @@ describe('fix-488 §A: lotSizeView — every combination of {width, depth, size}
     expect(v.sizeSf).toBe(7200);
     expect(v.sizeText).toBe('7,200 sf');
     expect(v.sizeDerived).toBe(false);
-    expect(v.irregular).toBe(false);
+    // ⚠️ fix-602 §C: a missing depth IS the definition of irregular now, so
+    //    Bobby's own motivating case reads `irregular` where fix-488 had it
+    //    false (it was false only because the size agreed with nothing).
+    expect(v.irregular).toBe(true);
   });
 
   it('★★ 7/8 · depth + size, blank width → the mirror', () => {
@@ -154,36 +166,43 @@ describe('fix-488 §A: lotSizeView — every combination of {width, depth, size}
     expect(v.sizeSf).toBe(9000);
   });
 
-  it('★★★ 8/8 · all three typed → all three shown; >5% apart is a NOTE', () => {
-    // Agreeing: 60 × 100 = 6,000 against a typed 6,000.
+  it('★★★ 8/8 · all three typed → all three shown, and NEVER irregular', () => {
+    // ⚠️⚠️ SUPERSEDED BY fix-602 §C. This asserted that a >5% gap raised the
+    //       `irregular` note. **A lot with both dimensions is never irregular
+    //       now, whatever the size says** — Bobby, 2026-09-30.
+    //
+    // ★★★ BUT THE SENTENCE UNDER IT SURVIVES WORD FOR WORD: *"no auto-correct
+    //     and no error. Both numbers are things a person typed; a tool that
+    //     'fixed' one would be overwriting a survey with arithmetic."* What
+    //     changed is that the disagreement is not a SHAPE — it is data, and it
+    //     lives in `data/reports/fix_555_lot_size_disagreements.md`.
     const agree = lotSizeView(60, 100, 6000);
     expect(agree.pairText).toBe('60 × 100');
     expect(agree.sizeSf).toBe(6000);
     expect(agree.sizeDerived).toBe(false);
     expect(agree.irregular).toBe(false);
 
-    // Disagreeing: 60 × 100 = 6,000 against a typed 9,000 — 50% out.
+    // 60 × 100 = 6,000 against a typed 9,000 — 50% out, and still not a shape.
     const clash = lotSizeView(60, 100, 9000);
     expect(clash.sizeSf).toBe(9000);
-    expect(clash.irregular).toBe(true);
-    // ★★★ NO AUTO-CORRECT AND NO ERROR. Both numbers are things a person
-    //     typed; a tool that "fixed" one would be overwriting a survey with
-    //     arithmetic. The typed size is what is shown, and the note is the
-    //     whole intervention.
+    expect(clash.irregular).toBe(false);
+    // ★ the typed size is still what is shown — nothing is overwritten
     expect(clash.pairText).toBe('60 × 100');
   });
 
-  it('★★★ the 5% boundary is exact, and the number is COWORK\'S not Bobby\'s', () => {
-    // ★ Recorded in the test as well as the code: Bobby did not rule on this
-    //   figure, so the next person to change it is changing a Cowork decision
-    //   rather than overriding him.
-    expect(LOT_IRREGULAR_TOLERANCE).toBe(0.05);
-    // 100 × 100 = 10,000 against 10,500 → exactly 5%, INSIDE the tolerance.
-    expect(lotSizeView(100, 100, 10500).irregular).toBe(false);
-    // …and 10,499 → 4.77% out the other way, also inside.
-    expect(lotSizeView(100, 100, 10499).irregular).toBe(false);
-    // 10,000 against 9,500 → 5.26%, outside.
-    expect(lotSizeView(100, 100, 9500).irregular).toBe(true);
+  it('★★★ the 5% tolerance is RETIRED — it was never Bobby\'s number', () => {
+    // ⚠️⚠️ SUPERSEDED BY fix-602 §C.3, AND THIS TEST PREDICTED IT. fix-488
+    //       recorded in its own words that *"Bobby did not rule on this figure,
+    //       so the next person to change it is changing a Cowork decision"* —
+    //       and fix-555 re-measured and recommended 2% without acting, for the
+    //       same reason.
+    //
+    // ★★★ HE ANSWERED BY DELETING THE QUESTION. No tolerance at all: a lot
+    //     with both dimensions is never irregular. Every one of the three
+    //     boundary cases this used to test is now simply false.
+    for (const size of [10500, 10499, 9500, 1, 999999]) {
+      expect(lotSizeView(100, 100, size).irregular, String(size)).toBe(false);
+    }
   });
 
   it('★★★ "varies" NEVER renders as a number, in any of the eight', () => {

@@ -3,7 +3,6 @@ import { readFileSync, readdirSync } from 'node:fs';
 import { resolve, join, sep } from 'node:path';
 import {
   LOT_VARIES_LABEL,
-  LOT_IRREGULAR_TOLERANCE,
   lotSizeView,
   parseLotSizeSf,
   parseLotDimensionFt,
@@ -79,23 +78,42 @@ describe('fix-555 §B — the five cases of the form', () => {
     expect(lotSizeView(60, 110, null).sizeSf).toBe(6600);
   });
 
-  it('★★★ §B.2 · a hand-entered size that disagrees is KEPT and FLAGGED', () => {
-    // *"This is the state 181 projects are in right now"* — and the product
-    // already says so, quietly, since fix-488. Nothing is overwritten.
+  it('★★★ §B.2 · a hand-entered size that disagrees is KEPT, not flagged', () => {
+    // ⚠️⚠️ SUPERSEDED BY fix-602 §C (2026-09-30) — AND NOT MISTAKEN.
+    //
+    //    fix-488 defined `irregular` as a MISMATCH: all three typed, and the
+    //    rectangle more than 5% from the size. Both it and fix-555 said in
+    //    their own PRs that **the 5% was Cowork's number, not Bobby's**.
+    //
+    // ★★★ HE HAS NOW RULED, AND HE REJECTED THE QUESTION RATHER THAN PICKING
+    //     A NUMBER: *"irregular = only one of the two items input, width or
+    //     depth … Or if both boxes are blank and just a lot size."*
+    //     **Irregular is a missing dimension.** A lot with BOTH dimensions is
+    //     never irregular, whatever the size says.
+    //
+    // ★★ THE KEEPING IS THE HALF THAT SURVIVES, and it is the half that
+    //    mattered: the typed number is never overwritten by arithmetic. What
+    //    changed is that a disagreement is DATA, not a shape — it lives in
+    //    `data/reports/fix_555_lot_size_disagreements.md` for people to
+    //    correct, and §C.4 forbids a second indicator for it.
     const v = lotSizeView(60, 100, 4500);
     expect(v.sizeSf).toBe(4500);        // ★ the typed number survives
     expect(v.sizeDerived).toBe(false);  // ★ and is known to be a survey
-    expect(v.irregular).toBe(true);     // ★ and the disagreement is said
+    expect(v.irregular).toBe(false);    // ★★ both dimensions → never irregular
     expect(v.pairText).toBe('60 × 100');
   });
 
-  it('★★★ §B.2 · a disagreement INSIDE the tolerance is not flagged', () => {
-    // 119 of the 181 sit here. A 6,000 sf rectangle against a 5,990 sf survey
-    // is a rounded dimension, not an irregular parcel.
-    const v = lotSizeView(60, 100, 5990);
-    expect(v.sizeSf).toBe(5990);
-    expect(v.irregular).toBe(false);
-    expect(LOT_IRREGULAR_TOLERANCE).toBe(0.05);
+  it('★★★ §C · NO size mismatch makes a two-dimension lot irregular', () => {
+    // ★★★ THE TEST §C ASKS FOR BY NAME: *"both dims with a 40% size mismatch →
+    //     NOT irregular."* The old rule flagged 20 such lots on prod; the new
+    //     one flags none of them, because they are all fully measured.
+    for (const size of [5990, 4500, 3600, 10000]) {
+      expect(lotSizeView(60, 100, size).irregular, String(size)).toBe(false);
+    }
+    // a 40% gap on a 6,000 sf rectangle, named explicitly
+    const forty = lotSizeView(60, 100, 3600);
+    expect(forty.sizeSf).toBe(3600);
+    expect(forty.irregular).toBe(false);
   });
 
   it('★★★ §B.3 · one dimension + size → the blank one reads `varies`', () => {
@@ -124,9 +142,11 @@ describe('fix-555 §B — the five cases of the form', () => {
     expect(v.pairText).toBe(`${LOT_VARIES_LABEL} × ${LOT_VARIES_LABEL}`);
     expect(v.sizeSf).toBe(14136);
     expect(v.sizeDerived).toBe(false);
-    // ★ not `irregular` — that flag is a DISAGREEMENT, and there is no rectangle
-    //   to disagree with.
-    expect(v.irregular).toBe(false);
+    // ⚠️ fix-602 §C FLIPPED THIS. fix-555 reasoned that `irregular` was a
+    //    DISAGREEMENT and there was no rectangle to disagree with, so it was
+    //    false. Bobby's definition makes this case irregular BY NAME: *"if both
+    //    boxes are blank and just a lot size, then that is irregular too."*
+    expect(v.irregular).toBe(true);
   });
 
   it('★★★ §B.5 · nothing → blank, exactly as now', () => {
@@ -138,14 +158,31 @@ describe('fix-555 §B — the five cases of the form', () => {
     expect(v.depthVaries).toBe(false);
   });
 
-  it('★★★ a blank dimension with NO size still says NOTHING about the shape', () => {
-    // ★★ THE HALF §B.4 DID NOT WIDEN. `varies` needs a typed size beside it;
-    //    without one a blank is NOT RECORDED. 8 projects hold a width and no
-    //    depth today — they must not all become irregular lots by inference.
+  it('★★★ §C.2 · a blank dimension beside a FILLED one reads `varies`, size or not', () => {
+    // ⚠️⚠️ SUPERSEDED BY fix-602 §C.2. fix-488 and fix-555 both required a typed
+    //       SIZE before the word appeared, reasoning that a lone blank meant
+    //       NOT RECORDED. Bobby's rule does not: *"If one is blank, it auto
+    //       triggers irregular and inputs varies into the box."* The filled
+    //       dimension beside it IS the statement.
+    //
+    // ★ 0 lots are in this state today, so nothing on screen moves — this is
+    //   the rule the next one will meet.
     const v = lotSizeView(60, null, null);
+    expect(v.depthVaries).toBe(true);
+    expect(v.widthVaries).toBe(false);
+    expect(v.pairText).toBe(`60 × ${LOT_VARIES_LABEL}`);
+    expect(v.irregular).toBe(true);
+  });
+
+  it('★★★ §C.1 · NOTHING typed is not recorded, and NOT irregular', () => {
+    // ★★ THE HALF THAT SURVIVES. Two blanks with no size is a row nobody has
+    //    filled in — 6 projects — and inventing an irregular lot from an
+    //    unfinished form would be the opposite of the ruling.
+    const v = lotSizeView(null, null, null);
+    expect(v.irregular).toBe(false);
+    expect(v.widthVaries).toBe(false);
     expect(v.depthVaries).toBe(false);
     expect(v.pairText).toBeNull();
-    expect(v.sizeSf).toBeNull();
   });
 
   it('★★★ typing the missing dimension RETURNS the lot to regular', () => {
@@ -369,10 +406,14 @@ describe('fix-555 §A — the read, and nothing but the read', () => {
     const src = readFileSync(resolve(ROOT, '..', REPORT), 'utf8');
     expect(src).toMatch(/recommend/i);
     expect(src).toMatch(/2\s*%/);
-    // ★★★ AND THE CODE WAS NOT CHANGED TO MATCH IT. The shipped tolerance is
-    //     still fix-488's 5%, which was Cowork's number and has never been
-    //     ruled on either. Acting on the recommendation is Bobby's call.
-    expect(LOT_IRREGULAR_TOLERANCE).toBe(0.05);
+    // ⚠️⚠️ fix-555 LEFT THE TOLERANCE AT 5% AND SAID THE NUMBER WAS NOT
+    //       BOBBY'S. fix-602 §C is his answer, and it is not a number at all:
+    //       **the tolerance is retired** and irregular means a missing
+    //       dimension. The report survives unchanged — the disagreement it
+    //       lists is a DATA problem for people to correct, which is exactly
+    //       what §C.4 says it should stay.
+    const lib = readFileSync(resolve(ROOT, 'lib/lotDimensions.ts'), 'utf8');
+    expect(lib).not.toContain('export const LOT_IRREGULAR_TOLERANCE');
   });
 
   it('★★★ it changes NOTHING — it is a report, not a migration', () => {

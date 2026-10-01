@@ -4,6 +4,8 @@ import type { ReactNode } from 'react';
 // when you leave it, through the path the site/lot/date/unit editors already
 // used. The Permits tab is the one exception and says so on screen.
 import { useProjectFieldCommit } from '../../hooks/useProjectFieldCommit';
+// ★ fix-602 §B.3: the SAME rule BufferedDateInput enforces on blur.
+import { dateInputRejection } from '../../lib/dateUtils';
 import SavesNowMark from '../shared/SavesNowMark';
 import { useUpdatePermit } from '../../hooks/useUpdatePermit';
 import type { PermitWithCycles, Project } from '../../lib/database.types';
@@ -116,6 +118,7 @@ function Input({
   type = 'text',
   testid,
   disabled = false,
+  rejectValue,
 }: {
   value: string;
   onChange: (v: string) => void;
@@ -125,17 +128,43 @@ function Input({
    *  needed it for the same reason — a row this project does not own is shown,
    *  not edited. */
   disabled?: boolean;
+  /** ★★ fix-602 §B.3: why this keystroke's value may not enter the form state,
+   *  or null when it may. Returning a reason keeps the PREVIOUS value and shows
+   *  the sentence — nothing is silently swallowed and nothing bad is queued for
+   *  the footer's Save. */
+  rejectValue?: (v: string) => string | null;
 }) {
+  const [rejection, setRejection] = useState<string | null>(null);
   return (
-    <input
-      type={type}
-      value={value}
-      onChange={(e) => onChange(e.target.value)}
-      className={inputCls}
-      style={disabled ? { ...inputStyle, ...disabledInputStyle } : inputStyle}
-      disabled={disabled}
-      data-testid={testid}
-    />
+    <>
+      <input
+        type={type}
+        value={value}
+        onChange={(e) => {
+          const next = e.target.value;
+          const why = rejectValue?.(next) ?? null;
+          setRejection(why);
+          // ★ A refused value never reaches `onChange`, so the row keeps what it
+          //   had and the form does not read dirty on a typo.
+          if (why) return;
+          onChange(next);
+        }}
+        aria-invalid={rejection ? true : undefined}
+        className={inputCls}
+        style={disabled ? { ...inputStyle, ...disabledInputStyle } : inputStyle}
+        disabled={disabled}
+        data-testid={testid}
+      />
+      {rejection && (
+        <span
+          className="text-[10px] block mt-0.5"
+          style={{ color: 'var(--color-co)' }}
+          data-testid={testid ? `${testid}-rejection` : undefined}
+        >
+          {rejection}
+        </span>
+      )}
+    </>
   );
 }
 
@@ -952,12 +981,33 @@ function PermitRowCard({
           Now they have this, and `PermitDetailV2`'s box is gone. */}
       <div className="grid gap-2 items-end" style={{ gridTemplateColumns: '1fr 2fr' }}>
         <TinyField label="ACQ target date">
+          {/* ══════════════════════════════════════════════════════════
+              ★★★ fix-602 §B.3 (P-301) — THE FIELD THAT WROTE THE THREE BAD ROWS
+              ══════════════════════════════════════════════════════════
+
+              Three permits hold an ACQ target with a 5- or 6-digit year, and
+              **two of them share one `updated_at`** (2026-09-22 12:20:29 PT) on
+              one project — i.e. one press of this tab's Save wrote both.
+
+              ★★★ IT IS NOT A `BufferedDateInput`, AND IT SHOULD NOT BECOME ONE.
+                  That component commits on BLUR; this tab is a batch form whose
+                  footer Save writes every row at once, and fix-601 §A has just
+                  been through what its dirty tracking depends on. Converting it
+                  would change when an ACQ date reaches the server, which is a
+                  different ticket and a riskier one.
+
+              ★★ SO THE *RULE* IS SHARED AND THE *MOMENT* IS NOT. `dateInputRejection`
+                 is the same predicate `BufferedDateInput` enforces on blur; here
+                 it runs on the keystroke and simply declines to put an
+                 impossible year into the form state. The previous value stays,
+                 the box says why, and Save has nothing bad to write. */}
           <Input
             type="date"
             value={row.expected_issue}
             onChange={(v) => onChange({ expected_issue: v })}
             testid={`psm-permit-acq-${row.id ?? 'new'}`}
             disabled={readOnly}
+            rejectValue={dateInputRejection}
           />
         </TinyField>
         <div className="text-[9.5px] text-dim self-center">

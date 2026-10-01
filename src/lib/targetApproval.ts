@@ -1,5 +1,8 @@
 import type { PermitWithCycles, Project } from './database.types';
 import { todayIso } from './dateUtils';
+// ★ fix-602 §A: the SAME one-hop rule the permits already follow. §A is explicit
+//   — *"the predicate already exists … do not write a second predicate."*
+import { permitSourceProjectId } from './effectivePermits';
 
 // ===========================================================================
 // ★★★ fix-508 §D (P-194) — TARGET APPROVAL, AND WHAT "ACCEPTED" MEANS
@@ -66,6 +69,27 @@ export const TARGET_APPROVAL_DRIVER_LABEL: Record<TargetApprovalDriver, string> 
 };
 
 /**
+ * ★★★ fix-602 §A.2 — THE SAME LABELS, SAID OF THE ORIGINAL.
+ *
+ * On a reuse-redesign the project-level dates are the ORIGINAL's, so a note
+ * reading *"the GO date plus 6 months"* would be read as the redesign's own
+ * GO — which is the number the header was wrong by. The brief is explicit:
+ * *"the driver note must say ‘the original's GO date plus 6 months’ so nobody
+ * reads it as the redesign's."*
+ *
+ * ★ `acq` is NOT re-worded. The ACQ date comes from the permit, and on a
+ *   reuse-redesign the permit shown IS the original's — fix-556's mirror,
+ *   which the page already labels as belonging to the original. Saying
+ *   "the original's ACQ date" of a row the screen already attributes would
+ *   be noise; the two project-level dates are the ones with no such label.
+ */
+export const TARGET_APPROVAL_DRIVER_LABEL_MIRRORED: Record<TargetApprovalDriver, string> = {
+  acq: TARGET_APPROVAL_DRIVER_LABEL.acq,
+  closing: "the original's closing date",
+  go: `the original's GO date plus ${TARGET_APPROVAL_GO_MONTHS} months`,
+};
+
+/**
  * ★★★ SIX CALENDAR MONTHS, AND THE END-OF-MONTH CASE IS DECIDED HERE.
  *
  * `2026-08-31` plus six months has no 31st to land on. JavaScript's `Date`
@@ -100,6 +124,70 @@ export function addCalendarMonths(iso: string, months: number): string | null {
  *   (a project created this morning) and must print as an em dash rather than
  *   as today's date or an epoch.
  */
+// ════════════════════════════════════════════════════════════════════════
+// ★★★ fix-602 §A (P-281) — A REUSE-REDESIGN USES THE ORIGINAL'S DATES
+// ════════════════════════════════════════════════════════════════════════
+//
+// Bobby, 2026-09-15: **mirror the original's dates.** The family rule —
+// *whatever a reuse-redesign shows, it shows the original's* — applied to
+// status (fix-150), the cards (fix-556) and the leads (fix-573). This is the
+// fourth application of one principle, not a new idea.
+//
+// ★★★ AND THE TWO SURFACES ALREADY DISAGREED, which is the measured shape of
+//     the bug and is narrower than the brief assumed. `ScheduleHealthTable`
+//     looks its project up **by the permit's own `project_id`**
+//     (`projectsById.get(permit.project_id)`), so on a reuse-redesign it
+//     already resolves to the ORIGINAL and was already right. `DatesBox` is
+//     handed the PAGE's project — the redesign — and was wrong. So the header
+//     and the table under it printed two different Target Approvals.
+//
+//     `4000 SW Concord St [Redesign]`, measured 2026-09-30:
+//       redesign GO 2026-06-25 + 6 → **2026-12-25**  ← what the header read
+//       original GO 2026-01-22 + 6 →  2026-07-22
+//       original BP ACQ           → **2026-10-09**  ← the MAX, and the answer
+//
+// ★★ ONE HOP, AND IT IS THE HOP THAT ALREADY EXISTS. `permitSourceProjectId`
+//    is the rule "which project's rows does this one render", and the dates
+//    follow the permits by the same ruling. No second predicate — §A says so
+//    in as many words, and a second one is how fix-150 and fix-556 would have
+//    drifted apart.
+
+/**
+ * The project whose `go_date` / `closing_date` drive this project's Target
+ * Approval — itself, unless it is a reuse-redesign, in which case the
+ * original.
+ *
+ * ★★★ IT FALLS BACK TO THE PROJECT ITSELF when the original is not in the
+ *     list handed to it. A redesign whose original has not loaded must render
+ *     its own dates, not a blank card — returning null here would make a
+ *     loading state look like a project with no dates recorded.
+ */
+export function targetApprovalDateSource<
+  T extends {
+    id: string;
+    redesign_of_project_id?: string | null;
+    redesign_reuses_original_permit?: boolean | null;
+  },
+>(project: T | null | undefined, allProjects: readonly T[] | null | undefined): T | null {
+  if (!project) return null;
+  const sourceId = permitSourceProjectId(project);
+  if (!sourceId || sourceId === project.id) return project;
+  return allProjects?.find((p) => p.id === sourceId) ?? project;
+}
+
+/** ★ Is this project reading somebody else's dates? Drives the note wording
+ *  only — the arithmetic is the same either way. */
+export function targetApprovalIsMirrored<
+  T extends {
+    id: string;
+    redesign_of_project_id?: string | null;
+    redesign_reuses_original_permit?: boolean | null;
+  },
+>(project: T | null | undefined, allProjects: readonly T[] | null | undefined): boolean {
+  const src = targetApprovalDateSource(project, allProjects);
+  return !!project && !!src && src.id !== project.id;
+}
+
 export function targetApproval(
   project: Pick<Project, 'closing_date' | 'go_date'> | null | undefined,
   bp: Pick<PermitWithCycles, 'expected_issue'> | null | undefined,
