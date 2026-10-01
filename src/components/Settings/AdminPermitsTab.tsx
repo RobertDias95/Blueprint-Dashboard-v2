@@ -1,9 +1,10 @@
 import PermitTypeEditor from './PermitTypeEditor';
 import TaskTemplateEditor from './TaskTemplateEditor';
-import TargetSubmitFormulasEditor from './TargetSubmitFormulasEditor';
 import WaitingOnOptionsEditor from './WaitingOnOptionsEditor';
 import PhaseDurationsReport from '../../pages/PhaseDurationsReport';
 import { useIsTenantAdmin } from '../../hooks/useIsTenantAdmin';
+import ExternalTeamDirectoryEditor from './ExternalTeamDirectoryEditor';
+import SettingsBlock, { SettingsSubBlock } from './SettingsBlock';
 
 // Q7.3.c: Settings → Permits & Templates tab. Wraps the per-scope task
 // template editor plus (fix-154) the per-type × per-jurisdiction target_submit
@@ -25,33 +26,41 @@ export default function AdminPermitsTab() {
           list on the Projects tab, which is where Bobby went looking for it and
           did not find it -- and which had no rename, no descriptions, and no
           usage guard on delete. */}
-      <div className="bg-surface border border-border rounded-lg p-4">
-        <h2 className="text-sm font-display font-bold text-text mb-1">
-          Permit Types
-        </h2>
+      <SettingsBlock id="permit-types">
         <PermitTypeEditor readOnly={!isAdmin} />
-      </div>
-      <div className="bg-surface border border-border rounded-lg p-4">
-        <h2 className="text-sm font-display font-bold text-text mb-1">
-          Task Templates
-        </h2>
+      </SettingsBlock>
+      <SettingsBlock id="task-templates">
         <p className="text-[11px] text-muted mb-4">
           Default tasks applied when a new permit is created. Pick a permit
           type + jurisdiction + stage to edit that scope. "Base" tasks apply in
           every jurisdiction, alongside that jurisdiction's own tasks.
         </p>
         <TaskTemplateEditor readOnly={!isAdmin} />
-      </div>
+      </SettingsBlock>
       {/* ★★ fix-364 §3: "Waiting on" joins the four app_config lists already
           edited this way. It sits under Task Templates because it is a field of
           a TASK — the templates above set a task's waiting_on, and this is the
           vocabulary they set it from. */}
-      <div className="bg-surface border border-border rounded-lg p-4">
-        <WaitingOnOptionsEditor readOnly={!isAdmin} />
-      </div>
-      <div className="bg-surface border border-border rounded-lg p-4">
-        <TargetSubmitFormulasEditor readOnly={!isAdmin} />
-      </div>
+      {/* ★★★ fix-611 §B — ONE CARD, TWO EDITORS. The Waiting-On vocabulary and
+          the consultant firm directory were a tab apart (Permits and Lists &
+          Catalogs) and are the same question asked twice: who is a task waiting
+          on, and who are they. fix-606 made the directory read the Waiting-On
+          list, so keeping them on separate screens was the last of the split. */}
+      <SettingsBlock id="waiting-on-and-consultants">
+        <SettingsSubBlock title="Waiting On">
+          <WaitingOnOptionsEditor readOnly={!isAdmin} />
+        </SettingsSubBlock>
+        <SettingsSubBlock title="Consultant firms">
+          <ExternalTeamDirectoryEditor readOnly={!isAdmin} />
+        </SettingsSubBlock>
+      </SettingsBlock>
+
+      {/* ★★★ fix-611 §B: THE TARGET-SUBMIT FORMULAS EDITOR MOVED OUT OF THIS
+          FILE, to AdminScheduleTab, which now owns the whole "Per-type schedule"
+          card on Dates & targets — both the formulas and the per-type defaults.
+          fix-319 #77's comment here flagged that those two halves of one question
+          sat on two different tabs and declined to move either; this is the move.
+          The editor itself is mounted unchanged, with the same `readOnly` prop. */}
 
       {/* ★ fix-319 #77: Phase Durations moved here from /reports/phase-durations.
           Bobby: "Technically this belongs in the Settings, in the permit info."
@@ -74,7 +83,7 @@ export default function AdminPermitsTab() {
           cycle-1 resub offsets there. I have not moved either, because that is
           a bigger decision than this ticket, and pointed at the other one
           instead. */}
-      <div className="bg-surface border border-border rounded-lg p-4">
+      <SettingsBlock id="phase-durations">
         <div
           className="text-[11px] text-muted mb-3"
           data-testid="phase-durations-context"
@@ -88,7 +97,7 @@ export default function AdminPermitsTab() {
           <strong>Settings → Schedule</strong>.
         </div>
         <PhaseDurationsReport />
-      </div>
+      </SettingsBlock>
     </div>
   );
 }

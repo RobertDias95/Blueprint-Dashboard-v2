@@ -1,44 +1,41 @@
-// fix-319 #76: Settings is a page, and its sections are URLs.
+// ===========================================================================
+// ★★★ fix-611 (P-166 step 3a) — SEVEN CATEGORIES YOU OPEN UP
+// ===========================================================================
 //
-//   Bobby: "Settings should no longer be a pop-up screen — it should just use
-//   the screen vs a pop-up."
+// Bobby, 2026-09-30, across three asks: *categories you open up · a search ·
+// "methodical, flow, readability" · "everything syncing end to end".*
 //
-// The section list moves here rather than living in the page component, for
-// the same reason ribbonNav.ts exists: a component module may export only
-// components (react-refresh), and keeping the model pure is what lets the
-// tests assert resolved routes and the admin gate without rendering anything.
+// The five tabs that preceded this grouped settings by WHICH SCREEN BUILT THEM,
+// not by what they are: the roster, three read-outs, the draw-schedule layout and
+// the chat tags all lived on one "Team" tab, while the two halves of the
+// per-type schedule sat on two different tabs (fix-319 #77's own comment flagged
+// that split and declined to fix it). Seven categories, approved as a drawn mock,
+// put each block where somebody would look for it.
 //
-// ─── ★ THE URL COLLISION THE BRIEF WARNED ABOUT DOES NOT EXIST ────────────
+// ---------------------------------------------------------------------------
+// ★★ WHAT fix-319 ESTABLISHED AND THIS KEEPS
+// ---------------------------------------------------------------------------
+// Settings is a PAGE and its sections are URLs; the section list lives in this
+// module rather than in the component because a component module may export only
+// components (react-refresh), and keeping the model pure is what lets the tests
+// assert resolved routes and the admin gate without rendering anything.
 //
-// The brief flags `/settings/reporting` as a trap: it says the modal's
-// "Reporting" tab (AdminReportingTab) is "a DIFFERENT screen from the
-// Reporting hub at the same-looking path", and that routing the modal's
-// sections under /settings/:id would collide with the hub that fix-317 just
-// routed the whole Reports group through.
+// ★ Every route stays STATIC (`/settings/people`, never `/settings/:section`). A
+// dynamic segment would sit beside `/settings/errors` and silently swallow it.
 //
-// Read the code and they are THE SAME COMPONENT. ReportingHubPage was eighteen
-// lines: a heading plus <AdminReportingTab />, and its own comment said so —
-// "The modal section and this page share AdminReportingTab — single source of
-// truth." So /settings/reporting has always been the Settings → Reporting
-// section with a page heading on it.
-//
-// That means no distinct prefix, no moved hub, no renamed id: the Settings
-// page's Reporting section IS /settings/reporting, rendering the same shelf it
-// always did, and fix-317's "Saved reports" ribbon entry keeps working
-// untouched. The wrapper page is retired because the Settings page now
-// supplies the heading.
-//
-// The one deliberate choice: every section route is STATIC (/settings/team,
-// not /settings/:section). A dynamic segment would sit next to the two
-// pre-existing /settings/* routes and silently swallow a future section named
-// `errors`. Static paths cannot, and the fix-315 coverage guard sees each one.
+// ★★★ AND THE OLD ROUTES REDIRECT RATHER THAN DISAPPEAR. fix-310's rule: a
+// rename that moves a route breaks every bookmark and every link. `/settings/team`
+// has existed since fix-319 and is in people's history and in at least one
+// in-app link, so it lands on People instead of 404ing.
 
 export type SettingsSectionId =
   | 'account'
-  | 'team'
-  | 'projects'
+  | 'people'
+  | 'teams'
+  | 'lists'
   | 'permits'
-  | 'schedule';
+  | 'dates'
+  | 'health';
 
 export interface SettingsSection {
   id: SettingsSectionId;
@@ -46,9 +43,9 @@ export interface SettingsSection {
   icon: string;
   label: string;
   desc: string;
-  /** ★ Preserved EXACTLY from SettingsModal. A route is guessable in a way a
-   *  modal tab was not, so this is now enforced by AdminRoute at the router as
-   *  well as by hiding the rail entry. */
+  /** ★ Preserved EXACTLY from the modal, and enforced by AdminRoute at the
+   *  router as well as by hiding the rail entry. A route is guessable in a way
+   *  a modal tab was not. */
   adminOnly: boolean;
 }
 
@@ -57,65 +54,74 @@ export const SETTINGS_SECTIONS: readonly SettingsSection[] = [
     id: 'account',
     path: '/settings/account',
     icon: '👤',
-    label: 'Account',
-    desc: 'Your sign-in info + database tools',
+    label: 'My account',
+    desc: 'Your own picture and sign-in. Everyone sees this.',
     adminOnly: false,
   },
   {
-    id: 'team',
-    path: '/settings/team',
+    id: 'people',
+    path: '/settings/people',
     icon: '👥',
-    label: 'Team',
-    desc: 'Manage people + draw schedule groupings',
+    label: 'People',
+    desc: 'Who is on the team, what roles they hold, and how to reach them.',
     adminOnly: true,
   },
   {
-    // ★★★ fix-415 SCOPE C — LABELS ONLY. The `id`, the `path` and every
-    // testid are UNCHANGED, which is fix-310's rule: a rename that moves a
-    // route breaks every bookmark and every link, and this section has been
-    // /settings/projects since fix-319.
-    //
-    // ★★ WHY IT NEEDED A NEW NAME. It holds jurisdictions, product types,
-    // project tags, hold reasons, cancel reasons and now zones — six editable
-    // vocabularies. "Projects" names none of them, which is why Bobby went
-    // looking for the product-type editor and walked straight past it. The tab
-    // already calls them catalogues in its own read-only banner ("you need
-    // tenant admin to edit catalogs"), so the name is the app's own word rather
-    // than a new one.
-    id: 'projects',
-    path: '/settings/projects',
+    id: 'teams',
+    path: '/settings/teams',
+    icon: '🧭',
+    label: 'Teams & routing',
+    desc: 'Who works with whom, and who a project routes to.',
+    adminOnly: true,
+  },
+  {
+    id: 'lists',
+    path: '/settings/lists',
     icon: '🏗️',
-    label: 'Lists & Catalogs',
-    desc: 'Zones, types, jurisdictions, tags, hold + cancel reasons',
+    label: 'Project lists',
+    desc:
+      'The pick lists a project is built from. Every dropdown reads one of ' +
+      'these, and nothing else.',
     adminOnly: true,
   },
   {
     id: 'permits',
     path: '/settings/permits',
     icon: '📄',
-    label: 'Permits',
-    // ★ fix-319 #77: phase durations joined this section, so the description
-    // says so. Bobby: "Technically this belongs in the Settings, in the permit
-    // info."
-    desc: 'Permit types, task templates, target formulas + phase durations',
+    label: 'Permits & tasks',
+    desc: 'Permit types, the tasks a permit starts with, and who a task can wait on.',
     adminOnly: true,
   },
   {
-    id: 'schedule',
-    path: '/settings/schedule',
+    id: 'dates',
+    path: '/settings/dates',
     icon: '📅',
-    label: 'Schedule',
-    desc: 'Per-juris learning windows',
+    label: 'Dates & targets',
+    desc: 'The numbers every projected date is built from. One row per permit type.',
     adminOnly: true,
   },
-  // ★★★ fix-367 §1: REPORTING IS GONE FROM SETTINGS, which is the second half
-  // of what Bobby asked for — "system settings would lose the Reporting tab".
-  //
-  // ★ A hub that lives in two places is the ambiguity he was describing, so it
-  // lives in one: /reports/saved, in the Reports group where fix-317 put its
-  // ribbon entry. /settings/reporting redirects there and keeps every bookmark
-  // working. Nothing else in Settings moved.
+  {
+    id: 'health',
+    path: '/settings/health',
+    icon: '🩺',
+    label: 'Health & tools',
+    desc: 'Read-outs and checks. Nothing here changes a setting.',
+    adminOnly: true,
+  },
 ];
+
+/**
+ * ★★★ THE OLD ROUTES, AND WHERE THEY GO NOW.
+ *
+ * `/settings/permits` is deliberately ABSENT: the id survived the reshuffle, so
+ * that URL still resolves to a real section and needs no redirect. The three
+ * below are the ones whose id changed.
+ */
+export const SETTINGS_REDIRECTS: Readonly<Record<string, string>> = {
+  '/settings/team': '/settings/people',
+  '/settings/projects': '/settings/lists',
+  '/settings/schedule': '/settings/dates',
+};
 
 /** The section a path selects, or null when the path is not a section. */
 export function sectionForPath(pathname: string): SettingsSection | null {
@@ -127,6 +133,9 @@ export function visibleSettingsSections(isAdmin: boolean): SettingsSection[] {
   return SETTINGS_SECTIONS.filter((s) => isAdmin || !s.adminOnly);
 }
 
-/** Where bare /settings lands. Account is the only section every role can
+/** Where bare /settings lands. My account is the only section every role can
  *  read, so it is the landing for everyone rather than admin-only. */
 export const DEFAULT_SETTINGS_PATH = '/settings/account';
+
+/** ★ fix-611: the rail grew from 200px to fit "Permits & tasks" on one line. */
+export const SETTINGS_RAIL_WIDTH = 232;

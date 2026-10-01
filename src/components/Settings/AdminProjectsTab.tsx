@@ -1,7 +1,6 @@
-import { useMemo, useState } from 'react';
 import PillListEditor from './PillListEditor';
+import SettingsBlock, { SettingsSubBlock } from './SettingsBlock';
 import JurisdictionLinksEditor from './JurisdictionLinksEditor';
-import ExternalTeamDirectoryEditor from './ExternalTeamDirectoryEditor';
 import { useJurisdictions } from '../../hooks/useJurisdictions';
 import { usePermitTypes } from '../../hooks/usePermitTypes';
 import { useAppConfig, readAppConfigStringArray } from '../../hooks/useAppConfig';
@@ -25,12 +24,6 @@ import QueryError from '../QueryError';
 // this section, and the first one backed by a TABLE rather than an app_config
 // key (see hooks/useBuilderRegistry).
 import BuildersRegistryPanel from './BuildersRegistryPanel';
-import { usePermits } from '../../hooks/usePermits';
-import {
-  PERMIT_OWNER_KEY,
-  isRetiredPermitOwner,
-  permitOwnerOptions,
-} from '../../lib/permitOwnerOptions';
 
 // Q7.3.a: Settings → Projects tab. Four catalog editors:
 //   1. Jurisdictions (table) — pill list + per-row learn_window_days input
@@ -59,15 +52,10 @@ export default function AdminProjectsTab() {
   //
   // ★ ABOVE the loading/error early returns: hooks must run in the same order
   //   on every render, and lint catches it (rules-of-hooks) — which it did.
-  const permitsQ = usePermits();
-  const ownerCounts = useMemo(() => {
-    const m = new Map<string, number>();
-    for (const p of permitsQ.data ?? []) {
-      const v = (p.permit_owner ?? '').trim();
-      if (v) m.set(v, (m.get(v) ?? 0) + 1);
-    }
-    return m;
-  }, [permitsQ.data]);
+  // ★★ fix-611 §E.2: `usePermits()` and the per-owner counts are gone with the
+  //    Permit Owner block. That block was the only reason this tab read every
+  //    permit in the tenant — to count values for a list nothing could apply —
+  //    so retiring it takes a whole-table read off the Settings page.
 
   if (error) {
     return (
@@ -86,23 +74,23 @@ export default function AdminProjectsTab() {
     return <SkeletonRows count={4} rowClassName="h-20" />;
   }
 
+  // ★★★ fix-611 §E.1 — THE PER-ROW LEARNING-WINDOW INPUT IS GONE.
+  //
+  // ⚖️ Bobby, 2026-09-30: **"Learning window per city: REMOVE."**
+  //
+  // ★★ It drove nothing. `getLearnWindow(juris)` in lib/scheduleBenchmarks
+  //    discards its argument and returns the flat default, so the number typed
+  //    here never reached the estimator — and the Schedule tab's copy claiming it
+  //    fed Schedule Benchmarks was simply wrong. Removing it changes no
+  //    arithmetic, which is what makes it safe to do in a layout ticket.
+  //
+  // ★ `jurisdictions.learn_window_days` stays (no migration), and so does the
+  //   `learn_window_days` argument on the add path below: the RPC takes it, the
+  //   column is NOT NULL-defaulted in practice, and passing the default keeps a
+  //   newly added city identical to every existing row.
   const jurisItems = (jurisQ.data ?? []).map((j) => ({
     key: j.name,
     label: j.name,
-    extra: (
-      <LearnWindowInput
-        juris={j.name}
-        value={j.learn_window_days ?? DEFAULT_LEARN_WINDOW}
-        readOnly={!isAdmin}
-        onChange={(days) =>
-          upsertJuris.mutate({
-            name: j.name,
-            learn_window_days: days,
-            notes: j.notes,
-          })
-        }
-      />
-    ),
   }));
 
 
@@ -118,10 +106,6 @@ export default function AdminProjectsTab() {
   //   written, so a fresh tenant gets a working dropdown rather than an empty
   //   one — but what this editor WRITES is always the app_config key.
   const zones = zoneOptions(cfgQ.map);
-  const permitOwners = permitOwnerOptions(cfgQ.map);
-  const offListOwners = [...ownerCounts.keys()].filter((v) =>
-    isRetiredPermitOwner(cfgQ.map, v),
-  );
   // fix-167: editable Hold Reasons list — the source for the project On-Hold
   // reason dropdown. Same app_config mechanism as Product Types / Project Tags.
   const holdReasons = readAppConfigStringArray(cfgQ.map, 'holdReasonOptions');
@@ -149,7 +133,14 @@ export default function AdminProjectsTab() {
         </div>
       )}
 
-      <Section title="Jurisdictions">
+      {/* ★★★ fix-611 §B — ONE CARD. The two were adjacent Sections that people
+          confused precisely because they were two: one is the permitting
+          VOCABULARY (which city a permit can belong to), the other a NAVIGATION
+          list (the handful worth a ribbon shortcut, and their links). Neither
+          derives from the other — see the note in JurisdictionLinksEditor — so
+          they are two sub-headings of one block rather than one merged list. */}
+      <SettingsBlock id="jurisdictions">
+        <SettingsSubBlock title="Cities a permit can belong to">
         <PillListEditor
           label="Jurisdictions"
           items={jurisItems}
@@ -166,7 +157,7 @@ export default function AdminProjectsTab() {
           readOnly={!isAdmin}
           testIdPrefix="juris-list"
         />
-      </Section>
+        </SettingsSubBlock>
 
       {/* ★★★ fix-485 §A3 (P-147) — THE JURISDICTION LINK REGISTRY.
           Bobby: *"a drop-down of Seattle, Kirkland, Bellevue with folders
@@ -178,9 +169,10 @@ export default function AdminProjectsTab() {
           belong to, and its learning window); this one is a NAVIGATION list
           (the handful of cities worth a ribbon shortcut, and their links).
           Neither derives from the other — see the note in the editor. */}
-      <Section title="Jurisdiction Links">
-        <JurisdictionLinksEditor readOnly={!isAdmin} />
-      </Section>
+        <SettingsSubBlock title="Portal links">
+          <JurisdictionLinksEditor readOnly={!isAdmin} />
+        </SettingsSubBlock>
+      </SettingsBlock>
 
       {/* fix-288 moved the Permit Types editor to Settings → Permits &
           Templates and left a signpost here saying so. It is deliberately NOT
@@ -214,69 +206,25 @@ export default function AdminProjectsTab() {
           ★ Unlike its neighbours it is not an app_config key — `public.builders`
           is a real table with a FK from `projects.builder_id`, so it needs
           RPCs, an OCC token and a merge. See migrations/fix_448_builder_registry.sql. */}
-      <Section title="Builders & Owners">
+      <SettingsBlock id="builders-and-owners">
         <BuildersRegistryPanel readOnly={!isAdmin} />
-      </Section>
+      </SettingsBlock>
 
-      {/* ★★★ fix-449 §B (P-077) — PERMIT OWNER.
-          Bobby's rule: *"is the set of valid answers fixed? → list."* Which
-          side of the house owns a permit has three answers.
+      {/* ★★★ fix-611 §E.2 — PERMIT OWNER IS RETIRED.
+          ⚖️ Bobby, 2026-09-30: **"Permit Owner list: RETIRE."**
 
-          ★★★ AND THERE IS NO WRITE SURFACE FOR IT ANYWHERE IN THE APP —
-          measured on origin/main, `permits.permit_owner` has three READERS
-          (PermitCard's `ent_lead || permit_owner` fallback and two search
-          haystacks) and ZERO writers. The 158 values arrived with the import.
-          So this editor does the half that is useful today: it names the
-          vocabulary and COUNTS the permits carrying each value, including any
-          the list no longer offers. It deliberately does not invent an editing
-          surface for a field nothing currently displays as itself. */}
-      <Section title="Permit Owner">
-        <PillListEditor
-          label="Permit Owner"
-          items={permitOwners.map((o) => ({
-            key: o,
-            // ★★ The count is what makes retiring one a decision rather than a
-            //    guess — the same reason fix-448's registry shows it.
-            label: `${o}${ownerCounts.get(o) ? ` · ${ownerCounts.get(o)}` : ''}`,
-          }))}
-          onAdd={(name) => {
-            if (permitOwners.includes(name)) return;
-            setKey.mutate({
-              key: PERMIT_OWNER_KEY,
-              value: [...permitOwners, name],
-            });
-          }}
-          onRemove={(name) =>
-            setKey.mutate({
-              key: PERMIT_OWNER_KEY,
-              value: permitOwners.filter((o) => o !== name),
-            })
-          }
-          placeholder="Add permit owner…"
-          emptyState="No permit owners yet."
-          readOnly={!isAdmin}
-          historyConfigKey={PERMIT_OWNER_KEY}
-          testIdPrefix="permit-owner-list"
-        />
-        {/* ★★ RETIRING ONE REWRITES NOTHING (§B2). The permits keep the text
-            they carry; it simply stops being offered. This line names the ones
-            in that state so a retired value is visible here, not only on the
-            permit that holds it — fix-415's rule, applied to the editor as
-            well as to the field. */}
-        {offListOwners.length > 0 && (
-          <div
-            className="text-[11px] text-muted mt-2"
-            data-testid="permit-owner-offlist"
-          >
-            Not in the list, still on permits:{' '}
-            {offListOwners
-              .map((o) => `${o} (${ownerCounts.get(o) ?? 0})`)
-              .join(' · ')}
-          </div>
-        )}
-      </Section>
+          ★★ fix-449 built it and said in its own comment why it could not finish
+             the job: *"THERE IS NO WRITE SURFACE FOR IT ANYWHERE IN THE APP"* —
+             `permits.permit_owner` had three readers and zero writers, so this
+             editor named a vocabulary nothing could ever apply. A list that
+             cannot be used is a setting that only looks like one.
 
-      <Section title="Zones">
+          ★ LEFT ALONE, and out of scope by §E.2: the `permits.permit_owner`
+            column and PermitCard's `ent_lead || permit_owner` fallback. The 158
+            values keep rendering exactly where they render today; what goes is
+            the pretence that they were editable here. */}
+
+      <SettingsBlock id="zones">
         <PillListEditor
           label="Zones"
           items={zones.map((z) => ({ key: z, label: z }))}
@@ -296,9 +244,9 @@ export default function AdminProjectsTab() {
           historyConfigKey={ZONE_OPTIONS_KEY}
           testIdPrefix="zones-list"
         />
-      </Section>
+      </SettingsBlock>
 
-      <Section title="Types">
+      <SettingsBlock id="product-types">
         <PillListEditor
           label="Types"
           items={productTypes.map((t) => ({ key: t, label: t }))}
@@ -321,7 +269,7 @@ export default function AdminProjectsTab() {
           historyConfigKey="productTypeOptions"
           testIdPrefix="product-types-list"
         />
-      </Section>
+      </SettingsBlock>
 
       {/* ═══════════════════════════════════════════════════════════════
           ★★★ fix-562 §A (P-268) — THE THREE UNIT-MATRIX VOCABULARIES
@@ -339,7 +287,12 @@ export default function AdminProjectsTab() {
               pills `⚠`, because dropping an entry from a dropdown and saying
               nothing is how a Settings screen starts lying about what it
               controls. */}
-      <Section title="Unit Parking">
+      {/* ★★★ fix-611 §B — ONE CARD, THREE LISTS. Parking, roof deck and
+          stories are the three things a UNIT is described by, and they were
+          three cards in a column of fourteen. Same three editors, same keys,
+          same history links — three sub-headings instead of three titles. */}
+      <SettingsBlock id="unit-options">
+        <SettingsSubBlock title="Parking">
         <PillListEditor
           label="Unit Parking"
           items={parking.map((o) => ({
@@ -369,9 +322,9 @@ export default function AdminProjectsTab() {
           Written as <code>N-car garage</code> or <code>Surface / None</code>.
           Anything else cannot be stored against a unit.
         </div>
-      </Section>
+        </SettingsSubBlock>
 
-      <Section title="Unit Roof Deck">
+        <SettingsSubBlock title="Roof deck">
         <PillListEditor
           label="Unit Roof Deck"
           items={roofDeck.map((o) => ({
@@ -403,9 +356,9 @@ export default function AdminProjectsTab() {
           a fixed roof-deck / penthouse pair. A new wording would need a code
           change.
         </div>
-      </Section>
+        </SettingsSubBlock>
 
-      <Section title="Unit Stories">
+        <SettingsSubBlock title="Stories">
         <PillListEditor
           label="Unit Stories"
           items={stories.map((o) => ({
@@ -435,9 +388,10 @@ export default function AdminProjectsTab() {
           Written as a number, optionally <code>+B</code> for a basement —{' '}
           <code>3</code> or <code>3+B</code>.
         </div>
-      </Section>
+        </SettingsSubBlock>
+      </SettingsBlock>
 
-      <Section title="Project Tags">
+      <SettingsBlock id="project-tags">
         <PillListEditor
           label="Project Tags"
           items={projectTags.map((t) => ({ key: t, label: t }))}
@@ -460,11 +414,15 @@ export default function AdminProjectsTab() {
           historyConfigKey="projectTagOptions"
           testIdPrefix="project-tags-list"
         />
-      </Section>
+      </SettingsBlock>
 
       {/* fix-167: Hold Reasons — the dropdown source for putting a project On
           Hold. Phase 1 is data + display only (no calculation effects). */}
-      <Section title="Hold Reasons">
+      {/* ★★ fix-611 §B — ONE CARD. Why a thing is parked and why it is
+          cancelled are the same question at two severities, and fix-262 already
+          made cancel a kind of hold in the data. */}
+      <SettingsBlock id="hold-and-cancel-reasons">
+        <SettingsSubBlock title="Hold reasons">
         <PillListEditor
           label="Hold Reasons"
           items={holdReasons.map((r) => ({ key: r, label: r }))}
@@ -487,12 +445,12 @@ export default function AdminProjectsTab() {
           historyConfigKey="holdReasonOptions"
           testIdPrefix="hold-reasons-list"
         />
-      </Section>
+        </SettingsSubBlock>
 
       {/* fix-262: Cancel Reasons — the dropdown source for CANCELLING a project
           ("the step after hold, but before delete"). Deliberately its own list;
           a cancel reason is never a hold reason. */}
-      <Section title="Cancel Reasons">
+        <SettingsSubBlock title="Cancel reasons">
         <PillListEditor
           label="Cancel Reasons"
           items={cancelReasons.map((r) => ({ key: r, label: r }))}
@@ -515,68 +473,24 @@ export default function AdminProjectsTab() {
           historyConfigKey="cancelReasonOptions"
           testIdPrefix="cancel-reasons-list"
         />
-      </Section>
+        </SettingsSubBlock>
+      </SettingsBlock>
 
       {/* fix-227: central External Team directory (firms by discipline) that
           feeds the per-project external-team picker's dropdown. */}
-      <Section title="External Team Directory">
-        <ExternalTeamDirectoryEditor readOnly={!isAdmin} />
-      </Section>
+      {/* ★★★ fix-611 §B — THE CONSULTANT DIRECTORY MOVED to Permits & tasks,
+          into one card with the Waiting-On vocabulary. It was never a project
+          list: it is the set of firms a TASK can be waiting on, and fix-606 made
+          it read the Waiting-On list for its disciplines. The editor is mounted
+          there unchanged, with the same `readOnly` prop. */}
     </div>
   );
 }
 
-function Section({ title, children }: { title: string; children: React.ReactNode }) {
-  return (
-    <div className="bg-surface border border-border rounded-lg p-4">
-      <h2 className="text-sm font-display font-bold text-text mb-3">{title}</h2>
-      {children}
-    </div>
-  );
-}
+// ★ fix-611: the local `Section` helper is gone — `SettingsBlock` is the one
+//   card chrome now, and it takes its title from the registry rather than from
+//   a prop, so a block's name lives in exactly one place.
 
-/** Inline number input for a jurisdiction's learning window. Saves on blur
- *  to avoid one save-per-keystroke when typing a multi-digit value. */
-function LearnWindowInput({
-  juris,
-  value,
-  readOnly,
-  onChange,
-}: {
-  juris: string;
-  value: number;
-  readOnly: boolean;
-  onChange: (days: number) => void;
-}) {
-  const [local, setLocal] = useState(String(value));
-  const valueDirty = useMemo(() => local !== String(value), [local, value]);
 
-  function commit() {
-    if (!valueDirty) return;
-    const n = Math.max(30, Math.min(730, parseInt(local, 10) || DEFAULT_LEARN_WINDOW));
-    onChange(n);
-    setLocal(String(n));
-  }
-
-  return (
-    <span className="inline-flex items-center gap-1 text-[10px] text-muted">
-      <input
-        type="number"
-        min={30}
-        max={730}
-        value={local}
-        onChange={(e) => setLocal(e.target.value)}
-        onBlur={commit}
-        onKeyDown={(e) => {
-          if (e.key === 'Enter') {
-            (e.target as HTMLInputElement).blur();
-          }
-        }}
-        disabled={readOnly}
-        className="w-12 px-1 py-0 text-[10px] border border-border rounded bg-bg text-text text-center outline-none focus:border-de disabled:opacity-60"
-        data-testid={`juris-window-${juris}`}
-      />
-      <span>d</span>
-    </span>
-  );
-}
+// ★ fix-611 §E.1: `LearnWindowInput` is deleted — it was the only caller of the
+//   per-city window, and the window is retired. See the note at `jurisItems`.

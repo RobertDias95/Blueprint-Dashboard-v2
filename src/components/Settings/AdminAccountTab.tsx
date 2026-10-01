@@ -4,6 +4,7 @@ import { useAuthStore } from '../../stores/authStore';
 import { useSelfScope } from '../../hooks/useSelfScope';
 import DbToolsCard from '../SettingsModal/DbToolsCard';
 import AvatarControl from './AvatarControl';
+import SettingsBlock from './SettingsBlock';
 
 // Q7.3.d: Account tab. Read-only sign-in info + sign-out.
 // Q9.5.a: DB Tools restored (was dropped per Q3 — wrong call given the
@@ -48,22 +49,16 @@ export default function AdminAccountTab() {
           have the option to upload our headshot or profile picture."* This tab
           because it is the one that already shows YOUR sign-in — the Team tab
           is where you edit other people. */}
-      <div className="bg-surface border border-border rounded-lg p-4">
-        <h2 className="text-sm font-display font-bold text-text mb-3">
-          Your picture
-        </h2>
+      <SettingsBlock id="your-picture">
         <AvatarControl
           profileId={user?.id ?? null}
           name={identity.name}
           canEdit
           testId="account-avatar"
         />
-      </div>
+      </SettingsBlock>
 
-      <div className="bg-surface border border-border rounded-lg p-4">
-        <h2 className="text-sm font-display font-bold text-text mb-3">
-          Account
-        </h2>
+      <SettingsBlock id="sign-in-info">
         <dl className="grid grid-cols-[100px_1fr] gap-y-2 text-xs">
           <dt className="text-dim uppercase tracking-wide text-[10px] self-center">
             Email
@@ -96,9 +91,18 @@ export default function AdminAccountTab() {
         >
           Sign out
         </button>
-      </div>
+      </SettingsBlock>
 
-      {activeRole === 'admin' && <DbToolsCard />}
+      {/* ★★ fix-611 §B: Export backup moved to Health & tools, and KEEPS its
+          admin-only condition exactly as it was. The registry puts the block in
+          the `health` category, so `SettingsBlock` renders it only on that page —
+          but the condition below is what decides whether it exists at all, and
+          that is unchanged. */}
+      {activeRole === 'admin' && (
+        <SettingsBlock id="export-backup">
+          <DbToolsCard />
+        </SettingsBlock>
+      )}
     </div>
   );
 }

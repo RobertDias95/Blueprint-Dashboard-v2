@@ -1,4 +1,5 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
+import { SETTINGS_BLOCKS } from '../lib/settingsBlocks';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
@@ -428,7 +429,14 @@ describe('fix-505 §B/§C: where the control and the picture appear', () => {
   );
 
   it('★★★ Account gets "Your picture", keyed on the viewer\'s own login id', () => {
-    expect(account).toContain('Your picture');
+    // ⚠️ fix-611 §B: the TITLE moved to the block registry — a block's name now
+    //    lives in exactly one place, so the tab names the block and the registry
+    //    names the block's heading. Both halves asserted, so the heading cannot
+    //    quietly disappear.
+    expect(account).toContain('id="your-picture"');
+    expect(
+      SETTINGS_BLOCKS.find((b) => b.id === 'your-picture')?.title,
+    ).toBe('Your picture');
     expect(account).toContain('profileId={user?.id ?? null}');
     // ★ The NAME is the roster name — the key bp_avatar_paths returns, not the
     //   email or the login id.

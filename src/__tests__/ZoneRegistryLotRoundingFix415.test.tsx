@@ -8,7 +8,6 @@ import { commitViaSave } from '../test/bufferedSave';
 import { queryKeys } from '../lib/queryKeys';
 import zoneMigrationSql from '../../migrations/fix_415_zone_registry_and_remap.sql?raw';
 import lotMigrationSql from '../../migrations/fix_415_round_lot_dimensions.sql?raw';
-import settingsSource from '../lib/settingsSections.ts?raw';
 // ★★★ fix-506 §G: the Site editor left `ProjectDetailHeader` for
 //     `ProjectDataEditors` — the overview is read-only now (P-140) and these
 //     controls are the Project Data modal's Site data tab. The MOVE is the only
@@ -31,7 +30,11 @@ import {
 } from '../lib/zoneOptions';
 import { roundLotForStorage } from '../lib/lotDimensions';
 import { filterLibraryRows, type LibraryFilters, type LibraryRow } from '../lib/libraryHelpers';
-import { SETTINGS_SECTIONS } from '../lib/settingsSections';
+import {
+  SETTINGS_REDIRECTS,
+  SETTINGS_SECTIONS,
+} from '../lib/settingsSections';
+import { SETTINGS_BLOCKS } from '../lib/settingsBlocks';
 
 // ===========================================================================
 // fix-415 — zone becomes a registry, lot dimensions round in the database,
@@ -330,25 +333,42 @@ describe('fix-415 §A5: the zone filter finally groups', () => {
 // ---------------------------------------------------------------------------
 
 describe('fix-415 §C: the section says what it holds', () => {
-  it('★★★ the LABEL changed and nothing addressable did — fix-310\'s rule', () => {
-    const section = SETTINGS_SECTIONS.find((s) => s.id === 'projects')!;
-    expect(section.label).toBe('Lists & Catalogs');
-    // ★ The id, the path and every testid are UNCHANGED. A rename that moves a
-    //   route breaks every bookmark, and this has been /settings/projects since
-    //   fix-319.
-    expect(section.id).toBe('projects');
-    expect(section.path).toBe('/settings/projects');
+  it('★★★ the section is now `lists`, and the old path REDIRECTS', () => {
+    // ⚠️⚠️ SUPERSEDED BY fix-611 §A — AND NOT MISTAKEN.
+    //
+    //    fix-415 renamed the LABEL to "Lists & Catalogs" and deliberately left
+    //    the id and the path alone, on fix-310's rule that *"a rename that moves
+    //    a route breaks every bookmark, and this has been /settings/projects
+    //    since fix-319."* That reasoning was right, and it is the reason
+    //    `/settings/projects` still works today.
+    //
+    // ★★★ WHAT CHANGED IS THAT THE ROUTE NOW MOVES *WITH* A REDIRECT. Bobby's
+    //     seven approved categories renamed this one to "Project lists", so the
+    //     id is `lists` — and fix-310's rule is honoured by the redirect rather
+    //     than by refusing to move: the old bookmark still lands on the right
+    //     screen, which is what the rule was protecting.
+    const section = SETTINGS_SECTIONS.find((s) => s.id === 'lists')!;
+    expect(section.label).toBe('Project lists');
+    expect(section.path).toBe('/settings/lists');
     expect(section.adminOnly).toBe(true);
-    expect(strip(settingsSource)).not.toContain("path: '/settings/lists");
+    // ★ the old address is not gone — it is pointed here
+    expect(SETTINGS_REDIRECTS['/settings/projects']).toBe('/settings/lists');
+    expect(SETTINGS_SECTIONS.some((x) => x.path === '/settings/projects')).toBe(false);
   });
 
-  it('★★ the description names what is actually in there, zones included', () => {
-    const section = SETTINGS_SECTIONS.find((s) => s.id === 'projects')!;
-    expect(section.desc.toLowerCase()).toContain('zones');
-    // ★ fix-520 §C (P-229): the section says `types` now — *"unit type and
-    //   product type are the same thing"*. `app_config.productTypeOptions` and
-    //   `projects.product_types` are untouched.
-    expect(section.desc.toLowerCase()).toContain('types');
+  it('★★ the description names what is actually in there', () => {
+    // ⚠️ fix-611 replaced the comma-separated inventory with one sentence, so
+    //    the words "zones" and "types" are no longer in the description — the
+    //    BLOCK TITLES carry those now, and the search box finds them either way.
+    //    What this test still protects is the thing fix-415 cared about: the
+    //    description tells you what the category is for, rather than naming none
+    //    of it (which is what "Projects" did, and why Bobby walked past the
+    //    product-type editor).
+    const section = SETTINGS_SECTIONS.find((s) => s.id === 'lists')!;
+    expect(section.desc.toLowerCase()).toContain('pick lists');
+    // ★ and zones + product types are still findable, as block titles
+    expect(SETTINGS_BLOCKS.some((b) => b.title === 'Zones')).toBe(true);
+    expect(SETTINGS_BLOCKS.some((b) => b.title === 'Product Types')).toBe(true);
   });
 });
 

@@ -156,28 +156,17 @@ describe('<AdminProjectsTab /> Q7.3.a', () => {
     expect(mocks.deleteJuris).toHaveBeenCalledWith({ name: 'Seattle' });
   });
 
-  it('changing learn window commits onBlur with a clamped integer', () => {
+  it('★★★ §E.1 — the per-row learning-window input is gone', () => {
+    // ⚠️⚠️ SUPERSEDED, AND NOT WRONG. This test asserted the input clamped and
+    //    saved on blur, and it did. ⚖️ Bobby, 2026-09-30: *"Learning window per
+    //    city: REMOVE."* — because the number never reached the estimator:
+    //    `getLearnWindow(juris)` discards its argument. The clamp was right; the
+    //    value did nothing.
     renderIt();
-    const win = screen.getByTestId('juris-window-Bellevue') as HTMLInputElement;
-    fireEvent.change(win, { target: { value: '250' } });
-    fireEvent.blur(win);
-    expect(mocks.upsertJuris).toHaveBeenCalledWith({
-      name: 'Bellevue',
-      learn_window_days: 250,
-      notes: null,
-    });
-  });
-
-  it('learn window clamps below-min input up to 30', () => {
-    renderIt();
-    const win = screen.getByTestId('juris-window-Bellevue') as HTMLInputElement;
-    fireEvent.change(win, { target: { value: '5' } });
-    fireEvent.blur(win);
-    expect(mocks.upsertJuris).toHaveBeenLastCalledWith({
-      name: 'Bellevue',
-      learn_window_days: 30,
-      notes: null,
-    });
+    expect(screen.queryByTestId('juris-window-Bellevue')).toBeNull();
+    expect(screen.queryByTestId('juris-window-Seattle')).toBeNull();
+    // ★ the city list itself is untouched — only the number beside it went
+    expect(screen.getByTestId('juris-list-pill-Bellevue')).toBeInTheDocument();
   });
 
   // fix-288: built-in badging and removal locking moved with the editor to
@@ -297,9 +286,10 @@ describe('<AdminProjectsTab /> Q7.3.a', () => {
     expect(
       screen.queryByTestId('juris-list-remove-Seattle'),
     ).not.toBeInTheDocument();
-    // Learn-window number input still renders but is disabled.
-    const win = screen.getByTestId('juris-window-Bellevue') as HTMLInputElement;
-    expect(win.disabled).toBe(true);
+    // ⚠️ fix-611 §E.1: there is no learn-window input to be disabled any more.
+    //    The read-only banner and the hidden add/remove controls — the things this
+    //    test is actually about — are unchanged.
+    expect(screen.queryByTestId('juris-window-Bellevue')).toBeNull();
   });
 
   it('Enter key in add-input submits the same as the Add button', () => {

@@ -1,4 +1,5 @@
 import PillListEditor from './PillListEditor';
+import SettingsBlock, { SettingsSubBlock } from './SettingsBlock';
 import TeamStructureEditor from './TeamStructureEditor';
 import DaRoutingEditor from './DaRoutingEditor';
 import PermitsMissingLeadPanel from './PermitsMissingLeadPanel';
@@ -199,13 +200,15 @@ export default function AdminTeamTab() {
           before any of the rest of this screen applies to somebody. Renders
           nothing at all for a non-admin — a control that cannot work should be
           absent rather than disabled. */}
-      <AddPersonSection readOnly={!isAdmin} />
+      <SettingsBlock id="add-person">
+        <AddPersonSection readOnly={!isAdmin} />
+      </SettingsBlock>
 
       {/* ★ fix-436 C4: the anchor AddPersonSection points at, so "retire them
           in the roster below" is a real link and not a description. */}
       <div id="team-roster" />
 
-      <Section title={ROLE_LABEL.da}>
+      <SettingsBlock id="design-associates">
         <PillListEditor
           label={ROLE_LABEL.da}
           items={daItems}
@@ -218,16 +221,16 @@ export default function AdminTeamTab() {
           readOnly={!isAdmin}
           testIdPrefix="team-da"
         />
-      </Section>
+      </SettingsBlock>
 
-      <Section title="Active Quarters">
+      <SettingsBlock id="active-quarters">
         <TeamActiveQuartersEditor
           activeDas={teamQ.activeDas}
           readOnly={!isAdmin}
         />
-      </Section>
+      </SettingsBlock>
 
-      <Section title={ROLE_LABEL.dm}>
+      <SettingsBlock id="design-managers">
         <PillListEditor
           label={ROLE_LABEL.dm}
           items={dmItems}
@@ -240,9 +243,9 @@ export default function AdminTeamTab() {
           readOnly={!isAdmin}
           testIdPrefix="team-dm"
         />
-      </Section>
+      </SettingsBlock>
 
-      <Section title="Team Structure">
+      <SettingsBlock id="team-structure">
         <TeamStructureEditor
           dms={teamQ.dms}
           activeDas={teamQ.activeDas}
@@ -254,7 +257,7 @@ export default function AdminTeamTab() {
           retiredNames={retiredNames}
           readOnly={!isAdmin}
         />
-      </Section>
+      </SettingsBlock>
 
       {/* ★★★ fix-457 (P-007): DA → entitlement-lead routing, directly under
           Team Structure because they are the two mapping tables that answer
@@ -265,13 +268,13 @@ export default function AdminTeamTab() {
           ★ Same readOnly gating as everything else on this tab: the DATABASE
           refuses a non-admin through RLS, and readOnly only hides the
           affordances. */}
-      <Section title="DA Routing (permitting lead)">
+      <SettingsBlock id="da-routing">
         <DaRoutingEditor
           activeDas={teamQ.activeDas}
           ents={teamQ.ents}
           readOnly={!isAdmin}
         />
-      </Section>
+      </SettingsBlock>
 
       {/* ★★★ fix-461 (P-045 prereq): the DEPARTMENT axis — Policy, Design &
           Entitlements, Acquisitions, Underwriting, and (fix-464) Executive and
@@ -289,9 +292,9 @@ export default function AdminTeamTab() {
           on this tab, in the same warning shape as the other three on purpose.
 
           ★ A DEPARTMENT IS NOT A PERMISSION. Nothing gates on it. */}
-      <Section title="Departments">
+      <SettingsBlock id="departments">
         <DepartmentEditor members={teamQ.all} readOnly={!isAdmin} />
-      </Section>
+      </SettingsBlock>
 
       {/* ★★★ fix-462 §B2 (P-045): who is in the weekly meeting.
           ★ BESIDE Departments, because both answer "what is true of this
@@ -300,9 +303,9 @@ export default function AdminTeamTab() {
           person. Membership is a per-person checkbox by ruling, NOT a
           department: gating by department would mean adding one person to the
           meeting moves their whole department. */}
-      <Section title="Agenda members">
+      <SettingsBlock id="agenda-members">
         <AgendaMembersPanel members={teamQ.all} readOnly={!isAdmin} />
-      </Section>
+      </SettingsBlock>
 
       {/* ★★★ fix-487 §B (P-120) — NAMES AND EMAILS.
           Bobby: *"have the ability to edit our team database so i can enter
@@ -317,9 +320,9 @@ export default function AdminTeamTab() {
           and a director hold no DA/DM/ENT/ACQ/Schematic/CA row, so an edit
           button hung off those pills would have missed a quarter of the roster
           while looking complete. */}
-      <Section title="Names and emails">
+      <SettingsBlock id="names-and-emails">
         <PersonDetailsEditor members={teamQ.all} readOnly={!isAdmin} />
-      </Section>
+      </SettingsBlock>
 
       {/* ★★★ fix-527 §A (P-243) — THE FOURTH ROSTER-GAP SURFACE, AND IN THE
           SAME SHAPE AS THE THREE ABOVE IT. fix-457's "active DA with no routing
@@ -333,9 +336,9 @@ export default function AdminTeamTab() {
           the editor one section up is the control that sets one — a screen that
           reports a gap without naming the control that closes it is a
           complaint. */}
-      <Section title="Who the work data means">
+      <SettingsBlock id="who-the-work-data-means">
         <WorkDataNamesPanel readOnly={!isAdmin} />
-      </Section>
+      </SettingsBlock>
 
       {/* ★★★ fix-589 §A (P-289) — WHICH BUILD EACH PERSON IS ACTUALLY RUNNING.
           Bobby: *"Is there a way to see if others are on a super outdated
@@ -353,9 +356,9 @@ export default function AdminTeamTab() {
           ⚠️ `migrations/fix_589_client_build_seen.sql` is with Bobby. Until it
           runs the panel says "nothing recorded yet" rather than rendering an
           empty table that would read as "everybody is current". */}
-      <Section title="Who is running what">
+      <SettingsBlock id="who-is-running-what">
         <ClientBuildsPanel />
-      </Section>
+      </SettingsBlock>
 
       {/* ★★★ fix-458 §A (P-106): the THIRD roster-gap surface on this tab, and
           deliberately in the same shape as the two above it — fix-457's
@@ -366,27 +369,27 @@ export default function AdminTeamTab() {
           ★★ It sits AFTER DA Routing because that is the causal order: a DA with
           no routing row is why a permit ends up with no lead, and a permit with
           no lead is why seventeen tasks reach nobody. */}
-      <Section title="Permits with no permitting lead">
+      <SettingsBlock id="permits-with-no-lead">
         <PermitsMissingLeadPanel ents={teamQ.ents} readOnly={!isAdmin} />
-      </Section>
+      </SettingsBlock>
 
       {/* ★★ fix-347 §2: the custom chat tags. Beside the other roster that
           decides who gets pinged, admin-gated the same way (the DATABASE
           refuses a non-admin; readOnly only hides the buttons). */}
-      <Section title="Chat Tags">
+      <SettingsBlock id="chat-tags">
         <MentionTagsEditor readOnly={!isAdmin} />
-      </Section>
+      </SettingsBlock>
 
-      <Section title="Draw Schedule Layout (per quarter)">
+      <SettingsBlock id="draw-schedule-layout">
         <QuarterLayoutEditor
           das={[...teamQ.activeDas, ...teamQ.formerDas]}
           dms={teamQ.dms}
           ents={teamQ.ents}
           readOnly={!isAdmin}
         />
-      </Section>
+      </SettingsBlock>
 
-      <Section title={ROLE_LABEL.ent}>
+      <SettingsBlock id="entitlement-leads">
         <PillListEditor
           label={ROLE_LABEL.ent}
           items={entItems}
@@ -397,9 +400,9 @@ export default function AdminTeamTab() {
           readOnly={!isAdmin}
           testIdPrefix="team-ent"
         />
-      </Section>
+      </SettingsBlock>
 
-      <Section title={ROLE_LABEL.acq}>
+      <SettingsBlock id="acquisition-leads">
         <PillListEditor
           label={ROLE_LABEL.acq}
           items={acqItems}
@@ -410,11 +413,11 @@ export default function AdminTeamTab() {
           readOnly={!isAdmin}
           testIdPrefix="team-acq"
         />
-      </Section>
+      </SettingsBlock>
 
       {/* fix-222: Schematic Team roster — feeds the wizard's Schematic Designer
           picker and routes 'Schematic Team' template tasks. */}
-      <Section title={ROLE_LABEL.schematic}>
+      <SettingsBlock id="schematic">
         <PillListEditor
           label={ROLE_LABEL.schematic}
           items={schematicItems}
@@ -427,7 +430,7 @@ export default function AdminTeamTab() {
           readOnly={!isAdmin}
           testIdPrefix="team-schematic"
         />
-      </Section>
+      </SettingsBlock>
 
       {/* ★★★ fix-487 (P-144) — CONSTRUCTION ADMINS, the sixth role list.
           Bobby: *"We want to add one more internal position, construction
@@ -437,7 +440,7 @@ export default function AdminTeamTab() {
             role-parameterised, so nothing new is needed for either. There is no
             lead/second grade for this role, so `findAllByName`'s family
             branches do not apply and its plain `else` is correct. */}
-      <Section title={ROLE_LABEL.ca}>
+      <SettingsBlock id="construction-admin">
         <PillListEditor
           label={ROLE_LABEL.ca}
           items={caItems}
@@ -448,10 +451,17 @@ export default function AdminTeamTab() {
           readOnly={!isAdmin}
           testIdPrefix="team-ca"
         />
-      </Section>
+      </SettingsBlock>
 
-      {formerItems.length > 0 && (
-        <Section title="Former DAs (alumni)">
+      {/* ★★★ fix-611 §B — FORMER & INACTIVE, ONE CARD. Two lists of people off
+          the active roster, which were two cards for no reason beyond coming
+          from two different fields of one hook. Each half still renders only
+          when it has somebody in it, and the card itself only when either does —
+          so an empty roster shows nothing, exactly as before. */}
+      {(formerItems.length > 0 || otherInactive.length > 0) && (
+        <SettingsBlock id="former-and-inactive">
+          {formerItems.length > 0 && (
+            <SettingsSubBlock title="Former Design Associates">
           <p className="text-[11px] text-muted mb-2">
             Restored DAs return to the active list. Permanent removal cannot be
             undone — historical permits referencing the name keep the string.
@@ -487,8 +497,8 @@ export default function AdminTeamTab() {
               </span>
             ))}
           </div>
-        </Section>
-      )}
+            </SettingsSubBlock>
+          )}
 
       {/* ★★★ fix-407 — THE ALUMNI SECTION STOPS BEING DA-ONLY.
           Bobby: *"a wholistic clean … to ensure our ecosystem is update to
@@ -503,8 +513,8 @@ export default function AdminTeamTab() {
           footgun in the name of tidiness. This section's job is to make them
           VISIBLE; who inherits their rows is fix-407's transition report, and
           Bobby's call. */}
-      {otherInactive.length > 0 && (
-        <Section title="Inactive (other roles)">
+          {otherInactive.length > 0 && (
+            <SettingsSubBlock title="Inactive (other roles)">
           <p className="text-[11px] text-muted mb-2">
             On the roster but not active, so they are offered by no picker. They
             may still be named on live records — see the fix-407 transition
@@ -533,17 +543,14 @@ export default function AdminTeamTab() {
               </span>
             ))}
           </div>
-        </Section>
+            </SettingsSubBlock>
+          )}
+        </SettingsBlock>
       )}
     </div>
   );
 }
 
-function Section({ title, children }: { title: string; children: React.ReactNode }) {
-  return (
-    <div className="bg-surface border border-border rounded-lg p-4">
-      <h2 className="text-sm font-display font-bold text-text mb-3">{title}</h2>
-      {children}
-    </div>
-  );
-}
+// ★ fix-611: the local `Section` helper is gone — `SettingsBlock` is the one
+//   card chrome now, and it takes the title from the registry rather than from a
+//   prop, so a block's name lives in exactly one place.
