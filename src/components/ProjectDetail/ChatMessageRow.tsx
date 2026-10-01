@@ -21,6 +21,8 @@ import type { MessageReaction } from '../../hooks/useMessageReactions';
 import type { MentionTarget } from '../../lib/mentionTags';
 import ChatAttachments from './ChatAttachments';
 import ChatTaskComposer from './ChatTaskComposer';
+import ChatTaskStatus from './ChatTaskStatus';
+import { chatTaskStatus } from '../../lib/chatTaskStatus';
 import MentionTextarea from './MentionTextarea';
 import type {
   MentionablePerson,
@@ -96,6 +98,8 @@ export default function ChatMessageRow({
   const mine = !!userId && message.author_id === userId;
   const deleted = isDeleted(message);
   const made = !!message.task_id;
+  // ★ fix-603: null until the migration is applied → the row is unchanged.
+  const taskStatus = made ? chatTaskStatus(message) : null;
 
   const [composing, setComposing] = useState(false);
   const [editing, setEditing] = useState(false);
@@ -317,7 +321,10 @@ export default function ChatMessageRow({
             }}
             data-testid={`project-chat-task-${message.id}`}
           >
-            <span className="font-bold text-text">✓ {message.task_text}</span>
+            {/* ★ fix-603: a completed task reads quiet — dim, ✓ kept. */}
+            <span className={`font-bold ${taskStatus?.done ? 'text-dim' : 'text-text'}`}>
+              ✓ {message.task_text}
+            </span>
             <span className="text-dim"> · created from this message</span>
             {taskPermit && (
               <>
@@ -330,6 +337,14 @@ export default function ChatMessageRow({
                   {permitChoiceLabel(taskPermit)}
                 </OriginLink>
               </>
+            )}
+            {taskStatus && (
+              <ChatTaskStatus
+                messageId={message.id}
+                view={taskStatus}
+                projectId={projectId}
+                permitId={message.task_permit_id}
+              />
             )}
           </div>
         ) : composing ? (

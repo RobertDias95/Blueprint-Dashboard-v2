@@ -531,6 +531,16 @@ export interface ProjectMessage {
   /** ★ fix-330: WHICH permit that task landed on. The link-back can now name
    *  the permit instead of asserting the task went somewhere. */
   task_permit_id: number | null;
+  /** ★ fix-603: what happened to that task. OPTIONAL as well as nullable:
+   *  they are absent until migrations/fix_603_chat_task_status.sql is applied,
+   *  and the row must render exactly as before when they are. */
+  /** `permit_tasks.completion_status` — Open / In Progress / Resolved. */
+  task_status?: string | null;
+  task_done?: boolean | null;
+  task_done_at?: string | null;
+  /** The raw `assigned_to` — a NAME or a ROLE ("Design Manager"). */
+  task_assigned_to?: string | null;
+  task_due_date?: string | null;
 
   // ── fix-334 ──────────────────────────────────────────────────────────────
   /** ★ NULL means this row IS a post; non-null means it is a reply under that
