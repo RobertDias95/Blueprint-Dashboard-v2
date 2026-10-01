@@ -261,6 +261,29 @@ export function anchorShortLabel(anchor: TargetSubmitAnchor): string {
       return 'BP issued';
     case 'mirror_bp':
       return 'BP target';
+    case 'none':
+      return 'no anchor';
+  }
+}
+
+/** ★ fix-615: what a type's target submit is measured FROM, in words — the
+ *  per-type schedule table and the benchmark note both say it this way. */
+export function anchorWords(anchor: TargetSubmitAnchor): string {
+  switch (anchor) {
+    case 'dd_end':
+      return 'after design (DD) ends';
+    case 'go_date':
+      return 'after the GO date';
+    case 'bp_c0_intake':
+      return "after the Building Permit's intake";
+    case 'bp_c1_resub':
+      return "after the Building Permit's cycle-1 resubmit";
+    case 'bp_actual_issue':
+      return 'after the Building Permit issues';
+    case 'mirror_bp':
+      return "uses the Building Permit's date";
+    case 'none':
+      return 'no anchor — no automatic target';
   }
 }
 

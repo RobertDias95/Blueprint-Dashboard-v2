@@ -61,6 +61,14 @@ import {
 } from '../lib/targetSubmitLearner';
 import type { RecencyTier } from '../lib/scheduleBenchmarks';
 import {
+  resolveTargetSubmitDays,
+  type TargetSubmitDaysSource,
+} from '../lib/targetSubmitPolicy';
+import {
+  resolveTargetSubmitOffset,
+  useTargetSubmitFormulas,
+} from '../hooks/useTargetSubmitFormulas';
+import {
   comparisonLabelForRange,
   formatCompareNumber,
   legacyCompareToRange,
@@ -83,7 +91,7 @@ import {
   buildTrendsDrillIn,
   type TrendsDrillInKey,
 } from '../lib/trendsDrillIn';
-import type { PermitWithCycles, Project } from '../lib/database.types';
+import type { PermitWithCycles, Project, TargetSubmitFormula } from '../lib/database.types';
 
 // fix-25-feat-T → V → BB: Trends — operational performance + volume +
 // learned target_submit, merged into one sectioned surface. Replaces
@@ -169,6 +177,8 @@ function TrendsBody({ permits, projects, catalogTypes }: BodyProps) {
   const [searchParams, setSearchParams] = useSearchParams();
   // fix-171 (effect E for target_submit): drop held samples from the learner.
   const holdsQ = useAllProjectHolds();
+  // ★ fix-615 §B.3: the Settings formulas — Trends reads them as the server does.
+  const formulasQ = useTargetSubmitFormulas();
   const today = useMemo(() => new Date(), []);
   const defaultRange = useMemo(() => defaultDateRange(today), [today]);
 
@@ -763,8 +773,9 @@ function TrendsBody({ permits, projects, catalogTypes }: BodyProps) {
         filters,
         today,
         holdsByProjectId(holdsQ.data),
+        formulasQ.byScope,
       ),
-    [permits, projectsById, catalogTypes, jurisOptions, filters, today, holdsQ.data],
+    [permits, projectsById, catalogTypes, jurisOptions, filters, today, holdsQ.data, formulasQ.byScope],
   );
 
   type SortKey =
@@ -1625,15 +1636,16 @@ function TrendsBody({ permits, projects, catalogTypes }: BodyProps) {
                 <TargetTh align="left">Type</TargetTh>
                 <TargetTh align="left">Anchor</TargetTh>
                 <TargetTh align="right">n</TargetTh>
-                <TargetTh align="right">Avg days</TargetTh>
+                <TargetTh align="right">History (days)</TargetTh>
                 <TargetTh align="left">Tier</TargetTh>
-                <TargetTh align="left">Source</TargetTh>
+                <TargetTh align="right">Target (days)</TargetTh>
+                <TargetTh align="left">Target from</TargetTh>
               </tr>
             </thead>
             <tbody>
               {targetSubmitRows.length === 0 && (
                 <tr>
-                  <td colSpan={7} className="px-3 py-4 text-center text-dim italic">
+                  <td colSpan={8} className="px-3 py-4 text-center text-dim italic">
                     No applicable (juris × type) combos with the current filter
                   </td>
                 </tr>
@@ -1659,16 +1671,18 @@ function TrendsBody({ permits, projects, catalogTypes }: BodyProps) {
                   <Td>
                     <TierBadge tier={row.source} />
                   </Td>
+                  <Td align="right">
+                    <span data-testid={`trends-ts-target-${row.juris}-${row.type}`}>
+                      {row.targetDays === null ? '—' : `${row.targetDays}d`}
+                    </span>
+                  </Td>
                   <Td>
-                    {row.source === 'default' ? (
-                      <span className="text-[9px] italic text-dim">
-                        hardcoded fallback
-                      </span>
-                    ) : (
-                      <span className="text-[9px] text-text">
-                        learned{row.isCrossJuris ? ' (cross-juris)' : ''}
-                      </span>
-                    )}
+                    <span
+                      className={`text-[9px] ${row.targetSource === 'policy' ? 'text-text' : 'italic text-dim'}`}
+                      data-testid={`trends-ts-target-source-${row.juris}-${row.type}`}
+                    >
+                      {targetSourceWords(row.targetSource, row.isCrossJuris)}
+                    </span>
                   </Td>
                 </tr>
               ))}
@@ -1813,9 +1827,14 @@ interface TargetSubmitRow {
   type: string;
   anchor: TargetSubmitAnchor;
   n: number;
+  /** What history says (the learner) — evidence, not the target. */
   avgDays: number | null;
   source: RecencyTier;
   isCrossJuris: boolean;
+  /** ★ fix-615 §B.3: the offset the SERVER uses for this (type, juris), by
+   *  fix-249's rule — policy first, then history, then the built-in number. */
+  targetDays: number | null;
+  targetSource: TargetSubmitDaysSource | null;
 }
 
 function buildTargetSubmitRows(
@@ -1826,13 +1845,16 @@ function buildTargetSubmitRows(
   filters: PerfTrendsFilters,
   today: Date,
   holdsByProjectIdMap?: Map<string, import('../lib/database.types').ProjectHold[]>,
+  /** ★ fix-615 §B.3: the Settings formulas (useTargetSubmitFormulas().byScope). */
+  formulasByScope: Map<string, TargetSubmitFormula> = new Map(),
 ): TargetSubmitRow[] {
   // Mirror types (G&C / LSM) don't have a learner — anchorFor returns
   // 'mirror_bp' and they're excluded here. Catalog types with no entry
   // in HARDCODED_TARGET_SUBMIT_OFFSETS (and no anchor) also drop.
   const eligibleTypes = catalogTypes.filter((t) => {
     const a = anchorFor(t);
-    if (a === 'mirror_bp') return false;
+    // ★ fix-615: `none` types get no automatic target at all (gap 6).
+    if (a === 'mirror_bp' || a === 'none') return false;
     return true;
   });
 
@@ -1852,18 +1874,31 @@ function buildTargetSubmitRows(
         today,
         holdsByProjectIdMap,
       );
-      // Skip rows that don't even have a hardcoded fallback (custom types).
-      if (result.value === null && !(type in HARDCODED_TARGET_SUBMIT_OFFSETS)) {
-        continue;
-      }
+      // ★★★ fix-615 §B.3 (census gap 4) — POLICY FIRST, as the server does.
+      //     This table used to present the learner's number, falling back to
+      //     the built-in offsets, as if it were the target — the opposite of
+      //     fix-249's rule. The target now comes from the one resolver
+      //     (`resolveTargetSubmitDays`) fed the one offset lookup
+      //     (`resolveTargetSubmitOffset`, the SQL's own): the city's formula,
+      //     else Base; history only where no formula exists; the built-in
+      //     number last. History stays in its own column, as evidence.
+      const learned = result.source === 'default' ? null : result.value;
+      const resolved = resolveTargetSubmitDays({
+        policyDays: resolveTargetSubmitOffset(formulasByScope, type, juris),
+        learnerDays: learned,
+        hardcodedDays: HARDCODED_TARGET_SUBMIT_OFFSETS[type] ?? null,
+      });
+      if (resolved.days === null && result.value === null) continue;
       out.push({
         juris,
         type,
         anchor: anchorFor(type),
         n: result.sampleCount,
-        avgDays: result.value,
+        avgDays: learned,
         source: result.source,
         isCrossJuris: result.isCrossJuris,
+        targetDays: resolved.days,
+        targetSource: resolved.source,
       });
     }
   }
@@ -1876,6 +1911,23 @@ function buildTargetSubmitRows(
     return a.type.localeCompare(b.type);
   });
   return out;
+}
+
+/** ★ fix-615 §B.3: where the target came from, in words. */
+function targetSourceWords(
+  source: TargetSubmitDaysSource | null,
+  isCrossJuris: boolean,
+): string {
+  switch (source) {
+    case 'policy':
+      return 'Settings (the standard)';
+    case 'learner':
+      return `history — no formula set${isCrossJuris ? ' (cross-juris)' : ''}`;
+    case 'hardcoded':
+      return 'hardcoded fallback';
+    default:
+      return '—';
+  }
 }
 
 function anchorLabel(anchor: TargetSubmitAnchor): string {
@@ -1892,6 +1944,8 @@ function anchorLabel(anchor: TargetSubmitAnchor): string {
       return 'BP actual_issue';
     case 'mirror_bp':
       return '— (mirrors BP)';
+    case 'none':
+      return '— (no anchor)';
   }
 }
 

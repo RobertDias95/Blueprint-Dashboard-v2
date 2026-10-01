@@ -4,7 +4,7 @@ import {
   useTargetSubmitFormulas,
 } from '../../hooks/useTargetSubmitFormulas';
 import { anchorFor } from '../../lib/targetSubmitLearner';
-import { describeBenchmarkGap } from '../../lib/targetSubmitPolicy';
+import { anchorWords, describeBenchmarkGap } from '../../lib/targetSubmitPolicy';
 
 // fix-249: the line under the Target Submit date.
 //
@@ -43,9 +43,23 @@ export default function TargetSubmitBenchmarkNote({
   const formulasQ = useTargetSubmitFormulas();
 
   const anchor = anchorFor(type);
-  // Mirror types (G&C / LSM) copy the BP target outright — no cohort, nothing
-  // meaningful to compare against.
-  if (!type || anchor === 'mirror_bp') return null;
+  if (!type) return null;
+  // ★ fix-615 (gap 6): these used to render NOTHING, so a reader could not
+  //   tell "no history yet" from "this type has no target rule". Mirror types
+  //   (G&C / LSM) copy the BP target outright; `none` types (PPR, Vault, WAC,
+  //   STFI…) get no automatic target from the server at all. Say which.
+  if (anchor === 'mirror_bp' || anchor === 'none') {
+    return (
+      <span
+        className="text-[9px] leading-tight italic"
+        style={{ color: 'var(--color-dim)' }}
+        data-testid={testid}
+        data-anchor={anchor}
+      >
+        {anchorWords(anchor)}
+      </span>
+    );
+  }
 
   // Same resolution the SQL does: per-juris override → Base row → null.
   const policyOffset = resolveTargetSubmitOffset(

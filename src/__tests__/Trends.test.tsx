@@ -170,6 +170,24 @@ vi.mock('../hooks/usePermitTypes', () => ({
   }),
 }));
 
+// ★ fix-615 §B.3: Trends reads the Settings formulas now. Empty by default, so
+//   every existing case resolves exactly as it did (no policy → history →
+//   built-in); the policy-first cases below fill it.
+const formulas615 = vi.hoisted(() => ({
+  rows: [] as { type: string; jurisdiction: string | null; offset_days: number; updated_at: string }[],
+}));
+vi.mock('../hooks/useTargetSubmitFormulas', async (importActual) => {
+  const actual = await importActual<typeof import('../hooks/useTargetSubmitFormulas')>();
+  return {
+    ...actual,
+    useTargetSubmitFormulas: () => {
+      const byScope = new Map<string, (typeof formulas615.rows)[number]>();
+      for (const f of formulas615.rows) byScope.set(actual.formulaScopeKey(f.type, f.jurisdiction), f);
+      return { formulas: formulas615.rows, byScope, isLoading: false, error: null, refetch: vi.fn() };
+    },
+  };
+});
+
 import Trends from '../pages/Trends';
 
 function renderTrends() {
@@ -306,6 +324,32 @@ describe('Trends — fix-25-feat-V submit→intake surface', () => {
     expect(tierBadge).toBeTruthy();
     // Source column reads "hardcoded fallback" for default tier.
     expect(demoRow.textContent).toMatch(/hardcoded fallback/i);
+  });
+
+  it('★★★ fix-615 §B.3: the TARGET is the Settings formula — policy first, as the server does', () => {
+    formulas615.rows = [
+      { type: 'Demolition', jurisdiction: null, offset_days: 5, updated_at: '2026-01-01T00:00:00Z' },
+    ];
+    renderTrends();
+    expect(screen.getByTestId('trends-ts-target-Seattle-Demolition').textContent).toBe('5d');
+    expect(screen.getByTestId('trends-ts-target-source-Seattle-Demolition').textContent).toMatch(/Settings/);
+    formulas615.rows = [];
+  });
+
+  it('★★★ fix-615 §B.3: a city formula beats Base, exactly as bp_target_submit_offset resolves', () => {
+    formulas615.rows = [
+      { type: 'Building Permit', jurisdiction: null, offset_days: 21, updated_at: '2026-01-01T00:00:00Z' },
+      { type: 'Building Permit', jurisdiction: 'Seattle', offset_days: 30, updated_at: '2026-01-01T00:00:00Z' },
+    ];
+    renderTrends();
+    expect(screen.getByTestId('trends-ts-target-Seattle-Building Permit').textContent).toBe('30d');
+    formulas615.rows = [];
+  });
+
+  it('★★ fix-615 §B.3: with no formula the built-in number is the target — and says so', () => {
+    formulas615.rows = [];
+    renderTrends();
+    expect(screen.getByTestId('trends-ts-target-source-Seattle-Demolition').textContent).toBe('hardcoded fallback');
   });
 
   it('Variance section paragraph quotes the submit→intake weighted avg + target hit rate', () => {

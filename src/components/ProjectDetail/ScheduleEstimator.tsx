@@ -19,6 +19,7 @@ import {
 } from '../../lib/projectedApproval';
 import type { PermitCycle, PermitWithCycles } from '../../lib/database.types';
 import { useCorrectionOdds } from '../../hooks/useCorrectionOdds';
+import { usePermitTypeDefaults } from '../../hooks/usePermitTypeDefaults';
 
 // Q9.5.f-fix-11 C: Schedule Estimator widget. Read-only port of v1's
 // buildScheduleEstimator (index.html:4544-4660). Renders inside the
@@ -124,6 +125,7 @@ export default function ScheduleEstimator({ permit }: Props) {
   // ★ fix-614 (P-300): the last round's correction count, and this city's
   //   history for it. No signal (not applied / no round) → unchanged.
   const { signalFor: correctionSignalFor } = useCorrectionOdds();
+  const typeDefaultsOverride = usePermitTypeDefaults().byType;
   const correctionSignal = useMemo(
     () => correctionSignalFor(permit, projectJuris),
     [correctionSignalFor, permit, projectJuris],
@@ -151,8 +153,11 @@ export default function ScheduleEstimator({ permit }: Props) {
         // fix-32: reviewer-corrections rule feeds into targetCycle.
         permitReviewers,
         correctionSignal,
+        // ★ fix-615 §B.1 (gap 2): the Settings per-type defaults — the same
+        //   map Schedule Health and the Overview pass, so all four agree.
+        typeDefaultsOverride,
       }),
-    [permit, permitHolds, learnedEstimate, projectGoDate, siblings, siblingCyclesByPermitId, siblingLearnedByPermitId, cycleOverride, permitReviewers, correctionSignal],
+    [permit, permitHolds, learnedEstimate, projectGoDate, siblings, siblingCyclesByPermitId, siblingLearnedByPermitId, cycleOverride, permitReviewers, correctionSignal, typeDefaultsOverride],
   );
 
   /**

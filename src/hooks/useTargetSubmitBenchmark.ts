@@ -69,7 +69,8 @@ export function useTargetSubmitBenchmark(
 ) {
   const tenantId = useAuthStore((s) => s.activeTenantId) ?? '';
   const anchor = type ? anchorFor(type) : 'mirror_bp';
-  const enabled = !!tenantId && !!type && !!juris && anchor !== 'mirror_bp';
+  const enabled =
+    !!tenantId && !!type && !!juris && anchor !== 'mirror_bp' && anchor !== 'none';
 
   return useQuery<TargetSubmitBenchmark>({
     queryKey: queryKeys.targetSubmitBenchmark(
@@ -103,7 +104,7 @@ export function useTargetSubmitBenchmarks(
     queries: types.map((type) => {
       const anchor = anchorFor(type);
       const enabled =
-        !!tenantId && !!juris && anchor !== 'mirror_bp';
+        !!tenantId && !!juris && anchor !== 'mirror_bp' && anchor !== 'none';
       return {
         queryKey: queryKeys.targetSubmitBenchmark(
           tenantId,

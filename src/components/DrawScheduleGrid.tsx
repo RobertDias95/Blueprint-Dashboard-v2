@@ -113,6 +113,7 @@ import {
 import { holdKind } from '../lib/database.types';
 import { isActiveProject } from '../lib/activeProject';
 import { useCorrectionOdds } from '../hooks/useCorrectionOdds';
+import { usePermitTypeDefaults } from '../hooks/usePermitTypeDefaults';
 
 // Q6.1: read-only render of all draw_schedule rows. Mirrors v1's
 // renderDrawSchedule layout (index.html lines 7875-8090):
@@ -409,6 +410,7 @@ function DrawScheduleBody({
   // permit carries an approval_date or actual_issue; we just thread
   // that flag through the cache instead of dropping it on the floor.
   const { signalFor: correctionSignalFor } = useCorrectionOdds();
+  const typeDefaultsOverride = usePermitTypeDefaults().byType;
   const projectionByProjectId = useMemo(() => {
     type WithCycles = Permit & { permit_cycles?: PermitCycle[] | null };
     const permitsWithCycles = permits as WithCycles[];
@@ -478,6 +480,9 @@ function DrawScheduleBody({
         permitReviewers: reviewersByPermitId.get(bp.id) ?? [],
         // ★ fix-614 (P-300): the same correction-count signal the estimator uses.
         correctionSignal: correctionSignalFor(bp, juris),
+        // ★ fix-615 §B.1 (gap 2): the Settings per-type defaults, as every
+        //   other projection passes them.
+        typeDefaultsOverride,
       });
       m.set(
         project.id,
@@ -487,7 +492,7 @@ function DrawScheduleBody({
       );
     }
     return m;
-  }, [projects, permits, permitsByProjectId, projectsById, reviewersByPermitId, correctionSignalFor]);
+  }, [projects, permits, permitsByProjectId, projectsById, reviewersByPermitId, correctionSignalFor, typeDefaultsOverride]);
   const weeks = useMemo(() => getQuarterWeeks(quarterOffset), [quarterOffset]);
   const currentWeek = useMemo(() => dateToWeekKey(getMonday(new Date())), []);
 

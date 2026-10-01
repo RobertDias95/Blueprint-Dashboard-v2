@@ -1,7 +1,6 @@
-import PermitTypeDefaultsEditor from './PermitTypeDefaultsEditor';
-import TargetSubmitFormulasEditor from './TargetSubmitFormulasEditor';
+import PerTypeScheduleTable from './PerTypeScheduleTable';
 import { useIsTenantAdmin } from '../../hooks/useIsTenantAdmin';
-import SettingsBlock, { SettingsSubBlock } from './SettingsBlock';
+import SettingsBlock from './SettingsBlock';
 
 // ===========================================================================
 // ★★★ fix-611 §E.1 — THE LEARNING WINDOWS BLOCK IS GONE
@@ -43,8 +42,10 @@ import SettingsBlock, { SettingsSubBlock } from './SettingsBlock';
 // declined to move either; this is where they finally meet, and fix-613 makes
 // them a single table.
 //
-// ★ `PermitTypeDefaultsEditor` is mounted with the same (absent) props it always
-//   had — it owns its own admin gate. Nothing inside it changed.
+// ★★★ fix-615 §A: AND IT IS ONE TABLE NOW. The two stacked editors
+//     (TargetSubmitFormulasEditor + PermitTypeDefaultsEditor) are retired —
+//     `PerTypeScheduleTable` is one row per catalogue type with both halves'
+//     numbers, saving through the same RPCs they used.
 
 export default function AdminScheduleTab() {
   const isAdmin = useIsTenantAdmin();
@@ -56,15 +57,9 @@ export default function AdminScheduleTab() {
           Read-only — you need tenant admin to edit the per-type schedule.
         </div>
       )}
-      {/* ★★ ONE CARD, TWO SUB-HEADINGS — §B's shape for a merged block. Both
-          editors are mounted exactly as they were, with the props they had. */}
+      {/* ★ fix-615 §A: one card, one table. */}
       <SettingsBlock id="per-type-schedule">
-        <SettingsSubBlock title="Target submit (per type × city)">
-          <TargetSubmitFormulasEditor readOnly={!isAdmin} />
-        </SettingsSubBlock>
-        <SettingsSubBlock title="Intake → approval defaults (per type)">
-          <PermitTypeDefaultsEditor />
-        </SettingsSubBlock>
+        <PerTypeScheduleTable readOnly={!isAdmin} />
       </SettingsBlock>
     </div>
   );

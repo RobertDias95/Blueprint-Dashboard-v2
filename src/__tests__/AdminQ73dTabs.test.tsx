@@ -157,16 +157,19 @@ describe('<AdminScheduleTab /> — after §E.1', () => {
     expect(screen.queryByText(/Schedule Benchmarks/i)).toBeNull();
   });
 
-  it('★★ what the tab holds now is the per-type schedule, both halves', () => {
+  it('★★ what the tab holds now is the per-type schedule, both halves — as ONE table', async () => {
     // §B: the target-submit formulas moved here from AdminPermitsTab so the two
-    // halves of one question are one card. fix-613 makes them one table.
+    // halves of one question are one card. ★ fix-615 made them one table: the
+    // two stacked sub-blocks are gone and PerTypeScheduleTable is mounted.
     renderIt(<AdminScheduleTab />);
     expect(
-      screen.getByTestId('settings-subblock-Target submit (per type × city)'),
-    ).toBeInTheDocument();
+      screen.queryByTestId('settings-subblock-Target submit (per type × city)'),
+    ).toBeNull();
     expect(
-      screen.getByTestId('settings-subblock-Intake → approval defaults (per type)'),
-    ).toBeInTheDocument();
+      screen.queryByTestId('settings-subblock-Intake → approval defaults (per type)'),
+    ).toBeNull();
+    const src = (await import('../components/Settings/AdminScheduleTab.tsx?raw')).default;
+    expect(src).toContain('<PerTypeScheduleTable readOnly={!isAdmin} />');
   });
 
   it('★ a non-admin still gets the read-only banner', () => {

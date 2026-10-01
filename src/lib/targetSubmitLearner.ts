@@ -34,7 +34,11 @@ export type TargetSubmitAnchor =
   | 'bp_c0_intake'
   | 'bp_c1_resub'
   | 'bp_actual_issue'
-  | 'mirror_bp';
+  | 'mirror_bp'
+  /** ★ fix-615 (gap 6): a type the server gives NO automatic target to —
+   *  `bp_recompute_target_submits`' CASE ends `ELSE NULL`. Before this it was
+   *  reported as `mirror_bp`, which claimed a date the server never writes. */
+  | 'none';
 
 /** fix-25-feat-J's offset table — surfaces as tier-5 fallback when no
  *  cohort signal exists at any window or jurisdiction scope. Mirrors
@@ -81,7 +85,9 @@ export function anchorFor(type: string | null | undefined): TargetSubmitAnchor {
     case 'LSM':
       return 'mirror_bp';
     default:
-      return 'mirror_bp';
+      // ★ fix-615 (gap 6): PPR, Vault, WAC, STFI and any new catalogue type.
+      //   The server's CASE has no branch for them → no automatic target.
+      return 'none';
   }
 }
 
@@ -150,6 +156,7 @@ function getAnchorDate(
     case 'bp_actual_issue':
       return bpSibling?.actual_issue ?? null;
     case 'mirror_bp':
+    case 'none':
       return null;
   }
 }
@@ -168,7 +175,7 @@ export function extractTargetSubmitSample(
 ): TargetSubmitSample | null {
   if (!permit.type) return null;
   const anchor = anchorFor(permit.type);
-  if (anchor === 'mirror_bp') return null;
+  if (anchor === 'mirror_bp' || anchor === 'none') return null;
   const anchorDate = getAnchorDate(permit, project, bpSibling, anchor);
   if (!anchorDate) return null;
   const c0 = (permit.permit_cycles ?? []).find((c) => c.cycle_index === 0);
@@ -306,7 +313,7 @@ export function computeLearnedTargetSubmit(
   holdsByProjectId?: Map<string, ProjectHold[]>,
 ): CascadeResult {
   const anchor = anchorFor(filter.type);
-  if (anchor === 'mirror_bp') {
+  if (anchor === 'mirror_bp' || anchor === 'none') {
     return { value: null, source: 'default', sampleCount: 0, isCrossJuris: false };
   }
   // (type, juris) only.

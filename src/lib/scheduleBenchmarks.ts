@@ -63,22 +63,39 @@ export const DEFAULT_AVG_INTAKE_TO_APPROVAL = 210;
  *  Used when (type, juris) and (type, *) both have insufficient samples.
  *  Starter values; refine as real samples accumulate or via a future
  *  editable-defaults settings panel. */
+//
+// ★★★ fix-615 §B.2 (census gap 3) — KEYED BY THE CATALOGUE. This table used
+//     names no permit carries (`Use Limitation`, `Land Use`, `LU`,
+//     `Pre-Application`, `PA`, `SDOT`) and lacked three that 67 permits do
+//     carry (`SDOT Tree`, `PAR/Pre-Sub`, `ECA Waiver`), so those fell through
+//     to the 210-day catch-all. Every key is now a `permit_types` name:
+//       SDOT → SDOT Tree (45) · Pre-Application/PA → PAR/Pre-Sub (30)
+//       Use Limitation → (dropped; it was ULS's long name, ULS keeps 90)
+//       Land Use/LU → (dropped; no catalogue type — the land-use permits are
+//                      ULS/LBA/Short Plat, which keep their own rows)
+//     and the four catalogue types with no old key take the value their
+//     Settings row holds on prod (2026-10-01): ECA Waiver 30 · STFI 30 ·
+//     Grading / Clearing 210 · LSM 210. PPR, Vault and WAC have no Settings
+//     row and no meaning-match, so they stay on PER_TYPE_FALLBACK_DAYS.
+//
+// ★ It is only the fallback UNDER the Settings row — `defaultDaysForType`
+//   reads the per-type defaults first.
 export const PER_TYPE_DEFAULT_DAYS: Record<string, number> = {
   'Building Permit': 210,
-  'Demolition': 60,
-  'ULS': 90,
-  'Use Limitation': 90,
-  'Land Use': 180,
-  LU: 180,
-  'Pre-Application': 30,
-  PA: 30,
+  Demolition: 60,
+  ULS: 90,
   IPR: 30,
   LBA: 120,
   Condo: 180,
   'Short Plat': 180,
   SIP: 60,
-  SDOT: 45,
+  'SDOT Tree': 45,
   TRAO: 30,
+  'PAR/Pre-Sub': 30,
+  'ECA Waiver': 30,
+  STFI: 30,
+  'Grading / Clearing': 210,
+  LSM: 210,
 };
 
 /** fix-24i: fallback for unknown / custom permit types. Same value as the

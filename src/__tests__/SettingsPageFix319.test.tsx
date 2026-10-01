@@ -329,9 +329,9 @@ describe('fix-319 #77: Phase Durations lives in Settings → Permits', () => {
     const src = (await import('../components/Settings/AdminPermitsTab.tsx?raw')).default;
     const schedule = (await import('../components/Settings/AdminScheduleTab.tsx?raw'))
       .default;
-    // the two halves of the target, together at last, in one block
-    expect(schedule).toContain('<TargetSubmitFormulasEditor');
-    expect(schedule).toContain('<PermitTypeDefaultsEditor');
+    // the two halves of the target, together at last, in one block — and since
+    // fix-615, in ONE TABLE (the two stacked editors are retired)
+    expect(schedule).toContain('<PerTypeScheduleTable');
     expect(schedule).toContain('id="per-type-schedule"');
     // and the evidence read-out keeps its explanatory line
     expect(src).toContain('<PhaseDurationsReport');
