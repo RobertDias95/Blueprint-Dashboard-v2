@@ -598,7 +598,11 @@ describe('defaultDaysForType', () => {
     expect(defaultDaysForType('Building Permit')).toBe(PER_TYPE_DEFAULT_DAYS['Building Permit']);
     expect(defaultDaysForType('Demolition')).toBe(60);
     expect(defaultDaysForType('ULS')).toBe(90);
-    expect(defaultDaysForType('SDOT')).toBe(45);
+    // ★ fix-615 §B.2: keyed by catalogue names — 'SDOT' was never a type.
+    expect(defaultDaysForType('SDOT Tree')).toBe(45);
+    expect(defaultDaysForType('PAR/Pre-Sub')).toBe(30);
+    expect(defaultDaysForType('ECA Waiver')).toBe(30);
+    expect(defaultDaysForType('SDOT')).toBe(PER_TYPE_FALLBACK_DAYS);
   });
 
   it('falls back to PER_TYPE_FALLBACK_DAYS for unknown types', () => {
@@ -1244,8 +1248,11 @@ describe('target_submit learner anchorFor (fix-25-feat-AA)', () => {
     expect(anchorFor('SIP')).toBe('go_date');
     expect(anchorFor('Grading / Clearing')).toBe('mirror_bp');
     expect(anchorFor('LSM')).toBe('mirror_bp');
-    expect(anchorFor(null)).toBe('mirror_bp');
-    expect(anchorFor('Unknown Type')).toBe('mirror_bp');
+    // ★ fix-615 §B.4 (gap 6): an unknown type has NO anchor — the server's
+    //   CASE ends ELSE NULL. It used to claim it mirrored the BP.
+    expect(anchorFor(null)).toBe('none');
+    expect(anchorFor('Unknown Type')).toBe('none');
+    expect(anchorFor('PPR')).toBe('none');
   });
 });
 

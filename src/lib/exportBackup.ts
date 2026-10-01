@@ -26,6 +26,10 @@ const TABLES = [
   'jurisdictions',
   'permit_types',
   'app_config',
+  // ★ fix-615 §B.5 (census gap 47): the two per-type schedule tables — the
+  //   policy numbers behind every target date — were not in the backup.
+  'target_submit_formulas',
+  'permit_type_defaults',
 ] as const;
 
 export interface ExportResult {

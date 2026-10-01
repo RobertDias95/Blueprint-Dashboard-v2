@@ -134,10 +134,17 @@ describe('TargetSubmitBenchmarkNote', () => {
     ).toBeNull();
   });
 
-  it('renders nothing for mirror types, which have no cohort', () => {
-    const { container } = render(
-      <TargetSubmitBenchmarkNote type="Grading / Clearing" juris="Seattle" />,
-    );
-    expect(container).toBeEmptyDOMElement();
+  it("★ fix-615 (gap 6): mirror types SAY they use the Building Permit's date", () => {
+    render(<TargetSubmitBenchmarkNote type="Grading / Clearing" juris="Seattle" />);
+    const note = screen.getByTestId('target-submit-benchmark');
+    expect(note.textContent).toBe("uses the Building Permit's date");
+    expect(note.getAttribute('data-anchor')).toBe('mirror_bp');
+  });
+
+  it('★ fix-615 (gap 6): a type with no anchor says there is no automatic target', () => {
+    render(<TargetSubmitBenchmarkNote type="PPR" juris="Seattle" />);
+    const note = screen.getByTestId('target-submit-benchmark');
+    expect(note.textContent).toBe('no anchor — no automatic target');
+    expect(note.getAttribute('data-anchor')).toBe('none');
   });
 });
