@@ -315,6 +315,9 @@ export const queryKeys = {
   // fix-140: My Tasks Waiting On reporting view. Shares the permit_tasks bare
   // prefix so a task edit (waiting_on change, resolve) invalidates it live.
   // Keyed by the include-completed flag so the toggle's two states coexist.
+  // ★ fix-614 (P-300): correction-count history + each open permit's latest
+  //   round, one call (bp_correction_odds). Aggregates, never items.
+  correctionOdds: (tenantId: string) => ['correction_odds', tenantId] as const,
   waitingOnTasks: (tenantId: string, includeCompleted: boolean) =>
     ['permit_tasks', tenantId, 'waiting-on', { includeCompleted }] as const,
   // fix-154: per-type × per-jurisdiction target_submit offset overrides.

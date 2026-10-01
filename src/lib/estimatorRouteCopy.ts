@@ -156,6 +156,9 @@ export function routeSentence(
     f.reviewerBumpCycle !== undefined
       ? ` Reviewers flagged corrections on cycle ${f.reviewerBumpCycle}, so one more round was added.`
       : '';
+  // ★ fix-614 (P-300): what the last round's correction count did.
+  const corr = correctionSentence(f);
+  const corrPart = corr ? ` ${corr}` : '';
 
   switch (route) {
     case 'holistic_learned': {
@@ -195,7 +198,7 @@ export function routeSentence(
       return (
         `Projected round by round from ${f.cohortLabel ?? 'past permits'}` +
         `${window ? ` (${window})` : ''}: ${rounds(f.correctionRounds ?? 0)}, ` +
-        `then a final review.${bump} ${legend}`
+        `then a final review.${bump}${corrPart} ${legend}`
       );
     }
 
@@ -207,14 +210,14 @@ export function routeSentence(
       return (
         `Projected round by round using default durations ${forWhat} — ` +
         `${whereNot}. ${rounds(f.correctionRounds ?? 0)}, then a final ` +
-        `review.${bump} ${legend}`
+        `review.${bump}${corrPart} ${legend}`
       );
     }
 
     case 'walk_override':
       return (
         `Target set by hand to cycle ${f.overrideCycle ?? 1}. Projected round ` +
-        `by round from there.${bump} ${legend}`
+        `by round from there.${bump}${corrPart} ${legend}`
       );
 
     case 'uls_anchor':
@@ -363,5 +366,42 @@ function recencyWindowLabelFor(w: string): string {
       return 'last 365 days';
     default:
       return 'all time';
+  }
+}
+
+// ===========================================================================
+// ★★★ fix-614 (P-300) — THE CORRECTION COUNT, IN PLAIN WORDS
+// ===========================================================================
+//
+// One sentence per `correctionAdjust` (lib/correctionOdds). It is appended to
+// the walk sentences — a permit with a correction round always walks — so it
+// shows wherever the route copy already shows (the Schedule Estimator
+// footnote), and nowhere new. The percentage is the CAUTIOUS one Bobby ruled
+// (2026-09-30), and the sentence says which history it came from.
+
+function corrections(n: number): string {
+  return `${n} correction${n === 1 ? '' : 's'}`;
+}
+
+export function correctionSentence(f: ProjectedApprovalRouteFacts): string | null {
+  switch (f.correctionAdjust) {
+    case 'next_round_last':
+      return (
+        `Last round had ${corrections(f.correctionCount ?? 0)}. Past ${f.cellLabel} with ` +
+        `${f.correctionBucket} got approved the next round about ${f.nextRoundChancePct}% of the time, read ` +
+        `cautiously (${f.cellRounds} rounds), so this plans for the next round to be the last.`
+      );
+    case 'one_more_round':
+      return (
+        `Last round had ${corrections(f.correctionCount ?? 0)}. Past ${f.cellLabel} with ` +
+        `${f.correctionBucket} got approved the next round about ${f.nextRoundChancePct}% of the time, read ` +
+        `cautiously (${f.cellRounds} rounds), so this plans one more round.`
+      );
+    case 'unknown_letter':
+      return "The last correction letter hasn't been read yet, so the count isn't used.";
+    case 'no_history':
+      return `No past rounds for ${f.cellLabel} yet, so the count isn't used.`;
+    default:
+      return null;
   }
 }
