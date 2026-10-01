@@ -18,6 +18,7 @@ import type {
   PermitCycleReviewer,
   PermitWithCycles,
 } from '../lib/database.types';
+import { useCorrectionOdds } from './useCorrectionOdds';
 
 // ===========================================================================
 // ★★★ fix-506 §B/§I (P-139) — ONE ASSEMBLY OF THE APPROVAL PROJECTION
@@ -60,6 +61,7 @@ export function useProjectedApprovalFor(
   const allPermitsQ = usePermits();
   const projectsQ = useProjects();
   const typeDefaultsQ = usePermitTypeDefaults();
+  const { signalFor: correctionSignalFor } = useCorrectionOdds();
   const holdsQ = useAllProjectHolds();
 
   const projectsById = useMemo(
@@ -141,6 +143,8 @@ export function useProjectedApprovalFor(
       typeDefaultsOverride,
       // fix-32: this permit's reviewers feed the corrections-cycle prediction.
       permitReviewers: reviewers,
+      // ★ fix-614 (P-300): the same correction-count signal the estimator uses.
+      correctionSignal: correctionSignalFor(permit, juris),
     });
   }, [
     permit,
@@ -150,5 +154,6 @@ export function useProjectedApprovalFor(
     holdsMap,
     typeDefaultsOverride,
     reviewers,
+    correctionSignalFor,
   ]);
 }

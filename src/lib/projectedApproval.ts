@@ -12,6 +12,11 @@ import type {
   ProjectHold,
 } from './database.types';
 import { activeHoldElapsedDays, type HoldWindow } from './holdOverlap';
+import {
+  adjustForCorrections,
+  type CorrectionFacts,
+  type CorrectionSignal,
+} from './correctionOdds';
 
 // Q9.5.f-fix-11: full port of v1's projectPermitApproval + getULSAnchorDates
 // (index.html:4308-4543). Adds three pieces that fix-10 missed:
@@ -142,6 +147,11 @@ export interface ProjectedApprovalInput {
     | null;
   /** Injected "today" for deterministic tests; forwarded to activeHoldElapsedDays. */
   today?: Date | string;
+  /** ★ fix-614 (P-300): the latest correction round, its count (null =
+   *  letter not parsed) and this permit's history cell — built by
+   *  `correctionSignalFor` from `bp_correction_odds()`. Omitted → the
+   *  projection is exactly as before. */
+  correctionSignal?: CorrectionSignal | null;
 }
 
 export interface ProjectedApprovalRounds {
@@ -218,6 +228,13 @@ export interface ProjectedApprovalRouteFacts {
   overrideCycle?: number;
   /** fix-32's bump: reviewers flagged corrections on this cycle. */
   reviewerBumpCycle?: number;
+  // ★ fix-614 (P-300): what the correction count did — lib/correctionOdds.
+  correctionAdjust?: CorrectionFacts['correctionAdjust'];
+  correctionCount?: number;
+  nextRoundChancePct?: number;
+  cellRounds?: number;
+  cellLabel?: string;
+  correctionBucket?: string;
 }
 
 export interface ProjectedApprovalResult {
@@ -646,6 +663,21 @@ function computeProjectedApprovalCore(
   // represented in the cycle walk and adding +1 here would push the
   // projection too far. (hasReviewerCorrectionsOnLatestCycle is
   // computed above so the holistic shortcut gate uses the same signal.)
+  // ★★★ fix-614 (P-300): THE CORRECTION COUNT. One step, in lib/correctionOdds
+  //     (unit-tested alone): a cautious ≥ 50 % chance of approval next round
+  //     plans the next round as the last — which may be EARLIER than the
+  //     learner's most-likely cycle — and < 50 % plans one more round after it.
+  //     Unknown letter / no history for this city → unchanged, and said so.
+  //     A hand-set cycle wins. Placed BEFORE fix-32's bump so the reviewer
+  //     signal still applies on top of it.
+  const corrected = adjustForCorrections({
+    targetCycle,
+    currentReviewCycle,
+    signal: input.correctionSignal,
+    overridden: typeof input.targetCycleOverride === 'number',
+  });
+  targetCycle = corrected.targetCycle;
+  const correctionFacts = corrected.facts;
   // ★ fix-491: remembered so the footnote can say *why* a round was added.
   let reviewerBumpCycle: number | undefined;
   if (hasReviewerCorrectionsOnLatestCycle) {
@@ -930,6 +962,7 @@ function computeProjectedApprovalCore(
           }
         : {}),
       ...(reviewerBumpCycle !== undefined ? { reviewerBumpCycle } : {}),
+      ...(correctionFacts ?? {}),
     },
   };
 }

@@ -18,6 +18,7 @@ import {
   type ProjectedApprovalResult,
 } from '../../lib/projectedApproval';
 import type { PermitCycle, PermitWithCycles } from '../../lib/database.types';
+import { useCorrectionOdds } from '../../hooks/useCorrectionOdds';
 
 // Q9.5.f-fix-11 C: Schedule Estimator widget. Read-only port of v1's
 // buildScheduleEstimator (index.html:4544-4660). Renders inside the
@@ -120,6 +121,14 @@ export default function ScheduleEstimator({ permit }: Props) {
     [holdsQ.data, permit.project_id],
   );
 
+  // ★ fix-614 (P-300): the last round's correction count, and this city's
+  //   history for it. No signal (not applied / no round) → unchanged.
+  const { signalFor: correctionSignalFor } = useCorrectionOdds();
+  const correctionSignal = useMemo(
+    () => correctionSignalFor(permit, projectJuris),
+    [correctionSignalFor, permit, projectJuris],
+  );
+
   const result: ProjectedApprovalResult = useMemo(
     () =>
       computeProjectedApproval({
@@ -141,8 +150,9 @@ export default function ScheduleEstimator({ permit }: Props) {
         targetCycleOverride: cycleOverride,
         // fix-32: reviewer-corrections rule feeds into targetCycle.
         permitReviewers,
+        correctionSignal,
       }),
-    [permit, permitHolds, learnedEstimate, projectGoDate, siblings, siblingCyclesByPermitId, siblingLearnedByPermitId, cycleOverride, permitReviewers],
+    [permit, permitHolds, learnedEstimate, projectGoDate, siblings, siblingCyclesByPermitId, siblingLearnedByPermitId, cycleOverride, permitReviewers, correctionSignal],
   );
 
   /**

@@ -112,6 +112,7 @@ import {
 } from '../lib/drawScheduleStatus';
 import { holdKind } from '../lib/database.types';
 import { isActiveProject } from '../lib/activeProject';
+import { useCorrectionOdds } from '../hooks/useCorrectionOdds';
 
 // Q6.1: read-only render of all draw_schedule rows. Mirrors v1's
 // renderDrawSchedule layout (index.html lines 7875-8090):
@@ -407,6 +408,7 @@ function DrawScheduleBody({
   // computeProjectedApproval already returns isActual=true when the
   // permit carries an approval_date or actual_issue; we just thread
   // that flag through the cache instead of dropping it on the floor.
+  const { signalFor: correctionSignalFor } = useCorrectionOdds();
   const projectionByProjectId = useMemo(() => {
     type WithCycles = Permit & { permit_cycles?: PermitCycle[] | null };
     const permitsWithCycles = permits as WithCycles[];
@@ -474,6 +476,8 @@ function DrawScheduleBody({
         // fix-32: reviewer-corrections rule on the BP feeds into the
         // grid block's projected approval date.
         permitReviewers: reviewersByPermitId.get(bp.id) ?? [],
+        // ★ fix-614 (P-300): the same correction-count signal the estimator uses.
+        correctionSignal: correctionSignalFor(bp, juris),
       });
       m.set(
         project.id,
@@ -483,7 +487,7 @@ function DrawScheduleBody({
       );
     }
     return m;
-  }, [projects, permits, permitsByProjectId, projectsById, reviewersByPermitId]);
+  }, [projects, permits, permitsByProjectId, projectsById, reviewersByPermitId, correctionSignalFor]);
   const weeks = useMemo(() => getQuarterWeeks(quarterOffset), [quarterOffset]);
   const currentWeek = useMemo(() => dateToWeekKey(getMonday(new Date())), []);
 

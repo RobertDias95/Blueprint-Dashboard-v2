@@ -56,6 +56,7 @@ import { LandUsePhaseBadge } from './LandUsePhaseBadge';
 import InlineErrorBoundary from '../InlineErrorBoundary';
 import TemplateTasksOffer from './TemplateTasksOffer';
 import { useAddedPermitsStore } from '../../stores/addedPermitsStore';
+import { useCorrectionOdds } from '../../hooks/useCorrectionOdds';
 
 // ===========================================================================
 // ★★★ fix-517 §A (P-219) — `SCHEDULE HEALTH` IS NOW `PERMITS`, AND IT IS THE
@@ -179,6 +180,7 @@ export default function ScheduleHealthTable({
   // chip backed by permit_cycle_reviewers. The hook returns every
   // reviewer row in the tenant scope; we index by permit_id below.
   const reviewersQ = useAllPermitCycleReviewers();
+  const { signalFor: correctionSignalFor } = useCorrectionOdds();
   // Q9.5.f-fix-10: cross-tenant permits + projects feed computeLearnedSchedule
   // for the (type, juris) baseline. Hooks are tenant-scoped via RLS so no
   // extra plumbing needed.
@@ -313,6 +315,8 @@ export default function ScheduleHealthTable({
         // fix-32: reviewers on this permit feed the corrections-cycle
         // prediction. Already loaded above for the chip rollup — reuse.
         permitReviewers: reviewers,
+        // ★ fix-614 (P-300): the same correction-count signal the estimator uses.
+        correctionSignal: correctionSignalFor(permit, juris),
       });
       // ★★★ fix-506 §I: the label comes from the SHARED helper, so the Dates
       //     card's "Est. approval / Approved" and this column's "Est. Approval
@@ -381,6 +385,7 @@ export default function ScheduleHealthTable({
     typeDefaultsOverride,
     projectHolds,
     redesignLabelByPermitId,
+    correctionSignalFor,
   ]);
 
   // ★★★ §C — SORT STATE. `default` is the phase order and is what the table
