@@ -6,6 +6,7 @@ import { occRowKey, occSerialize } from '../lib/occQueue';
 import { pushToast, pushRecoveredToast } from '../stores/toastStore';
 import { useAuthStore } from '../stores/authStore';
 import type { PermitWithCycles } from '../lib/database.types';
+import { isBlockOverlapRefusal } from '../lib/errorLogger';
 
 // fix-23a: bp_set_bp_dd_dates. Atomic update of the BP's dd_start/dd_end
 // that cascades target_submit (end + 14d) across every permit on the
@@ -205,6 +206,8 @@ export function useSetBpDdDates() {
     },
 
     onError: (error) => {
+      // ★ fix-620: the overlap prompt says this one (App's mutation handler).
+      if (isBlockOverlapRefusal(error)) return;
       if (isOCCConflict(error)) {
         pushRecoveredToast(
           'DD dates changed since you loaded them — refresh and retry',

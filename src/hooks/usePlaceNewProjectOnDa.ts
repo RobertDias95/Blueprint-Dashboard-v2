@@ -3,6 +3,7 @@ import { supabase } from '../lib/supabase';
 import { queryKeys } from '../lib/queryKeys';
 import { pushToast } from '../stores/toastStore';
 import { useAuthStore } from '../stores/authStore';
+import { isBlockOverlapRefusal } from '../lib/errorLogger';
 
 // Q9.5.f-fix-20: bp_place_new_project_on_da. After creating a project, this
 // hook auto-places it at the next-available slot on the chosen DA's draw
@@ -79,6 +80,8 @@ export function usePlaceNewProjectOnDa() {
     },
 
     onError: (error) => {
+      // ★ fix-620: the overlap prompt says this one (App's mutation handler).
+      if (isBlockOverlapRefusal(error)) return;
       pushToast(`Could not place project — ${error.message}`, 'error');
     },
   });

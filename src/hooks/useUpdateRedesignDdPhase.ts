@@ -4,6 +4,7 @@ import { queryKeys } from '../lib/queryKeys';
 import { OCCConflictError, isOCCConflict, occToken } from '../lib/occ';
 import { occRowKey, occSerialize } from '../lib/occQueue';
 import { pushToast, pushRecoveredToast } from '../stores/toastStore';
+import { isBlockOverlapRefusal } from '../lib/errorLogger';
 
 // fix-145: edit a reuse-redesign's draw_schedule lane (DA / dates / status)
 // from the Project Overview inline editor. Wraps bp_update_redesign_dd_phase,
@@ -59,6 +60,8 @@ export function useUpdateRedesignDdPhase() {
       pushToast('Redesign draw schedule updated', 'success');
     },
     onError: (err) => {
+      // ★ fix-620: the overlap prompt says this one (App's mutation handler).
+      if (isBlockOverlapRefusal(err)) return;
       if (isOCCConflict(err)) {
         pushRecoveredToast('Lane was edited elsewhere — refresh and retry', 'warn');
         qc.invalidateQueries({ queryKey: queryKeys.drawScheduleAll });

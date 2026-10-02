@@ -114,6 +114,9 @@ import { holdKind } from '../lib/database.types';
 import { isActiveProject } from '../lib/activeProject';
 import { useCorrectionOdds } from '../hooks/useCorrectionOdds';
 import { usePermitTypeDefaults } from '../hooks/usePermitTypeDefaults';
+import { currentWeekMonday, finishedBlockRefusal } from '../lib/finishedBlocks';
+import { useBlockOverlapStore } from '../stores/blockOverlapStore';
+import { isBlockOverlapRefusal } from '../lib/errorLogger';
 
 // Q6.1: read-only render of all draw_schedule rows. Mirrors v1's
 // renderDrawSchedule layout (index.html lines 7875-8090):
@@ -594,6 +597,8 @@ function DrawScheduleBody({
   const cascadeEntLead = useCascadeEntLead();
   const shiftUpMutation = useShiftDaBlocksUp();
   const resolveMutation = useResolveDaOverlap();
+  // fix-620: the "choose other weeks" prompt (components/BlockOverlapPrompt).
+  const showOverlapRefusal = useBlockOverlapStore((s) => s.show);
   const upsertNp = useUpsertDaTimeBlock();
   const deleteNp = useDeleteDaTimeBlock();
 
@@ -911,6 +916,26 @@ function DrawScheduleBody({
       // compiler's hoisting check is a false positive here.)
       // eslint-disable-next-line react-hooks/immutability
       const blocks = blocksByDaForOverlap.get(r.daAssigned) ?? [];
+      // ★★ fix-620 (P-315): growing into a FINISHED block cannot be pushed
+      //    clear — finished blocks never move — so say so instead of saving
+      //    or offering Push Down. The server refuses it anyway (P0620).
+      const refusal = finishedBlockRefusal({
+        laneBlocks: blocks,
+        projectId: r.projectId,
+        lane: r.daAssigned,
+        startWeek: r.startWeek,
+        endWeek: r.previewEndWeek,
+        oldLane: r.daAssigned,
+        oldStartWeek: r.startWeek,
+        oldEndWeek: r.originalEndWeek,
+        monday: currentWeekMonday(),
+        // eslint-disable-next-line react-hooks/immutability
+        addressOf: (pid) => projectById.get(pid)?.address,
+      });
+      if (refusal) {
+        useBlockOverlapStore.getState().show(refusal);
+        return;
+      }
       const decision = decideDrop(
         blocks,
         r.projectId,
@@ -932,7 +957,6 @@ function DrawScheduleBody({
       // drag-to-move path uses. Push-down cascades downstream blocks.
       // (projectById declared later but read here inside a handler.)
       const conflictAddrs = decision.conflictingProjectIds
-        // eslint-disable-next-line react-hooks/immutability
         .map((pid) => projectById.get(pid)?.address ?? pid)
         .sort();
       const anchorAddr = projectById.get(r.projectId)?.address ?? r.projectId;
@@ -1410,6 +1434,25 @@ function DrawScheduleBody({
       payload.durationWeeks - 1,
     );
     const blocks = blocksByDaForOverlap.get(targetDa) ?? [];
+    // ★★ fix-620 (P-315): a drop over a FINISHED block cannot be pushed clear
+    //    (finished blocks never move) — prompt to fix rather than offering a
+    //    Push Down the server would refuse.
+    const refusal = finishedBlockRefusal({
+      laneBlocks: blocks,
+      projectId: payload.projectId,
+      lane: targetDa,
+      startWeek: targetStartWeek,
+      endWeek: targetEndWeek,
+      oldLane: payload.currentDa,
+      oldStartWeek: payload.originalStartWeek,
+      oldEndWeek: payload.originalEndWeek,
+      monday: currentWeekMonday(),
+      addressOf: (pid) => projectById.get(pid)?.address,
+    });
+    if (refusal) {
+      showOverlapRefusal(refusal);
+      return;
+    }
     const decision = decideDrop(
       blocks,
       payload.projectId,
@@ -3175,6 +3218,11 @@ function DrawScheduleBody({
                 // Close the prompt only on success — leave it open on error
                 // so the user can see the toast + retry/cancel.
                 onSuccess: () => setPendingOverlap(null),
+                // ★ fix-620: a server refusal has its own prompt; this one
+                //   would offer a Push Down that cannot succeed.
+                onError: (e) => {
+                  if (isBlockOverlapRefusal(e)) setPendingOverlap(null);
+                },
               },
             );
           }}

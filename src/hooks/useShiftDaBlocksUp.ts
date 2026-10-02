@@ -3,6 +3,7 @@ import { supabase } from '../lib/supabase';
 import { queryKeys } from '../lib/queryKeys';
 import { pushToast } from '../stores/toastStore';
 import { useAuthStore } from '../stores/authStore';
+import { isBlockOverlapRefusal } from '../lib/errorLogger';
 
 // Q9.5.f-fix-20: bp_shift_da_blocks_up. Slide every downstream block on a
 // DA up by (gap_end - gap_start + 1 week), capped at the current week
@@ -72,6 +73,8 @@ export function useShiftDaBlocksUp() {
     },
 
     onError: (error) => {
+      // ★ fix-620: the overlap prompt says this one (App's mutation handler).
+      if (isBlockOverlapRefusal(error)) return;
       pushToast(`Could not shift blocks — ${error.message}`, 'error');
     },
   });

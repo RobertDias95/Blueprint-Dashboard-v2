@@ -4,6 +4,7 @@ import { queryKeys } from '../lib/queryKeys';
 import { pushToast } from '../stores/toastStore';
 import { useAuthStore } from '../stores/authStore';
 import type { RedesignTrigger, UnitType } from '../lib/database.types';
+import { isBlockOverlapRefusal } from '../lib/errorLogger';
 
 // fix-22: extended to match the new bp_create_project_with_permits RPC
 // signature (Migration 5). Adds p_project_data with the 13 new project-
@@ -211,6 +212,8 @@ export function useCreateProjectWithPermits() {
     },
 
     onError: (error) => {
+      // ★ fix-620: the overlap prompt says this one (App's mutation handler).
+      if (isBlockOverlapRefusal(error)) return;
       pushToast(`Could not create project — ${error.message}`, 'error');
     },
   });
