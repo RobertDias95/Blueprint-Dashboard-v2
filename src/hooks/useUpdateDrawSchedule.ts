@@ -6,6 +6,7 @@ import { occRowKey, occSerialize } from '../lib/occQueue';
 import { pushToast, pushRecoveredToast } from '../stores/toastStore';
 import { useAuthStore } from '../stores/authStore';
 import type { DrawScheduleRow, PermitWithCycles } from '../lib/database.types';
+import { isBlockOverlapRefusal } from '../lib/errorLogger';
 
 // Q5.5.D: Atomic write via bp_update_draw_schedule_with_dd_sync. The RPC
 // updates draw_schedule.start_week/end_week/dd_start/dd_end with OCC, then
@@ -156,6 +157,8 @@ export function useUpdateDrawSchedule() {
         queryClient.setQueryData(byProjectKey, context.byProjectSnapshot);
       }
 
+      // ★ fix-620: the overlap prompt says this one (App's mutation handler).
+      if (isBlockOverlapRefusal(error)) return;
       if (isOCCConflict(error)) {
         pushRecoveredToast(
           'Draw schedule changed since you loaded it — reverted',

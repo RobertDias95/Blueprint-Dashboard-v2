@@ -65,6 +65,9 @@ import { shouldShowLotsField, ADD_LOTS_LABEL } from '../../lib/lotsVisibility';
 import { useMayWriteProject } from '../../hooks/useMayWriteProject';
 import { useProjectFieldCommit } from '../../hooks/useProjectFieldCommit';
 import SavesNowMark from '../shared/SavesNowMark';
+import { currentWeekMonday, finishedBlockRefusal } from '../../lib/finishedBlocks';
+import { useBlockOverlapStore } from '../../stores/blockOverlapStore';
+import { isBlockOverlapRefusal } from '../../lib/errorLogger';
 
 // ===========================================================================
 // ★★★ fix-506 §G (P-140) — THE EDITORS THE OVERVIEW NO LONGER OWNS
@@ -557,6 +560,30 @@ export function DDPhaseEditor({
           // Missing context to drive Push Down — fall through silently.
           return;
         }
+        // ★★ fix-620 (P-315): these dates land on FINISHED work, which never
+        //    moves — say so instead of offering a Push Down that would fail.
+        const refusal = finishedBlockRefusal({
+          laneBlocks: (result.overlapConflicts as ProjectOverlapConflict[]).map((c) => ({
+            projectId: c.project_id,
+            startWeek: c.start_week,
+            endWeek: c.end_week,
+          })),
+          projectId: bp.project_id,
+          lane: drawRow.da_assigned,
+          startWeek: result.proposedStartWeek,
+          endWeek: result.proposedEndWeek,
+          oldLane: drawRow.da_assigned,
+          oldStartWeek: drawRow.start_week,
+          oldEndWeek: drawRow.end_week,
+          monday: currentWeekMonday(),
+          addressOf: (pid) =>
+            (result.overlapConflicts as ProjectOverlapConflict[]).find((c) => c.project_id === pid)
+              ?.address,
+        });
+        if (refusal) {
+          useBlockOverlapStore.getState().show(refusal);
+          return;
+        }
         setPendingOverlap({
           kind: 'project',
           proposedStartWeek: result.proposedStartWeek,
@@ -596,8 +623,10 @@ export function DDPhaseEditor({
         scheduleStatus: pendingOverlap.scheduleStatus,
       });
       setPendingOverlap(null);
-    } catch {
-      // Toasts surfaced inside useResolveDaOverlap.
+    } catch (e) {
+      // Toasts surfaced inside useResolveDaOverlap. ★ fix-620: a refusal has
+      // its own prompt, and this one would offer a Push Down that can't work.
+      if (isBlockOverlapRefusal(e)) setPendingOverlap(null);
     }
   }
 

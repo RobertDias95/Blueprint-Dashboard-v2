@@ -6,6 +6,7 @@ import { occRowKey, occSerialize } from '../lib/occQueue';
 import { pushToast, pushRecoveredToast } from '../stores/toastStore';
 import { useAuthStore } from '../stores/authStore';
 import type { DrawScheduleRow } from '../lib/database.types';
+import { isBlockOverlapRefusal } from '../lib/errorLogger';
 
 // Q9.5.f-fix-20: bp_move_draw_schedule_da. Atomic DA reassignment that
 // rewrites assignment on EVERY artifact tied to the old DA in one tx:
@@ -174,6 +175,8 @@ export function useMoveDrawScheduleDa() {
     },
 
     onError: (error) => {
+      // ★ fix-620: the overlap prompt says this one (App's mutation handler).
+      if (isBlockOverlapRefusal(error)) return;
       if (isOCCConflict(error)) {
         pushRecoveredToast(
           'Draw schedule changed since you loaded it — refresh and retry',

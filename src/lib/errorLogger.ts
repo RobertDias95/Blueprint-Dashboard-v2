@@ -59,6 +59,18 @@ export function isUserInputValidationError(e: unknown): boolean {
   return code !== undefined && USER_INPUT_SQLSTATES.has(code);
 }
 
+// ★★ fix-620 (P-315) — AN OVERLAP WITH FINISHED WORK IS A REFUSAL, NOT A FAULT.
+//    The draw-schedule trigger `bp_draw_schedule_no_overlap` raises SQLSTATE
+//    P0620 with a plain sentence ("This overlaps 4409 S Holly St (Jun 24 –
+//    Jul 1, 2024). Finished blocks don't move — …"). The screen shows it as a
+//    prompt (components/BlockOverlapPrompt); Error Triage never hears of it.
+//    ★ Matched on the CODE only — never on the wording (fix-357).
+export const BLOCK_OVERLAP_SQLSTATE = 'P0620';
+
+export function isBlockOverlapRefusal(e: unknown): boolean {
+  return sqlStateOf(e) === BLOCK_OVERLAP_SQLSTATE;
+}
+
 // ===========================================================================
 // ★★★ fix-619 §Z (P-312) — A DUPLICATE ADDRESS IS A REFUSAL, NOT A FAULT
 // ===========================================================================
@@ -320,6 +332,8 @@ export function shouldSkipBackendRpcLog(err: unknown, key: unknown): boolean {
   const k = Array.isArray(key) ? String(key[0] ?? '') : String(key ?? '');
   if (k.startsWith('auth/')) return true;
   if (isUserInputValidationError(err)) return true;
+  // ★ fix-620 (P-315): the draw schedule refusing an overlap with finished work.
+  if (isBlockOverlapRefusal(err)) return true;
   // ★ fix-619 §Z (P-312): a NAMED expected refusal — see EXPECTED_UNIQUE_REFUSALS.
   if (expectedUniqueRefusal(err) !== null) return true;
   if (isCancelledRequest(err)) return true;

@@ -6,6 +6,7 @@ import { occRowKey, occSerialize } from '../lib/occQueue';
 import { pushToast, pushRecoveredToast } from '../stores/toastStore';
 import { useAuthStore } from '../stores/authStore';
 import type { DrawScheduleRow } from '../lib/database.types';
+import { isBlockOverlapRefusal } from '../lib/errorLogger';
 
 // Q6.2.b: Push Down cascade. Calls bp_resolve_da_overlap, which atomically
 // moves the anchor to (target_da, target_start, target_end) and pushes
@@ -105,6 +106,8 @@ export function useResolveDaOverlap() {
       if (context?.drawSnapshot !== undefined) {
         queryClient.setQueryData(drawKey, context.drawSnapshot);
       }
+      // ★ fix-620: the overlap prompt says this one (App's mutation handler).
+      if (isBlockOverlapRefusal(error)) return;
       if (isOCCConflict(error)) {
         pushRecoveredToast(
           'Draw schedule changed since you loaded it — push-down reverted',

@@ -18,6 +18,7 @@ import {
   logError,
   messageOf,
   expectedUniqueRefusal,
+  isBlockOverlapRefusal,
   queryFailureLevel,
   shouldSkipBackendRpcLog,
 } from './lib/errorLogger';
@@ -30,6 +31,8 @@ import { useSaveFailureStore } from './stores/saveFailureStore';
 import { describeMutation, isNetworkFailure } from './lib/saveFailure';
 import { newBuildIsLive } from './lib/appVersion';
 import { setAppQueryClient } from './lib/appQueryClient';
+import BlockOverlapPrompt from './components/BlockOverlapPrompt';
+import { useBlockOverlapStore } from './stores/blockOverlapStore';
 
 // Q1: app shell. Wires QueryClient + Router + auth bootstrap.
 //
@@ -119,6 +122,13 @@ const queryClient = new QueryClient({
   mutationCache: new MutationCache({
     onError: (err, vars, _ctx, mutation) => {
       const key = mutation.options.mutationKey;
+      // ★★ fix-620 (P-315): the server refused a block over finished work. The
+      //    person is told — by the prompt, which says what to do — and nothing
+      //    was saved, so the "may not have landed" banner would be wrong.
+      if (isBlockOverlapRefusal(err)) {
+        useBlockOverlapStore.getState().show(messageOf(err));
+        return;
+      }
       // *** fix-372 section 6: TELL THE PERSON. Before this, a mutation that
       // died at the network layer was logged here and shown nowhere - the
       // screen carried on displaying the edit as though it had saved. Logged in
@@ -327,6 +337,7 @@ export default function App() {
       <RealtimeMount />
       <RouterProvider router={router} />
       <ToastHost />
+      <BlockOverlapPrompt />
       {import.meta.env.DEV && <ReactQueryDevtools initialIsOpen={false} />}
     </QueryClientProvider>
   );

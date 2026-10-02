@@ -6,6 +6,7 @@ import { occRowKey, occSerialize } from '../lib/occQueue';
 import { pushToast, pushRecoveredToast } from '../stores/toastStore';
 import { useAuthStore } from '../stores/authStore';
 import type { DrawScheduleRow } from '../lib/database.types';
+import { isBlockOverlapRefusal } from '../lib/errorLogger';
 
 // Q9.5.g: generic field-patch mutation for draw_schedule. Backs the three
 // popup actions (set status, set duration, resync from permits) via the
@@ -161,6 +162,8 @@ export function useUpdateDsRow() {
           context.drawSnapshot,
         );
       }
+      // ★ fix-620: the overlap prompt says this one (App's mutation handler).
+      if (isBlockOverlapRefusal(error)) return;
       if (isOCCConflict(error)) {
         pushRecoveredToast(
           'Draw schedule changed since you loaded it — reverted',

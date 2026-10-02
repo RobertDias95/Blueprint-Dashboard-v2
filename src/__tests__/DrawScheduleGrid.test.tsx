@@ -384,6 +384,7 @@ vi.mock('../hooks/useResizeDaTimeBlock', () => ({
 
 import DrawScheduleGrid from '../components/DrawScheduleGrid';
 import { DS_PARK_PRESENTATION } from '../lib/drawScheduleStatus';
+import { useBlockOverlapStore } from '../stores/blockOverlapStore';
 
 beforeEach(() => {
   // The grid renders a QUARTER-relative view off the system clock, and every
@@ -698,6 +699,7 @@ describe('<DrawScheduleGrid />', () => {
   });
 
   it('Q6.2.d: project overlap takes precedence over NP overlap — project modal shows, NP prompt never appears', () => {
+    upcomingClock(); // ★ fix-620: Push Down is for UPCOMING blocks
     renderGrid();
     // Drop p-now onto Ahmadi at 2026-05-04: collides with p-other (project
     // overlap) AND with the Ahmadi NP block "Style Guide" 2026-05-11 →
@@ -759,7 +761,32 @@ describe('<DrawScheduleGrid />', () => {
   });
 });
 
+// ★ fix-620 (P-315): Push Down only ever offers to move UPCOMING blocks — an
+//   overlap with a block that has STARTED is refused instead. The Push Down
+//   tests below therefore run on 2026-04-20, when the 2026-05-04 blocks they
+//   collide with have not started yet (still mid-Q2, so the same grid renders).
+function upcomingClock() {
+  vi.setSystemTime(new Date(2026, 3, 20, 12, 0, 0));
+}
+
 describe('<DrawScheduleGrid /> Q6.2 drag-edit', () => {
+  it('★★★ fix-620: a drop over a STARTED block asks to be fixed — no Push Down, no save', () => {
+    // System time is 2026-06-15: p-other (2026-05-04 → 05-11) has started.
+    useBlockOverlapStore.getState().dismiss();
+    renderGrid();
+    const block = screen.getByTestId('block-p-now');
+    const overlapTarget = screen.getByTestId('drop-cell-Ahmadi-2026-05-04');
+    act(() => {
+      simulateDragDrop(block, overlapTarget);
+    });
+    expect(screen.queryByTestId('overlap-prompt')).not.toBeInTheDocument();
+    expect(updateMutate).not.toHaveBeenCalled();
+    expect(useBlockOverlapStore.getState().message).toMatch(
+      /^This overlaps .*\(May 4 – May 11, 2026\)\. Finished blocks don't move — choose other weeks or another lane\.$/,
+    );
+    useBlockOverlapStore.getState().dismiss();
+  });
+
   it('drops on an empty cell on a different DA → fires the DA-move mutation (Q9.5.f-fix-20)', async () => {
     renderGrid();
     // Drag p-now (Trevor, 2026-05-04→2026-05-18) to Fisk on week 2026-06-08
@@ -784,6 +811,7 @@ describe('<DrawScheduleGrid /> Q6.2 drag-edit', () => {
   });
 
   it('drops on a cell that overlaps another block → shows the prompt and does NOT save', () => {
+    upcomingClock(); // ★ fix-620: Push Down is for UPCOMING blocks
     renderGrid();
     const block = screen.getByTestId('block-p-now');
     const overlapTarget = screen.getByTestId('drop-cell-Ahmadi-2026-05-04');
@@ -805,6 +833,7 @@ describe('<DrawScheduleGrid /> Q6.2 drag-edit', () => {
   });
 
   it('clicking Cancel on the overlap prompt closes it without saving', () => {
+    upcomingClock(); // ★ fix-620: Push Down is for UPCOMING blocks
     renderGrid();
     const block = screen.getByTestId('block-p-now');
     const overlapTarget = screen.getByTestId('drop-cell-Ahmadi-2026-05-04');
@@ -819,6 +848,7 @@ describe('<DrawScheduleGrid /> Q6.2 drag-edit', () => {
   });
 
   it('Q6.2.b: clicking Push Down fires useResolveDaOverlap with the captured target context, prompt closes on success', () => {
+    upcomingClock(); // ★ fix-620: Push Down is for UPCOMING blocks
     renderGrid();
     const block = screen.getByTestId('block-p-now');
     const overlapTarget = screen.getByTestId('drop-cell-Ahmadi-2026-05-04');
