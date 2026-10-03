@@ -7,6 +7,9 @@ import { pushToast, pushRecoveredToast } from '../stores/toastStore';
 import { useAuthStore } from '../stores/authStore';
 import type { DrawScheduleRow, PermitWithCycles } from '../lib/database.types';
 import { isBlockOverlapRefusal } from '../lib/errorLogger';
+// ★ fix-621 (P-316): the TS mirror of bp_permit_is_finished — the optimistic
+//   patch below must skip exactly the rows the server now skips.
+import { isFinishedPermit } from '../lib/finishedPermits';
 
 // Q5.5.D: Atomic write via bp_update_draw_schedule_with_dd_sync. The RPC
 // updates draw_schedule.start_week/end_week/dd_start/dd_end with OCC, then
@@ -122,6 +125,21 @@ export function useUpdateDrawSchedule() {
       const cascadePermits = (rows: PermitWithCycles[] | undefined) =>
         rows?.map((p) => {
           if (p.project_id !== input.projectId) return p;
+          // ═══ ★★★ fix-621 (P-316) — THE OPTIMISM HAS TO MATCH THE RULE ═══
+          //
+          // ⚖️ Bobby, 2026-10-03: **"Approved/issued keep them"**
+          //
+          // `bp_update_draw_schedule_with_dd_sync` now carries
+          // `AND NOT bp_permit_is_finished(approval_date, actual_issue)` on all
+          // three of its permit writes, so an approved or issued permit's
+          // dd_start / dd_end / target_submit do not move.
+          //
+          // ★★ PATCHING IT HERE ANYWAY WOULD BE A LIE WITH A DELAY ON IT: the
+          //    row would visibly change and then snap back when the refetch
+          //    below lands. A flash of the truth is better than a confident
+          //    wrong answer, and this screen is the Draw Schedule — the one
+          //    place somebody drags a block and then checks what it did.
+          if (isFinishedPermit(p)) return p;
           // BPs also get the target_submit refresh; non-BP permits keep
           // their per-permit target_submit (matches the server-side
           // type='Building Permit' filter on the cascade).

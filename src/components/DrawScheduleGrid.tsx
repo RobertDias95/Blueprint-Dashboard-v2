@@ -96,6 +96,9 @@ import {
 import { SkeletonRows } from './Skeleton';
 import QueryError from './QueryError';
 import OverlapPrompt from './OverlapPrompt';
+// ★ fix-621 (P-316): the sentence the Push Down prompt shows. The rule itself is
+//   the server's (bp_permit_is_finished); this only reports it.
+import { finishedPermitsNoteAcross } from '../lib/finishedPermits';
 import NpWarningPrompt, { type NpWarningEntry } from './NpWarningPrompt';
 import type {
   DaTimeBlock,
@@ -183,6 +186,15 @@ interface PendingOverlap {
   startWeek: string;
   endWeek: string;
   scheduleStatus: string | null;
+  /** ★★ fix-621 (P-316): "2 approved permits keep their dates.", or null.
+   *
+   *  ⚖️ Bobby, 2026-10-03: **"Approved/issued keep them"** — Push Down writes
+   *  the anchor AND every displaced project, so the count spans all of them.
+   *
+   *  ★ CAPTURED AT DROP TIME, like the rest of this object, from the permit rows
+   *    the grid already holds. Recomputing it when the prompt renders would read
+   *    a cache that may have moved on between the drop and the click. */
+  finishedNote: string | null;
 }
 
 /** Q6.2.f: popover state for the add-NP / edit-NP flow. Position is
@@ -964,6 +976,12 @@ function DrawScheduleBody({
         anchorAddress: anchorAddr,
         conflictingAddresses: conflictAddrs,
         conflictCount: decision.conflictingProjectIds.length,
+        // ★ fix-621: the anchor AND every project about to be pushed.
+        finishedNote: finishedPermitsNoteAcross(
+          [r.projectId, ...decision.conflictingProjectIds].map(
+            (pid) => permitsByProjectId.get(pid) ?? [],
+          ),
+        ),
         anchorProjectId: r.projectId,
         expectedUpdatedAt: r.expectedUpdatedAt,
         daAssigned: r.daAssigned,
@@ -1528,6 +1546,12 @@ function DrawScheduleBody({
       anchorAddress: anchorAddr,
       conflictingAddresses: conflictAddrs,
       conflictCount: decision.conflictingProjectIds.length,
+      // ★ fix-621: the anchor AND every project about to be pushed.
+      finishedNote: finishedPermitsNoteAcross(
+        [payload.projectId, ...decision.conflictingProjectIds].map(
+          (pid) => permitsByProjectId.get(pid) ?? [],
+        ),
+      ),
       anchorProjectId: payload.projectId,
       expectedUpdatedAt: payload.expectedUpdatedAt,
       daAssigned: targetDa,
@@ -3202,6 +3226,7 @@ function DrawScheduleBody({
           anchorAddress={pendingOverlap.anchorAddress}
           conflictingAddresses={pendingOverlap.conflictingAddresses}
           conflictCount={pendingOverlap.conflictCount}
+          finishedNote={pendingOverlap.finishedNote}
           pending={resolveMutation.isPending}
           onCancel={() => setPendingOverlap(null)}
           onConfirm={() => {

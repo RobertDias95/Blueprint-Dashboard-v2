@@ -53,6 +53,11 @@ import {
   type NpOverlapConflict,
 } from '../../hooks/useSetBpDdDates';
 import { useResolveDaOverlap } from '../../hooks/useResolveDaOverlap';
+// ★★ fix-621 (P-316): the DD window is the one editor whose own anchor is most
+//    often already finished — measured 2026-10-03, 220 of 267 projects with a
+//    Building Permit have an approved or issued one. So this is the screen that
+//    most needs to say what the edit will and will not move.
+import { finishedPermitsNote } from '../../lib/finishedPermits';
 import { useIsTenantAdmin } from '../../hooks/useIsTenantAdmin';
 import { useDrawSchedule } from '../../hooks/useDrawSchedule';
 import { useUpdateProjectWithPermits } from '../../hooks/useUpdateProjectWithPermits';
@@ -509,6 +514,26 @@ export function DDPhaseEditor({
     [drawScheduleQ.data, bp.project_id],
   );
 
+  // ═══ ★★★ fix-621 (P-316) — WHAT A DD EDIT WILL LEAVE ALONE ═══
+  //
+  // ⚖️ Bobby, 2026-10-03: **"Approved/issued keep them"**
+  //
+  // `bp_set_bp_dd_dates` still moves the lane and still syncs the OPEN permits;
+  // it no longer writes `dd_start` / `dd_end` on an approved or issued one.
+  //
+  // ★★★ AND ON THIS SCREEN THAT USUALLY INCLUDES THE BOX YOU ARE TYPING IN.
+  //     The two inputs are bound to the Building Permit's own `dd_start` /
+  //     `dd_end`, and measured on prod 2026-10-03 **220 of 267 projects with a
+  //     Building Permit have a finished one** — so on most projects the typed
+  //     value will not stick to this permit even though the lane and the open
+  //     siblings do move. Saying so BEFORE the edit is the whole point of the
+  //     line; discovering it from a field that quietly reverts is the failure
+  //     this is here to prevent.
+  //
+  // ★ Read from `permits`, which this editor already has — no extra query, and
+  //   the same rows the server will judge.
+  const ddFinishedNote = useMemo(() => finishedPermitsNote(permits), [permits]);
+
   /** Commit DD dates. The RPC accepts (a) both filled, (b) both null
    *  (clear), but rejects partial-null. */
   async function commitDd(opts: { forceNp?: boolean } = {}) {
@@ -690,6 +715,15 @@ export function DDPhaseEditor({
             savesNow
           />
           {/* fix-309 #49: the Duration line is gone. The two dates say it. */}
+          {/* ★★★ fix-621 (P-316): one plain line, only when it applies. */}
+          {ddFinishedNote && (
+            <p
+              className="text-[11px] text-muted m-0 mt-0.5"
+              data-testid="pd-dd-finished-note"
+            >
+              {ddFinishedNote}
+            </p>
+          )}
         </div>
        </OverviewSection>
        {/* ★★★ fix-384: the design windows draw_schedule cannot hold. Its PK
@@ -760,11 +794,15 @@ export function DDPhaseEditor({
            where Bobby put it — a modal that sends you somewhere else is a modal
            you have to close first. */}
       </div>
+      {/* ★ fix-621: this path only knows THIS project's permits — the displaced
+          projects' rows are not loaded on this screen. Naming the anchor's is
+          honest and useful; claiming a total it cannot see would not be. */}
       {pendingOverlap && (
         <OverlapPrompt
           anchorAddress={pendingOverlap.anchorAddress}
           conflictingAddresses={pendingOverlap.conflicts.map((c) => c.address)}
           conflictCount={pendingOverlap.conflicts.length}
+          finishedNote={ddFinishedNote}
           onCancel={() => setPendingOverlap(null)}
           onConfirm={() => void confirmPushDown()}
           pending={resolveOverlap.isPending}

@@ -309,11 +309,24 @@ describe('fix-619 gap 18: a roof deck option added in Settings saves', () => {
     expect((screen.getByTestId('rd2') as HTMLSelectElement).value).toBe('Rooftop terrace');
   });
 
-  it('★★ both editors that can write the label write it', () => {
-    expect(code(read('src/components/ProjectDetail/ProjectDataEditors.tsx'))).toMatch(
-      /roof_deck_label: v\?\.label \?\? null/,
-    );
-    expect(code(read('src/components/LibraryMatrix.tsx'))).toMatch(/roof_deck_label: v\?\.label \?\? null/);
+  it('★★ every editor that can write the label writes it — THREE, not two', () => {
+    // ═══ SUPERSEDED BY fix-621 §B, NOT MISTAKEN ═══
+    //
+    // THE ORIGINAL READ *"both editors that can write the label write it"* and
+    // named ProjectDataEditors + LibraryMatrix. That was an accurate statement
+    // of fix-619's SCOPE — and the gap was that the scope was wrong: the
+    // new-project wizard writes unit rows too, and it dropped the label.
+    //
+    // ★★★ THE TEST'S OWN WORDING WAS THE TELL. "Both" counted the editors this
+    //     ticket had looked at, not the editors that exist. fix-621 §B adds the
+    //     third; the list is spelled out so a fourth cannot be added silently.
+    for (const f of [
+      'src/components/ProjectDetail/ProjectDataEditors.tsx',
+      'src/components/LibraryMatrix.tsx',
+      'src/components/wizard/UnitTypesEditor.tsx',
+    ]) {
+      expect(code(read(f)), f).toMatch(/roof_deck_label: v\?\.label \?\? null/);
+    }
   });
 });
 
