@@ -71,6 +71,10 @@ function nextRow(rows: readonly UnitType[]): UnitType {
     parking_count: null,
     roof_deck: null,
     penthouse: null,
+    // ★★ fix-621 §B: spelled out for the same reason as the rest of this seed —
+    //    this is where somebody looks to learn what a unit row holds, and
+    //    `roof_deck_label` is the half the wizard used to drop on the floor.
+    roof_deck_label: null,
     stories: null,
     basement: null,
   };
@@ -278,14 +282,40 @@ export default function UnitTypesEditor({
                 <span className="text-[9px] uppercase tracking-wide text-dim">
                   Roof Deck
                 </span>
+                {/* ═══ ★★★ fix-621 §B — THE WIZARD KEEPS A CUSTOM PICK TOO ═══
+
+                    fix-619 (census gap 18) made a roof-deck option ADDED IN
+                    SETTINGS survive on a unit — stored as itself in
+                    `roof_deck_label`, with both booleans left null, because the
+                    three decoded answers (`W/ PH` · `W/O PH` · no deck) cannot
+                    express it. The project page and the Library both write all
+                    three fields.
+
+                    ★★★ THIS EDITOR WROTE ONLY TWO OF THEM. `roofDeckValueFor`
+                        returns `{deck: null, penthouse: null, label: 'Terrace'}`
+                        for a custom entry, and dropping `label` turned that into
+                        all-nulls — "not recorded". So an admin could add an
+                        option, pick it while creating the project, and have it
+                        vanish with no error and nothing to see. Exactly fix-619's
+                        bug, in the one editor fix-619 did not reach.
+
+                    ★★ AND `storedLabel` IS THE OTHER HALF. Without it a row that
+                       already carries a custom label renders BLANK here — a
+                       `<select>` whose value matches no option shows nothing,
+                       which silently claims the field is empty and would then
+                       save that emptiness back. fix-619's `withCurrent` /
+                       `roofDeckLabel` pair is what makes the stored answer
+                       visible; this just has to pass it in. */}
                 <RoofDeckSelect
                   deck={row.roof_deck}
                   penthouse={row.penthouse}
+                  storedLabel={row.roof_deck_label}
                   options={roofDeckOpts}
                   onChange={(v) =>
                     update(i, {
                       roof_deck: v?.deck ?? null,
                       penthouse: v?.penthouse ?? null,
+                      roof_deck_label: v?.label ?? null,
                     })
                   }
                   testid={`unit-types-roof-deck-${i}`}

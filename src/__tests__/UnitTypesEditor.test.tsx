@@ -50,6 +50,15 @@ describe('<UnitTypesEditor />', () => {
       parking_count: null,
       roof_deck: null,
       penthouse: null,
+      // ★★ fix-621 §B ADDED THIS, and the seed is where it matters most. The
+      //    wizard's roof-deck control used to write only the two booleans, so an
+      //    option an admin added in Settings (stored as itself in
+      //    `roof_deck_label` — fix-619, census gap 18) was silently dropped on a
+      //    new project. Naming it null here is the same discipline as the
+      //    fix-402 trio and `size_sf` above: this object is where somebody looks
+      //    to learn what a unit row holds, and the field that is missing from it
+      //    is the field that gets forgotten.
+      roof_deck_label: null,
       stories: null,
       basement: null,
     });

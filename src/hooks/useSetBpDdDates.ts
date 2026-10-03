@@ -7,6 +7,9 @@ import { pushToast, pushRecoveredToast } from '../stores/toastStore';
 import { useAuthStore } from '../stores/authStore';
 import type { PermitWithCycles } from '../lib/database.types';
 import { isBlockOverlapRefusal } from '../lib/errorLogger';
+// ★ fix-621 (P-316): the TS mirror of bp_permit_is_finished — the optimistic
+//   patch below must skip exactly the rows the server now skips.
+import { isFinishedPermit } from '../lib/finishedPermits';
 
 // fix-23a: bp_set_bp_dd_dates. Atomic update of the BP's dd_start/dd_end
 // that cascades target_submit (end + 14d) across every permit on the
@@ -161,6 +164,11 @@ export function useSetBpDdDates() {
         ) =>
           rows?.map((p) => {
             if (p.project_id !== result.projectId) return p;
+            // ★★★ fix-621 (P-316): an approved or issued permit keeps its dates,
+            //     so the optimistic patch must skip it too — `bp_set_bp_dd_dates`
+            //     no longer writes it, and patching it here would show a change
+            //     that the refetch then takes back. See lib/finishedPermits.
+            if (isFinishedPermit(p)) return p;
             const base = {
               ...p,
               dd_start: input.ddStart,
