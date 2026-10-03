@@ -75,6 +75,48 @@ function positiveDaysBetween(
   return diff > 0 ? diff : null;
 }
 
+/** ★ fix-622: whole days from `a` to `b` (b − a), negative when b is earlier. */
+function daysFromTo(a: string, b: string): number {
+  const aMs = new Date(`${a}T12:00:00`).getTime();
+  const bMs = new Date(`${b}T12:00:00`).getTime();
+  return Math.round((bMs - aMs) / (24 * 60 * 60 * 1000));
+}
+
+/**
+ * ★★★ fix-622 §B (P-300 item 3) — A MILESTONE THAT HAS PASSED WITHOUT HAPPENING.
+ *
+ * Bobby, 2026-10-03: *"Move forward and say why."* When a milestone the walk
+ * relies on is already behind today and has not happened, it is re-anchored
+ * from today and the chain continues from there — and the estimate says so:
+ *
+ *   city_late   the round is past the city's OWN review date
+ *               (permit_cycles.city_target) with no answer. Re-anchored at
+ *               today + how late this type × city typically runs once past
+ *               due (the learner's `city_late` clock, via bp_correction_odds
+ *               `lateness`), or today when there is no history. Never another
+ *               city's history.
+ *   resub_late  our resubmittal is past the usual turnaround after the
+ *               corrections arrived (corr_issued + the learned turnaround).
+ *               Re-anchored at today.
+ *
+ * ★★ THE MILESTONE IS FLOORED, NOT THE ANCHOR. fix-24e floored the ANCHOR
+ *    (`flooredAnchor(corr_issued) + turnaround`), so a resubmittal 10 days into
+ *    a 21-day turnaround was planned 21 days from today — the 10 days already
+ *    spent were counted twice. The milestone itself (`corr_issued + 21`) is
+ *    what has or has not passed, so that is what moves.
+ */
+export interface ProjectionReanchor {
+  kind: 'city_late' | 'resub_late';
+  /** How many days the milestone is behind today. */
+  daysLate: number;
+  /** The date that was missed — the city's review date, or the usual turnaround. */
+  due: string;
+  /** city_late: the days planned from today (0 = no history). */
+  plannedDays?: number;
+  /** city_late: how many late rounds that number came from. */
+  lateRounds?: number;
+}
+
 export interface ProjectedApprovalInput {
   permit: Permit;
   /** This permit's cycles, filtered for cycle_index !== 0 and sorted asc. */
@@ -235,6 +277,11 @@ export interface ProjectedApprovalRouteFacts {
   cellRounds?: number;
   cellLabel?: string;
   correctionBucket?: string;
+  // ★ fix-622 (P-300 item 1): which signal answered, and how many reviewers.
+  correctionSource?: CorrectionFacts['correctionSource'];
+  reviewerCount?: number;
+  // ★ fix-622 §B: milestones that had passed and were moved forward.
+  reanchors?: ProjectionReanchor[];
 }
 
 export interface ProjectedApprovalResult {
@@ -597,6 +644,34 @@ function computeProjectedApprovalCore(
     r1,
   );
 
+  // ★★★ fix-622 §B — see ProjectionReanchor. Each passed milestone moves
+  //     forward exactly once, and the reason is kept for the sentence.
+  const today = todayISO();
+  const reanchors: ProjectionReanchor[] = [];
+  const lateness = input.correctionSignal?.cityLateness ?? null;
+  /** The city's own review date — or, once it has passed unanswered, today +
+   *  this city's cautious lateness. */
+  const cityDue = (cityTarget: string): string => {
+    if (cityTarget >= today) return cityTarget;
+    const planned = lateness?.typicalDays ?? 0;
+    reanchors.push({
+      kind: 'city_late',
+      daysLate: daysFromTo(cityTarget, today),
+      due: cityTarget,
+      plannedDays: planned,
+      ...(lateness ? { lateRounds: lateness.lateRounds } : {}),
+    });
+    return addDays(today, planned);
+  };
+  /** Our resubmittal after an ACTUAL corrections date: the usual turnaround,
+   *  or today once that has passed. */
+  const resubDue = (corrIssued: string, coDays: number): string => {
+    const usual = addDays(corrIssued, coDays);
+    if (usual >= today) return usual;
+    reanchors.push({ kind: 'resub_late', daysLate: daysFromTo(usual, today), due: usual });
+    return today;
+  };
+
   const actualCorrCycles = [r1, r2, r3, r4].filter((c) => c?.corr_issued).length;
   // fix-32 (2026-05-19): "reviewer signaled corrections on the
   // latest cycle, but no corr_issued or next-cycle row has been
@@ -865,13 +940,17 @@ function computeProjectedApprovalCore(
       // display as-is even when past. The forecast branches (cityTargetCrEnd
       // assigned directly, addDays projections) and the chained resubEnd
       // anchor floor at today so past anchors don't yield past forecasts.
+      // ★ fix-622 §B: a city review date in the past → cityDue; a turnaround
+      //   in the past after an ACTUAL corr_issued → resubDue.
       const crEnd =
         rd?.corr_issued ??
-        flooredAnchor(cityTargetCrEnd) ??
+        (cityTargetCrEnd ? cityDue(cityTargetCrEnd) : null) ??
         addDays(flooredAnchor(reviewAnchor) ?? reviewAnchor, crDays);
       const resubEnd =
         rd?.resubmitted ??
-        addDays(flooredAnchor(crEnd) ?? crEnd, coDays);
+        (rd?.corr_issued
+          ? resubDue(rd.corr_issued, coDays)
+          : addDays(flooredAnchor(crEnd) ?? crEnd, coDays));
       rounds[`corrIssued${i + 1}` as keyof ProjectedApprovalRounds] = crEnd;
       rounds[`resubmitted${i + 1}` as keyof ProjectedApprovalRounds] = resubEnd;
       cursor = resubEnd;
@@ -898,10 +977,9 @@ function computeProjectedApprovalCore(
       // resubmitted yet: project team turnaround (co) → resubmit, then
       // the next city review (cr) → approval.
       const finalCoDays = durFor(targetCycle - 1, 'co', learnedEstimate, thisPermitDur);
-      const projResub = addDays(
-        flooredAnchor(finalCycle.corr_issued) ?? finalCycle.corr_issued,
-        finalCoDays,
-      );
+      // ★ fix-622 §B: the usual turnaround from the ACTUAL corrections date —
+      //   or today once it has passed (and said so).
+      const projResub = resubDue(finalCycle.corr_issued, finalCoDays);
       rounds[`corrIssued${targetCycle}` as keyof ProjectedApprovalRounds] =
         finalCycle.corr_issued;
       rounds[`resubmitted${targetCycle}` as keyof ProjectedApprovalRounds] =
@@ -917,14 +995,17 @@ function computeProjectedApprovalCore(
         finalCycle?.city_target && finalCycle.city_target > cursor
           ? finalCycle.city_target
           : null;
+      // ★ fix-622 §B: a passed, unanswered city review date → cityDue.
       cursor =
+        (finalCityTarget && !finalCycle?.corr_issued ? cityDue(finalCityTarget) : null) ??
         flooredAnchor(finalCityTarget) ??
         addDays(flooredAnchor(cursor) ?? cursor, finalCrDays);
     }
     cursor = addDays(flooredAnchor(cursor) ?? cursor, FINAL_APPROVAL_BUFFER);
   }
 
-  let projection = cursor;
+  // ★ fix-622 §B: an estimate never shows a projected date before today.
+  let projection = cursor < today ? today : cursor;
   // v1 :4541 floor — never project earlier than the last real date on file.
   // fix-24e: the +buffer also floors lastRealDate at today so the final
   // projection stays forward-looking when lastRealDate itself is past.
@@ -963,6 +1044,7 @@ function computeProjectedApprovalCore(
         : {}),
       ...(reviewerBumpCycle !== undefined ? { reviewerBumpCycle } : {}),
       ...(correctionFacts ?? {}),
+      ...(reanchors.length > 0 ? { reanchors } : {}),
     },
   };
 }

@@ -484,12 +484,18 @@ describe('computeProjectedApproval — fix-24e today-floor on projection anchors
     });
     // Actual corrIssued1 displays as-is.
     expect(r.rounds?.corrIssued1).toBe('2025-11-01');
-    // Resub forecast: addDays(flooredAnchor('2025-11-01')=today, co1=10) =
-    // 2026-05-15 + 10 = 2026-05-25.
-    expect(r.rounds?.resubmitted1).toBe('2026-05-25');
+    // ★★ fix-622 §B SUPERSEDES fix-24e here: the MILESTONE is floored, not
+    //    the anchor. The usual turnaround ran out on 2025-11-11 (corr + co1 10),
+    //    six months ago, so the resubmittal is re-anchored at TODAY and the
+    //    estimate says so — not "10 days from today", which counted the
+    //    turnaround twice.
+    expect(r.rounds?.resubmitted1).toBe('2026-05-15');
+    expect(r.routeFacts?.reanchors).toEqual([
+      { kind: 'resub_late', daysLate: 185, due: '2025-11-11' },
+    ]);
     // fix-25-HH-redux: cycle 2 city review cr2 walks back to this permit's
-    // actual cycle-1 review span (31d) → 2026-06-25, +7 = 2026-07-02.
-    expect(r.projection).toBe('2026-07-02');
+    // actual cycle-1 review span (31d) → 2026-06-15, +7 = 2026-06-22.
+    expect(r.projection).toBe('2026-06-22');
   });
 
   it("past city_target (Bobby's example): forecast crEnd lifted to today instead of using the stale forecast", () => {

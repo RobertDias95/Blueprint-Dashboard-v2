@@ -158,7 +158,9 @@ export function routeSentence(
       : '';
   // ★ fix-614 (P-300): what the last round's correction count did.
   const corr = correctionSentence(f);
-  const corrPart = corr ? ` ${corr}` : '';
+  // ★ fix-622 §B: any milestone that had passed and was moved forward.
+  const moved = reanchorSentences(f);
+  const corrPart = `${corr ? ` ${corr}` : ''}${moved ? ` ${moved}` : ''}`;
 
   switch (route) {
     case 'holistic_learned': {
@@ -384,6 +386,9 @@ function corrections(n: number): string {
 }
 
 export function correctionSentence(f: ProjectedApprovalRouteFacts): string | null {
+  // ★★ fix-622 (P-300 item 1): the reviewers answered because the letter
+  //    hasn't been read. Same cautious rule, and the sentence names the signal.
+  if (f.correctionSource === 'reviewers') return reviewerSentence(f);
   switch (f.correctionAdjust) {
     case 'next_round_last':
       return (
@@ -398,10 +403,79 @@ export function correctionSentence(f: ProjectedApprovalRouteFacts): string | nul
         `cautiously (${f.cellRounds} rounds), so this plans one more round.`
       );
     case 'unknown_letter':
-      return "The last correction letter hasn't been read yet, so the count isn't used.";
+      // ★ fix-622: this now means NEITHER signal — the letter is unread and no
+      //   reviewer is marked as asking for corrections.
+      return (
+        "The last correction letter hasn't been read and no reviewer is marked " +
+        "as asking for corrections, so neither is used."
+      );
     case 'no_history':
       return `No past rounds for ${f.cellLabel} yet, so the count isn't used.`;
     default:
       return null;
   }
+}
+
+// ===========================================================================
+// ★★★ fix-622 — THE REVIEWERS, AND THE MILESTONES THAT MOVED FORWARD
+// ===========================================================================
+
+function reviewers(n: number): string {
+  return `${n} reviewer${n === 1 ? '' : 's'}`;
+}
+
+/** e.g. *"3 reviewers asked for corrections (the letter hasn't been read);
+ *  past odds of approval next round 14% (read cautiously, 21 Kirkland Building
+ *  Permits rounds) — planned one more round."* */
+function reviewerSentence(f: ProjectedApprovalRouteFacts): string | null {
+  const who = `${reviewers(f.reviewerCount ?? 0)} asked for corrections (the letter hasn't been read)`;
+  switch (f.correctionAdjust) {
+    case 'next_round_last':
+      return (
+        `${who}; past odds of approval next round ${f.nextRoundChancePct}% (read cautiously, ` +
+        `${f.cellRounds} ${f.cellLabel} rounds) — planned the next round as the last.`
+      );
+    case 'one_more_round':
+      return (
+        `${who}; past odds of approval next round ${f.nextRoundChancePct}% (read cautiously, ` +
+        `${f.cellRounds} ${f.cellLabel} rounds) — planned one more round.`
+      );
+    case 'no_history':
+      return `${who}, but no past ${f.cellLabel} rounds had that many yet, so it isn't used.`;
+    default:
+      return null;
+  }
+}
+
+const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+
+/** "Sep 26" from an ISO date. */
+function shortDate(iso: string): string {
+  const [, m, d] = iso.split('-').map(Number);
+  return `${MONTHS[(m ?? 1) - 1]} ${d}`;
+}
+
+function days(n: number): string {
+  return `${n} day${n === 1 ? '' : 's'}`;
+}
+
+/**
+ * ★★★ fix-622 §B (P-300 item 3): *"Move forward and say why."* One sentence per
+ * milestone that had already passed without happening and was re-anchored
+ * from today (lib/projectedApproval ProjectionReanchor).
+ */
+export function reanchorSentences(f: ProjectedApprovalRouteFacts): string | null {
+  const list = f.reanchors ?? [];
+  if (list.length === 0) return null;
+  return list
+    .map((r) =>
+      r.kind === 'city_late'
+        ? `City is ${days(r.daysLate)} past its own review date (due ${shortDate(r.due)})` +
+          ((r.plannedDays ?? 0) > 0
+            ? ` — planned ${days(r.plannedDays ?? 0)} from today, how late this city ` +
+              `typically runs once past due (${r.lateRounds} late rounds).`
+            : ' — planned from today.')
+        : `Our resubmittal is ${days(r.daysLate)} past the usual turnaround — planned from today.`,
+    )
+    .join(' ');
 }

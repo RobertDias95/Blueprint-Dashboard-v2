@@ -290,7 +290,9 @@ describe('fix-614 §C — the sentence', () => {
 
   it('★★★ unknown letter and no history say the count is not used', () => {
     expect(correctionSentence({ correctionAdjust: 'unknown_letter', cellLabel: 'x' })).toBe(
-      "The last correction letter hasn't been read yet, so the count isn't used.",
+      // ★ fix-622: this case now means NEITHER signal (letter unread, no
+      //   reviewer asking) — the reviewers answer when they can.
+      "The last correction letter hasn't been read and no reviewer is marked as asking for corrections, so neither is used.",
     );
     expect(correctionSentence({ correctionAdjust: 'no_history', cellLabel: 'Kirkland Building Permits' })).toBe(
       "No past rounds for Kirkland Building Permits yet, so the count isn't used.",
