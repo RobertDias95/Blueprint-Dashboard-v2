@@ -1,6 +1,20 @@
 // ===========================================================================
-// fix-621 (P-316) — A BLOCK MOVE LEAVES FINISHED PERMITS' DATES ALONE
+// fix-621 (P-316) → fix-624 (P-320) — WHAT A BLOCK MOVE MAY DO TO A FINISHED
+//                                      PERMIT'S DATES
 // ===========================================================================
+//
+// ⚖️ Bobby, 2026-10-05: **"Fill blanks, never overwrite."**
+//
+// fix-621 left a finished permit's four date fields ALONE. That was right about
+// recorded dates and wrong about blank ones: 193 of 592 finished permits had no
+// DD window at all (38 created in the last 30 days), and placing their block
+// left them blank forever. fix-624 narrows the rule to what Bobby actually
+// meant — a recorded value is history and never changes; a BLANK one is not a
+// record of anything and gets filled.
+//
+// ---------------------------------------------------------------------------
+// fix-621 (P-316) — A BLOCK MOVE LEAVES FINISHED PERMITS' DATES ALONE
+// ---------------------------------------------------------------------------
 //
 // ⚖️ Bobby, 2026-10-03 (popup): **"Approved/issued keep them"**
 //
@@ -65,6 +79,91 @@ export function countFinishedPermits(
   permits: readonly FinishablePermit[] | null | undefined,
 ): number {
   return (permits ?? []).filter(isFinishedPermit).length;
+}
+
+/**
+ * ★★★ THE FILL RULE — the TS twin of
+ *     `public.bp_fill_if_blank(approval_date, actual_issue, current, next)`.
+ *
+ * ⚖️ Bobby, 2026-10-05: **"Fill blanks, never overwrite."**
+ *
+ *   open permit      → `next`, always (unchanged behaviour)
+ *   finished, blank  → `next`. **This is fix-624.**
+ *   finished, filled → `current`, untouched.
+ *
+ * ★★ PER FIELD. The caller passes one field's current value, so a blank
+ *    `dd_end` beside a filled `dd_start` fills only `dd_end`. Measured on prod
+ *    2026-10-05 no permit is half-blank (all 193 have both NULL), so that case
+ *    is latent — implemented because it was ruled, not because it fires.
+ *
+ * ★ Used by the OPTIMISTIC CACHE patches in `useUpdateDrawSchedule` and
+ *   `useSetBpDdDates`. They used to return a finished row untouched (fix-621);
+ *   now they must fill its blanks, or a fill the server performs would not
+ *   appear until the refetch — the same "lie with a delay on it" in reverse.
+ */
+export function fillIfBlank<T extends string | null | undefined>(
+  permit: FinishablePermit | null | undefined,
+  current: T,
+  next: T,
+): T {
+  if (!isFinishedPermit(permit)) return next;
+  return (current ?? next) as T;
+}
+
+/**
+ * ★★★ §B — IS THIS FIELD NOW A RECORD RATHER THAN AN INPUT?
+ *
+ * A finished permit's FILLED date is history: the server will not change it, so
+ * an input bound to it takes typing, the block moves, and the field snaps back
+ * to the recorded value. That reads like a failed save, which is why Bobby
+ * ruled it read-only. A BLANK one stays editable — it is the one case where
+ * typing still reaches the database.
+ */
+export function isDateFieldHistory(
+  permit: FinishablePermit | null | undefined,
+  current: string | null | undefined,
+): boolean {
+  return isFinishedPermit(permit) && current != null && current !== '';
+}
+
+/** 'Issued' when there is an issue date, else 'Approved', else null.
+ *
+ *  ★ ISSUED WINS when both dates are present: it is the later state, and a
+ *    reader who opens the permit will see "Issued". fix-621's count sentence
+ *    makes the same choice for the same reason. */
+export function finishedPermitWord(
+  p: FinishablePermit | null | undefined,
+): 'Approved' | 'Issued' | null {
+  if (!isFinishedPermit(p)) return null;
+  return p?.actual_issue != null ? 'Issued' : 'Approved';
+}
+
+/**
+ * ★★★ §B's ONE LINE, in Bobby's words (2026-10-05):
+ *
+ *   *"Approved — these are the Building Permit's design dates. Move the block on
+ *     the Draw Schedule to change the lane."*
+ *
+ * ★ It says where to go instead. A read-only field that only says "read-only"
+ *   leaves somebody stuck; the Draw Schedule is the answer and naming it is the
+ *   difference between an explanation and a refusal.
+ *
+ * ★ `null` when the rule does not apply, so the caller renders nothing by
+ *   testing one value.
+ */
+export function ddHistoryNote(
+  bp: FinishablePermit | null | undefined,
+  ddStart: string | null | undefined,
+  ddEnd: string | null | undefined,
+): string | null {
+  const word = finishedPermitWord(bp);
+  if (word === null) return null;
+  // Only once something is recorded. While both are blank the fields are live.
+  if (!isDateFieldHistory(bp, ddStart) && !isDateFieldHistory(bp, ddEnd)) return null;
+  return (
+    `${word} — these are the Building Permit's design dates. ` +
+    'Move the block on the Draw Schedule to change the lane.'
+  );
 }
 
 /**
