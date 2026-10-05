@@ -250,21 +250,40 @@ describe('fix-621 — the one plain line', () => {
 // ---------------------------------------------------------------------------
 // §A — the optimistic cache mirrors the rule
 // ---------------------------------------------------------------------------
-describe('fix-621 §A — the optimistic patches skip finished permits', () => {
+describe('fix-621 §A — the optimistic patches follow the server rule', () => {
   // ★★ WHY A SOURCE ASSERTION. Both patches are closures inside a mutation's
   //    `onMutate` / `onSuccess`, reachable only by driving the whole hook with a
-  //    mocked supabase and a QueryClient. What matters is that the skip is
-  //    there at all: without it the row visibly changes and then snaps back when
-  //    the refetch lands — a lie with a delay on it, which is worse than a flash
-  //    of the truth. The behaviour it protects is the server's, and that is
+  //    mocked supabase and a QueryClient. What matters is that the cache agrees
+  //    with the server at all: a row that visibly changes and then snaps back
+  //    when the refetch lands is a lie with a delay on it, which is worse than a
+  //    flash of the truth. The behaviour it protects is the server's, and that is
   //    pinned above.
-  it('★★★ both hooks that patch permits optimistically carry the skip', () => {
+  it('★★★ both hooks that patch permits optimistically mirror the rule', () => {
+    // ═══ SUPERSEDED BY fix-624 (P-320), NOT MISTAKEN ═══
+    //
+    // THE ORIGINAL ASSERTED `if (isFinishedPermit(p)) return p;` — "both hooks
+    // carry THE SKIP" — and that was exactly right for fix-621, whose server
+    // rule was "leave a finished permit alone".
+    //
+    // ★★★ ⚖️ Bobby, 2026-10-05: **"Fill blanks, never overwrite."** fix-624
+    //     narrowed the server rule, so the blanket skip became the wrong mirror
+    //     of it: 193 finished permits had NO DD window, the RPCs now fill those,
+    //     and a hook that still returned the row untouched would hide a write
+    //     the server really performs — the same delayed lie, pointing the other
+    //     way.
+    //
+    // ★★ SO THE ASSERTION MOVES FROM "SKIPS" TO "DECIDES PER FIELD". The
+    //    *reason* is unchanged and is the sentence above: the cache must say
+    //    what the server will say. Only the server's sentence changed.
     for (const f of ['hooks/useUpdateDrawSchedule.ts', 'hooks/useSetBpDdDates.ts']) {
       const c = code(read(f));
       expect(c, `${f} imports the mirror`).toContain(
         "from '../lib/finishedPermits'",
       );
-      expect(c, `${f} skips a finished permit`).toMatch(
+      // fix-624: per field, through the twin of `bp_fill_if_blank`.
+      expect(c, `${f} decides per field`).toMatch(/fillIfBlank\(p, p\./);
+      // ★ and the blanket skip is GONE — keeping it would hide the fill.
+      expect(c, `${f} no longer skips wholesale`).not.toMatch(
         /if \(isFinishedPermit\(p\)\) return p;/,
       );
     }

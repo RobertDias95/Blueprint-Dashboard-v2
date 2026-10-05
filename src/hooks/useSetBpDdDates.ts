@@ -9,7 +9,7 @@ import type { PermitWithCycles } from '../lib/database.types';
 import { isBlockOverlapRefusal } from '../lib/errorLogger';
 // ★ fix-621 (P-316): the TS mirror of bp_permit_is_finished — the optimistic
 //   patch below must skip exactly the rows the server now skips.
-import { isFinishedPermit } from '../lib/finishedPermits';
+import { fillIfBlank } from '../lib/finishedPermits';
 
 // fix-23a: bp_set_bp_dd_dates. Atomic update of the BP's dd_start/dd_end
 // that cascades target_submit (end + 14d) across every permit on the
@@ -164,19 +164,29 @@ export function useSetBpDdDates() {
         ) =>
           rows?.map((p) => {
             if (p.project_id !== result.projectId) return p;
-            // ★★★ fix-621 (P-316): an approved or issued permit keeps its dates,
-            //     so the optimistic patch must skip it too — `bp_set_bp_dd_dates`
-            //     no longer writes it, and patching it here would show a change
-            //     that the refetch then takes back. See lib/finishedPermits.
-            if (isFinishedPermit(p)) return p;
+            // ★★★ fix-624 (P-320) SUPERSEDES fix-621's `return p` HERE. Its
+            //     reasoning was right about a RECORDED date and wrong about a
+            //     blank one: the RPC now fills a finished permit's blank window,
+            //     so the row has to be patched per field rather than skipped.
+            //
+            // ★★ AND fix-121's `target_submit: null` NEEDED THE SAME CARE. It
+            //    blanks the cached target so the UI shows a placeholder until the
+            //    engine's value arrives — but on a finished permit with a
+            //    RECORDED target that would flash "—" over a date the server is
+            //    not going to touch. `fillIfBlank(p, p.target_submit, null)`
+            //    keeps a recorded one and leaves a blank one blank, which is
+            //    exactly what the refetch will confirm.
+            //
+            // ★ CLEAR MODE NEEDS NO SPECIAL CASE: `input.ddStart` is null, and
+            //   `fillIfBlank` on a finished permit returns the value already
+            //   there — matching the server, where the CLEAR path still carries
+            //   fix-621's `AND NOT finished` because writing NULL over a
+            //   recorded window is an overwrite, not a fill.
             const base = {
               ...p,
-              dd_start: input.ddStart,
-              dd_end: input.ddEnd,
-              // fix-121: target_submit cascaded server-side; null out the
-              // cache so the UI shows the placeholder until refetch lands
-              // (typically <100ms) instead of the stale pre-edit value.
-              target_submit: null,
+              dd_start: fillIfBlank(p, p.dd_start, input.ddStart),
+              dd_end: fillIfBlank(p, p.dd_end, input.ddEnd),
+              target_submit: fillIfBlank(p, p.target_submit, null),
             };
             // Only the BP carries the OCC token round-trip — siblings'
             // updated_at refreshes via invalidate-driven refetch below.

@@ -9,7 +9,7 @@ import type { DrawScheduleRow, PermitWithCycles } from '../lib/database.types';
 import { isBlockOverlapRefusal } from '../lib/errorLogger';
 // ★ fix-621 (P-316): the TS mirror of bp_permit_is_finished — the optimistic
 //   patch below must skip exactly the rows the server now skips.
-import { isFinishedPermit } from '../lib/finishedPermits';
+import { fillIfBlank } from '../lib/finishedPermits';
 
 // Q5.5.D: Atomic write via bp_update_draw_schedule_with_dd_sync. The RPC
 // updates draw_schedule.start_week/end_week/dd_start/dd_end with OCC, then
@@ -139,19 +139,29 @@ export function useUpdateDrawSchedule() {
           //    below lands. A flash of the truth is better than a confident
           //    wrong answer, and this screen is the Draw Schedule — the one
           //    place somebody drags a block and then checks what it did.
-          if (isFinishedPermit(p)) return p;
+          // ★★★ fix-624 (P-320) SUPERSEDES THE `return p` THAT USED TO BE HERE.
+          //     ⚖️ Bobby, 2026-10-05: **"Fill blanks, never overwrite."** The RPC
+          //     now FILLS a finished permit's blank `dd_start` / `dd_end` /
+          //     `target_submit`, so skipping the row here would hide a write the
+          //     server really does — the same delayed lie as fix-621's, pointing
+          //     the other way. `fillIfBlank` is the twin of `bp_fill_if_blank`,
+          //     so the cache and the WHERE clause agree per field.
           // BPs also get the target_submit refresh; non-BP permits keep
           // their per-permit target_submit (matches the server-side
           // type='Building Permit' filter on the cascade).
           if (p.type === 'Building Permit') {
             return {
               ...p,
-              dd_start: newDdStart,
-              dd_end: newDdEnd,
-              target_submit: newTargetSubmit,
+              dd_start: fillIfBlank(p, p.dd_start, newDdStart),
+              dd_end: fillIfBlank(p, p.dd_end, newDdEnd),
+              target_submit: fillIfBlank(p, p.target_submit, newTargetSubmit),
             };
           }
-          return { ...p, dd_start: newDdStart, dd_end: newDdEnd };
+          return {
+            ...p,
+            dd_start: fillIfBlank(p, p.dd_start, newDdStart),
+            dd_end: fillIfBlank(p, p.dd_end, newDdEnd),
+          };
         });
 
       queryClient.setQueryData(permitsKey, cascadePermits(permitsSnapshot));

@@ -57,7 +57,11 @@ import { useResolveDaOverlap } from '../../hooks/useResolveDaOverlap';
 //    often already finished — measured 2026-10-03, 220 of 267 projects with a
 //    Building Permit have an approved or issued one. So this is the screen that
 //    most needs to say what the edit will and will not move.
-import { finishedPermitsNote } from '../../lib/finishedPermits';
+import {
+  ddHistoryNote,
+  finishedPermitsNote,
+  isDateFieldHistory,
+} from '../../lib/finishedPermits';
 import { useIsTenantAdmin } from '../../hooks/useIsTenantAdmin';
 import { useDrawSchedule } from '../../hooks/useDrawSchedule';
 import { useUpdateProjectWithPermits } from '../../hooks/useUpdateProjectWithPermits';
@@ -534,6 +538,29 @@ export function DDPhaseEditor({
   //   the same rows the server will judge.
   const ddFinishedNote = useMemo(() => finishedPermitsNote(permits), [permits]);
 
+  // ═══ ★★★ fix-624 §B (P-320) — ONCE RECORDED, THESE ARE HISTORY ═══
+  //
+  // ⚖️ Bobby, 2026-10-05: the design-date fields on a project whose Building
+  //    Permit is approved or issued are **read-only once filled**, with one line
+  //    saying so and where to go instead.
+  //
+  // ★★★ THIS IS THE SCREEN fix-621's OWN NOTE PREDICTED WOULD BE A PROBLEM:
+  //     *"on most projects the typed value will not stick to this permit."* It
+  //     said so and then left the box editable, so the field still took typing
+  //     and still snapped back — which reads like a failed save. Saying it and
+  //     then allowing it was half a fix; this is the other half.
+  //
+  // ★★ PER FIELD, and a BLANK ONE STAYS LIVE. That is the whole of §A on this
+  //    end: a blank date is the one case where typing still reaches the
+  //    database (the server fills it), so disabling it would re-create the
+  //    193-blank problem from the other direction.
+  const ddStartIsHistory = isDateFieldHistory(bp, bp.dd_start);
+  const ddEndIsHistory = isDateFieldHistory(bp, bp.dd_end);
+  const ddHistory = useMemo(
+    () => ddHistoryNote(bp, bp.dd_start, bp.dd_end),
+    [bp],
+  );
+
   /** Commit DD dates. The RPC accepts (a) both filled, (b) both null
    *  (clear), but rejects partial-null. */
   async function commitDd(opts: { forceNp?: boolean } = {}) {
@@ -695,7 +722,7 @@ export function DDPhaseEditor({
             value={startDraft}
             onChange={setStartDraft}
             onBlur={() => void commitDd()}
-            disabled={occMissing || !canEdit}
+            disabled={occMissing || !canEdit || ddStartIsHistory}
             testId="pd-bp-dd_start"
             ariaLabel="DD start"
             savesNow
@@ -709,20 +736,43 @@ export function DDPhaseEditor({
             value={endDraft}
             onChange={setEndDraft}
             onBlur={() => void commitDd()}
-            disabled={occMissing || !canEdit}
+            disabled={occMissing || !canEdit || ddEndIsHistory}
             testId="pd-bp-dd_end"
             ariaLabel="DD end"
             savesNow
           />
           {/* fix-309 #49: the Duration line is gone. The two dates say it. */}
-          {/* ★★★ fix-621 (P-316): one plain line, only when it applies. */}
-          {ddFinishedNote && (
+          {/* ═══ ONE LINE, AND THE MORE SPECIFIC ONE WINS ═══
+
+              ★★★ fix-624 §B: when the Building Permit's OWN dates are the ones
+                  recorded, say that — it explains why the two boxes above are
+                  read-only and names the Draw Schedule as the way to change the
+                  lane. It is strictly more useful here than a count.
+
+              ★★ fix-621's count line is KEPT for the case it was written for: the
+                 BP is still open (so the boxes are live) but some SIBLING permit
+                 is finished and will keep its own dates. Two different facts, so
+                 two sentences rather than one that tries to cover both.
+
+              ★ Never both: stacking "Approved — these are…" on "3 approved
+                permits keep their dates." says the same thing twice and buries
+                the instruction. */}
+          {ddHistory ? (
             <p
               className="text-[11px] text-muted m-0 mt-0.5"
-              data-testid="pd-dd-finished-note"
+              data-testid="pd-dd-history-note"
             >
-              {ddFinishedNote}
+              {ddHistory}
             </p>
+          ) : (
+            ddFinishedNote && (
+              <p
+                className="text-[11px] text-muted m-0 mt-0.5"
+                data-testid="pd-dd-finished-note"
+              >
+                {ddFinishedNote}
+              </p>
+            )
           )}
         </div>
        </OverviewSection>
