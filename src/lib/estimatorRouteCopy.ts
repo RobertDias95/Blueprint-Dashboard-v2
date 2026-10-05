@@ -471,10 +471,13 @@ export function reanchorSentences(f: ProjectedApprovalRouteFacts): string | null
     .map((r) =>
       r.kind === 'city_late'
         ? `City is ${days(r.daysLate)} past its own review date (due ${shortDate(r.due)})` +
+          // ★ fix-625: the cautious figure, said plainly — or, with too little
+          //   history, that the estimate plans from today.
           ((r.plannedDays ?? 0) > 0
-            ? ` — planned ${days(r.plannedDays ?? 0)} from today, how late this city ` +
-              `typically runs once past due (${r.lateRounds} late rounds).`
-            : ' — planned from today.')
+            ? `; it often runs up to ${days(r.plannedDays ?? 0)} late here, so the estimate ` +
+              'allows for that.'
+            : '; too few late answers here to judge how late it runs, so the estimate ' +
+              'plans from today.')
         : `Our resubmittal is ${days(r.daysLate)} past the usual turnaround — planned from today.`,
     )
     .join(' ');
