@@ -126,7 +126,13 @@ export interface CityLatenessCell {
   type: string;
   juris: string;
   late_rounds: number;
-  typical_days: number;
+  /** ★ fix-625: the CAUTIOUS end — the learner's 80th percentile (p80_days),
+   *  from city_late's own ladder (a recent window needs >= 30 late rounds,
+   *  else all-time; fewer than 5 all-time → no row). Bobby, 2026-10-05:
+   *  "Cautious, as you ruled." Absent before the fix-625 migration → no signal. */
+  cautious_days?: number;
+  /** fix-622's median, kept in the payload for reference; not read. */
+  typical_days?: number;
   window_tier?: string;
 }
 
@@ -153,9 +159,10 @@ export interface CorrectionSignal {
   reviewerCount?: number | null;
   /** ★ fix-622: the reviewer cell for that count; null when none / no history. */
   reviewerCell?: { bucket: ReviewerBucket; resolvedRounds: number; approvedNext: number } | null;
-  /** ★ fix-622 §B: how late this type × city typically runs once past its own
-   *  review date; null = no history (re-anchor at today). */
-  cityLateness?: { typicalDays: number; lateRounds: number } | null;
+  /** ★ fix-622 §B / fix-625: how late this type × city often runs once past
+   *  its own review date — the cautious end; null = not enough history
+   *  (re-anchor at today, and say so). */
+  cityLateness?: { cautiousDays: number; lateRounds: number } | null;
 }
 
 export function cellLabelFor(type: string, juris: string): string {
@@ -178,8 +185,8 @@ export function correctionSignalFor(
     ? (payload.lateness ?? []).find((x) => x.type === type && x.juris === j)
     : undefined;
   const cityLateness =
-    late && late.late_rounds > 0 && late.typical_days > 0
-      ? { typicalDays: late.typical_days, lateRounds: late.late_rounds }
+    late && late.late_rounds > 0 && typeof late.cautious_days === 'number' && late.cautious_days > 0
+      ? { cautiousDays: late.cautious_days, lateRounds: late.late_rounds }
       : null;
   const row = payload.permits.find((p) => p.permit_id === permit.id);
   if (!row) {

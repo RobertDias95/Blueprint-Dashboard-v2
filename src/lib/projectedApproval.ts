@@ -91,7 +91,7 @@ function daysFromTo(a: string, b: string): number {
  *
  *   city_late   the round is past the city's OWN review date
  *               (permit_cycles.city_target) with no answer. Re-anchored at
- *               today + how late this type × city typically runs once past
+ *               today + how late this type × city OFTEN runs once past
  *               due (the learner's `city_late` clock, via bp_correction_odds
  *               `lateness`), or today when there is no history. Never another
  *               city's history.
@@ -653,7 +653,8 @@ function computeProjectedApprovalCore(
    *  this city's cautious lateness. */
   const cityDue = (cityTarget: string): string => {
     if (cityTarget >= today) return cityTarget;
-    const planned = lateness?.typicalDays ?? 0;
+    // ★ fix-625: the cautious end (the learner's 80th percentile), not the median.
+    const planned = lateness?.cautiousDays ?? 0;
     reanchors.push({
       kind: 'city_late',
       daysLate: daysFromTo(cityTarget, today),

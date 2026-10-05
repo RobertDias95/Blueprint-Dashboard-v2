@@ -91,7 +91,8 @@ const PAYLOAD: CorrectionOddsPayload = {
     { type: 'Building Permit', juris: 'Seattle', bucket: '1', resolved_rounds: 4, approved_next: 2 },
   ],
   lateness: [
-    { type: 'Building Permit', juris: 'Seattle', late_rounds: 39, typical_days: 6, window_tier: '90d' },
+    // ★ fix-625: the cautious figure is what the client reads.
+    { type: 'Building Permit', juris: 'Seattle', late_rounds: 39, cautious_days: 6, typical_days: 4, window_tier: '90d' },
   ],
 };
 const BP = (id: number) => ({ id, type: 'Building Permit' });
@@ -187,9 +188,9 @@ describe('fix-622 §B: never point at a date that has passed', () => {
     cyc({ cycle_index: 1, submitted: '2026-06-01', corr_issued: '2026-07-01', resubmitted: '2026-08-01' }),
     cyc({ cycle_index: 2, submitted: '2026-08-01', city_target: '2026-09-26' }),
   ];
-  const lateSignal = (typicalDays: number | null): CorrectionSignal => ({
+  const lateSignal = (cautiousDays: number | null): CorrectionSignal => ({
     round: 0, count: null, cellLabel: 'Seattle Building Permits', cell: null,
-    cityLateness: typicalDays ? { typicalDays, lateRounds: 39 } : null,
+    cityLateness: cautiousDays ? { cautiousDays, lateRounds: 39 } : null,
   });
 
   it('★★★ (a) a past city date re-anchors at today + this city\'s typical lateness, and says why', () => {
@@ -199,7 +200,8 @@ describe('fix-622 §B: never point at a date that has passed', () => {
     ]);
     expect(r.projection).toBe('2026-10-15'); // today + 6, + the 7-day approval buffer
     expect(reanchorSentences(r.routeFacts!)).toBe(
-      'City is 6 days past its own review date (due Sep 26) — planned 6 days from today, how late this city typically runs once past due (39 late rounds).',
+      // ★ fix-625: the cautious wording.
+      'City is 6 days past its own review date (due Sep 26); it often runs up to 6 days late here, so the estimate allows for that.',
     );
     expect(routeSentence(r.route, r.routeFacts)).toContain('City is 6 days past its own review date (due Sep 26)');
   });
@@ -207,7 +209,7 @@ describe('fix-622 §B: never point at a date that has passed', () => {
   it('★★ (a) with no history for this city → today, and said so', () => {
     const r = computeProjectedApproval({ permit: permit(), cycles: inReviewPastCityDate, learnedEstimate: learned(), correctionSignal: lateSignal(null) });
     expect(r.projection).toBe('2026-10-09');
-    expect(reanchorSentences(r.routeFacts!)).toBe('City is 6 days past its own review date (due Sep 26) — planned from today.');
+    expect(reanchorSentences(r.routeFacts!)).toBe('City is 6 days past its own review date (due Sep 26); too few late answers here to judge how late it runs, so the estimate plans from today.');
   });
 
   it('★★ (a) a city date still ahead is used as-is — nothing to say', () => {
@@ -283,6 +285,6 @@ describe('fix-622 §B: never point at a date that has passed', () => {
 
   it('★ no cross-city lateness', () => {
     expect(correctionSignalFor(PAYLOAD, BP(13), 'Kirkland')?.cityLateness).toBeNull();
-    expect(correctionSignalFor(PAYLOAD, BP(13), 'Seattle')?.cityLateness).toEqual({ typicalDays: 6, lateRounds: 39 });
+    expect(correctionSignalFor(PAYLOAD, BP(13), 'Seattle')?.cityLateness).toEqual({ cautiousDays: 6, lateRounds: 39 });
   });
 });
