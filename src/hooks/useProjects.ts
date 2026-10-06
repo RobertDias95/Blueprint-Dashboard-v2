@@ -1,5 +1,6 @@
 import { useQuery } from '@tanstack/react-query';
 import { supabase } from '../lib/supabase';
+import { fetchAllRows } from '../lib/fetchAllRows';
 import { queryKeys } from '../lib/queryKeys';
 import { useAuthStore } from '../stores/authStore';
 import type { Project } from '../lib/database.types';
@@ -26,7 +27,24 @@ export function useProjects() {
       // but every read surface saw blanks. fix-91 (2026-06-02) renamed
       // the previously-singular Product Type column to its plural
       // text[] form — see migrations/fix_91_product_types_array.sql.
-      const { data, error } = await supabase
+      // ═══ ★★★ fix-627 §B (P-322) — fix-189 NAMED THIS GAP AND LEFT IT OPEN
+      //
+      // `useProjectAddressIndex` carries the note: *"useProjects has no
+      // `.range()`. fix-189 recorded what that costs: an un-ranged PostgREST
+      // select silently stops at 1000 rows with NO error and NO indication."*
+      // It then built its own LIMIT+1 truncation DETECTOR rather than fixing
+      // this, because at 146 projects the cap was 7× away.
+      //
+      // ★★ IT IS 305 TODAY, and §A is what the same bug looks like when it
+      //    arrives: a silent truncation nobody can see, in a list everything
+      //    else is derived from. Paged now rather than left for the ticket that
+      //    discovers it as a wrong number on a report.
+      //
+      // ★ `id` after `address` makes the ordering TOTAL — two projects can share
+      //   an address (a redesign), so `address` alone is not a stable page
+      //   boundary.
+      const data = await fetchAllRows<unknown>((from, to) =>
+        supabase
         .from('projects')
         .select(
           [
@@ -94,12 +112,14 @@ export function useProjects() {
         //     the one group who can delete, the unfiltered list would arrive
         //     with deleted projects in it. See lib/activeProject.
         .eq('archived', false)
-        .order('address', { ascending: true });
-      if (error) throw error;
+        .order('address', { ascending: true })
+        .order('id', { ascending: true })
+        .range(from, to),
+      );
       // PostgREST's inferred union doesn't unify with Project when the
       // select list is long. Cast via unknown — columns match the
       // hand-typed interface exactly.
-      return (data ?? []) as unknown as Project[];
+      return data as unknown as Project[];
     },
   });
 }

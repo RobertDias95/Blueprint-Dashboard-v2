@@ -1,5 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '../lib/supabase';
+import { fetchAllRows } from '../lib/fetchAllRows';
 import { queryKeys } from '../lib/queryKeys';
 import { occToken } from '../lib/occ';
 import { occInsertKey, occRowKey, occSerialize } from '../lib/occQueue';
@@ -69,13 +70,23 @@ export function useBuilderRegistry() {
         //     all, so a builder's project count would have included the ones an
         //     admin had deleted. The only client reader of `projects` that was
         //     missing the rule; found by enumerating them for §A.1.
-        supabase.from('projects').select('builder_id').eq('archived', false),
+        // ★★ fix-627 §B (P-322): paged. 305 non-archived projects today and one
+        //    more per project for ever — a truncated list would UNDERCOUNT a
+        //    builder's projects silently, which is the §A failure mode wearing a
+        //    number instead of a modal.
+        fetchAllRows<{ builder_id: string | null }>((from, to) =>
+          supabase
+            .from('projects')
+            .select('builder_id')
+            .eq('archived', false)
+            .order('id', { ascending: true })
+            .range(from, to),
+        ),
       ]);
       if (buildersRes.error) throw buildersRes.error;
-      if (projectsRes.error) throw projectsRes.error;
 
       const counts = new Map<string, number>();
-      for (const p of (projectsRes.data ?? []) as { builder_id: string | null }[]) {
+      for (const p of projectsRes) {
         if (!p.builder_id) continue;
         counts.set(p.builder_id, (counts.get(p.builder_id) ?? 0) + 1);
       }

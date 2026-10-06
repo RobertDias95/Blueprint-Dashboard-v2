@@ -1,5 +1,6 @@
 import { useQuery } from '@tanstack/react-query';
 import { supabase } from '../lib/supabase';
+import { fetchAllRows } from '../lib/fetchAllRows';
 import { queryKeys } from '../lib/queryKeys';
 import { useAuthStore } from '../stores/authStore';
 import type { AutoClosureItemInput } from '../lib/boardReads';
@@ -24,7 +25,11 @@ export function useAutoClosures() {
     enabled: !!tenantId,
     queryFn: async () => {
       const since = new Date(Date.now() - WINDOW_DAYS * 86_400_000).toISOString();
-      const { data, error } = await supabase
+      // ★★ fix-627 §B (P-322): 292 rows inside the 30-day window today, and the
+      //    window fills faster as the bot closes more. `id` makes the closed_at
+      //    ordering total.
+      const data = await fetchAllRows<unknown>((from, to) =>
+        supabase
         .from('permit_task_auto_closures')
         .select(
           // ★ fix-362: task_ids — WHICH tasks this closure covered, so a
@@ -35,8 +40,10 @@ export function useAutoClosures() {
             'permits!inner(project_id, num, type, projects!inner(address))',
         )
         .gte('closed_at', since)
-        .order('closed_at', { ascending: false });
-      if (error) throw error;
+        .order('closed_at', { ascending: false })
+        .order('id', { ascending: true })
+        .range(from, to),
+      );
       type Row = {
         id: string;
         permit_id: number;

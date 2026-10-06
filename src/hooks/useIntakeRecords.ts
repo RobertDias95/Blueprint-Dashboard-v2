@@ -1,5 +1,6 @@
 import { useQuery } from '@tanstack/react-query';
 import { supabase } from '../lib/supabase';
+import { fetchAllRows } from '../lib/fetchAllRows';
 import { queryKeys } from '../lib/queryKeys';
 import { useAuthStore } from '../stores/authStore';
 import type { IntakeRecord } from '../lib/database.types';
@@ -14,19 +15,24 @@ export function useIntakeRecords() {
     queryKey: queryKeys.intakeRecords(tenantId ?? ''),
     enabled: !!tenantId,
     queryFn: async () => {
-      const { data, error } = await supabase
+      // ★★ fix-627 §B (P-322): 507 rows today, one per permit intake, so it
+      //    only grows. `id` makes the intake_date ordering total.
+      const data = await fetchAllRows<unknown>((from, to) =>
+        supabase
         .from('intake_records')
         .select(
           'id, project_id, permit_id, address, permit_num, permit_type, ' +
             'intake_date, is_placeholder, portal_url, link, ' +
             'created_at, updated_at',
         )
-        .order('intake_date', { ascending: false });
-      if (error) throw error;
+        .order('intake_date', { ascending: false })
+        .order('id', { ascending: true })
+        .range(from, to),
+      );
       // PostgREST infers a column-string-based shape from the select that
       // doesn't unify with IntakeRecord (no generated types in this repo).
       // Cast via unknown — the columns selected match the interface exactly.
-      return (data ?? []) as unknown as IntakeRecord[];
+      return data as unknown as IntakeRecord[];
     },
   });
 }

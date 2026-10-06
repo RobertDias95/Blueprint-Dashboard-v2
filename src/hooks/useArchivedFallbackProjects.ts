@@ -1,5 +1,6 @@
 import { useQuery } from '@tanstack/react-query';
 import { supabase } from '../lib/supabase';
+import { fetchAllRows } from '../lib/fetchAllRows';
 import { useAuthStore } from '../stores/authStore';
 
 // ===========================================================================
@@ -44,13 +45,20 @@ export function useArchivedFallbackProjects() {
     staleTime: 60 * 60 * 1000,
     retry: false,
     queryFn: async () => {
-      const { data, error } = await supabase
-        .from('project_plan_of_record_sets')
-        .select(SELECT_COLUMNS)
-        .eq('is_archived_fallback', true);
-      if (error) throw error;
+      // ★★ fix-627 §B (P-322): 537 fallback sets today and one more per
+      //    superseded drawing. A truncated list here would mark FEWER Library
+      //    rows than are actually superseded — silently, which is worse than
+      //    marking none.
+      const data = await fetchAllRows<{ project_id: string }>((from, to) =>
+        supabase
+          .from('project_plan_of_record_sets')
+          .select(SELECT_COLUMNS)
+          .eq('is_archived_fallback', true)
+          .order('id', { ascending: true })
+          .range(from, to),
+      );
       const out = new Set<string>();
-      for (const row of (data ?? []) as Array<{ project_id: string }>) {
+      for (const row of data) {
         out.add(row.project_id);
       }
       return out;

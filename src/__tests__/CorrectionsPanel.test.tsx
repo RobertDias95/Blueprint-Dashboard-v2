@@ -28,7 +28,15 @@ const state = vi.hoisted(() => ({
 
 vi.mock('../lib/supabase', () => {
   // Chainable, thenable builder — mirrors the PostgrestFilterBuilder surface
-  // this hook touches: .select().eq().order().order().order() then awaited.
+  // this hook touches: .select().eq().order()x4.range() then awaited.
+  //
+  // ★★ fix-627 §B (P-322): `.range()` is new. `useCorrectionItems` now pages
+  //    through the shared `fetchAllRows` — 627 items on the biggest project
+  //    today, and an un-ranged PostgREST select stops at 1,000 SILENTLY, which
+  //    is the defect that broke Miles's Weekly Update. The double has to offer
+  //    the method or the chain throws; returning the whole set for any window
+  //    is right here, because these fixtures are far smaller than one page and
+  //    the pager stops on the first short page.
   const chain: Record<string, unknown> = {};
   chain.select = (cols: string) => {
     state.select = cols;
@@ -38,6 +46,7 @@ vi.mock('../lib/supabase', () => {
     state.eq = [col, val];
     return chain;
   };
+  chain.range = () => chain;
   chain.order = (col: string, opts: unknown) => {
     state.orders.push([col, opts]);
     return chain;
@@ -176,6 +185,12 @@ describe('fix-276 the corrections read is narrow and project-scoped', () => {
     await screen.findByTestId('corrections-summary');
     expect(state.orders.map(([col]) => col)).toEqual([
       'cycle', 'source_file', 'item_no',
+      // ★★ fix-627 §B: `id` LAST, and it is what makes this test's own name
+      //    true. Paging on (cycle, source_file, item_no) alone is not a TOTAL
+      //    ordering, so rows equal on all three could shift across a page
+      //    boundary and be duplicated or dropped — a worse failure than the
+      //    silent truncation the paging exists to fix.
+      'id',
     ]);
   });
 
