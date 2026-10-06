@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { useBoardReads, useMarkBoardItemsRead } from './useBoardReads';
+import { useBoardItemRead, useMarkBoardItemsRead } from './useBoardReads';
 import { useIsAgendaMember } from './useAgendaMember';
 import { currentEdition, editionReadKey, type EditionKey } from '../lib/weeklyEdition';
 
@@ -62,7 +62,6 @@ export interface WeeklyEditionState {
 
 export function useWeeklyEdition(): WeeklyEditionState {
   const isMember = useIsAgendaMember();
-  const readsQ = useBoardReads();
   const markRead = useMarkBoardItemsRead();
 
   const [edition, setEdition] = useState<EditionKey>(() => currentEdition());
@@ -98,7 +97,28 @@ export function useWeeklyEdition(): WeeklyEditionState {
   }, [check]);
 
   const key = editionReadKey(edition);
-  const acknowledged = (readsQ.data ?? []).includes(key);
+
+  // ═══ ★★★ fix-627 (P-322) — ASK FOR THE ONE KEY, NOT THE WHOLE HISTORY ═══
+  //
+  // Miles, 2026-10-06: *"I cannot close the update pop-up even if I restart."*
+  //
+  // THIS LINE USED TO BE `(readsQ.data ?? []).includes(key)` over
+  // `useBoardReads()`. That hook had no `.range()`, PostgREST capped it at 1,000
+  // rows silently, and Miles had 1,001 — his `weekly-update:2026-09-30` row was
+  // the one cut off. So `acknowledged` was false although the row existed, the
+  // modal showed, Close upserted a duplicate (ignored), and it showed again. For
+  // two days, over every screen, at z-9500.
+  //
+  // ★★★ fix-627 §A1 PAGES THAT HOOK, WHICH FIXES THIS TOO — AND THIS STILL
+  //     CHANGES. A modal nobody can dismiss is the worst failure this app has,
+  //     so the decision behind it must not depend on the SIZE of anything. One
+  //     row, asked for by key: exact at 1,000 reads and exact at 100,000.
+  //
+  // ★★ THE GUARD BELOW IS WHY `isSuccess` STILL MATTERS. fix-463's reasoning is
+  //    unchanged — showing the modal for 200ms on every load before the answer
+  //    arrives would train people to dismiss it unread, which defeats it.
+  const readQ = useBoardItemRead(key);
+  const acknowledged = readQ.data === true;
 
   const acknowledge = useCallback(() => {
     markRead.mutate([key]);
@@ -110,7 +130,7 @@ export function useWeeklyEdition(): WeeklyEditionState {
     //    for a moment on every load before the acknowledgement list arrives.
     //    Showing it wrongly for 200ms every single day would train people to
     //    dismiss it without reading, which is the one outcome that defeats it.
-    shouldShow: isMember && readsQ.isSuccess && !acknowledged,
+    shouldShow: isMember && readQ.isSuccess && !acknowledged,
     acknowledge,
     isMember,
   };
