@@ -1,5 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '../lib/supabase';
+import { fetchAllRows } from '../lib/fetchAllRows';
 import { queryKeys } from '../lib/queryKeys';
 import { useAuthStore } from '../stores/authStore';
 import { pushToast } from '../stores/toastStore';
@@ -31,12 +32,18 @@ export function useMilestoneAcks() {
     queryKey: [...ACKS_KEY, tenantId ?? ''],
     enabled: !!tenantId,
     queryFn: async () => {
-      const { data, error } = await supabase
-        .from('permit_milestone_acks')
-        .select('id, permit_id, milestone, anchor, acked_by_name, acked_at')
-        .order('acked_at', { ascending: false });
-      if (error) throw error;
-      return (data ?? []) as PermitMilestoneAck[];
+      // ★★ fix-627 §B (P-322): 258 rows today and one more per acknowledgement,
+      //    for ever. A truncated list makes an ACKED milestone look unacked —
+      //    the same class of bug as §A's unread read marks.
+      const data = await fetchAllRows<PermitMilestoneAck>((from, to) =>
+        supabase
+          .from('permit_milestone_acks')
+          .select('id, permit_id, milestone, anchor, acked_by_name, acked_at')
+          .order('acked_at', { ascending: false })
+          .order('id', { ascending: true })
+          .range(from, to),
+      );
+      return data;
     },
   });
 }

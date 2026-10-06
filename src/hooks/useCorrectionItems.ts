@@ -1,5 +1,6 @@
 import { useQuery } from '@tanstack/react-query';
 import { supabase } from '../lib/supabase';
+import { fetchAllRows } from '../lib/fetchAllRows';
 import { queryKeys } from '../lib/queryKeys';
 import { useAuthStore } from '../stores/authStore';
 import type { CorrectionItem } from '../lib/database.types';
@@ -40,7 +41,13 @@ export function useCorrectionItems(projectId: string | undefined) {
     queryKey: queryKeys.correctionItems(tenantId ?? '', projectId ?? ''),
     enabled: Boolean(projectId) && !!tenantId,
     queryFn: async () => {
-      const { data, error } = await supabase
+      // ★★ fix-627 §B (P-322): 627 rows on the biggest project today, and it
+      //    grows with every correction letter. An un-ranged select stops at
+      //    1,000 SILENTLY — the defect that broke Miles's Weekly Update (§A).
+      //    `id` is appended below to make the existing ordering TOTAL, without
+      //    which rows can shift between pages and be duplicated or skipped.
+      const data = await fetchAllRows<unknown>((from, to) =>
+        supabase
         .from('correction_items')
         .select(SELECT_COLUMNS)
         // A total ordering: (source_file, item_no) is unique within a project
@@ -50,9 +57,11 @@ export function useCorrectionItems(projectId: string | undefined) {
         .eq('project_id', projectId!)
         .order('cycle', { ascending: true, nullsFirst: false })
         .order('source_file', { ascending: true })
-        .order('item_no', { ascending: true });
-      if (error) throw error;
-      return (data ?? []) as unknown as CorrectionItem[];
+        .order('item_no', { ascending: true })
+        .order('id', { ascending: true })
+        .range(from, to),
+      );
+      return data as unknown as CorrectionItem[];
     },
   });
 }

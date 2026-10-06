@@ -1,5 +1,6 @@
 import { useQuery } from '@tanstack/react-query';
 import { supabase } from '../lib/supabase';
+import { fetchAllRows } from '../lib/fetchAllRows';
 import { queryKeys } from '../lib/queryKeys';
 import { useAuthStore } from '../stores/authStore';
 import type { ConsultantCurrent } from '../lib/consultants';
@@ -46,7 +47,11 @@ export function useConsultantCurrent(enabled = true) {
     queryKey: queryKeys.consultantCurrentAll(tenantId ?? ''),
     enabled: !!tenantId && enabled,
     queryFn: async () => {
-      const { data, error } = await supabase
+      // ★★ fix-627 §B (P-322): 200 rows today — roughly five consultants per
+      //    project, so it tracks the project count upward. `consultant_id` is
+      //    the view's identity and makes the discipline ordering total.
+      const data = await fetchAllRows<unknown>((from, to) =>
+        supabase
         .from('project_consultant_current')
         // ★ An EXPLICIT select list, and the fix-386/410/461/467 trap is why
         //   this comment is here too: a column added to the view is INVISIBLE
@@ -57,8 +62,10 @@ export function useConsultantCurrent(enabled = true) {
             'firm_active, notes, updated_at, round_id, round_index, phase, status, ' +
             'est_send, sent, est_recd, recd, round_updated_at, round_count',
         )
-        .order('discipline', { ascending: true });
-      if (error) throw error;
+        .order('discipline', { ascending: true })
+        .order('consultant_id', { ascending: true })
+        .range(from, to),
+      );
       return (data ?? []) as unknown as ConsultantCurrent[];
     },
     staleTime: 30 * 1000,

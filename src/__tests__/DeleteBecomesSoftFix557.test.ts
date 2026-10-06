@@ -147,8 +147,15 @@ describe('fix-557 §A.2 — ONE derivation, and it is named', () => {
 
     // ★★★ `useBuilderRegistry` had NO filter at all — the one client reader
     //     missing the rule, found only by enumerating them for §A.1.
+    //     ★★ fix-627 §B (P-322) REFORMATTED THIS CALL, NOT ITS RULE. The read
+     //        is paged now (305 non-archived projects today, one more per project
+     //        for ever), so the chain spans several lines and the original
+     //        single-string assertion no longer matches. The FILTER is what
+     //        fix-557 was about and it is asserted just as strictly — in two
+     //        parts, because that is how the call now reads.
     const br = read('src/hooks/useBuilderRegistry.ts');
-    expect(br).toContain(".select('builder_id').eq('archived', false)");
+    expect(br).toContain(".select('builder_id')");
+    expect(br).toContain(".eq('archived', false)");
 
     // ★★★ `useProjectAddressIndex` deliberately does NOT filter, and that is
     //     fix-333's rule, not an oversight: a duplicate-address warning must
