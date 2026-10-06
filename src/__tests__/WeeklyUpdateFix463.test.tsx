@@ -307,8 +307,27 @@ vi.mock('../hooks/useAgendaMember', () => ({
   useAgendaMemberNames: () => [],
   useSetAgendaMember: () => ({ mutate: vi.fn(), isPending: false }),
 }));
+// ═══ ★★★ fix-627 (P-322) — THE MOCK FOLLOWS THE HOOK ═══
+//
+// `useWeeklyEdition` used to read the WHOLE acknowledgement list and look its
+// edition key up inside it. That is exactly what broke: PostgREST capped the
+// un-ranged select at 1,000 rows, Miles had 1,001, and his
+// `weekly-update:2026-09-30` row was the one dropped — so an unclosable modal.
+//
+// ★★ fix-627 asks for the ONE key instead, so this mock provides
+//    `useBoardItemRead` and derives its answer FROM `state.reads`. Every
+//    assertion below is unchanged and still reads naturally: a test sets the
+//    reads it wants and the hook answers about one of them.
+//
+// ★ `useBoardReads` is still mocked — other things on this screen use it — but
+//   `useWeeklyEdition` no longer does, and a test asserting that is in
+//   BoardReadsCapFix627.
 vi.mock('../hooks/useBoardReads', () => ({
   useBoardReads: () => ({ data: state.reads, isSuccess: state.readsSuccess }),
+  useBoardItemRead: (key: string | null) => ({
+    data: key != null && state.reads.includes(key),
+    isSuccess: state.readsSuccess,
+  }),
   useMarkBoardItemsRead: () => ({
     mutate: (keys: string[]) => state.marked.push(keys),
   }),
