@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, vi } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import {
   SHARE_TOAST,
   SHARE_TTL_DAYS,
@@ -115,6 +115,15 @@ vi.mock('../lib/supabase', () => ({
 const toastMock = vi.hoisted(() => vi.fn());
 vi.mock('../stores/toastStore', () => ({ pushToast: toastMock ,
   pushRecoveredToast: toastMock}));
+
+// ★ fix-629: Microsoft sign-in is mocked — no real MSAL in jsdom.
+const outlook = vi.hoisted(() => ({ token: vi.fn(), has: false }));
+vi.mock('../lib/outlookAuth', () => ({
+  getOutlookToken: () => outlook.token(),
+  hasOutlookAccount: () => outlook.has,
+  loadOutlookAuth: () => Promise.resolve({}),
+  isOutlookSignInPopup: () => false,
+}));
 
 import PlanOfRecordCard from '../components/ProjectDetail/PlanOfRecordCard';
 
@@ -491,14 +500,19 @@ describe('fix-285 the file card', () => {
   //     `getPublicUrl` is still never called. What moved is that the SERVER
   //     mints the credential (`bp_create_plan_share`, `authenticated` only) and
   //     the browser hands over `/s/<token>` instead of a signature.
-  it('★★★ fix-523 §A: Copy link hands over /s/<token>, not a signed object', async () => {
+  // ★★ fix-629: Copy link is hidden from the CARD's menu (not deleted). The
+  //    property this pins — a share hands over /s/<token>, never a signed
+  //    object — is still live on the enlarged view's Share button, so it is
+  //    proved there now.
+  it('★★★ fix-523 §A: a share hands over /s/<token>, not a signed object', async () => {
     const writeText = vi.fn().mockResolvedValue(undefined);
     Object.assign(navigator, { clipboard: { writeText } });
     state.row = row();
+    state.sets = [marketingSet('internal')];
     state.rpcResult = [{ token: 'a7Kd92xQ', expires_at: '2026-10-11T00:00:00Z' }];
     renderCard();
-    fireEvent.click(await screen.findByTestId('plan-of-record-set-internal-share'));
-    fireEvent.click(await screen.findByTestId('plan-of-record-set-internal-share-copy'));
+    fireEvent.click(await screen.findByTestId('plan-of-record-preview'));
+    fireEvent.click(await screen.findByTestId('plan-of-record-lightbox-share'));
     await waitFor(() => expect(writeText).toHaveBeenCalled());
 
     // ★★★ §A4: minted on the PICK, and by the RPC — never on the menu opening,
@@ -582,20 +596,23 @@ describe('fix-285 the file card', () => {
       );
       expect(menu).toBeInTheDocument();
       expect(menu.getAttribute('role')).toBe('menu');
+      // ★★★ fix-629 (P-324) SUPERSEDES fix-528 §A/§B here: Bobby's 09-11 menu
+      //     is EXACTLY Email PDF and Download PDF. Copy link and Unshare are
+      //     hidden (not deleted); the Graph draft fix-528 waited for is built.
       expect(
-        screen.getByTestId(`plan-of-record-set-${variant}-share-copy`),
-      ).toBeInTheDocument();
-      // ★ fix-528 §A/§B: `Email it…` is gone and **Download PDF** is the second
-      //   item. The mailto carried a LINK, which is the thing Bobby complained
-      //   about four times; the Graph draft that carries an attachment is
-      //   behind an IT gate (§A4) and is not built, so the item is ABSENT
-      //   rather than dead.
-      expect(
-        screen.queryByTestId(`plan-of-record-set-${variant}-share-email`),
+        screen.queryByTestId(`plan-of-record-set-${variant}-share-copy`),
       ).toBeNull();
       expect(
+        screen.getByTestId(`plan-of-record-set-${variant}-share-email`),
+      ).toHaveTextContent('Email PDF');
+      expect(
         screen.getByTestId(`plan-of-record-set-${variant}-share-download`),
-      ).toBeInTheDocument();
+      ).toHaveTextContent(/^Download PDF/);
+      expect(
+        Array.from(menu.querySelectorAll('[role="menuitem"]')).map((el) =>
+          (el.textContent ?? '').replace(/ · .*$/, ''),
+        ),
+      ).toEqual(['Email PDF', 'Download PDF']);
 
       // ★★★ THE ASSERTION THAT WOULD HAVE CAUGHT IT. jsdom cannot see the
       //     clipping, so the test asks about the ANCESTRY instead.
@@ -644,18 +661,19 @@ describe('fix-285 the file card', () => {
     //     about, reintroduced one layer down.
     state.row = row();
     state.sets = [marketingSet('internal')];
-    state.rpcResult = [{ token: 'a7Kd92xQrTvB', expires_at: '2026-10-11T00:00:00Z' }];
-    const writeText = vi.fn().mockResolvedValue(undefined);
-    Object.assign(navigator, { clipboard: { writeText } });
+    // ★ fix-629: Copy link is hidden, so the property is proved on Download
+    //   PDF — an item that reaches its handler through the portal.
     renderCard();
     fireEvent.click(await screen.findByTestId('plan-of-record-set-internal-share'));
-    const copy = await screen.findByTestId('plan-of-record-set-internal-share-copy');
-    fireEvent.mouseDown(copy);
+    const download = await screen.findByTestId('plan-of-record-set-internal-share-download');
+    fireEvent.mouseDown(download);
     expect(
       screen.queryByTestId('plan-of-record-set-internal-share-menu'),
     ).toBeInTheDocument();
-    fireEvent.click(copy);
-    await waitFor(() => expect(writeText).toHaveBeenCalled());
+    fireEvent.click(download);
+    await waitFor(() =>
+      expect(state.signArgs.map(([p]) => p)).toContain(`${PROJECT_ID}/marketing_internal/source.pdf`),
+    );
   });
 
   // ★ fix-289: the whole point of the ticket. Chrome and Edge silently refuse
@@ -1233,5 +1251,104 @@ describe('fix-507b §G: the plan preview is capped and contained', () => {
       expect(img.style.height, setType).toBe(`${POR_IMAGE_MAX_HEIGHT}px`);
       view.unmount();
     }
+  });
+});
+
+// ===========================================================================
+// ★★★ fix-629 (P-324) — Email PDF, end to end through the card
+// ===========================================================================
+describe('fix-629 Email PDF from the card', () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+    outlook.token.mockReset();
+    outlook.has = false;
+  });
+
+  function graphFetch(opts: { failCreate?: boolean } = {}) {
+    const calls: Array<{ url: string; init?: RequestInit }> = [];
+    const f = vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
+      const url = String(input);
+      calls.push({ url, init });
+      if (url === state.signedUrl) return new Response(new Uint8Array(2048), { status: 200 });
+      if (url.endsWith('/me/messages')) {
+        if (opts.failCreate) return new Response('{}', { status: 500 });
+        return new Response(JSON.stringify({ id: 'm1', webLink: 'https://outlook.office.com/owa/?ItemID=m1' }), { status: 201 });
+      }
+      if (url.endsWith('/attachments')) return new Response('{}', { status: 201 });
+      return new Response('nope', { status: 404 });
+    });
+    return { f, calls };
+  }
+
+  it('★★★ the item reads "Preparing email…", cannot be pressed twice, then offers the draft', async () => {
+    outlook.token.mockResolvedValue('tok');
+    const { calls } = graphFetch();
+    vi.spyOn(window, 'open').mockReturnValue(null); // the browser blocked the tab
+    state.row = row();
+    state.sets = [marketingSet('internal')];
+    renderCard();
+    fireEvent.click(await screen.findByTestId('plan-of-record-set-internal-share'));
+    const item = await screen.findByTestId('plan-of-record-set-internal-share-email');
+    fireEvent.click(item);
+    expect(item).toHaveTextContent('Preparing email…');
+    expect(item).toBeDisabled();
+    const link = await screen.findByTestId('plan-of-record-set-internal-share-open-draft');
+    expect(link.getAttribute('href')).toBe('https://outlook.office.com/owa/?ItemID=m1');
+    expect(link.getAttribute('target')).toBe('_blank');
+    expect(item).toHaveTextContent('Email PDF');
+    expect(item).not.toBeDisabled();
+    // ★ subject + body name the set and the address; To is left empty
+    const create = calls.find((c) => c.url.endsWith('/me/messages'))!;
+    const body = JSON.parse(String(create.init?.body));
+    // (the harness has no project address, so the subject is the set's own label)
+    const setName = screen.getByTestId('plan-of-record-set-internal').textContent;
+    expect(body.subject).toBe(setName);
+    expect(body.body.content).toBe(`Attached: the ${setName} plan set.`);
+    expect(body).not.toHaveProperty('toRecipients');
+    // ★ the PDF was signed exactly as Download PDF signs it
+    expect(state.signArgs.map(([p]) => p)).toContain(`${PROJECT_ID}/marketing_internal/source.pdf`);
+  });
+
+  it('★★★ a failure is one sentence naming the step — and Download PDF still works', async () => {
+    outlook.token.mockResolvedValue('tok');
+    graphFetch({ failCreate: true });
+    state.row = row();
+    state.sets = [marketingSet('internal')];
+    renderCard();
+    fireEvent.click(await screen.findByTestId('plan-of-record-set-internal-share'));
+    const item = await screen.findByTestId('plan-of-record-set-internal-share-email');
+    fireEvent.click(item);
+    await waitFor(() =>
+      expect(toastMock).toHaveBeenCalledWith(
+        expect.stringMatching(/^Email PDF stopped while creating the Outlook draft: .*Download PDF still works\.$/),
+        'error',
+      ),
+    );
+    // ★ never a dead Email PDF
+    expect(item).toHaveTextContent('Email PDF');
+    expect(item).not.toBeDisabled();
+    // ★ and Download PDF still does its job
+    state.signArgs = [];
+    fireEvent.click(screen.getByTestId('plan-of-record-set-internal-share-download'));
+    await waitFor(() =>
+      expect(state.signArgs.map(([p]) => p)).toContain(`${PROJECT_ID}/marketing_internal/source.pdf`),
+    );
+  });
+
+  it('★★ a cancelled or blocked sign-in reads as one plain sentence', async () => {
+    const { DraftStepError } = await import('../lib/outlookDraft');
+    outlook.token.mockRejectedValue(new DraftStepError('sign-in', 'Microsoft sign-in was cancelled.'));
+    graphFetch();
+    state.row = row();
+    state.sets = [marketingSet('internal')];
+    renderCard();
+    fireEvent.click(await screen.findByTestId('plan-of-record-set-internal-share'));
+    fireEvent.click(await screen.findByTestId('plan-of-record-set-internal-share-email'));
+    await waitFor(() =>
+      expect(toastMock).toHaveBeenCalledWith(
+        'Email PDF stopped while signing in to Microsoft: Microsoft sign-in was cancelled. Download PDF still works.',
+        'error',
+      ),
+    );
   });
 });

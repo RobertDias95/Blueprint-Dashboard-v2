@@ -337,7 +337,8 @@ describe('fix-523 §A2 — Unshare exists only when there is a live link', () =>
 
   it('★★★ the menu item renders only when a link is passed', () => {
     const card = code(read('src/components/ProjectDetail/PlanOfRecordCard.tsx'));
-    expect(card).toContain('{shareLink && (');
+    // ★ fix-629: still only with a live link — and behind the hidden-not-deleted flag.
+    expect(card).toContain('{LINK_SHARING_IN_MENU && shareLink && (');
     expect(card).toContain('-share-unshare');
     // ★ …and revoking is what it calls.
     expect(card).toContain('onUnshare(shareLink.token)');
@@ -641,12 +642,18 @@ describe('fix-523 §B3 — no Download PDF renders anywhere, and that is correct
   //     cannot hand over. The menu does not mention email at all now, and the
   //     item that WILL carry an attachment (§A's Graph draft) is behind an IT
   //     gate and is not built.
-  it('★★★ nothing promises an email attachment it cannot send', () => {
+// ★★★ SUPERSEDED BY fix-629 (P-324), AND THE ORIGINAL WAS NOT MISTAKEN. It
+//     pinned the IT gate: no Azure app, no consent, so nothing past it was
+//     built. IT built the app on 2026-09-16 (Entra "Outlook drafts", ticket
+//     #437491: Mail.ReadWrite + User.Read, admin consent, NO Mail.Send), and
+//     Bobby's 09-11 menu is now the menu. The property that survives: no
+//     Mail.Send anywhere, and Graph lives in ONE module (lib/outlookDraft).
+  it('★★★ the email item CAN attach now — and it never sends', () => {
     const card = code(read('src/components/ProjectDetail/PlanOfRecordCard.tsx'));
-    expect(card).not.toMatch(/attach/i);
-    expect(card).not.toContain('-share-email');
-    // ★ No Graph, no draft, no send — §A4 says report the shape and STOP.
-    expect(card).not.toMatch(/graph|microsoft|Mail\.Send/i);
+    expect(card).toContain('-share-email');
+    // ★ The card itself still never talks to Graph and never sends.
+    expect(card).not.toMatch(/graph\.microsoft|Mail\.Send/i);
+    expect(code(read('src/lib/outlookDraft.ts'))).not.toMatch(/Mail\.Send|\/sendMail|\/send\b/);
   });
 });
 

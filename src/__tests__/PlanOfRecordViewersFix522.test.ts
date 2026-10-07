@@ -333,13 +333,21 @@ describe('fix-522 §D3 (P-187) — a share MENU, and what is deliberately not in
   //     `Email it…` returns carrying the PDF once the Graph draft path clears
   //     its IT gate (§A4); until then it is ABSENT rather than dead, which is
   //     P-239's rule applied to a control that cannot work yet.
-  it('★★★ two items: copy the link, and download the PDF', () => {
+// ★★★ SUPERSEDED BY fix-629 (P-324), AND THE ORIGINAL WAS NOT MISTAKEN. It
+//     pinned the IT gate: no Azure app, no consent, so nothing past it was
+//     built. IT built the app on 2026-09-16 (Entra "Outlook drafts", ticket
+//     #437491: Mail.ReadWrite + User.Read, admin consent, NO Mail.Send), and
+//     Bobby's 09-11 menu is now the menu. The property that survives: no
+//     Mail.Send anywhere, and Graph lives in ONE module (lib/outlookDraft).
+  it('★★★ two items: Email PDF and Download PDF (Copy link hidden, not deleted)', () => {
     expect(card).toContain('-share-menu');
-    expect(card).toContain('-share-copy');
+    expect(card).toContain('-share-email');
     expect(card).toContain('-share-download');
     expect(card).toContain('aria-haspopup="menu"');
-    // ★ And the item Bobby complained about is not there in any form.
-    expect(code(card)).not.toContain('-share-email');
+    // ★ Copy link is still in the file, behind the fix-629 flag.
+    expect(code(card)).toMatch(/LINK_SHARING_IN_MENU && \(\s*<ShareMenuItem\s+testId=\{`\$\{testId\}-share-copy`\}/);
+    expect(code(card)).toContain('const LINK_SHARING_IN_MENU: boolean = false;');
+    // ★ And the mailto Bobby complained about is not there in any form.
     expect(code(card)).not.toContain('planShareMailto');
   });
 

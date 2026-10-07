@@ -34,14 +34,22 @@ const page = () => read('src/pages/SharedPlan.tsx');
 // ---------------------------------------------------------------------------
 
 describe('fix-528 §A — the gate is respected: nothing past it was built', () => {
-  it('★★★ "Email it…" does NOT render as a live control — asserted as an absence', () => {
+// ★★★ SUPERSEDED BY fix-629 (P-324), AND THE ORIGINAL WAS NOT MISTAKEN. It
+//     pinned the IT gate: no Azure app, no consent, so nothing past it was
+//     built. IT built the app on 2026-09-16 (Entra "Outlook drafts", ticket
+//     #437491: Mail.ReadWrite + User.Read, admin consent, NO Mail.Send), and
+//     Bobby's 09-11 menu is now the menu. The property that survives: no
+//     Mail.Send anywhere, and Graph lives in ONE module (lib/outlookDraft).
+  it('★★★ "Email it…" (the mailto link) is gone; Email PDF is the Graph draft', () => {
     // ★★★ §A5: *"never leave the user with a dead Email it…"* The Graph draft
     //     path needs an Azure app registration and tenant admin consent, and
     //     §A4 says report the shape and STOP. So the control is GONE rather
     //     than disabled — P-239's ruling, which this repo paid for a week ago:
     //     a disabled control says *"you may not"*, which sends somebody looking
     //     for permission that does not exist yet.
-    expect(code(card())).not.toContain('-share-email');
+    // ★ fix-629: the item is BACK as Email PDF — a draft with the PDF attached.
+    expect(code(card())).toContain('-share-email');
+    expect(code(card())).toContain('useEmailPlanPdf');
     expect(code(card())).not.toContain('Email it');
     // ★ And the mailto composer is not reached from anywhere any more.
     expect(code(card())).not.toContain('planShareMailto');
@@ -58,6 +66,7 @@ describe('fix-528 §A — the gate is respected: nothing past it was built', () 
     //    not require permission to send, and asking for send would be asking
     //    for the one capability the design rules out. When the scope list
     //    lands, this assertion becomes the one §A's test list describes.
+    // ★ fix-629: the share files still never talk to Graph themselves…
     for (const f of [
       'src/components/ProjectDetail/PlanOfRecordCard.tsx',
       'src/lib/planOfRecordShare.ts',
@@ -69,6 +78,10 @@ describe('fix-528 §A — the gate is respected: nothing past it was built', () 
       expect(src).not.toMatch(/graph\.microsoft\.com/i);
       expect(src).not.toMatch(/@azure|msal/i);
     }
+    // …and the one module that does asks for exactly the two scopes IT granted.
+    const draft = read('src/lib/outlookDraft.ts');
+    expect(draft).toContain("scopes: ['Mail.ReadWrite', 'User.Read']");
+    expect(code(draft)).not.toMatch(/Mail\.Send/);
   });
 
   it('★★ the subject builder SURVIVES — it is the half nobody complained about', () => {

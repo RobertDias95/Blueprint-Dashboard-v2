@@ -62,6 +62,7 @@ import type {
   ProjectPlanOfRecordRow,
   ProjectPlanOfRecordVerdictRow,
 } from '../../lib/database.types';
+import { useEmailPlanPdf } from '../../hooks/useEmailPlanPdf';
 
 // fix-285: the Design Plan of Record card.
 //
@@ -138,6 +139,9 @@ export default function PlanOfRecordCard({ projectId }: Props) {
   // ★★★ fix-358: the REASONING, read and never re-derived. See below for the
   // three states it distinguishes and why the old single empty state was the
   // bug fix-356 was built to end.
+  /** ★ fix-629: the address the plan belongs to — the subject of the draft. */
+  const sourceAddress =
+    projectsQ.data?.find((p) => p.id === sourceProjectId)?.address ?? null;
   const verdictQ = usePlanOfRecordVerdict(sourceProjectId);
   // ★★★ fix-506 §E (P-148): TWO MARKETING VARIANTS, ONE PICKED.
   //
@@ -258,6 +262,7 @@ export default function PlanOfRecordCard({ projectId }: Props) {
               sets={setsQ.data}
               variant={variant}
               onPickVariant={setVariant}
+              address={sourceAddress}
             />
           </>
         )}
@@ -402,7 +407,10 @@ function PlanOfRecordBody({
   sets,
   variant,
   onPickVariant,
+  address,
 }: {
+  /** ★ fix-629: the project address, for the Email PDF draft. */
+  address: string | null;
   row: ProjectPlanOfRecordRow;
   verdict: ProjectPlanOfRecordVerdictRow | null;
   onEnlarge: () => void;
@@ -445,6 +453,7 @@ function PlanOfRecordBody({
         sets={sets}
         variant={variant}
         onPickVariant={onPickVariant}
+        address={address}
       />
 
       {/* ★★★ fix-358 §3 + §4: THE ONLY THING THE SENTENCE ADDS TO THE FACE IS A
@@ -731,7 +740,9 @@ function SetButtons({
   sets,
   variant,
   onPickVariant,
+  address,
 }: {
+  address: string | null;
   row: ProjectPlanOfRecordRow;
   sets: import('../../hooks/usePlanOfRecordSets').PlanOfRecordSets | undefined;
   variant: PlanOfRecordVariant;
@@ -821,6 +832,7 @@ function SetButtons({
             //     standing concern is a link reaching the wrong builder.
             shareLink={findShareLink(share.links, row.set_type, shareVariant(b.variant))}
             onUnshare={(token) => void share.unshare(token)}
+            address={address}
             testId={`plan-of-record-set-${b.variant}`}
           />
         ))}
@@ -898,8 +910,10 @@ function SetButton({
   pdfName,
   shareLink,
   onUnshare,
+  address,
   testId,
 }: {
+  address: string | null;
   label: string;
   picked: boolean;
   disabled?: boolean;
@@ -967,6 +981,7 @@ function SetButton({
           pdfName={pdfName}
           shareLink={shareLink}
           onUnshare={onUnshare}
+          address={address}
           testId={testId}
         />
       )}
@@ -1310,6 +1325,18 @@ function PageImage({
  *  viewport edge. One number, so the two cannot drift. */
 const MENU_GAP_PX = 4;
 
+/**
+ * ★★★ fix-629 (P-324) — COPY LINK AND UNSHARE ARE HIDDEN, NOT DELETED.
+ *
+ * Bobby, 2026-09-11: *"i dont think we need a link, just a pdf"* — and the
+ * menu he asked for is **Email PDF** and **Download PDF**. The link machinery
+ * (`plan_share_links`, the `/s/<token>` route, the `plan-share` Edge Function,
+ * `usePlanShareActions`) all stays: links already sent keep working until
+ * their 30 days run out, and removing it is a later ticket once nobody has
+ * missed it. Turning this on restores both items exactly as they were.
+ */
+const LINK_SHARING_IN_MENU: boolean = false;
+
 function ShareMenu({
   label,
   picked,
@@ -1319,8 +1346,11 @@ function ShareMenu({
   pdfName,
   shareLink,
   onUnshare,
+  address,
   testId,
 }: {
+  /** ★ fix-629: the project address, for the draft's subject and body. */
+  address: string | null;
   label: string;
   picked: boolean;
   onCopy: () => void;
@@ -1339,6 +1369,9 @@ function ShareMenu({
    *  during render — reading a ref in render is a React Compiler error and only
    *  lint catches it (fix-426, third recording). */
   const [at, setAt] = useState<{ top: number; right: number } | null>(null);
+  // ★ fix-629: Email PDF — see hooks/useEmailPlanPdf.
+  const email = useEmailPlanPdf();
+  const emailWorking = email.state.kind === 'working';
 
   // ★ fix-440's lesson: a keydown listener belongs on the DOCUMENT, not on a
   //   non-focusable div — `onKeyDown` on a div with no `tabIndex` never fires.
@@ -1386,6 +1419,9 @@ function ShareMenu({
         right: Math.max(MENU_GAP_PX, window.innerWidth - r.right),
       });
     }
+    // ★ fix-629: load Microsoft sign-in now, so the press can open its window
+    //   while the click still counts.
+    if (pdfPath) email.prefetch();
     setOpen(true);
   }
 
@@ -1408,16 +1444,52 @@ function ShareMenu({
       }}
       data-testid={`${testId}-share-menu`}
     >
-          <ShareMenuItem
-            testId={`${testId}-share-copy`}
-            onPick={() => {
-              setOpen(false);
-              onCopy();
-            }}
-            title={`Copy a ${SHARE_TTL_DAYS}-day link to this set's first page — no login needed`}
-          >
-            Copy link
-          </ShareMenuItem>
+          {/* ★★★ fix-629 — THE DRAFT, ONCE IT EXISTS. A real link, so it opens
+              even when the browser blocked the automatic tab. */}
+          {email.state.kind === 'ready' && (
+            <a
+              role="menuitem"
+              href={email.state.webLink}
+              target="_blank"
+              rel="noopener noreferrer"
+              onClick={() => setOpen(false)}
+              className="block w-full text-left text-[10.5px] px-2.5 py-1.5 hover:bg-s2 transition font-semibold"
+              style={{ color: 'var(--color-de)' }}
+              data-testid={`${testId}-share-open-draft`}
+              title="Open the Outlook draft with the PDF attached"
+            >
+              Open the draft in Outlook ↗
+            </a>
+          )}
+          {/* ★★★ fix-629 (P-324) — EMAIL PDF. An Outlook draft in the person's
+              own mailbox with this set's PDF attached; they pick the recipient
+              and press Send. The menu stays open while it works so the
+              progress is visible, and the item cannot be pressed twice.
+              ★ Same guard as Download PDF: no file, no item. */}
+          {pdfPath && (
+            <ShareMenuItem
+              testId={`${testId}-share-email`}
+              disabled={emailWorking}
+              onPick={() => {
+                void email.start({ pdfPath, fileName: pdfName, address, setName: label });
+              }}
+              title="Open an Outlook draft with this plan set's PDF attached"
+            >
+              {emailWorking ? 'Preparing email…' : 'Email PDF'}
+            </ShareMenuItem>
+          )}
+          {LINK_SHARING_IN_MENU && (
+            <ShareMenuItem
+              testId={`${testId}-share-copy`}
+              onPick={() => {
+                setOpen(false);
+                onCopy();
+              }}
+              title={`Copy a ${SHARE_TTL_DAYS}-day link to this set's first page — no login needed`}
+            >
+              Copy link
+            </ShareMenuItem>
+          )}
           {/* ★★★ fix-528 §C — THE DRAWING ITSELF, and it is the item that
               replaces `Email it…`. The source PDF, signed for five minutes and
               saved under the set's own name — the ORIGINAL file the indexer
@@ -1443,7 +1515,7 @@ function ShareMenu({
           {/* ★★★ fix-523 §A2 — STOP SHARING. Present only when a live link for
               this set exists; there is nothing to revoke otherwise, and an item
               that is usually inert is an item people stop reading. */}
-          {shareLink && (
+          {LINK_SHARING_IN_MENU && shareLink && (
             <ShareMenuItem
               testId={`${testId}-share-unshare`}
               onPick={() => {
@@ -1500,19 +1572,24 @@ function ShareMenuItem({
   onPick,
   title,
   testId,
+  disabled,
 }: {
   children: React.ReactNode;
   onPick: () => void;
   title: string;
   testId: string;
+  /** ★ fix-629: "Preparing email…" cannot be pressed twice. */
+  disabled?: boolean;
 }) {
   return (
     <button
       type="button"
       role="menuitem"
       onClick={onPick}
+      disabled={disabled}
+      aria-disabled={disabled || undefined}
       title={title}
-      className="block w-full text-left text-[10.5px] px-2.5 py-1.5 hover:bg-s2 transition"
+      className="block w-full text-left text-[10.5px] px-2.5 py-1.5 hover:bg-s2 transition disabled:opacity-60 disabled:cursor-progress"
       style={{ color: 'var(--color-text)' }}
       data-testid={testId}
     >
