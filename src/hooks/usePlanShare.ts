@@ -305,6 +305,10 @@ export interface PlanShareActions {
   ): Promise<void>;
   /** ★★★ §A2 — stop sharing. */
   unshare(token: string): Promise<void>;
+  /** ★ fix-630: this set's link and its real expiry, through the SAME mint as
+   *  Copy link (so a live link is re-returned, never a second one). Throws on
+   *  failure — the caller decides what a missing link means. */
+  link(setType: string, variant: string | null): Promise<{ url: string; expiresAt: string }>;
   /** The live links on this project, for deciding whether Unshare is offered. */
   links: PlanShareLinkRow[] | undefined;
 }
@@ -314,13 +318,20 @@ export function usePlanShareActions(projectId: string): PlanShareActions {
   const revoke = useRevokePlanShare();
   const linksQ = usePlanShareLinks(projectId);
 
-  async function mint(setType: string, variant: string | null): Promise<string> {
-    const { token } = await create.mutateAsync({ projectId, setType, variant });
+  async function mintLink(
+    setType: string,
+    variant: string | null,
+  ): Promise<{ url: string; expiresAt: string }> {
+    const { token, expires_at } = await create.mutateAsync({ projectId, setType, variant });
     // ★ The origin is read HERE and nowhere else. The URL a person is handed
     //   has to be the host they are already on — a constant would be wrong in
     //   preview builds and on localhost, and a builder pasting a link from a
     //   preview host into a real conversation is the failure that follows.
-    return planShareUrl(window.location.origin, token);
+    return { url: planShareUrl(window.location.origin, token), expiresAt: expires_at };
+  }
+
+  async function mint(setType: string, variant: string | null): Promise<string> {
+    return (await mintLink(setType, variant)).url;
   }
 
   return {
@@ -352,6 +363,8 @@ export function usePlanShareActions(projectId: string): PlanShareActions {
         pushToast('Could not create the share link', 'error');
       }
     },
+
+    link: mintLink,
 
     async unshare(token) {
       try {

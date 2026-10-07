@@ -174,14 +174,20 @@ export function planShareSetLabel(
  *  ★ UTC, for the same reason `formatModified` is: the same link must not
  *    appear to expire on two different days for two readers. */
 export function planShareExpiryNote(expiresAt: string | null | undefined): string {
+  const when = planShareExpiryDate(expiresAt);
+  return when ? `This link works until ${when} and needs no login.` : '';
+}
+
+/** ★ fix-630: the link's expiry DATE alone — the one formatter the `/s/` page
+ *  and the Email PDF draft share, so the two can never print different days. */
+export function planShareExpiryDate(expiresAt: string | null | undefined): string {
   if (!expiresAt) return '';
   const d = new Date(expiresAt);
   if (Number.isNaN(d.getTime())) return '';
-  const when = d.toLocaleDateString('en-US', {
+  return d.toLocaleDateString('en-US', {
     month: 'short',
     day: '2-digit',
     year: 'numeric',
     timeZone: 'UTC',
   });
-  return `This link works until ${when} and needs no login.`;
 }

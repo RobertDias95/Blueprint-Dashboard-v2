@@ -833,6 +833,7 @@ function SetButtons({
             shareLink={findShareLink(share.links, row.set_type, shareVariant(b.variant))}
             onUnshare={(token) => void share.unshare(token)}
             address={address}
+            mintLink={() => share.link(row.set_type, shareVariant(b.variant))}
             testId={`plan-of-record-set-${b.variant}`}
           />
         ))}
@@ -911,9 +912,12 @@ function SetButton({
   shareLink,
   onUnshare,
   address,
+  mintLink,
   testId,
 }: {
   address: string | null;
+  /** ★ fix-630: the set's private link, for the Email PDF draft. */
+  mintLink: () => Promise<{ url: string; expiresAt: string }>;
   label: string;
   picked: boolean;
   disabled?: boolean;
@@ -982,6 +986,7 @@ function SetButton({
           shareLink={shareLink}
           onUnshare={onUnshare}
           address={address}
+          mintLink={mintLink}
           testId={testId}
         />
       )}
@@ -1347,10 +1352,13 @@ function ShareMenu({
   shareLink,
   onUnshare,
   address,
+  mintLink,
   testId,
 }: {
   /** ★ fix-629: the project address, for the draft's subject and body. */
   address: string | null;
+  /** ★ fix-630: the set's private link, minted through Copy link's path. */
+  mintLink: () => Promise<{ url: string; expiresAt: string }>;
   label: string;
   picked: boolean;
   onCopy: () => void;
@@ -1461,6 +1469,16 @@ function ShareMenu({
               Open the draft in Outlook ↗
             </a>
           )}
+          {/* ★ fix-630: the one-line status when the private link is missing. */}
+          {email.state.kind === 'ready' && !email.state.linkIncluded && (
+            <div
+              className="px-2.5 pb-1 text-[9.5px]"
+              style={{ color: 'var(--color-muted)' }}
+              data-testid={`${testId}-share-link-missing`}
+            >
+              PDF attached; the private link could not be added.
+            </div>
+          )}
           {/* ★★★ fix-629 (P-324) — EMAIL PDF. An Outlook draft in the person's
               own mailbox with this set's PDF attached; they pick the recipient
               and press Send. The menu stays open while it works so the
@@ -1471,7 +1489,7 @@ function ShareMenu({
               testId={`${testId}-share-email`}
               disabled={emailWorking}
               onPick={() => {
-                void email.start({ pdfPath, fileName: pdfName, address, setName: label });
+                void email.start({ pdfPath, fileName: pdfName, address, setName: label, mintLink });
               }}
               title="Open an Outlook draft with this plan set's PDF attached"
             >

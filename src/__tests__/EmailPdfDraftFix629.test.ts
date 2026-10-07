@@ -3,6 +3,7 @@ import {
   createPlanDraft,
   DraftStepError,
   draftBody,
+  draftHtmlBody,
   draftSubject,
   GRAPH_BASE,
   nextRangeStart,
@@ -58,7 +59,8 @@ const REQ = {
   pdfUrl: PDF_URL,
   fileName: '3505 - Marketing - External.pdf',
   subject: draftSubject('3505 Densmore Ave N', 'Marketing · External'),
-  body: draftBody('3505 Densmore Ave N', 'Marketing · External'),
+  // ★ fix-630: the body is HTML now (it may carry the private link).
+  htmlBody: draftHtmlBody('3505 Densmore Ave N', 'Marketing · External', null),
 };
 const deps = (f: typeof fetch) => ({ getToken: async () => 'graph-token', fetch: f });
 
@@ -73,7 +75,8 @@ describe('fix-629: the app registration IT built', () => {
   });
   it('★ subject and body', () => {
     expect(REQ.subject).toBe('3505 Densmore Ave N — Marketing · External');
-    expect(REQ.body).toBe('Attached: the Marketing · External plan set for 3505 Densmore Ave N.');
+    expect(draftBody('3505 Densmore Ave N', 'Marketing · External')).toBe('Attached: the Marketing · External plan set for 3505 Densmore Ave N.');
+    expect(REQ.htmlBody).toBe('<p>Attached: the Marketing · External plan set for 3505 Densmore Ave N.</p>');
   });
 });
 
@@ -86,7 +89,7 @@ describe('fix-629: the draft and its attachment', () => {
     expect(create.method).toBe('POST');
     expect(create.headers.Authorization).toBe('Bearer graph-token');
     const msg = JSON.parse(String(create.body));
-    expect(msg).toEqual({ subject: REQ.subject, body: { contentType: 'Text', content: REQ.body } });
+    expect(msg).toEqual({ subject: REQ.subject, body: { contentType: 'HTML', content: REQ.htmlBody } });
     const attach = g.calls.find((c) => c.url.endsWith('/messages/m1/attachments'))!;
     const a = JSON.parse(String(attach.body));
     expect(a['@odata.type']).toBe('#microsoft.graph.fileAttachment');
@@ -213,5 +216,38 @@ describe('fix-629: Microsoft sign-in (MSAL mocked)', () => {
     expect(isOutlookSignInPopup(at('#/projects/1'))).toBe(false);
     expect(signInFailureSentence({ errorCode: 'user_cancelled' })).toBe('Microsoft sign-in was cancelled.');
     expect(signInFailureSentence({ message: 'AADSTS50011: redirect mismatch' })).toMatch(/not set up for this address/);
+  });
+});
+
+// ---------------------------------------------------------------------------
+describe('fix-630: the body carries the private link', () => {
+  it('★★★ attachment line, then "View online" with a real anchor and the expiry', () => {
+    expect(
+      draftHtmlBody('3505 Densmore Ave N', 'Marketing · External', {
+        url: 'https://blueprint-dashboard-v2.onrender.com/s/a7Kd92xQrTvB',
+        expiresOn: 'Nov 06, 2026',
+      }),
+    ).toBe(
+      '<p>Attached: the Marketing · External plan set for 3505 Densmore Ave N.</p>' +
+        '<p>View online: <a href="https://blueprint-dashboard-v2.onrender.com/s/a7Kd92xQrTvB">' +
+        'https://blueprint-dashboard-v2.onrender.com/s/a7Kd92xQrTvB</a> (link expires Nov 06, 2026)</p>',
+    );
+  });
+  it('★★★ no link → no line; never an empty or non-http anchor', () => {
+    const only = '<p>Attached: the Site Plan plan set.</p>';
+    expect(draftHtmlBody(null, 'Site Plan', null)).toBe(only);
+    expect(draftHtmlBody(null, 'Site Plan', { url: '', expiresOn: 'Nov 06, 2026' })).toBe(only);
+    expect(draftHtmlBody(null, 'Site Plan', { url: 'javascript:alert(1)', expiresOn: '' })).toBe(only);
+  });
+  it('★ addresses and names are escaped', () => {
+    expect(draftHtmlBody('1 <b>A</b> & Co', 'Set "X"', null)).toBe(
+      '<p>Attached: the Set &quot;X&quot; plan set for 1 &lt;b&gt;A&lt;/b&gt; &amp; Co.</p>',
+    );
+  });
+  it('★★ one expiry formatter for the /s/ page and the email', async () => {
+    const { planShareExpiryDate, planShareExpiryNote } = await import('../lib/planShare');
+    expect(planShareExpiryDate('2026-11-06T17:00:00Z')).toBe('Nov 06, 2026');
+    expect(planShareExpiryNote('2026-11-06T17:00:00Z')).toBe('This link works until Nov 06, 2026 and needs no login.');
+    expect(planShareExpiryDate(null)).toBe('');
   });
 });

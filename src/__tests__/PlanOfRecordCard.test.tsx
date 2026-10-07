@@ -1303,7 +1303,9 @@ describe('fix-629 Email PDF from the card', () => {
     // (the harness has no project address, so the subject is the set's own label)
     const setName = screen.getByTestId('plan-of-record-set-internal').textContent;
     expect(body.subject).toBe(setName);
-    expect(body.body.content).toBe(`Attached: the ${setName} plan set.`);
+    // ★ fix-630: HTML, and (the harness's mint returns no row) no link line.
+    expect(body.body.contentType).toBe('HTML');
+    expect(body.body.content).toBe(`<p>Attached: the ${setName} plan set.</p>`);
     expect(body).not.toHaveProperty('toRecipients');
     // ★ the PDF was signed exactly as Download PDF signs it
     expect(state.signArgs.map(([p]) => p)).toContain(`${PROJECT_ID}/marketing_internal/source.pdf`);
@@ -1350,5 +1352,95 @@ describe('fix-629 Email PDF from the card', () => {
         'error',
       ),
     );
+  });
+});
+
+// ===========================================================================
+// ★★★ fix-630 (P-324) — the Email PDF draft also carries the private link
+// ===========================================================================
+describe('fix-630 the draft carries the PDF AND the private link', () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+    outlook.token.mockReset();
+  });
+
+  function graphFetch() {
+    const calls: Array<{ url: string; init?: RequestInit }> = [];
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
+      const url = String(input);
+      calls.push({ url, init });
+      if (url === state.signedUrl) return new Response(new Uint8Array(2048), { status: 200 });
+      if (url.endsWith('/me/messages')) {
+        return new Response(JSON.stringify({ id: 'm1', webLink: 'https://outlook.office.com/owa/?ItemID=m1' }), { status: 201 });
+      }
+      if (url.endsWith('/attachments')) return new Response('{}', { status: 201 });
+      return new Response('nope', { status: 404 });
+    });
+    return calls;
+  }
+
+  async function pressEmail() {
+    renderCard();
+    fireEvent.click(await screen.findByTestId('plan-of-record-set-internal-share'));
+    fireEvent.click(await screen.findByTestId('plan-of-record-set-internal-share-email'));
+    await screen.findByTestId('plan-of-record-set-internal-share-open-draft');
+  }
+
+  it('★★★ the body has the attachment line AND "View online: <link>" with the real expiry', async () => {
+    outlook.token.mockResolvedValue('tok');
+    vi.spyOn(window, 'open').mockReturnValue(null);
+    const calls = graphFetch();
+    state.row = row();
+    state.sets = [marketingSet('internal')];
+    state.rpcResult = [{ token: 'a7Kd92xQrTvB_live1', expires_at: '2026-11-06T17:00:00Z' }];
+    await pressEmail();
+    const create = calls.find((c) => c.url.endsWith('/me/messages'))!;
+    const body = JSON.parse(String(create.init?.body)).body;
+    expect(body.contentType).toBe('HTML');
+    const url = `${window.location.origin}/s/a7Kd92xQrTvB_live1`;
+    expect(body.content).toContain('<p>Attached: the ');
+    expect(body.content).toContain(`<p>View online: <a href="${url}">${url}</a> (link expires Nov 06, 2026)</p>`);
+    // ★ the PDF is still attached
+    expect(calls.some((c) => c.url.endsWith('/messages/m1/attachments'))).toBe(true);
+    // ★★ minted through Copy link's own path — the RPC that re-returns a live link
+    const mints = state.rpcCalls.filter(([n]) => n === 'bp_create_plan_share');
+    expect(mints).toHaveLength(1);
+    expect(mints[0][1]).toEqual({ p_project_id: PROJECT_ID, p_set_type: 'marketing', p_variant: 'internal' });
+    expect(screen.queryByTestId('plan-of-record-set-internal-share-link-missing')).toBeNull();
+  });
+
+  it('★★★ a link that cannot be minted: still a draft with the PDF, NO link line, and the menu says so', async () => {
+    outlook.token.mockResolvedValue('tok');
+    vi.spyOn(window, 'open').mockReturnValue(null);
+    const calls = graphFetch();
+    state.row = row();
+    state.sets = [marketingSet('internal')];
+    state.rpcResult = null; // the RPC returns no token
+    await pressEmail();
+    const body = JSON.parse(String(calls.find((c) => c.url.endsWith('/me/messages'))!.init?.body)).body;
+    expect(body.content).not.toMatch(/View online|<a /);
+    expect(calls.some((c) => c.url.endsWith('/messages/m1/attachments'))).toBe(true);
+    expect(screen.getByTestId('plan-of-record-set-internal-share-link-missing')).toHaveTextContent(
+      'PDF attached; the private link could not be added.',
+    );
+    expect(toastMock).toHaveBeenCalledWith(expect.stringMatching(/private link could not be created/), 'warn');
+  });
+
+  it('★★ a second email of the same set re-uses the SAME link (the RPC re-returns it, as for Copy link)', async () => {
+    outlook.token.mockResolvedValue('tok');
+    vi.spyOn(window, 'open').mockReturnValue(null);
+    const calls = graphFetch();
+    state.row = row();
+    state.sets = [marketingSet('internal')];
+    state.rpcResult = [{ token: 'sameLiveToken_12345', expires_at: '2026-11-06T17:00:00Z' }];
+    await pressEmail();
+    fireEvent.click(screen.getByTestId('plan-of-record-set-internal-share-email'));
+    await waitFor(() => expect(calls.filter((c) => c.url.endsWith('/me/messages'))).toHaveLength(2));
+    const bodies = calls
+      .filter((c) => c.url.endsWith('/me/messages'))
+      .map((c) => JSON.parse(String(c.init?.body)).body.content as string);
+    const urls = bodies.map((b) => /href="([^"]+)"/.exec(b)?.[1]);
+    expect(urls[0]).toBe(`${window.location.origin}/s/sameLiveToken_12345`);
+    expect(urls[1]).toBe(urls[0]);
   });
 });

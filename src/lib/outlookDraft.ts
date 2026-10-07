@@ -78,7 +78,8 @@ export interface DraftRequest {
   /** The attachment's name, e.g. `3505 - Marketing - External.pdf`. */
   fileName: string;
   subject: string;
-  body: string;
+  /** ★ fix-630: HTML — the "View online" line is a real anchor. */
+  htmlBody: string;
 }
 
 export interface DraftResult {
@@ -100,6 +101,45 @@ export function draftBody(address: string | null | undefined, setName: string): 
   return a
     ? `Attached: the ${setName} plan set for ${a}.`
     : `Attached: the ${setName} plan set.`;
+}
+
+export function escapeHtml(s: string): string {
+  return s
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
+/** ★ fix-630: the plan's private link, as the draft states it. */
+export interface DraftLink {
+  url: string;
+  /** "Nov 06, 2026" — from the link's REAL expiry (planShareExpiryDate). */
+  expiresOn: string;
+}
+
+/**
+ * ★★★ fix-630 (P-324) — Bobby, 2026-10-07: *"when you email, it attaches the
+ * pdf but also provides the private link."*
+ *
+ *   Attached: the <set> plan set for <address>.
+ *   View online: <a href="/s/<token>">/s/<token></a> (link expires <date>)
+ *
+ * ★★ NO LINK → NO LINE. If the link could not be minted the draft still
+ *    carries the PDF and simply says nothing about a link — never a broken or
+ *    empty anchor. Only an http(s) URL is ever written into an href.
+ */
+export function draftHtmlBody(
+  address: string | null | undefined,
+  setName: string,
+  link: DraftLink | null,
+): string {
+  const first = `<p>${escapeHtml(draftBody(address, setName))}</p>`;
+  if (!link || !/^https?:\/\//i.test(link.url)) return first;
+  const url = escapeHtml(link.url);
+  const exp = link.expiresOn ? ` (link expires ${escapeHtml(link.expiresOn)})` : '';
+  return `${first}<p>View online: <a href="${url}">${url}</a>${exp}</p>`;
 }
 
 /** Base64 of raw bytes, chunked so a large array never blows the call stack. */
@@ -171,7 +211,7 @@ export async function createPlanDraft(req: DraftRequest, deps: DraftDeps): Promi
   // 3 · the draft — To left empty on purpose: the person picks the recipient
   const msg = await graphJson(deps, token, 'create', '/me/messages', {
     subject: req.subject,
-    body: { contentType: 'Text', content: req.body },
+    body: { contentType: 'HTML', content: req.htmlBody },
   });
   const id = typeof msg.id === 'string' ? msg.id : '';
   const webLink = typeof msg.webLink === 'string' ? msg.webLink : '';
