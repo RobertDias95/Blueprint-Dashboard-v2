@@ -247,9 +247,22 @@ describe('fix-574 §4 — every Edge Function is listed as deployed or not', () 
   const FUNCTIONS_DIR = resolvePath(process.cwd(), 'supabase/functions');
   const STATUS = resolvePath(FUNCTIONS_DIR, 'DEPLOY_STATUS.md');
 
+  // ★★★ SUPERSEDED, NOT MISTAKEN — fix-628 added `supabase/functions/_shared/`,
+  //     the FIRST directory in here that is not a function. Supabase's own
+  //     convention is that a `_`-prefixed directory is shared code: it is never
+  //     deployed on its own, it is bundled into whatever imports it. So it has no
+  //     status, no caller and no deploy command, and demanding a row for it would
+  //     have put the line `supabase functions deploy _shared` on the one page
+  //     whose whole job is to tell somebody what to run — which is worse than the
+  //     gap this guard closes.
+  //
+  // ★★ The guard itself is unchanged and still absolute for every real function.
+  //    `_shared/README.md` carries the half that matters for shared code: a fix
+  //    in there reaches production only when each importing function is
+  //    REDEPLOYED.
   function functionDirs(): string[] {
     return readdirSync(FUNCTIONS_DIR, { withFileTypes: true })
-      .filter((e) => e.isDirectory())
+      .filter((e) => e.isDirectory() && !e.name.startsWith('_'))
       .map((e) => e.name)
       .sort();
   }
@@ -297,6 +310,24 @@ describe('fix-574 §4 — every Edge Function is listed as deployed or not', () 
       'supabase functions deploy plan-share --project-ref eibnmwthkcuumyclyxoe --no-verify-jwt',
     );
     expect(status).toContain('`--no-verify-jwt` is the one flag to get right');
+  });
+
+  it('★★★ fix-628: _shared is excluded, and auth-send-email is NOT', () => {
+    // ★ The exclusion above is one character wide and could silently swallow a
+    //   real function if somebody named one `_something`. This pins both sides.
+    const dirs = functionDirs();
+    expect(dirs).not.toContain('_shared');
+    expect(dirs).toContain('auth-send-email');
+    expect(existsSync(resolvePath(FUNCTIONS_DIR, '_shared', 'README.md'))).toBe(true);
+    const status = readFileSync(STATUS, 'utf8');
+    expect(status).toMatch(/\| `auth-send-email` \| ⛔️ \*\*NOT DEPLOYED/);
+    // ★★★ AND THE HOOK IS A SECOND STEP. Deploying this function changes nothing
+    //     until the Send Email hook is enabled, so the page has to say so or it
+    //     sends the next person round P-279's loop with an extra turn.
+    expect(status).toMatch(/hook is also NOT enabled/);
+    expect(status).toContain(
+      'supabase functions deploy auth-send-email --project-ref eibnmwthkcuumyclyxoe --no-verify-jwt',
+    );
   });
 
   it('★★★ plan-share is on the page as NOT DEPLOYED, and named as P-279', () => {
