@@ -2,11 +2,13 @@ import { useCallback, useRef, useState } from 'react';
 import { pdfDownloadName, signPlanPdfUrl } from '../lib/planOfRecordShare';
 import {
   createPlanDraft,
-  draftBody,
+  draftHtmlBody,
   draftSubject,
   DraftStepError,
   STEP_WORDS,
+  type DraftLink,
 } from '../lib/outlookDraft';
+import { planShareExpiryDate } from '../lib/planShare';
 import { getOutlookToken, hasOutlookAccount, loadOutlookAuth } from '../lib/outlookAuth';
 import { pushToast } from '../stores/toastStore';
 
@@ -32,13 +34,17 @@ import { pushToast } from '../stores/toastStore';
 export type EmailPdfState =
   | { kind: 'idle' }
   | { kind: 'working' }
-  | { kind: 'ready'; webLink: string; opened: boolean };
+  /** ★ fix-630: `linkIncluded` false = the private link could not be minted,
+   *  so the draft carries the PDF only (and the menu says so). */
+  | { kind: 'ready'; webLink: string; opened: boolean; linkIncluded: boolean };
 
 export interface EmailPdfInput {
   pdfPath: string;
   fileName: string | null;
   address: string | null;
   setName: string;
+  /** ★ fix-630: this set's private link, through Copy link's own mint. */
+  mintLink?: () => Promise<{ url: string; expiresAt: string }>;
 }
 
 export function useEmailPlanPdf(): {
@@ -76,6 +82,17 @@ export function useEmailPlanPdf(): {
     setState({ kind: 'working' });
 
     try {
+      // ★★ fix-630: the private link — and its failure never blocks the email.
+      let link: DraftLink | null = null;
+      if (input.mintLink) {
+        try {
+          const l = await input.mintLink();
+          link = { url: l.url, expiresOn: planShareExpiryDate(l.expiresAt) };
+        } catch {
+          link = null;
+        }
+      }
+
       let pdfUrl: string;
       try {
         pdfUrl = await signPlanPdfUrl(input.pdfPath, input.fileName);
@@ -87,7 +104,7 @@ export function useEmailPlanPdf(): {
           pdfUrl,
           fileName: pdfDownloadName(input.fileName),
           subject: draftSubject(input.address, input.setName),
-          body: draftBody(input.address, input.setName),
+          htmlBody: draftHtmlBody(input.address, input.setName, link),
         },
         { getToken: getOutlookToken, fetch: (...args) => fetch(...args) },
       );
@@ -107,12 +124,16 @@ export function useEmailPlanPdf(): {
       } catch {
         opened = false;
       }
-      setState({ kind: 'ready', webLink: draft.webLink, opened });
+      const linkIncluded = link !== null;
+      setState({ kind: 'ready', webLink: draft.webLink, opened, linkIncluded });
+      const carries = linkIncluded
+        ? 'the PDF attached and its private link'
+        : 'the PDF attached (the private link could not be created, so it is not in the email)';
       pushToast(
         opened
-          ? 'Draft opened in Outlook with the PDF attached — add the recipient and press Send.'
-          : 'Your Outlook draft is ready with the PDF attached — open the share menu and choose “Open the draft in Outlook”.',
-        'success',
+          ? `Draft opened in Outlook with ${carries} — add the recipient and press Send.`
+          : `Your Outlook draft is ready with ${carries} — open the share menu and choose “Open the draft in Outlook”.`,
+        linkIncluded ? 'success' : 'warn',
       );
     } catch (e) {
       try {
