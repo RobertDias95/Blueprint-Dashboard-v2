@@ -118,6 +118,29 @@ gets a rejected row rather than a stored reset code. There is no body column.
 Admins read it through `bp_email_outbox_recent()`; the table itself has **no
 `anon` and no `authenticated` policy at all**.
 
+## What it looks like — fix-631 (P-326)
+
+Every bridge@ email goes through `_shared/emailTemplate.ts`: the Bridge lockup as
+a header, the message, a thin divider, then the Blueprint signature — logo, the
+three offices as `tel:` links, and the unmonitored line. The sender shows as
+**Blueprint: The Bridge** (the address is unchanged).
+
+| | |
+|---|---|
+| **Images are embedded, not linked** | Outlook blocks remote images by default, so an `https://` logo arrives as an empty box and a "download pictures" bar. They travel as `cid:` parts inside `multipart/related` — about 8 KB per email. |
+| **The bytes live in a module** | `_shared/emailAssets.ts`, generated from `_shared/assets/*.png`. An Edge Function bundle is text: there is no file to read at runtime. A test re-encodes the PNGs and asserts they still match, so a swapped logo nobody regenerated fails CI. |
+| **It reads with images off** | Both logos carry alt text, and the code, the phone numbers and the footer are live text. A reset code baked into an image would be unreadable to the person who most needs it. |
+| **Tables and inline styles** | Outlook renders through Word; Gmail strips `<style>`. No external CSS, no web fonts, no flexbox. |
+
+★★ **The grey "B" in Outlook is not something an email can fix.** That circle is
+the *mailbox's profile photo*. A square mark is exported to
+`Brain/reference/bridge-logo-square.png` (512×512, inset so Outlook's circular
+crop does not clip it) for whoever sets it on bridge@.
+
+⚠️ **Open question:** Exchange Online may replace the MIME From display name with
+the mailbox's directory display name. That cannot be tested without a real send.
+If "Blueprint: The Bridge" does not show up, the fix is in the mailbox, not here.
+
 ## Where the logic lives
 
 `handler.ts` — no Deno, no `fetch`, no Supabase client; everything arrives
@@ -128,4 +151,6 @@ the only file that touches the environment.
 
 `_shared/graphMail.ts` is the sender, built to be reused: the mention emails
 (P-323), the weekly digest (P-017) and vendor sends (P-180) all want the same
-`sendGraphMail(deps, { to, subject, html, text, attachments })`.
+`sendGraphMail(deps, { to, subject, html, text, attachments, inlineImages })` —
+and the same `renderBrandedEmail` shell, so none of them has to think about
+what the signature says.

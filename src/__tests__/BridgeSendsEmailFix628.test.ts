@@ -215,7 +215,11 @@ describe('fix-628 §B — the sendMail request', () => {
     // both bodies present, base64
     expect(mime).toContain(base64Utf8('hello'));
     expect(mime).toContain(base64Utf8('<p>hello</p>'));
-    expect(mime).toContain(`From: Blueprint Bridge <${BRIDGE_SENDER}>`);
+    // \u2605\u2605\u2605 SUPERSEDED, NOT MISTAKEN \u2014 fix-631 (P-326) renamed the sender to
+    //     "Blueprint: The Bridge" at Bobby's request. The address is unchanged;
+    //     only the display name moved, and it is now QUOTED because it contains
+    //     a colon (RFC 5322 special). `BrandedEmailFix631` owns that rule.
+    expect(mime).toContain(`From: "Blueprint: The Bridge" <${BRIDGE_SENDER}>`);
     expect(mime).toContain('To: robertd@blueprintcap.com');
   });
 

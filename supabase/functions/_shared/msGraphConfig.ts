@@ -37,8 +37,40 @@ export const MS_CLIENT_ID = '0d35e1bc-cdf7-449b-a822-217dff8967d5';
  */
 export const BRIDGE_SENDER = 'bridge@blueprintcap.com';
 
-/** Display name on the From line. */
-export const BRIDGE_SENDER_NAME = 'Blueprint Bridge';
+/**
+ * ★★★ THE FROM DISPLAY NAME — fix-631 (P-326). Bobby: *"Blueprint: the
+ *     Bridge"*. The ADDRESS is unchanged; this is only what a reader sees.
+ *
+ * ★★ IT CONTAINS A COLON, which RFC 5322 lists as a `special`. An unquoted
+ *    display name carrying one is a malformed header, and the polite failure is
+ *    a client showing the raw address while the rude one is a rejected message.
+ *    `buildMimeMessage` quotes it; `BrandedEmailFix631` pins that it does.
+ *
+ * ⚠️ AND EXCHANGE ONLINE MAY OVERRIDE IT ANYWAY with the mailbox's directory
+ *    display name. That cannot be tested without a real send — see the ticket's
+ *    open question. If it is overridden, the fix is in the mailbox, not here.
+ */
+export const BRIDGE_SENDER_NAME = 'Blueprint: The Bridge';
+
+/** One Blueprint office, for the signature. */
+export interface BlueprintOffice {
+  city: string;
+  /** As a person reads it. */
+  phone: string;
+  /** As `tel:` wants it — E.164, so a phone dials it in one tap. */
+  tel: string;
+}
+
+/**
+ * ★★ THE THREE OFFICES, exactly as Bobby gave them on 2026-10-10. They are
+ *    here rather than in the template because the signature is not the only
+ *    thing that will want them (P-323's mention emails, P-017's digest).
+ */
+export const BLUEPRINT_OFFICES: readonly BlueprintOffice[] = [
+  { city: 'Fremont', phone: '(206) 339-3390', tel: '+12063393390' },
+  { city: 'West Seattle', phone: '(206) 933-7514', tel: '+12069337514' },
+  { city: 'Scottsdale', phone: '(602) 428-2649', tel: '+16024282649' },
+];
 
 /** Client-credentials token endpoint. */
 export const MS_TOKEN_URL =
