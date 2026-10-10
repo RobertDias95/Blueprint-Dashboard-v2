@@ -77,6 +77,7 @@ import SavesNowMark from '../shared/SavesNowMark';
 import { currentWeekMonday, finishedBlockRefusal } from '../../lib/finishedBlocks';
 import { useBlockOverlapStore } from '../../stores/blockOverlapStore';
 import { isBlockOverlapRefusal } from '../../lib/errorLogger';
+import { checkDroneUrl } from '../../lib/siteLinks';
 
 // ===========================================================================
 // ★★★ fix-506 §G (P-140) — THE EDITORS THE OVERVIEW NO LONGER OWNS
@@ -1102,6 +1103,14 @@ export function SiteEditor({ project }: { project: Project }) {
           beside the lot size, and it is a fact about the parcel.
           ★★★ fix-514 §F (P-216): and EDITABLE now. */}
       <ProjectTagsEditor project={project} />
+      {/* ★★★ fix-632 (P-328): the project's drone video / footage link. */}
+      <DroneLinkRow
+        project={project}
+        disabled={locked}
+        onCommit={(next) =>
+          void commit('drone_video_url', next, project.drone_video_url, 'Drone video link')
+        }
+      />
       {/* fix-122: Number of Lots (1-20 dropdown, blank = unset). Lives in
           Site because a subdivision count is a parcel-level fact, not a
           proposal/scope fact. Users who need >20 can backfill via the
@@ -2174,5 +2183,92 @@ export function AddUnitTypeButton({ project }: { project: Project }) {
     >
       + Add type
     </button>
+  );
+}
+
+/**
+ * ★★★ fix-632 (P-328) — THE DRONE VIDEO LINK, edited where the rest of Site is.
+ *
+ * Commits through the same `commit()` as every Site field (so it rides the
+ * modal's draft and its atomic save), on blur. Only a web link is accepted —
+ * `checkDroneUrl` says why in one sentence, and refuses a server path by name
+ * because a browser cannot open one (P-149). The database refuses anything
+ * else too (a CHECK on the column).
+ *
+ * ★ Site Data's "Add drone link" opens this tab with `#drone-video-url`, and
+ *   the field takes focus when it sees it.
+ */
+export function DroneLinkRow({
+  project,
+  disabled,
+  onCommit,
+}: {
+  project: Project;
+  disabled: boolean;
+  onCommit: (next: string | null) => void;
+}) {
+  const saved = project.drone_video_url ?? '';
+  const [draft, setDraft] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const value = draft ?? saved;
+  const ref = useRef<HTMLInputElement>(null);
+  useEffect(() => {
+    if (typeof window !== 'undefined' && window.location.hash === '#drone-video-url') {
+      ref.current?.focus();
+      ref.current?.scrollIntoView?.({ block: 'center' });
+    }
+  }, []);
+  function leave() {
+    if (draft === null) return;
+    const check = checkDroneUrl(draft);
+    if (!check.ok) {
+      setError(check.message);
+      return;
+    }
+    setError(null);
+    setDraft(null);
+    onCommit(check.value);
+  }
+  return (
+    <div className="flex flex-col gap-0.5">
+      <div className="flex items-baseline gap-1.5">
+        <label htmlFor="drone-video-url" className="text-[9px] text-dim min-w-[32px]">
+          Drone
+        </label>
+        <input
+          id="drone-video-url"
+          ref={ref}
+          type="url"
+          inputMode="url"
+          value={value}
+          disabled={disabled}
+          placeholder="https://… (SharePoint / OneDrive link to this project's video or folder)"
+          onChange={(e) => {
+            setDraft(e.target.value);
+            if (error) setError(null);
+          }}
+          onBlur={leave}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter') (e.target as HTMLInputElement).blur();
+          }}
+          aria-invalid={error ? true : undefined}
+          aria-describedby={error ? 'drone-video-url-error' : undefined}
+          className="flex-1 min-w-0 text-[10px] font-semibold text-text border-0 border-b outline-none bg-transparent px-0 py-0.5 disabled:opacity-50"
+          style={{ borderBottomColor: error ? 'var(--color-er)' : 'var(--color-border)' }}
+          data-testid="pd-site-drone-input"
+        />
+      </div>
+      {error && (
+        <div
+          id="drone-video-url-error"
+          role="alert"
+          className="text-[9px] pl-[38px]"
+          style={{ color: 'var(--color-er)' }}
+          data-testid="pd-site-drone-error"
+        >
+          {error}
+        </div>
+      )}
+    </div>
   );
 }

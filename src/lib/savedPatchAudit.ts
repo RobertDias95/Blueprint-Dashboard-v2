@@ -117,6 +117,7 @@ const FIELD_LABELS: Record<string, string> = {
   builder_name: 'Builder',
   builder_phone: 'Builder phone',
   closing_date: 'Closing date',
+  drone_video_url: 'Drone video link',
   construction_admin: 'Construction Admin',
   design_manager: 'Design Manager',
   entitlement_lead: 'Permitting Lead',

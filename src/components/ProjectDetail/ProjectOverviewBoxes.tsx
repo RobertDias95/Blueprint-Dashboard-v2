@@ -39,6 +39,10 @@ import {
 } from '../../lib/projectCardLayout';
 import type { PermitWithCycles, Project, UnitType } from '../../lib/database.types';
 import { useAppConfig } from '../../hooks/useAppConfig';
+import { Link } from 'react-router-dom';
+import { droneFolderUrl, googleMapsUrl, isWebUrl } from '../../lib/siteLinks';
+import { useMayWriteProject } from '../../hooks/useMayWriteProject';
+import { PARAM_DATA } from '../../lib/projectDataTabs';
 
 // ===========================================================================
 // ★★★ fix-506 §B/§C/§D (P-139) — THE PROJECT CARD, READ AS A BOOK
@@ -270,6 +274,9 @@ export function SiteDataBox({
             </span>
           )}
         </Field>
+        {/* ★★★ fix-632 (P-328) — MAP AND DRONE, UNDER TAGS where Dave drew
+            them. See `SiteLinkRows`. */}
+        <SiteLinkRows project={project} />
       </div>
     </OverviewSection>
   );
@@ -831,3 +838,63 @@ export function SiteAndDates({
   );
 }
 
+/**
+ * ★★★ fix-632 (P-328) — Google Maps and the drone footage, under Site Data.
+ *
+ *   Map    Google Maps at the address (no API key — the `search` URL).
+ *   Drone  the project's own link (`drone_video_url`) → "Drone video ↗";
+ *          otherwise the shared "Drone Photos" folder from Settings →
+ *          "Drone footage folder ↗", with "Add project link" for people who
+ *          can edit the project; with neither, "Add drone link" (muted).
+ *
+ * ★ Bobby, 10-10: *"lets build everything out that we can, and then clean it
+ *   up once the location is set."* — so the folder is a Settings value, not a
+ *   constant, and the per-project field is optional.
+ */
+function SiteLinkRows({ project }: { project: Project }) {
+  const cfgMap = useAppConfig().map;
+  const mayWrite = useMayWriteProject(project.id);
+  const mapUrl = googleMapsUrl(project.address, project.juris);
+  const own = isWebUrl(project.drone_video_url) ? project.drone_video_url.trim() : null;
+  const folder = droneFolderUrl(cfgMap);
+  // ★ Opens Project Data on Site, where the field focuses itself (#drone-video-url).
+  const addTo = { search: `?${PARAM_DATA}=site`, hash: '#drone-video-url' };
+  const linkCls = 'text-de font-semibold hover:underline';
+  const mutedCls = 'text-dim italic text-[9px] hover:underline';
+  return (
+    <>
+      <Field label="Map" labelWidth={SITE_LABEL_WIDTH} testId="pd-site-map-row">
+        {mapUrl ? (
+          <a href={mapUrl} target="_blank" rel="noopener noreferrer" className={linkCls} data-testid="pd-site-map-link">
+            Google Maps ↗
+          </a>
+        ) : (
+          // ★ fix-513's sweep: a not-recorded value is the em dash.
+          <span className="text-dim italic text-[9px]">—</span>
+        )}
+      </Field>
+      <Field label="Drone" labelWidth={SITE_LABEL_WIDTH} testId="pd-site-drone-row">
+        {own ? (
+          <a href={own} target="_blank" rel="noopener noreferrer" className={linkCls} data-testid="pd-site-drone-link">
+            Drone video ↗
+          </a>
+        ) : (
+          <span className="flex flex-wrap items-baseline gap-x-1.5">
+            {folder && (
+              <a href={folder} target="_blank" rel="noopener noreferrer" className={linkCls} data-testid="pd-site-drone-folder">
+                Drone footage folder ↗
+              </a>
+            )}
+            {mayWrite ? (
+              <Link to={addTo} className={mutedCls} data-testid="pd-site-drone-add">
+                {folder ? 'Add project link' : 'Add drone link'}
+              </Link>
+            ) : (
+              !folder && <span className="text-dim italic text-[9px]">none</span>
+            )}
+          </span>
+        )}
+      </Field>
+    </>
+  );
+}

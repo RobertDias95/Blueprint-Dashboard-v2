@@ -14,6 +14,7 @@ import {
   planShareSubject,
 } from '../lib/planOfRecordShare';
 import { pushToast } from '../stores/toastStore';
+import { writeShareLinkToClipboard } from '../lib/shareLinkText';
 
 // ===========================================================================
 // ★★★ fix-523 §A (P-187) — MINT, RESOLVE, REVOKE
@@ -293,8 +294,10 @@ export function usePlanShareResolve(token: string | undefined) {
 //   two places.
 
 export interface PlanShareActions {
-  /** Mint (or re-fetch) this set's link and copy it. */
-  copy(setType: string, variant: string | null): Promise<void>;
+  /** Mint (or re-fetch) this set's link and copy it. ★ fix-632: `linkText`
+   *  (`<address> — <set label>`) becomes the visible text of a RICH link on
+   *  the clipboard; the plain-text half stays the bare URL. */
+  copy(setType: string, variant: string | null, linkText?: string): Promise<void>;
   /** Mint (or re-fetch) this set's link and open a mail client on it. */
   email(
     setType: string,
@@ -337,10 +340,13 @@ export function usePlanShareActions(projectId: string): PlanShareActions {
   return {
     links: linksQ.data,
 
-    async copy(setType, variant) {
+    async copy(setType, variant, linkText) {
       try {
         const url = await mint(setType, variant);
-        await navigator.clipboard.writeText(url);
+        // ★★ fix-632 (P-325): Dave pasted a Copy link into Outlook and got the
+        //    raw URL. text/html now carries `<a>address — set</a>`, text/plain
+        //    the bare URL (Teams, plain fields) — see lib/shareLinkText.
+        await writeShareLinkToClipboard(url, linkText ?? url);
         pushToast(SHARE_TOAST, 'success');
       } catch {
         // ★ ONE message for both failures — minting and copying. A person who

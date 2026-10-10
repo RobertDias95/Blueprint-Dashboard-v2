@@ -115,6 +115,9 @@ export function escapeHtml(s: string): string {
 /** ★ fix-630: the plan's private link, as the draft states it. */
 export interface DraftLink {
   url: string;
+  /** ★ fix-632: what the link READS — `2601 E Galer St — Marketing`
+   *  (lib/shareLinkText). The bare URL when absent. */
+  text?: string;
   /** "Nov 06, 2026" — from the link's REAL expiry (planShareExpiryDate). */
   expiresOn: string;
 }
@@ -137,9 +140,13 @@ export function draftHtmlBody(
 ): string {
   const first = `<p>${escapeHtml(draftBody(address, setName))}</p>`;
   if (!link || !/^https?:\/\//i.test(link.url)) return first;
+  // ★★ fix-632 (P-325): the anchor READS as the address and the set — Bobby,
+  //    10-10: *"make the link the address - marketing/site plan."* Same URL,
+  //    same expiry; only the visible text changed.
   const url = escapeHtml(link.url);
+  const text = escapeHtml((link.text ?? '').trim() || link.url);
   const exp = link.expiresOn ? ` (link expires ${escapeHtml(link.expiresOn)})` : '';
-  return `${first}<p>View online: <a href="${url}">${url}</a>${exp}</p>`;
+  return `${first}<p>View online: <a href="${url}">${text}</a>${exp}</p>`;
 }
 
 /** Base64 of raw bytes, chunked so a large array never blows the call stack. */

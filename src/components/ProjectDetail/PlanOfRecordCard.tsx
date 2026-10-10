@@ -63,6 +63,7 @@ import type {
   ProjectPlanOfRecordVerdictRow,
 } from '../../lib/database.types';
 import { useEmailPlanPdf } from '../../hooks/useEmailPlanPdf';
+import { shareLinkText } from '../../lib/shareLinkText';
 
 // fix-285: the Design Plan of Record card.
 //
@@ -270,6 +271,7 @@ export default function PlanOfRecordCard({ projectId }: Props) {
 
       {lightbox && row && (
         <Lightbox
+          address={sourceAddress}
           row={row}
           verdict={verdictKnown ? verdict : null}
           onClose={() => setLightbox(false)}
@@ -796,7 +798,9 @@ function SetButtons({
             //     other direction impossible to forget.
             disabled={!planOfRecordSetAvailable(row.set_type, sets, b.variant)}
             onPick={() => onPickVariant(b.variant)}
-            onShare={() => void share.copy(row.set_type, shareVariant(b.variant))}
+            onShare={() =>
+              void share.copy(row.set_type, shareVariant(b.variant), shareLinkText(address, b.label))
+            }
             // ★★★ fix-522 §D4 — THE SAME LINK, IN AN EMAIL THE SUBJECT OF WHICH
             //     NAMES THE SET. Bobby: *"boom, create the email, open it, and
             //     it's already got the subject line, what you're sharing."*
@@ -1001,7 +1005,10 @@ function Lightbox({
   verdict,
   onClose,
   shownSet,
+  address,
 }: {
+  /** ★ fix-632: the project address — the Share link reads `<address> — <set>`. */
+  address: string | null;
   row: ProjectPlanOfRecordRow;
   verdict: ProjectPlanOfRecordVerdictRow | null;
   onClose: () => void;
@@ -1178,6 +1185,8 @@ function Lightbox({
                   row.set_type === 'marketing'
                     ? (shownSet?.variant?.toLowerCase() ?? 'internal')
                     : null,
+                  // ★ fix-632: the button label the card shows for this set.
+                  shareLinkText(address, lightboxSetLabel(row.set_type, shownSet)),
                 )
               }
               className="text-[11px] font-bold px-2.5 py-1 rounded border border-de bg-surface text-de hover:bg-s2 transition flex items-center gap-1"
@@ -1614,4 +1623,15 @@ function ShareMenuItem({
       {children}
     </button>
   );
+}
+
+/** ★ fix-632: the card's own label for the set the enlarged view is showing —
+ *  `Site Plan` / `Marketing` / `Schematic` / `Design Guidance`. */
+function lightboxSetLabel(
+  setType: ProjectPlanOfRecordRow['set_type'],
+  shownSet: PlanOfRecordSetRow | null,
+): string {
+  const buttons = planOfRecordSetButtons(setType);
+  const variant = (shownSet?.variant ?? '').toLowerCase();
+  return (buttons.find((b) => b.variant === variant) ?? buttons[0])?.label ?? setType;
 }

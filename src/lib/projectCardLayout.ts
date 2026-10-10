@@ -352,8 +352,15 @@ export const SITE_DATES_RESPONSIVE_CSS: string = [
   `.${SITE_DATES_PAIR_CLASS}{display:grid;grid-template-columns:minmax(0,1fr);` +
     `column-gap:${SITE_DATES_GAP}px}`,
   `@container ${PROJECT_CARD_CONTAINER} (min-width:${SITE_DATES_SIDE_BY_SIDE_CARD_MIN}px){`,
+  // ★★★ fix-632 §C — EQUAL WIDTHS. Bobby, 10-10: *"just make the site data and
+  //     dates equal widths as dates is bigger."* Dates was `1.25fr`. Both are
+  //     `1fr` now and each keeps its own measured floor (154 / 156), so
+  //     nothing about WHEN the pair sits side by side moves (320 still). The
+  //     card floor keeps the body at >= 328 whenever the pair is side by side,
+  //     where each half gets (328 − 10) / 2 = 159 — above both floors — so the
+  //     two columns are equal at every width they appear together.
   `.${SITE_DATES_PAIR_CLASS}{grid-template-columns:` +
-    `minmax(${SITE_DATA_MIN_WIDTH}px,1fr) minmax(${DATES_CARD_MIN_WIDTH}px,1.25fr)}`,
+    `minmax(${SITE_DATA_MIN_WIDTH}px,1fr) minmax(${DATES_CARD_MIN_WIDTH}px,1fr)}`,
   // ★ The mock's `.pstrip > .cell { border-right }`. No extra padding with it:
   //   the Site box's own `px-2.5` sits to its left and the grid's column gap to
   //   its right, so the rule is centred without spending width the
