@@ -82,6 +82,11 @@ export function useProjects() {
             // the fix-122 trap the comment above records and the fix-386 trap
             // the comment below records; this is the third time.
             'num_lots, is_corner_lot, is_regular_shape, closing_date',
+            // ★★★ fix-632: `drone_video_url` HAS to be on this line — the
+            // SEVENTH recording of this file's trap. An unlisted column arrives
+            // as `undefined`, and Site Data would offer "Add drone link" for
+            // ever while the database held the link.
+            'drone_video_url',
             // fix-126: redesign concept columns. Drive the "Redesign of"
             // top badge + the expandable "Redesigns (N)" subsection on
             // Project Overview, plus the yellow border on draw schedule

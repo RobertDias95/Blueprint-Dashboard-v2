@@ -11,6 +11,7 @@ import {
 import { planShareExpiryDate } from '../lib/planShare';
 import { getOutlookToken, hasOutlookAccount, loadOutlookAuth } from '../lib/outlookAuth';
 import { pushToast } from '../stores/toastStore';
+import { shareLinkText } from '../lib/shareLinkText';
 
 // ===========================================================================
 // fix-629 (P-324) — the Email PDF item's behaviour, in one place
@@ -87,7 +88,12 @@ export function useEmailPlanPdf(): {
       if (input.mintLink) {
         try {
           const l = await input.mintLink();
-          link = { url: l.url, expiresOn: planShareExpiryDate(l.expiresAt) };
+          link = {
+            url: l.url,
+            expiresOn: planShareExpiryDate(l.expiresAt),
+            // ★ fix-632: the link reads as the address and the set.
+            text: shareLinkText(input.address, input.setName),
+          };
         } catch {
           link = null;
         }

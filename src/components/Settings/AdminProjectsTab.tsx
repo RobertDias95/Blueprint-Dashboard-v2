@@ -24,6 +24,7 @@ import QueryError from '../QueryError';
 // this section, and the first one backed by a TABLE rather than an app_config
 // key (see hooks/useBuilderRegistry).
 import BuildersRegistryPanel from './BuildersRegistryPanel';
+import DroneFolderEditor from './DroneFolderEditor';
 
 // Q7.3.a: Settings → Projects tab. Four catalog editors:
 //   1. Jurisdictions (table) — pill list + per-row learn_window_days input
@@ -171,6 +172,11 @@ export default function AdminProjectsTab() {
           Neither derives from the other — see the note in the editor. */}
         <SettingsSubBlock title="Portal links">
           <JurisdictionLinksEditor readOnly={!isAdmin} />
+        </SettingsSubBlock>
+        {/* ★ fix-632 (P-328): the shared drone-footage folder, beside the
+            other links this block holds. */}
+        <SettingsSubBlock title="Drone footage folder">
+          <DroneFolderEditor readOnly={!isAdmin} />
         </SettingsSubBlock>
       </SettingsBlock>
 

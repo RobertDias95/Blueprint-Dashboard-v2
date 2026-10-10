@@ -70,6 +70,7 @@ export const APP_CONFIG_KEY_LABELS: Readonly<Record<string, string>> = {
   roofDeckOptions: 'unit roof deck options',
   storiesOptions: 'unit stories options',
   jurisdictionLinks: 'jurisdiction links',
+  droneFootageFolderUrl: 'drone footage folder',
   permitTypeDescriptions: 'permit type descriptions',
   waitingOnOptions: 'Waiting On list',
   vendorReportRecipients: 'vendor report recipients',

@@ -1399,7 +1399,10 @@ describe('fix-630 the draft carries the PDF AND the private link', () => {
     expect(body.contentType).toBe('HTML');
     const url = `${window.location.origin}/s/a7Kd92xQrTvB_live1`;
     expect(body.content).toContain('<p>Attached: the ');
-    expect(body.content).toContain(`<p>View online: <a href="${url}">${url}</a> (link expires Nov 06, 2026)</p>`);
+    // ★ fix-632 (P-325) SUPERSEDES the bare-URL text: the link READS as
+    //   "<address> — <set>" (the harness has no address, so the set alone).
+    const setName = screen.getByTestId('plan-of-record-set-internal').textContent;
+    expect(body.content).toContain(`<p>View online: <a href="${url}">${setName}</a> (link expires Nov 06, 2026)</p>`);
     // ★ the PDF is still attached
     expect(calls.some((c) => c.url.endsWith('/messages/m1/attachments'))).toBe(true);
     // ★★ minted through Copy link's own path — the RPC that re-returns a live link

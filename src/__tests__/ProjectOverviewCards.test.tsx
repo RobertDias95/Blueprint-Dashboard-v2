@@ -215,7 +215,8 @@ describe('fix-290 → fix-506: the Site block, and where its editors went', () =
     //   the rule is built in TS and read here from the same source the browser
     //   gets.
     expect(SITE_DATES_RESPONSIVE_CSS).toContain(
-      `minmax(${SITE_DATA_MIN_WIDTH}px,1fr) minmax(${DATES_CARD_MIN_WIDTH}px,1.25fr)`,
+      // ★ fix-632 §C SUPERSEDES the 1.25fr: Bobby asked for equal widths.
+      `minmax(${SITE_DATA_MIN_WIDTH}px,1fr) minmax(${DATES_CARD_MIN_WIDTH}px,1fr)`,
     );
     expect(SITE_DATES_RESPONSIVE_CSS).toContain(
       `(min-width:${SITE_DATES_SIDE_BY_SIDE_CARD_MIN}px)`,

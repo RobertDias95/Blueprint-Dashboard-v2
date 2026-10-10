@@ -233,7 +233,7 @@ export const SETTINGS_BLOCKS: readonly SettingsBlock[] = [
       'Ribbon city links',
       'Library',
     ],
-    keywords: 'city cities juris jurisdiction link portal gis code',
+    keywords: 'city cities juris jurisdiction link portal gis code drone footage video folder',
     merged: '2 → 1',
   },
   {

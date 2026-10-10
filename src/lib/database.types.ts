@@ -339,6 +339,10 @@ export interface Project {
    *  other nullable Project column here (Project literals in fixtures omit it);
    *  the value is `string | null` at runtime. */
   reused_from_project_id?: string | null;
+  /** ★ fix-632 (P-328): a web link to this project's drone video or its
+   *  footage subfolder (SharePoint/OneDrive). http(s) only — a CHECK enforces
+   *  it. NULL = none; Site Data then offers the shared folder from Settings. */
+  drone_video_url?: string | null;
   /** fix-265: the free-text qualifier on that reuse relationship — what Gena
    *  writes by hand today ("Units are Similar to 13515 27th? XL?", "7315 Jones
    *  Ave NW (W/O GAR)"). reused_from_project_id carries the LINK; this carries

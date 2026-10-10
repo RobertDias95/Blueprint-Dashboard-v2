@@ -230,7 +230,8 @@ describe('fix-507 §B — Site data beside Dates, on a declared breakpoint', () 
     // ★ The tracks carry the boxes' OWN floors, which is what stops either box
     //   being squeezed under the width it was measured at.
     expect(SITE_DATES_RESPONSIVE_CSS).toContain(
-      `minmax(${SITE_DATA_MIN_WIDTH}px,1fr) minmax(${DATES_CARD_MIN_WIDTH}px,1.25fr)`,
+      // ★ fix-632 §C SUPERSEDES the 1.25fr: Bobby asked for equal widths.
+      `minmax(${SITE_DATA_MIN_WIDTH}px,1fr) minmax(${DATES_CARD_MIN_WIDTH}px,1fr)`,
     );
     // ★★ STACKED IS THE DEFAULT and side-by-side is the query, so a browser
     //    without container queries degrades to the arrangement that always
