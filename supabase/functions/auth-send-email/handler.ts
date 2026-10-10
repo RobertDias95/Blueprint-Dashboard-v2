@@ -1,5 +1,10 @@
-import { UNMONITORED_FOOTER } from '../_shared/msGraphConfig.ts';
-import { redactSubject, type SendMailInput, type SendMailResult } from '../_shared/graphMail.ts';
+import {
+  redactSubject,
+  type InlineImage,
+  type SendMailInput,
+  type SendMailResult,
+} from '../_shared/graphMail.ts';
+import { renderBrandedEmail } from '../_shared/emailTemplate.ts';
 import { verifyStandardWebhook } from '../_shared/standardWebhooks.ts';
 
 // ===========================================================================
@@ -94,17 +99,17 @@ function codeBlockHtml(code: string): string {
   );
 }
 
-function shell(innerHtml: string): string {
-  return (
-    '<div style="font-family:-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;' +
-    'font-size:15px;line-height:1.5;color:#111">' +
-    innerHtml +
-    `<p style="font-size:12px;color:#666;margin-top:32px">${escapeHtml(UNMONITORED_FOOTER)}</p>` +
-    '</div>'
-  );
+export interface RenderedEmail {
+  subject: string;
+  html: string;
+  text: string;
+  /** ★ fix-631: the two logos the HTML refers to by `cid:`. The caller MUST
+   *  pass these to `sendMail` or both arrive as broken images. */
+  inlineImages: InlineImage[];
 }
 
-export interface RenderedEmail {
+/** ★ What each action type contributes: the shell around it is fix-631's. */
+interface AuthEmailContent {
   subject: string;
   html: string;
   text: string;
@@ -120,55 +125,61 @@ export interface RenderedEmail {
  *     — the cost of being wrong is somebody locked out.
  */
 export function renderAuthEmail(type: string, code: string): RenderedEmail {
+  const content = authEmailContent(type, code);
+  // ★★★ fix-631 (P-326): THE SAME SHELL FOR EVERY ONE OF THEM. The header, the
+  //     divider and the Blueprint signature are applied here, once, so a type
+  //     added later cannot quietly ship unbranded.
+  const branded = renderBrandedEmail({ bodyHtml: content.html, bodyText: content.text });
+  return {
+    subject: content.subject,
+    html: branded.html,
+    text: branded.text,
+    inlineImages: branded.inlineImages,
+  };
+}
+
+function authEmailContent(type: string, code: string): AuthEmailContent {
   switch (type) {
     // ★★★ THE ONE THAT MATTERS TODAY. Wording is the live Supabase template's,
     //     which fix-426 wrote and people have already been shown.
     case 'recovery':
       return {
         subject: `Your Bridge reset code: ${code}`,
-        html: shell(
+        html:
           '<p>Enter this code in the Bridge to reset your password:</p>' +
-            codeBlockHtml(code) +
-            "<p>If you didn't request a password reset, you can ignore this email.</p>",
-        ),
+          codeBlockHtml(code) +
+          "<p>If you didn't request a password reset, you can ignore this email.</p>",
         text:
           'Enter this code in the Bridge to reset your password:\n\n' +
           `${code}\n\n` +
-          "If you didn't request a password reset, you can ignore this email.\n\n" +
-          UNMONITORED_FOOTER,
+          "If you didn't request a password reset, you can ignore this email.",
       };
 
     case 'signup':
       return {
         subject: `Your Bridge confirmation code: ${code}`,
-        html: shell(
+        html:
           '<p>Enter this code in the Bridge to confirm your email address:</p>' +
-            codeBlockHtml(code),
-        ),
-        text:
-          'Enter this code in the Bridge to confirm your email address:\n\n' +
-          `${code}\n\n${UNMONITORED_FOOTER}`,
+          codeBlockHtml(code),
+        text: `Enter this code in the Bridge to confirm your email address:\n\n${code}`,
       };
 
     case 'invite':
       return {
         subject: `Your Bridge invitation code: ${code}`,
-        html: shell(
+        html:
           '<p>You have been invited to the Bridge. Enter this code to get started:</p>' +
-            codeBlockHtml(code),
-        ),
+          codeBlockHtml(code),
         text:
           'You have been invited to the Bridge. Enter this code to get started:\n\n' +
-          `${code}\n\n${UNMONITORED_FOOTER}`,
+          `${code}`,
       };
 
     case 'magiclink':
       return {
         subject: `Your Bridge sign-in code: ${code}`,
-        html: shell(
-          '<p>Enter this code in the Bridge to sign in:</p>' + codeBlockHtml(code),
-        ),
-        text: `Enter this code in the Bridge to sign in:\n\n${code}\n\n${UNMONITORED_FOOTER}`,
+        html: '<p>Enter this code in the Bridge to sign in:</p>' + codeBlockHtml(code),
+        text: `Enter this code in the Bridge to sign in:\n\n${code}`,
       };
 
     // ★★ `email_change` and `email_change_new` share wording but NOT the token —
@@ -177,22 +188,20 @@ export function renderAuthEmail(type: string, code: string): RenderedEmail {
     case 'email_change_new':
       return {
         subject: `Your Bridge email-change code: ${code}`,
-        html: shell(
+        html:
           '<p>Enter this code in the Bridge to confirm your new email address:</p>' +
-            codeBlockHtml(code),
-        ),
+          codeBlockHtml(code),
         text:
           'Enter this code in the Bridge to confirm your new email address:\n\n' +
-          `${code}\n\n${UNMONITORED_FOOTER}`,
+          `${code}`,
       };
 
     case 'reauthentication':
       return {
         subject: `Your Bridge confirmation code: ${code}`,
-        html: shell(
+        html:
           '<p>Enter this code in the Bridge to confirm it is you:</p>' + codeBlockHtml(code),
-        ),
-        text: `Enter this code in the Bridge to confirm it is you:\n\n${code}\n\n${UNMONITORED_FOOTER}`,
+        text: `Enter this code in the Bridge to confirm it is you:\n\n${code}`,
       };
 
     // ★★★ A TYPE WE HAVE NEVER SEEN STILL GETS A USABLE EMAIL. Auth may add one;
@@ -200,8 +209,8 @@ export function renderAuthEmail(type: string, code: string): RenderedEmail {
     default:
       return {
         subject: `Your Bridge code: ${code}`,
-        html: shell('<p>Enter this code in the Bridge:</p>' + codeBlockHtml(code)),
-        text: `Enter this code in the Bridge:\n\n${code}\n\n${UNMONITORED_FOOTER}`,
+        html: '<p>Enter this code in the Bridge:</p>' + codeBlockHtml(code),
+        text: `Enter this code in the Bridge:\n\n${code}`,
       };
   }
 }
@@ -292,6 +301,9 @@ export async function handleSendEmail(
     subject: rendered.subject,
     html: rendered.html,
     text: rendered.text,
+    // ★ fix-631: without this the `cid:` references resolve to nothing and the
+    //   reader gets two broken-image boxes where the branding should be.
+    inlineImages: rendered.inlineImages,
   });
 
   // ★★★ THE SUBJECT IS REDACTED ON THE WAY TO THE TABLE, never on the way to the

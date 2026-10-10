@@ -16,6 +16,8 @@ function is deployed again. Today that is `auth-send-email` alone; check
 |---|---|
 | `msGraphConfig.ts` | The non-secret constants: tenant id, client id, the sender address, the endpoints, and the **names** of the two env vars. No secret value is in this repository. |
 | `graphMail.ts` | One sender for every Bridge email — a client-credentials token (cached, refreshed a minute early) and a base64 MIME `sendMail`. It never throws for a send failure; it returns `{ ok: false, error }` so the caller always has something to record. Also `redactSubject`. |
+| `emailAssets.ts` | The two logos as base64, GENERATED from `assets/*.png`. An Edge Function bundle is text, so this is the only way the bytes reach Graph; a test re-encodes the files and asserts they still match. |
+| `emailTemplate.ts` | fix-631: the branded shell every bridge@ email wears — Bridge header, body, divider, Blueprint signature with the three office numbers. |
 | `standardWebhooks.ts` | Standard Webhooks signature verification. The most security-sensitive file in the ticket: `auth-send-email` runs `--no-verify-jwt`, so this is the only thing standing between the internet and "send mail as bridge@". |
 
 ## The rules this folder keeps

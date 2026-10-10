@@ -56,6 +56,23 @@ export interface MailAttachment {
   contentBase64: string;
 }
 
+/**
+ * ★★★ AN IMAGE THE HTML SHOWS, carried INSIDE the message — fix-631 (P-326).
+ *
+ * The HTML refers to it as `<img src="cid:THE-CID">` and the bytes travel in a
+ * `multipart/related` part beside the body. That is the difference between a
+ * signature that renders and two empty boxes: Outlook blocks remote images by
+ * default, so a logo linked over https arrives as a "click to download
+ * pictures" bar — the exact plain look fix-631 exists to remove.
+ */
+export interface InlineImage {
+  /** Bare, with no angle brackets; the header and the `cid:` URL add them. */
+  cid: string;
+  fileName: string;
+  contentType: string;
+  contentBase64: string;
+}
+
 export interface SendMailInput {
   to: string | string[];
   cc?: string | string[];
@@ -64,6 +81,9 @@ export interface SendMailInput {
   html: string;
   text: string;
   attachments?: MailAttachment[];
+  /** ★ Shown by the HTML via `cid:`. NOT files a reader detaches — those are
+   *  `attachments`, and the two live in different MIME parts on purpose. */
+  inlineImages?: InlineImage[];
 }
 
 export type SendMailResult =
@@ -265,17 +285,34 @@ function addressList(label: string, addrs: string[]): string {
 }
 
 /**
+ * ★★★ A DISPLAY NAME IS NOT A FREE STRING — fix-631 (P-326).
+ *
+ * `From: Blueprint: The Bridge <bridge@…>` is a MALFORMED header: RFC 5322
+ * lists `:` among the `specials`, and a display name containing one has to be a
+ * quoted-string. The failure is not loud — a client shows the bare address, or
+ * a strict one rejects the message — so the quoting is done here, once, for
+ * every address header rather than trusted to whoever writes a constant.
+ */
+export function encodeDisplayName(name: string): string {
+  if (!/^[\x20-\x7E]*$/.test(name)) return `=?UTF-8?B?${base64Utf8(name)}?=`;
+  if (!/[()<>[\]:;@\\,."]/.test(name)) return name;
+  return `"${name.replace(/[\\"]/g, (c) => `\\${c}`)}"`;
+}
+
+/**
  * ★★ Built as a string rather than with a MIME library, because the shape is
  *    small, fixed and fully asserted by the tests next door — and a dependency
  *    in an Edge Function is a supply-chain surface for the sake of 40 lines.
  */
 export function buildMimeMessage(input: SendMailInput, boundarySeed: string): string {
   const alt = `alt_${boundarySeed}`;
+  const related = `rel_${boundarySeed}`;
   const mixed = `mix_${boundarySeed}`;
   const atts = input.attachments ?? [];
+  const inline = input.inlineImages ?? [];
 
   const headers =
-    `From: ${BRIDGE_SENDER_NAME} <${BRIDGE_SENDER}>\r\n` +
+    `From: ${encodeDisplayName(BRIDGE_SENDER_NAME)} <${BRIDGE_SENDER}>\r\n` +
     addressList('To', asList(input.to)) +
     addressList('Cc', asList(input.cc)) +
     addressList('Reply-To', asList(input.replyTo)) +
@@ -294,27 +331,64 @@ export function buildMimeMessage(input: SendMailInput, boundarySeed: string): st
     `${wrap76(base64Utf8(input.html))}\r\n` +
     `--${alt}--\r\n`;
 
-  if (atts.length === 0) return headers + alternative;
+  // ★★★ THE NESTING, OUTERMOST LAST. Each wrapper takes a complete part — one
+  //     that already carries its own Content-Type header — and puts it inside
+  //     itself, so the three cases compose instead of branching:
+  //
+  //       body only            multipart/alternative
+  //       + inline images      multipart/related  > alternative
+  //       + attachments        multipart/mixed    > related > alternative
+  //
+  // ★★ RELATED INSIDE MIXED, NEVER THE OTHER WAY ROUND. `related` means "these
+  //    images belong to that body"; `mixed` means "here are separate things".
+  //    Inverted, a reader offers the logos as two files to download and shows
+  //    the body with broken images.
+  let body = alternative;
 
-  const parts = atts
-    .map(
-      (a) =>
-        `--${mixed}\r\n` +
-        `Content-Type: ${a.contentType}; name="${a.name}"\r\n` +
-        `Content-Disposition: attachment; filename="${a.name}"\r\n` +
-        'Content-Transfer-Encoding: base64\r\n\r\n' +
-        `${wrap76(a.contentBase64)}\r\n`,
-    )
-    .join('');
+  if (inline.length > 0) {
+    const imageParts = inline
+      .map(
+        (img) =>
+          `--${related}\r\n` +
+          `Content-Type: ${img.contentType}; name="${img.fileName}"\r\n` +
+          'Content-Transfer-Encoding: base64\r\n' +
+          // ★ Angle brackets are required here and absent from the `cid:` URL.
+          `Content-ID: <${img.cid}>\r\n` +
+          `Content-Disposition: inline; filename="${img.fileName}"\r\n\r\n` +
+          `${wrap76(img.contentBase64)}\r\n`,
+      )
+      .join('');
 
-  return (
-    headers +
-    `Content-Type: multipart/mixed; boundary="${mixed}"\r\n\r\n` +
-    `--${mixed}\r\n` +
-    alternative +
-    parts +
-    `--${mixed}--\r\n`
-  );
+    body =
+      `Content-Type: multipart/related; type="multipart/alternative"; ` +
+      `boundary="${related}"\r\n\r\n` +
+      `--${related}\r\n` +
+      body +
+      imageParts +
+      `--${related}--\r\n`;
+  }
+
+  if (atts.length > 0) {
+    const parts = atts
+      .map(
+        (a) =>
+          `--${mixed}\r\n` +
+          `Content-Type: ${a.contentType}; name="${a.name}"\r\n` +
+          `Content-Disposition: attachment; filename="${a.name}"\r\n` +
+          'Content-Transfer-Encoding: base64\r\n\r\n' +
+          `${wrap76(a.contentBase64)}\r\n`,
+      )
+      .join('');
+
+    body =
+      `Content-Type: multipart/mixed; boundary="${mixed}"\r\n\r\n` +
+      `--${mixed}\r\n` +
+      body +
+      parts +
+      `--${mixed}--\r\n`;
+  }
+
+  return headers + body;
 }
 
 /**
