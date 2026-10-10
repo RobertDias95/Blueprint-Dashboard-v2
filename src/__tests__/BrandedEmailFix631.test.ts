@@ -9,7 +9,13 @@ import {
 } from '../../supabase/functions/_shared/msGraphConfig';
 import {
   BLUEPRINT_LOGO,
+  BLUEPRINT_LOGO_BYTES,
+  BLUEPRINT_LOGO_HASH,
   BRIDGE_LOGO,
+  BRIDGE_LOGO_BYTES,
+  BRIDGE_LOGO_HASH,
+  __fnv1a,
+  __verifyAsset,
 } from '../../supabase/functions/_shared/emailAssets';
 import {
   officeLineText,
@@ -196,10 +202,67 @@ describe('fix-631 — the logos are the artwork, and the module matches the file
       const bytes = Buffer.from(asset.contentBase64, 'base64');
       // PNG magic
       expect([...bytes.subarray(0, 4)], asset.fileName).toEqual([0x89, 0x50, 0x4e, 0x47]);
-      // ★ the brief's budget. These ride on EVERY email; 30 KB each is the cap.
+      // ★ the brief's budget is 30 KB each. They are far under it: 8 colours is
+      //   all a flat wordmark needs, and the smaller they are the less there is
+      //   to get wrong on the one path that carries them to production.
       expect(bytes.length, asset.fileName).toBeLessThanOrEqual(30 * 1024);
+      expect(bytes.length, asset.fileName).toBeLessThanOrEqual(6 * 1024);
       expect(bytes.length, asset.fileName).toBeGreaterThan(500);
     }
+  });
+
+  it('★★★ the module VERIFIES itself, because the deploy path is a transcription', () => {
+    // ★★★ THIS IS NOT THEORETICAL. The only way these bytes reach production is
+    //     that somebody transcribes the base64 into a deploy call — there is no
+    //     CLI deploy here and a bundle carries source, not files. That
+    //     transcription WAS corrupted once while shipping this very ticket: a
+    //     mangled tail that still parsed as a perfectly good string and would
+    //     have mailed a broken logo to every customer, silently.
+    const bridge = Buffer.from(BRIDGE_LOGO.contentBase64, 'base64');
+    expect(bridge.length).toBe(BRIDGE_LOGO_BYTES);
+    expect(__fnv1a(new Uint8Array(bridge))).toBe(BRIDGE_LOGO_HASH);
+    const bp = Buffer.from(BLUEPRINT_LOGO.contentBase64, 'base64');
+    expect(bp.length).toBe(BLUEPRINT_LOGO_BYTES);
+    expect(__fnv1a(new Uint8Array(bp))).toBe(BLUEPRINT_LOGO_HASH);
+  });
+
+  it('★★★ and a corrupted constant THROWS, naming the logo and the remedy', () => {
+    // ★★ The failure has to be loud. A corrupt image that still renders the page
+    //    is indistinguishable from a working deploy until a customer sees it.
+    const good = BRIDGE_LOGO.contentBase64;
+    expect(() =>
+      __verifyAsset('bridge-logo.png', good, BRIDGE_LOGO_BYTES, BRIDGE_LOGO_HASH),
+    ).not.toThrow();
+
+    // one byte changed — same length, different hash
+    const mangled = good.slice(0, 40) + (good[40] === 'A' ? 'B' : 'A') + good.slice(41);
+    expect(() =>
+      __verifyAsset('bridge-logo.png', mangled, BRIDGE_LOGO_BYTES, BRIDGE_LOGO_HASH),
+    ).toThrow(/bridge-logo\.png is corrupted/);
+
+    // truncated — the shape the real corruption took
+    const truncated = good.slice(0, good.length - 100);
+    expect(() =>
+      __verifyAsset('bridge-logo.png', truncated, BRIDGE_LOGO_BYTES, BRIDGE_LOGO_HASH),
+    ).toThrow(/corrupted/);
+
+    // and the message says what to do, not just that something is wrong
+    try {
+      __verifyAsset('bridge-logo.png', mangled, BRIDGE_LOGO_BYTES, BRIDGE_LOGO_HASH);
+    } catch (e) {
+      expect((e as Error).message).toMatch(/regenerate it and redeploy/);
+      expect((e as Error).message).toMatch(/do not hand-edit/);
+    }
+  });
+
+  it('★★ fnv1a is a real hash: it moves when one byte does', () => {
+    const a = new Uint8Array([1, 2, 3, 4]);
+    const b = new Uint8Array([1, 2, 3, 5]);
+    expect(__fnv1a(a)).not.toBe(__fnv1a(b));
+    expect(__fnv1a(a)).toBe(__fnv1a(new Uint8Array([1, 2, 3, 4])));
+    // stays inside uint32
+    expect(__fnv1a(a)).toBeGreaterThanOrEqual(0);
+    expect(__fnv1a(a)).toBeLessThanOrEqual(0xffffffff);
   });
 
   it('★★ they are encoded at @2x of their display size', () => {
