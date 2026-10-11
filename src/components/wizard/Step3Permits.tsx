@@ -1,6 +1,6 @@
 import { useEffect, useLayoutEffect, useMemo, useRef } from 'react';
 import { useTeamMembers } from '../../hooks/useTeamMembers';
-import { isCurrentMember } from '../../lib/roster';
+import { ENT_ROLES, isCurrentMember } from '../../lib/roster';
 import { useDmDaGroups } from '../../hooks/useDmDaGroups';
 import { usePermitTypes } from '../../hooks/usePermitTypes';
 import {
@@ -35,7 +35,7 @@ import type { TeamMember } from '../../lib/database.types';
 //     once. After that the row carries a stable rowId across renders.
 
 const BUILDING_PERMIT = 'Building Permit';
-const ENT_ROLES = new Set(['ent', 'ent_lead']);
+// fix-644 (census 21): ENT_ROLES is imported from lib/roster — one definition.
 const DA_ROLE = 'da';
 
 interface Props {
@@ -77,7 +77,7 @@ function makeBpPermit(defaults: WizardState): WizardPermit {
  *  per person and we want a single entry. */
 function dedupedByName(
   all: TeamMember[],
-  roles: Set<string>,
+  roles: ReadonlySet<string>,
   includeInactive: boolean,
 ): TeamMember[] {
   const seen = new Set<string>();

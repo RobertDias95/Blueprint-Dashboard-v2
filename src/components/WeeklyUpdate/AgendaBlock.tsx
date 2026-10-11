@@ -4,7 +4,7 @@ import { useUpsertTeamTask } from '../../hooks/useTeamTasks';
 import { useTeamMembers } from '../../hooks/useTeamMembers';
 import { useIsAgendaMember } from '../../hooks/useAgendaMember';
 import { useIsTenantAdmin } from '../../hooks/useIsTenantAdmin';
-import { splitAgenda } from '../../lib/agenda';
+import { agendaComposerMembers, splitAgenda } from '../../lib/agenda';
 import { todayIso } from '../../lib/myBoard';
 import { TaskCard } from '../../pages/MyTasks';
 import TeamTaskComposer from '../MyTasks/TeamTaskComposer';
@@ -94,12 +94,14 @@ export default function AgendaBlock({
   const canAdd = isMember || isAdmin;
 
   const shown: readonly MyTaskNode[] = tab === 'open' ? open : closed;
+  const composerMembers = useMemo(() => agendaComposerMembers(team.all), [team.all]);
 
   const composer = canAdd ? (
     // ★★ §C3 (fix-462, unchanged): adding an item is fix-460's composer with
     //    one field pre-set. NOT a new flow and NOT a second create path.
     <TeamTaskComposer
-      memberNames={team.all}
+      // ★ fix-644 (census 44): the agenda members, not the whole roster.
+      memberNames={composerMembers}
       agenda
       testidPrefix="agenda-task"
       addLabel="+ Agenda item"

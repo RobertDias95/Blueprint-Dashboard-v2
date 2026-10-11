@@ -9,7 +9,6 @@ import {
   disciplineShortLabel,
 } from '../lib/disciplineLabels';
 import { TEAM_LABEL, TEAM_OPTIONS, teamLabel, disciplineForTeam } from '../lib/taskTeam';
-import { CANONICAL_PERMIT_OWNERS } from '../lib/permitOwnerOptions';
 import { RIBBON_ENTRIES } from '../lib/ribbonNav';
 import { PREVIOUS_ORIGINS, previousTarget } from '../lib/previousOrigin';
 import { ROLE_TITLE, ROLE_TITLE_PLURAL } from '../lib/roleLabels';
@@ -155,19 +154,6 @@ describe('fix-554 §A — no LABEL says Architecture for the design team', () =>
     // ★ And the consultant DISCIPLINE of the same name, on `waiting_on`.
     expect([...WAITING_ON_OPTIONS]).toContain('Architect');
   });
-
-  it('★★ `permits.permit_owner` keeps its vocabulary — fix-535\'s ruling, again', () => {
-    // ★ 26 permits carry `Architecture` here. The Settings registry screen's
-    //   job is to show the vocabulary a COLUMN ACTUALLY HOLDS, so translating
-    //   it there would make an admin read one word and store another — on the
-    //   one screen whose whole purpose is to say what is stored. fix-535 left
-    //   `Entitlements` in this list for exactly the same reason.
-    expect([...CANONICAL_PERMIT_OWNERS]).toEqual([
-      'Entitlements',
-      'Architecture',
-      'Split',
-    ]);
-  });
 });
 
 // ---------------------------------------------------------------------------
@@ -281,7 +267,7 @@ describe('fix-554 §B — no user-facing word says Pipeline for the landing page
 // ---------------------------------------------------------------------------
 
 describe('fix-554 §C — display only: every stored value is byte-identical', () => {
-  it('★★★ the discipline keys, the team keys and the owner vocabulary', () => {
+  it('★★★ the discipline keys and the team keys', () => {
     // ★★★ THE WHOLE TICKET IN ONE ASSERTION. If any of these changed, a
     //     migration was needed and this ticket had none.
     expect([...DISCIPLINES]).toEqual(['ent', 'arch']);
@@ -297,11 +283,8 @@ describe('fix-554 §C — display only: every stored value is byte-identical', (
       'Entitlements',
       'Schematic Team',
     ]);
-    expect([...CANONICAL_PERMIT_OWNERS]).toEqual([
-      'Entitlements',
-      'Architecture',
-      'Split',
-    ]);
+    // fix-644: the permit-owner vocabulary constant went with its unused
+    // file (lib/permitOwnerOptions.ts); `permits.permit_owner` is untouched.
   });
 
   it('★★★ every route still resolves, and none of them moved', () => {

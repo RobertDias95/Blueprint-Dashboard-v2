@@ -15,7 +15,6 @@ import {
   resolveTeamAssignee,
   teamLabel,
 } from '../lib/taskTeam';
-import { CANONICAL_PERMIT_OWNERS } from '../lib/permitOwnerOptions';
 import { TEAM_INTERNAL_ROWS } from '../lib/overviewCardLayout';
 import { PROJECT_DETAILS_SEARCH } from '../lib/projectDetailsForm';
 import { externalConsultantOptions } from '../lib/myTasksHelpers';
@@ -157,15 +156,6 @@ describe('fix-535 §C — `Entitlements` is a stored TOKEN, and it stays', () =>
       expect(read(f)).toContain('teamLabel');
     }
     expect(Object.keys(TEAM_LABEL)).toContain('Entitlements');
-  });
-
-  it('★★ `permits.permit_owner` keeps its vocabulary', () => {
-    // ★ A second stored token carrying the word — **68 permits** on prod, and
-    //   not in §B's table either. The registry screen's job is to show the
-    //   vocabulary a column actually holds, so translating it there would make
-    //   an admin read "Permitting" on the one screen whose purpose is to say
-    //   what is stored.
-    expect(CANONICAL_PERMIT_OWNERS).toContain('Entitlements');
   });
 });
 

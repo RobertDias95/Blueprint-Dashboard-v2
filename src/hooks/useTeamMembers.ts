@@ -28,8 +28,9 @@ export interface TeamMembersResult {
    *  Schematic Designer picker + the Schematic Team admin section. */
   schematics: TeamMember[];
   /** ★★★ fix-487 (P-144): the Construction Admin roster — Steve and David.
-   *  Sources the Settings section and the two CA pickers (the project's, on
-   *  ProjectSettingsModal, and the permit's, on QuickEditPermitModal).
+   *  Sources the Settings section and the project's CA picker
+   *  (ProjectSettingsModal). fix-644: the permit-level picker this once named,
+   *  "QuickEditPermitModal", does not exist — nothing writes `permits.ca` yet.
    *
    *  ★ WITHOUT THIS BUCKET the role exists and nobody can be added to it,
    *    removed from it or renamed in it — AdminTeamTab's sections each render

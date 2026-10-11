@@ -1,4 +1,5 @@
 import { resolvePrimaryAssignee, type PrimaryResolutionContext } from './taskTeam';
+import { ENT_ROLES } from './roster';
 import type { TeamRole } from './database.types';
 
 // ===========================================================================
@@ -90,7 +91,7 @@ export function isUnclaimedTask(
  * one of the two would hide the queue from somebody depending on which row the
  * identity resolver happened to surface first.
  */
-const ENT_ROLES: ReadonlySet<TeamRole> = new Set<TeamRole>(['ent', 'ent_lead']);
+// fix-644 (census 21): the set itself is lib/roster's ENT_ROLES.
 
 export function canSeeUnclaimedQueue(
   isAdmin: boolean,

@@ -3,7 +3,7 @@ import ZoneSelect from '../shared/ZoneSelect';
 import { Link } from 'react-router-dom';
 import { useJurisdictions } from '../../hooks/useJurisdictions';
 import { useTeamMembers } from '../../hooks/useTeamMembers';
-import { isCurrentMember } from '../../lib/roster';
+import { ACQ_ROLES, isCurrentMember } from '../../lib/roster';
 import { useAppConfig, readAppConfigStringArray } from '../../hooks/useAppConfig';
 // ★ fix-497: `daHasRoutingFor` is no longer imported here — Step 1's only use
 //   of it was the routing gate on the lead-DA option, which this ticket
@@ -64,7 +64,7 @@ interface Props {
 }
 
 
-const ACQ_ROLES = new Set(['acq', 'acq_lead']);
+// fix-644 (census 21): ACQ_ROLES is imported from lib/roster — one definition.
 // fix-222: Schematic Team roster for the Schematic Designer picker.
 const SCHEMATIC_ROLES = new Set(['schematic']);
 // fix-144: default DD duration for the redesign auto-place suggestion — matches
@@ -84,7 +84,7 @@ const REDESIGN_DD_DURATION_DAYS = 26;
  *  has left, and #79 is about the everyday pickers, not that one. */
 function membersByRoles(
   all: TeamMember[],
-  roles: Set<string>,
+  roles: ReadonlySet<string>,
   includeInactive: boolean,
 ): TeamMember[] {
   const seen = new Set<string>();

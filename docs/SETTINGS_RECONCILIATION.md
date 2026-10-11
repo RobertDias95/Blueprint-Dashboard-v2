@@ -248,3 +248,20 @@ These read out or diagnose; they do not configure. Listed, not moved.
 ---
 
 *Document only. No app code, no migration, no production data changed.*
+
+---
+
+## fix-644 status (2026-10-11)
+
+**`app_config` keys.** 16 of the 17 unused keys were deleted after a backup (`supabase/backups/app_config_unused_keys_2026-10.json`). `design_guidance_task_enabled_at` is **kept**: the scraper's file indexer reads it every run (this census could not see that from this repo). The two v1 writers, `bp_replace_app_config_and_roster` and `bp_finalize_app_config_extras`, were dropped. `lib/permitOwnerOptions.ts` (no app importer) was deleted.
+
+**Gaps fixed:**
+- **21:** the role sets are now imported from `lib/roster`.
+- **44:** the agenda composer offers agenda members (`lib/agenda.agendaComposerMembers`).
+
+**Gaps re-measured and left open** (size and fix in the fix-644 report):
+- **39:** `permits.ca` is set on 0 of 844 permits.
+- **23:** Department is set for 37 people and read only by Settings.
+- Also open: 7, 8, 11, 12, 29–33, 35, 42.
+
+**Gap 43** belongs to fix-643.

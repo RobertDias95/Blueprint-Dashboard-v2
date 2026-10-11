@@ -1,5 +1,6 @@
 import { isTaskLive } from './taskStatus';
-import type { MyTaskNode } from './database.types';
+import { dedupeByPerson, isCurrentMember } from './roster';
+import type { MyTaskNode, TeamMember } from './database.types';
 
 // ===========================================================================
 // ★★★ fix-462 §C2 (P-045) — ONE RUNNING LIST, SHOWN AS TWO
@@ -52,4 +53,26 @@ export function splitAgenda(tasks: readonly MyTaskNode[]): AgendaLists {
   );
   closed.sort((a, b) => (b.done_at ?? '').localeCompare(a.done_at ?? ''));
   return { open, closed };
+}
+
+// ===========================================================================
+// ★★ fix-644 (P-318 census gap 44) — WHO AN AGENDA ITEM CAN BE GIVEN TO
+// ===========================================================================
+//
+// The composer offered the WHOLE roster (`team.all`): every role row, former
+// staff included, and a dual-role person twice. An agenda item is raised for
+// the Wednesday meeting, so its owner is somebody IN the meeting — the
+// agenda members (`team_members.agenda_member`, fix-462), the same people the
+// Weekly Update pops up for and emails (fix-642).
+//
+// ★ One entry per PERSON (the flag is per person; the trigger keeps a
+//   person's role rows in agreement) and current staff only.
+// ★ No viewer exclusion: membership is the scope here, and a meeting member
+//   who holds no assignable role (Policy, say) still owns what they raise.
+// ★ FALLBACK: a tenant with nobody ticked gets the current roster, so the
+//   control is never an empty "Unassigned"-only list.
+export function agendaComposerMembers(all: readonly TeamMember[]): TeamMember[] {
+  const current = all.filter((m) => isCurrentMember(m));
+  const members = current.filter((m) => m.agenda_member === true);
+  return dedupeByPerson(members.length > 0 ? members : current);
 }

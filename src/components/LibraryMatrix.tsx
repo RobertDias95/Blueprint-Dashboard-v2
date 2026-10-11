@@ -1624,7 +1624,8 @@ interface RowProps {
   /** fix-415's registry, so a capable typist cannot reintroduce an off-list
    *  zone. */
   zoneOptions: readonly string[];
-  /** ★ fix-562 §G: `app_config.jurisdictions`, for the same reason. */
+  /** ★ fix-562 §G / fix-619: the `jurisdictions` table, for the same reason.
+   *  (fix-644 deleted the old `app_config.jurisdictions` key.) */
   jurisOptions: readonly string[];
   onSave: (patch: LibraryFieldPatch, fieldLabel: string) => void;
 }
