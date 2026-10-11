@@ -50,11 +50,14 @@ export default function MentionTagsEditor({
   const [editing, setEditing] = useState<string | null>(null);
   const [name, setName] = useState('');
   const [members, setMembers] = useState<string[]>([]);
+  // ★★ fix-643b: "Also tag this chat's project team (ENT · DM · DA)".
+  const [smart, setSmart] = useState(false);
 
   function startNew() {
     setEditing('new');
     setName('');
     setMembers([]);
+    setSmart(false);
   }
   function startEdit(id: string) {
     const tag = (tagsQ.data ?? []).find((t) => t.id === id);
@@ -62,6 +65,7 @@ export default function MentionTagsEditor({
     setEditing(id);
     setName(tag.name);
     setMembers([...(tag.member_ids ?? [])]);
+    setSmart(!!tag.include_project_team);
   }
   function save() {
     if (!name.trim()) return;
@@ -70,6 +74,7 @@ export default function MentionTagsEditor({
         id: editing === 'new' ? null : editing,
         name: name.trim(),
         memberIds: members,
+        includeProjectTeam: smart,
       },
       { onSuccess: () => setEditing(null) },
     );
@@ -100,9 +105,8 @@ export default function MentionTagsEditor({
           <span className="text-[10px] text-dim">built in</span>
         </div>
         <div className="text-[11px] text-muted mt-0.5">
-          Everyone on the project you are posting in — ACQ, ENT, SD, DM and DA,
-          exactly as the Team card lists them. It re-derives every time, so it
-          is right the day after a DA changes.
+          The project you are posting in — its ENT, DM and DA (fix-503). It
+          re-derives every time, so it is right the day after a DA changes.
         </div>
       </div>
 
@@ -118,6 +122,8 @@ export default function MentionTagsEditor({
               setName={setName}
               members={members}
               setMembers={setMembers}
+              smart={smart}
+              setSmart={setSmart}
               people={people}
               onSave={save}
               onCancel={() => setEditing(null)}
@@ -130,7 +136,7 @@ export default function MentionTagsEditor({
                   @{tag.name}
                 </span>
                 <div className="text-[11px] text-muted mt-0.5">
-                  {(tag.member_ids ?? []).length === 0
+                  {(tag.member_ids ?? []).length === 0 && !tag.include_project_team
                     ? 'Nobody yet — it will notify no one'
                     : (tag.member_ids ?? [])
                         .map(
@@ -140,6 +146,14 @@ export default function MentionTagsEditor({
                         )
                         .join(', ')}
                 </div>
+                {tag.include_project_team && (
+                  <div
+                    className="text-[11px] text-de mt-0.5"
+                    data-testid={`mention-tag-smart-note-${tag.name}`}
+                  >
+                    + the project team of whichever chat it is used in (ENT · DM · DA)
+                  </div>
+                )}
               </div>
               {!readOnly && (
                 <>
@@ -173,6 +187,8 @@ export default function MentionTagsEditor({
             setName={setName}
             members={members}
             setMembers={setMembers}
+            smart={smart}
+            setSmart={setSmart}
             people={people}
             onSave={save}
             onCancel={() => setEditing(null)}
@@ -200,6 +216,8 @@ function TagForm({
   setName,
   members,
   setMembers,
+  smart,
+  setSmart,
   people,
   onSave,
   onCancel,
@@ -209,6 +227,8 @@ function TagForm({
   setName: (v: string) => void;
   members: string[];
   setMembers: (v: string[]) => void;
+  smart: boolean;
+  setSmart: (v: boolean) => void;
   people: { user_id: string; name: string | null; email: string | null }[];
   onSave: () => void;
   onCancel: () => void;
@@ -253,6 +273,15 @@ function TagForm({
           );
         })}
       </div>
+      <label className="flex items-center gap-2 text-[11px] text-text">
+        <input
+          type="checkbox"
+          checked={smart}
+          onChange={(e) => setSmart(e.target.checked)}
+          data-testid="mention-tag-include-project-team"
+        />
+        Also tag this chat&apos;s project team (ENT · DM · DA)
+      </label>
       <div className="flex gap-2">
         <button
           type="button"
