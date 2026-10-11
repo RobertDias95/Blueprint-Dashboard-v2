@@ -1,85 +1,64 @@
 # Edge functions — what is deployed, and what is waiting
 
-**Measured against prod (`eibnmwthkcuumyclyxoe`) on 2026-09-15; the `auth-send-email` row added 2026-10-07.**
+**Read from prod (`eibnmwthkcuumyclyxoe`) on 2026-10-11 by fix-638, read-only
+(`list_edge_functions`, plus each function's live source compared with the repo).**
 
 > ★★★ **WHY THIS PAGE EXISTS.** An Edge Function in this repo is **not** shipped
-> by merging it. Nothing in CI deploys one, and nothing anywhere told us which
-> ones were live — so a function could sit written, tested, reviewed and merged
-> while the feature it exists for was broken in front of customers.
+> by merging it. Nothing in CI deploys one, so a function can sit written,
+> tested, reviewed and merged while the feature it exists for is broken in front
+> of customers. **That is P-279:** `plan-share` was merged by fix-523 on
+> 2026-09-11 and every share link sent in the next four days showed *"The pages
+> could not be loaded."*
 >
-> **That is not hypothetical: it is P-279.** `plan-share` was merged by fix-523
-> on 2026-09-11 with *"Not deployed at merge"* in its own README, and every plan
-> share link sent in the four days after showed **"The pages could not be
-> loaded."** The 404s were in the logs the whole time. The README said the right
-> thing in the right file and nobody had a reason to open it.
->
-> ★★ This is the same shape as `migrations/PENDING_APPROVAL_INDEX.md`: work that
-> is finished in the repo and unfinished in production needs **one page that
-> lists it**, not a note filed beside the thing nobody is looking at. A test
-> keeps this table and the folder in step.
+> ★★ **AND A PAGE LIKE THIS GOES STALE THE SAME WAY.** Until fix-638 every row
+> below was wrong — three functions said "NOT DEPLOYED" that had been live for
+> days, and the test pinned those exact words, so correcting the page failed CI.
+> The test now checks the page's **shape** (every function has a row, a deploy
+> command and a README) and never its **verdicts**. Keeping the verdicts true
+> is the job of whoever deploys: **update the row in the same breath as the
+> deploy, with the version the deploy returned.**
 
 ## The table
 
-| function | status on prod | `verify_jwt` | who may call it | deploy |
-|---|---|---|---|---|
-| `admin-create-user` | ⚠️ **DEPLOYED, BUT STALE** — version 2 (2026-09-15) is live; fix-608 changed the gate and is NOT yet deployed | `true` | a signed-in admin (checked again inside the function — as of fix-608 against the caller’s `tenant_memberships` row for the tenant being written to, no longer `profiles.role`) | `supabase functions deploy admin-create-user --project-ref eibnmwthkcuumyclyxoe` |
-| `plan-share` | ⛔️ **NOT DEPLOYED — this is P-279, live and external-facing** | must be `false` | **anon**; the share token is the whole credential | `supabase functions deploy plan-share --project-ref eibnmwthkcuumyclyxoe --no-verify-jwt` |
-| `auth-send-email` | ⛔️ **NOT DEPLOYED — new in fix-628 (P-092); the Send Email hook is also NOT enabled** | must be `false` | **Supabase Auth**, which calls it with no user JWT; the Standard Webhooks signature is the whole credential | `supabase functions deploy auth-send-email --project-ref eibnmwthkcuumyclyxoe --no-verify-jwt` |
-| `notify-send` | ✅ **DEPLOYED by fix-634 (P-323) from `origin/main` right after merge** — needs `migrations/fix_634_mention_assignment_emails.sql` applied (it is) | must be `false` | **the database** (pg_net, no JWT). The body is never read; a caller can only make it drain mail already queued | `supabase functions deploy notify-send --project-ref eibnmwthkcuumyclyxoe --no-verify-jwt` |
+| function | live version | deployed (UTC) | `verify_jwt` | live code vs `origin/main` | who may call it | deploy |
+|---|---|---|---|---|---|---|
+| `admin-create-user` | **6** | 2026-10-01 | `true` | ✅ current — carries fix-608's `tenant_memberships` gate | a signed-in admin (re-checked inside against the caller's `tenant_memberships` row for the tenant being written to) | `supabase functions deploy admin-create-user --project-ref eibnmwthkcuumyclyxoe` |
+| `plan-share` | **4** | 2026-09-15 | `false` | ✅ current — deployed after fix-528, its last change. **P-279 is closed.** | **anon**; the share token is the whole credential | `supabase functions deploy plan-share --project-ref eibnmwthkcuumyclyxoe --no-verify-jwt` |
+| `auth-send-email` | **3** | 2026-10-10 | `false` | ✅ current — deployed after fix-631b. The Send Email hook **is on**: `email_outbox` holds `auth:recovery` sends, the newest 2026-10-11 | **Supabase Auth**, which calls it with no user JWT; the Standard Webhooks signature is the whole credential | `supabase functions deploy auth-send-email --project-ref eibnmwthkcuumyclyxoe --no-verify-jwt` |
+| `notify-send` | **1** | 2026-10-10 | `false` | ✅ current — fix-634 (P-323) | **the database** (pg_net, no JWT). The body is never read; a caller can only make it drain mail already queued | `supabase functions deploy notify-send --project-ref eibnmwthkcuumyclyxoe --no-verify-jwt` |
 
-## ⛔️ The outstanding actions
+"Current" means the live version was deployed **after** the last commit that
+touched the function's folder or the `_shared/` files it imports (dates compared
+2026-10-11). Source was also compared directly for `admin-create-user` (the
+fix-608 gate is in the live `handler.ts`), for `auth-send-email`'s four `_shared`
+files and for `notify-send` (code-identical to `origin/main` once comments are
+stripped — the agent deploy path drops them to keep the transcription short).
 
-### 1. `plan-share` (P-279)
+## ⚠️ `--no-verify-jwt` is the one flag to get right
 
-```
-supabase functions deploy plan-share --project-ref eibnmwthkcuumyclyxoe --no-verify-jwt
-```
+Three of the four run with `verify_jwt` **off**, because their callers hold no
+user JWT: an anonymous visitor (`plan-share`), Supabase Auth (`auth-send-email`)
+and the database (`notify-send`). With it on, the platform answers 401 before the
+function runs — and the symptom is the same as not deploying at all ("the pages
+could not be loaded", "the reset code never came", "no mention email"), which
+sends the next person round P-279's loop again. Each function's own check is the
+real gate: the share token, the webhook signature, and "only drain what the
+database queued".
 
-⚠️ **`--no-verify-jwt` is the one flag to get right.** With `verify_jwt` on, the
-platform rejects the request before the function runs and the shared page shows
-a set with no pages — the *same* symptom as not deploying it at all. The gate is
-the token, checked by `bp_resolve_plan_share` inside the function.
+## `_shared/` is not a function
 
-**Evidence it is the whole fix, measured 2026-09-15:**
+It is bundled into whatever imports it and is never deployed on its own. A fix
+there reaches production only when **every importing function is redeployed** —
+today `auth-send-email` and `notify-send`. See `_shared/README.md`.
 
-- `function_edge_logs`: **12 requests** to
-  `https://…/functions/v1/plan-share` in 24 hours, **every one a 404**.
-- `plan_share_links.view_count` climbing on six live links (17 resolves, newest
-  19:49 UTC) — so real visitors are arriving and `bp_resolve_plan_share` is
-  answering. The failure is entirely downstream of the RPC.
-- The handler's decision tree is covered by **59 passing tests**
-  (`PlanShareFix523`, `EmailCarriesPdfFix528`) and needs no change.
+## How to re-read this page's facts
 
-### 2. `auth-send-email` (P-092, new in fix-628)
-
-```
-supabase functions deploy auth-send-email --project-ref eibnmwthkcuumyclyxoe --no-verify-jwt
-```
-
-⚠️ **Same flag, same reason, and the same misleading symptom.** Supabase Auth
-calls a Send Email hook with no user JWT, so with `verify_jwt` on the platform
-answers 401 before the function runs — and what a person sees is *"password
-resets still do not arrive"*, which is indistinguishable from the bug fix-628
-exists to fix.
-
-★★★ **AND DEPLOYING IT IS NOT ENOUGH ON ITS OWN.** This one has a second half
-that lives outside the repo, in this order:
-
-1. apply `migrations/fix_628_email_outbox.sql`
-2. set `MS_GRAPH_CLIENT_SECRET` (Edge Function secrets)
-3. deploy, with the command above
-4. create the Send Email hook, copy its signing secret into
-   `SEND_EMAIL_HOOK_SECRET`, **then** enable it
-5. ask for one password reset and read `email_outbox`
-
-★★ Step 4 is in that order deliberately: a hook enabled before its secret is set
-refuses every call and sends nothing, which looks exactly like step 3 failing.
-
-Until all five are done Auth keeps using the demo sender, which is throttled and
-almost never delivers — so nothing changes, **including the problem**. Lucas was
-locked out on 2026-10-06 and let back in by hand.
-
-See `auth-send-email/README.md` for the measured §0 figures and the secret names.
+- versions and `verify_jwt`: the Supabase MCP `list_edge_functions`, or the
+  dashboard's Edge Functions list;
+- whether live code is current: `get_edge_function` for the source, compared
+  with `git show origin/main:supabase/functions/<name>/…`;
+- whether a sender actually sends: `select kind, status, count(*), max(created_at)
+  from email_outbox group by 1, 2`.
 
 ## ★★★ What is NOT the fix
 
@@ -96,5 +75,7 @@ written before the diagnosis changed.
 
 ## Adding a function
 
-Add the folder, add a README, **and add a row above**. `EdgeFunctionDeployStatusFix574`
-fails if a function directory has no row here.
+Add the folder, add a README, **and add a row above** with its deploy command.
+`SharedPageReadableFix574` fails if a function directory has no row, no deploy
+command or no README — and it does not care what the row's verdict says, so
+writing the truth never breaks the build.

@@ -9,12 +9,15 @@ import {
   isUnassignedReviewer,
   reviewerDisplayName,
   rollupCounts,
+  reviewerDue,
   rowsForCycle,
   statusLabel,
 } from '../../lib/reviewerRollup';
 import type { ReviewerCounts } from '../../lib/reviewerRollup';
 import { isTerminalPositiveStatus } from '../../lib/permitTerminalStatus';
 import { useViewportAwarePopover } from '../../hooks/useViewportAwarePopover';
+import { useReviewerTargetDates } from '../../hooks/useReviewerTargetDates';
+import { todayIso } from '../../lib/dateUtils';
 
 // fix-64 (2026-05-27): popup is now viewport-aware. The hook flips
 // above when there's no room below, clamps horizontally to the viewport,
@@ -307,6 +310,17 @@ function ReviewerPopover({
     // A bare .localeCompare threw here and took the whole popover down.
     return compareReviewerNames(a, b);
   });
+  // ★★ fix-638 §A (P-333): due dates for the OPEN reviewers only. The rows
+  //    come from a view without `target_date`, so the popover asks the table
+  //    for its own handful of ids — see useReviewerTargetDates.
+  const openIds = rows
+    .filter((r) => {
+      const b = bucketStatus(r.current_status);
+      return b === 'in_review' || b === 'pending';
+    })
+    .map((r) => r.id);
+  const targetDates = useReviewerTargetDates(openIds);
+  const today = todayIso();
   // fix-103: stacked 2-line breakdown mirrors fix-95's PermitMiniTable cell
   // (src/pages/ProjectList.tsx) so Project View and Schedule Health speak
   // the same numbers.
@@ -444,6 +458,27 @@ function ReviewerPopover({
                     {r.last_event_date}
                   </span>
                 )}
+                {(() => {
+                  const due = reviewerDue(
+                    r.current_status,
+                    targetDates.data?.get(r.id) ?? null,
+                    today,
+                  );
+                  if (!due) return null;
+                  return (
+                    <span
+                      className="text-[8px] font-mono"
+                      style={{
+                        color: due.pastDue ? 'var(--color-wa)' : 'var(--color-dim)',
+                        fontWeight: due.pastDue ? 700 : undefined,
+                      }}
+                      data-testid={`reviewer-due-${r.id}`}
+                      data-past-due={due.pastDue ? 'true' : 'false'}
+                    >
+                      {due.text}
+                    </span>
+                  );
+                })()}
               </div>
             </li>
           );

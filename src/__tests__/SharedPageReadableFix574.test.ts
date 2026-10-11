@@ -247,19 +247,17 @@ describe('fix-574 §4 — every Edge Function is listed as deployed or not', () 
   const FUNCTIONS_DIR = resolvePath(process.cwd(), 'supabase/functions');
   const STATUS = resolvePath(FUNCTIONS_DIR, 'DEPLOY_STATUS.md');
 
-  // ★★★ SUPERSEDED, NOT MISTAKEN — fix-628 added `supabase/functions/_shared/`,
-  //     the FIRST directory in here that is not a function. Supabase's own
-  //     convention is that a `_`-prefixed directory is shared code: it is never
-  //     deployed on its own, it is bundled into whatever imports it. So it has no
-  //     status, no caller and no deploy command, and demanding a row for it would
-  //     have put the line `supabase functions deploy _shared` on the one page
-  //     whose whole job is to tell somebody what to run — which is worse than the
-  //     gap this guard closes.
+  // ★★★ fix-638: THIS GUARD CHECKS THE PAGE'S SHAPE, NEVER ITS VERDICTS.
+  //     Until fix-638 it also pinned literal strings — "plan-share … NOT
+  //     DEPLOYED", "admin-create-user … DEPLOYED, BUT STALE", "hook is also NOT
+  //     enabled". All three had been false for days, and correcting the page
+  //     failed CI, so the page kept saying them. A status test that forbids the
+  //     status from changing is the stale README with extra steps. What stays
+  //     pinned is what can be checked without prod: every function has a row, a
+  //     deploy command and a README, and `_`-prefixed folders are not functions.
   //
-  // ★★ The guard itself is unchanged and still absolute for every real function.
-  //    `_shared/README.md` carries the half that matters for shared code: a fix
-  //    in there reaches production only when each importing function is
-  //    REDEPLOYED.
+  // ★★ `_shared/` (fix-628) is shared code: Supabase bundles it into whatever
+  //    imports it and never deploys it alone, so it gets no row and no command.
   function functionDirs(): string[] {
     return readdirSync(FUNCTIONS_DIR, { withFileTypes: true })
       .filter((e) => e.isDirectory() && !e.name.startsWith('_'))
@@ -267,93 +265,68 @@ describe('fix-574 §4 — every Edge Function is listed as deployed or not', () 
       .sort();
   }
 
+  /** The functions the page has a table row for: lines starting "| `name` |". */
+  function rowNames(status: string): string[] {
+    return [...status.matchAll(/^\| `([a-z0-9-]+)` \|/gm)].map((m) => m[1]!);
+  }
+
+  /** ★ The structural rule, as a pure function so it can be tested failing. */
+  function structuralProblems(dirs: readonly string[], status: string): string[] {
+    const rows = new Set(rowNames(status));
+    const problems: string[] = [];
+    for (const d of dirs) {
+      if (!rows.has(d)) problems.push(`${d}: no row in DEPLOY_STATUS.md`);
+      if (!status.includes(`supabase functions deploy ${d} `)) {
+        problems.push(`${d}: no deploy command`);
+      }
+    }
+    for (const r of rows) {
+      if (!dirs.includes(r)) problems.push(`${r}: row for a function that does not exist`);
+    }
+    return problems;
+  }
+
   it('★★ the folder is not empty (the test would pass vacuously otherwise)', () => {
     expect(functionDirs().length).toBeGreaterThan(0);
   });
 
-  it('★★★ every function directory has a row in DEPLOY_STATUS.md', () => {
-    // ★★★ THE GAP P-279 FELL THROUGH, closed the way `PENDING_APPROVAL_INDEX.md`
-    //     closed the same gap for migrations (fix-450): work that is finished in
-    //     the repo and unfinished in production needs ONE PAGE THAT LISTS IT.
-    //     A note in the function's own README is filed beside the thing nobody
-    //     is looking at — fix-523 wrote exactly the right sentence there and it
-    //     cost four days of broken share links anyway.
+  it('★★★ every function directory has a row and a deploy command, and every row a directory', () => {
     const status = readFileSync(STATUS, 'utf8');
-    for (const d of functionDirs()) {
-      expect(status, `${d} is missing from supabase/functions/DEPLOY_STATUS.md`)
-        .toContain(`\`${d}\``);
-    }
+    const problems = structuralProblems(functionDirs(), status);
+    expect(problems, problems.join('\n')).toEqual([]);
   });
 
-  it('★★★ the index names no function that does not exist', () => {
-    // The other direction: a deleted function must leave the table.
+  it('★★★ fix-638: a function folder with NO row is caught (the guard can fail)', () => {
+    // A guard nobody has seen fail is a guard nobody knows works. Feed it the
+    // real page plus a function that is not on it.
     const status = readFileSync(STATUS, 'utf8');
-    const named = [...status.matchAll(/^\| `([a-z0-9-]+)` \|/gm)].map((m) => m[1]!);
-    expect(named.length).toBeGreaterThan(0);
-    for (const n of new Set(named)) {
-      expect(existsSync(resolvePath(FUNCTIONS_DIR, n)), `${n} is listed but not on disk`).toBe(true);
-    }
+    const problems = structuralProblems([...functionDirs(), 'brand-new-fn'], status);
+    expect(problems).toContain('brand-new-fn: no row in DEPLOY_STATUS.md');
+    expect(problems).toContain('brand-new-fn: no deploy command');
   });
 
-  it('★★★ each row carries a deploy command, and plan-share carries its flag', () => {
-    const status = readFileSync(STATUS, 'utf8');
-    for (const d of functionDirs()) {
-      expect(status, `${d} has no deploy command`).toContain(
-        `supabase functions deploy ${d}`,
-      );
-    }
-    // ★★★ `--no-verify-jwt` IS THE ONE FLAG TO GET RIGHT. With `verify_jwt` on,
-    //     the platform rejects the request before the function runs — the SAME
-    //     symptom as not deploying it, which would send the next person round
-    //     this loop a second time.
-    expect(status).toContain(
-      'supabase functions deploy plan-share --project-ref eibnmwthkcuumyclyxoe --no-verify-jwt',
-    );
-    expect(status).toContain('`--no-verify-jwt` is the one flag to get right');
-  });
-
-  it('★★★ fix-628: _shared is excluded, and auth-send-email is NOT', () => {
-    // ★ The exclusion above is one character wide and could silently swallow a
-    //   real function if somebody named one `_something`. This pins both sides.
+  it('★★★ _-prefixed folders are shared code, not functions — and no row asks to deploy one', () => {
     const dirs = functionDirs();
-    expect(dirs).not.toContain('_shared');
-    expect(dirs).toContain('auth-send-email');
+    expect(dirs.some((d) => d.startsWith('_'))).toBe(false);
     expect(existsSync(resolvePath(FUNCTIONS_DIR, '_shared', 'README.md'))).toBe(true);
     const status = readFileSync(STATUS, 'utf8');
-    expect(status).toMatch(/\| `auth-send-email` \| ⛔️ \*\*NOT DEPLOYED/);
-    // ★★★ AND THE HOOK IS A SECOND STEP. Deploying this function changes nothing
-    //     until the Send Email hook is enabled, so the page has to say so or it
-    //     sends the next person round P-279's loop with an extra turn.
-    expect(status).toMatch(/hook is also NOT enabled/);
-    expect(status).toContain(
-      'supabase functions deploy auth-send-email --project-ref eibnmwthkcuumyclyxoe --no-verify-jwt',
-    );
+    expect(status).not.toMatch(/supabase functions deploy _/);
   });
 
-  it('★★★ plan-share is on the page as NOT DEPLOYED, and named as P-279', () => {
-    // ★ When Cowork deploys it, this row changes and this assertion is what
-    //   makes somebody change it — a status page that goes stale is a README
-    //   with extra steps.
-    const status = readFileSync(STATUS, 'utf8');
-    expect(status).toMatch(/\| `plan-share` \| ⛔️ \*\*NOT DEPLOYED/);
-    expect(status).toContain('P-279');
-    // ★★ fix-608 CHANGED THIS ROW, and this assertion is what made it get
-    //    changed — which is the sentence above working as intended. The function
-    //    is still deployed; the LIVE version is now behind the repo, because
-    //    fix-608 moved its admin gate off `profiles.role` and merging is not
-    //    deploying. The row must say both halves.
-    expect(status).toMatch(/\| `admin-create-user` \| ⚠️ \*\*DEPLOYED, BUT STALE\*\*/);
-    expect(status).toMatch(/not yet deployed/i);
-  });
-
-  it('★★ every function still has its own README beside its row', () => {
-    // ★ The page says WHICH are live; the README says what each one is for.
-    //   Neither replaces the other, and this keeps both.
+  it('★★ every function has its own README beside its row', () => {
     for (const d of functionDirs()) {
-      expect(
-        existsSync(resolvePath(FUNCTIONS_DIR, d, 'README.md')),
-        `${d} has no README`,
-      ).toBe(true);
+      expect(existsSync(resolvePath(FUNCTIONS_DIR, d, 'README.md')), `${d} has no README`).toBe(true);
     }
+  });
+
+  it('★★ the page says when it was read, so a reader can tell how old its verdicts are', () => {
+    const status = readFileSync(STATUS, 'utf8');
+    expect(status).toMatch(/Read from prod \(`eibnmwthkcuumyclyxoe`\) on \d{4}-\d{2}-\d{2}/);
+  });
+
+  it('★★ the one flag to get right is still written down', () => {
+    // A rule, not a verdict: it is true whatever is or is not deployed today.
+    const status = readFileSync(STATUS, 'utf8');
+    expect(status).toContain('`--no-verify-jwt` is the one flag to get right');
   });
 });

@@ -321,3 +321,37 @@ export function statusLabel(status: ReviewerStatus): string {
       return 'Not Required';
   }
 }
+
+// ===========================================================================
+// ★★ fix-638 §A (P-333) — AN OPEN REVIEWER SHOWS WHEN IT IS DUE
+// ===========================================================================
+//
+// Bobby, 2026-10-11, on the "REVIEWERS — CYCLE 4" popover: *"werent we going to
+// be the target review date of the reviewer below the in review?"* fix-476
+// stores each slot's due date in `permit_cycle_reviewers.target_date`.
+//
+// ★ Only for a reviewer that is NOT finished — in review / in process /
+//   assigned / pending. Approved, corrections and not-required rows keep what
+//   they showed before. No date → nothing; a date is never invented.
+
+export interface ReviewerDue {
+  /** "Due 10/14/2026" or "Due 10/09/2026 · past due". */
+  text: string;
+  pastDue: boolean;
+}
+
+export function reviewerDue(
+  status: ReviewerStatus,
+  targetDate: string | null | undefined,
+  today: string,
+): ReviewerDue | null {
+  const bucket = bucketStatus(status);
+  if (bucket !== 'in_review' && bucket !== 'pending') return null;
+  const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(targetDate ?? '');
+  if (!m) return null;
+  const iso = `${m[1]}-${m[2]}-${m[3]}`;
+  const us = `${m[2]}/${m[3]}/${m[1]}`;
+  // ★ String compare is correct: both sides are local `YYYY-MM-DD` calendar dates.
+  const pastDue = iso < today;
+  return { text: pastDue ? `Due ${us} · past due` : `Due ${us}`, pastDue };
+}
