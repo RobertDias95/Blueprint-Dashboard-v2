@@ -8,7 +8,7 @@ import NewProjectWizard from '../components/NewProjectWizard';
 import { useProjects } from '../hooks/useProjects';
 import { usePermits } from '../hooks/usePermits';
 import { useTeamMembers } from '../hooks/useTeamMembers';
-import { isCurrentMember } from '../lib/roster';
+import { ENT_ROLES, isCurrentMember } from '../lib/roster';
 import { useAllPermitCycleReviewers } from '../hooks/useAllPermitCycleReviewers';
 import { useProjectNoteSearchIndex } from '../hooks/useNotes';
 import { SkeletonRows } from '../components/Skeleton';
@@ -237,7 +237,7 @@ export default function ProjectList() {
   );
 
   const entLeadOptions = useMemo(
-    () => uniqueNamesByRole(teamQ.all ?? [], (r) => r === 'ent' || r === 'ent_lead'),
+    () => uniqueNamesByRole(teamQ.all ?? [], (r) => ENT_ROLES.has(r)),
     [teamQ.all],
   );
   // fix-302 (kept by fix-312): "— Unassigned —" leads the DA list rather than trailing it. A

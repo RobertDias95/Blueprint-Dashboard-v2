@@ -62,10 +62,11 @@ export const APP_CONFIG_KEY_LABELS: Readonly<Record<string, string>> = {
   productTypeOptions: 'types',
   projectTagOptions: 'project tags',
   holdReasonOptions: 'hold reasons',
-  learnThresholds: 'learning thresholds',
+  // fix-644: `learnThresholds` and `permitOwnerOptions` went — the first was
+  // deleted from app_config (no reader), the second never had a row and its
+  // only reader (lib/permitOwnerOptions.ts) was an unused file.
   cancelReasonOptions: 'cancel reasons',
   zoneOptions: 'zones',
-  permitOwnerOptions: 'permit owners',
   parkingOptions: 'unit parking options',
   roofDeckOptions: 'unit roof deck options',
   storiesOptions: 'unit stories options',

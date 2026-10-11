@@ -4,7 +4,7 @@ import { useJurisdictions } from './useJurisdictions';
 import { usePermitTypes } from './usePermitTypes';
 import { useTeamMembers } from './useTeamMembers';
 import { useAppConfig, readAppConfigStringArray } from './useAppConfig';
-import { isCurrentMember } from '../lib/roster';
+import { ACQ_ROLES, ENT_ROLES, isCurrentMember } from '../lib/roster';
 import { seedExpectedIssue, seedTargetSubmit } from '../lib/permitSeedingDefaults';
 import { pushToast, pushRecoveredToast } from '../stores/toastStore';
 import { projectValuesEqual } from './useProjectFieldCommit';
@@ -298,12 +298,12 @@ export function useProjectDetailsForm(
     // ★ fix-321 #79: assignment pickers offer the CURRENT roster only.
     return {
       entNames: dedup(
-        team.filter((t) => (t.role === 'ent' || t.role === 'ent_lead') && isCurrentMember(t)),
+        team.filter((t) => ENT_ROLES.has(t.role) && isCurrentMember(t)),
       ).map((m) => m.name),
       dmNames: team.filter((t) => t.role === 'dm' && isCurrentMember(t)).map((m) => m.name),
       daNames: team.filter((t) => t.role === 'da' && isCurrentMember(t)).map((m) => m.name),
       acqNames: dedup(
-        team.filter((t) => (t.role === 'acq' || t.role === 'acq_lead') && isCurrentMember(t)),
+        team.filter((t) => ACQ_ROLES.has(t.role) && isCurrentMember(t)),
       ).map((m) => m.name),
       sdNames: dedup(
         team.filter((t) => t.role === 'schematic' && isCurrentMember(t)),

@@ -38,8 +38,6 @@ import type { WizardPermit, WizardState } from './wizardState';
 //   everything.
 
 const BUILDING_PERMIT = 'Building Permit';
-const ENT_ROLES = new Set(['ent', 'ent_lead']);
-void ENT_ROLES; // referenced for parity with Step 3 — not used directly here.
 
 interface Props {
   value: WizardState;

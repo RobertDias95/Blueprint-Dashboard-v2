@@ -32,7 +32,7 @@ import BotBadge from '../components/shared/BotBadge';
 import AutoClosedBadge from '../components/shared/AutoClosedBadge';
 import { UNOWNED_LABEL, taskNeedsOwner } from '../lib/boardOwnership';
 import { useTeamMembers } from '../hooks/useTeamMembers';
-import { isCurrentMember } from '../lib/roster';
+import { ACQ_ROLES, ENT_ROLES, isCurrentMember } from '../lib/roster';
 import { useAllTasks } from '../hooks/useTaskTree';
 // fix-303: the task detail editor moved to its own component so My Board can
 // use the SAME one. Nothing about it changed in the move.
@@ -689,15 +689,14 @@ function Body({
   //   roster and a 16-name Internal list is consistent with its siblings
   //   rather than a regression.
   const rosterByRole = useMemo(() => {
-    const ent = uniqueNamesByRole(members, (r) => r === 'ent' || r === 'ent_lead');
+    const ent = uniqueNamesByRole(members, (r) => ENT_ROLES.has(r));
     const da = uniqueNamesByRole(members, (r) => r === 'da');
     const dm = uniqueNamesByRole(members, (r) => r === 'dm');
     const claimed = new Set<string>([...ent, ...da, ...dm]);
     const internal = uniqueNamesByRole(
       members,
       (r) =>
-        r === 'acq' ||
-        r === 'acq_lead' ||
+        ACQ_ROLES.has(r) ||
         r === 'schematic' ||
         r === 'director' ||
         // ★★★ fix-487 (P-144): WITHOUT THIS LINE A CONSTRUCTION ADMIN IS IN NO
@@ -721,7 +720,7 @@ function Body({
       map.set(name, set);
     }
     for (const m of members) {
-      if (m.role === 'ent' || m.role === 'ent_lead') add(m.name, 'ent');
+      if (ENT_ROLES.has(m.role)) add(m.name, 'ent');
       else if (m.role === 'da') add(m.name, 'da');
       else if (m.role === 'dm') add(m.name, 'dm');
     }
