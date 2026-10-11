@@ -662,10 +662,44 @@ const SYSTEM_POST_BODIES: Readonly<Record<string, readonly string[]>> = {
   ],
 };
 
-export function isSystemPost(
-  m: Pick<ProjectMessage, 'parent_message_id' | 'title' | 'body'>,
+/**
+ * ★★ fix-643 (P-338): the first line of the Bridge's "corrections are out"
+ * reply, as `bp_post_cr_notice` writes it — keep identical to the SQL:
+ *   "Corrections are out — 7138853-CN (Building Permit), round 3. The city issued them Oct 11."
+ */
+export function crNoticeHeadline(
+  permitNum: string | null,
+  permitType: string,
+  round: number,
+  issuedIso: string,
+): string {
+  const [y, m, d] = issuedIso.split('-').map(Number);
+  const mon = new Date(Date.UTC(y!, m! - 1, d!)).toLocaleString('en-US', { month: 'short', timeZone: 'UTC' });
+  const num = (permitNum ?? '').trim() || 'this permit';
+  return `Corrections are out — ${num} (${permitType}), round ${round}. The city issued them ${mon} ${d}.`;
+}
+
+const CR_NOTICE_HEADLINE = /^Corrections are out — .+ \(.+\), round \d+\. The city issued them [A-Z][a-z]{2} \d{1,2}\.$/;
+
+/**
+ * ★★ fix-643: a REPLY is the Bridge's only when it has no author AND its first
+ * line is exactly the notice headline. The fix-641 rule holds — the text
+ * decides — and the missing author keeps a person who types the same sentence
+ * as themselves.
+ */
+export function isCrNotice(
+  m: Pick<ProjectMessage, 'parent_message_id' | 'body'> & { author_id?: string | null },
 ): boolean {
-  if (m.parent_message_id !== null && m.parent_message_id !== undefined) return false;
+  if (m.parent_message_id === null || m.parent_message_id === undefined) return false;
+  if (m.author_id) return false;
+  const first = (m.body ?? '').split('\n')[0]!.trim();
+  return CR_NOTICE_HEADLINE.test(first);
+}
+
+export function isSystemPost(
+  m: Pick<ProjectMessage, 'parent_message_id' | 'title' | 'body'> & { author_id?: string | null },
+): boolean {
+  if (m.parent_message_id !== null && m.parent_message_id !== undefined) return isCrNotice(m);
   const title = (m.title ?? '').trim();
   const body = (m.body ?? '').trim();
   if (!title) return false;
