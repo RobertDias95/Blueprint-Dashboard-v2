@@ -11,7 +11,7 @@ import {
 // ★★ fix-634 (P-323) — Settings → My account → Email notifications
 // ===========================================================================
 //
-// Two toggles, on by default. Emails come from bridge@ (not monitored).
+// Three toggles (fix-642 added the Weekly Update), on by default. Emails come from bridge@ (not monitored).
 
 export default function EmailNotificationsPanel() {
   const prefs = useNotificationPreferences();
@@ -28,7 +28,7 @@ export default function EmailNotificationsPanel() {
     );
   }
 
-  const current = prefs.data ?? { mention: true, assignment: true };
+  const current = prefs.data ?? { mention: true, assignment: true, weekly: true };
 
   return (
     <div className="space-y-3" data-testid="email-notifications">
