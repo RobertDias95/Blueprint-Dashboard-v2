@@ -71,6 +71,7 @@ export const APP_CONFIG_KEY_LABELS: Readonly<Record<string, string>> = {
   storiesOptions: 'unit stories options',
   jurisdictionLinks: 'jurisdiction links',
   droneFootageFolderUrl: 'drone footage folder',
+  seattleIntakeWarningRecipients: 'Seattle intake warning recipients',
   permitTypeDescriptions: 'permit type descriptions',
   waitingOnOptions: 'Waiting On list',
   vendorReportRecipients: 'vendor report recipients',

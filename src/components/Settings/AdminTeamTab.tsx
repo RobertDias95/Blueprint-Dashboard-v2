@@ -8,6 +8,7 @@ import PermitsMissingLeadPanel from './PermitsMissingLeadPanel';
 //   viewers and the director who appear in none of the role lists below.
 import WorkDataNamesPanel from './WorkDataNamesPanel';
 import MentionTagsEditor from './MentionTagsEditor';
+import IntakeWarningRecipientsEditor from './IntakeWarningRecipientsEditor';
 import TeamActiveQuartersEditor from './TeamActiveQuartersEditor';
 import QuarterLayoutEditor from './QuarterLayoutEditor';
 import { useTeamMembers } from '../../hooks/useTeamMembers';
@@ -270,6 +271,12 @@ export default function AdminTeamTab() {
           refuses a non-admin; readOnly only hides the buttons). */}
       <SettingsBlock id="chat-tags">
         <MentionTagsEditor readOnly={!isAdmin} />
+      </SettingsBlock>
+
+      {/* ★★ fix-637 (P-180): the other "who gets pinged" list — the daily
+          Seattle intake warning. Admin-gated the same way. */}
+      <SettingsBlock id="seattle-intake-warning">
+        <IntakeWarningRecipientsEditor readOnly={!isAdmin} />
       </SettingsBlock>
 
       <SettingsBlock id="draw-schedule-layout">

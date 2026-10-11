@@ -226,6 +226,15 @@ export const SETTINGS_BLOCKS: readonly SettingsBlock[] = [
     feeds: ['Project chat @mentions'],
     keywords: 'mention at group tag chat',
   },
+  {
+    // ★★ fix-637 (P-180): who the daily Seattle intake warning reaches.
+    id: 'seattle-intake-warning',
+    category: 'teams',
+    title: 'Seattle intake warning goes to',
+    summary: 'Daily pop-up + 7 AM email: Seattle intakes within 7 business days',
+    feeds: ['Seattle intake pop-up', 'Email'],
+    keywords: 'seattle intake warning reschedule slot placeholder business days email pop-up miles briana',
+  },
 
   // ═══════════════════════════════════════════════════════ Project lists ══
   {

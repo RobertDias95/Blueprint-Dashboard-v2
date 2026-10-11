@@ -32,10 +32,29 @@ export const BRIDGE_APP_ORIGIN = 'https://blueprint-dashboard-v2.onrender.com';
 /** ★ About 500 characters of the message, cut at a word, per the brief. */
 export const MESSAGE_EXCERPT_CHARS = 500;
 
+/** ★ fix-637: one due slot, as `bp_intake_warning_enqueue` froze it. */
+export interface IntakeItem {
+  slot_id: number;
+  project_id: string | null;
+  address: string;
+  permit_num: string | null;
+  permit_type: string | null;
+  is_placeholder: boolean;
+  intake_date: string;
+  business_days_left: number;
+  past_date: boolean;
+}
+
+/** ★ fix-637: the `notify:intake` payload. */
+export interface IntakePayload {
+  date: string;
+  items: IntakeItem[];
+}
+
 /** One row of `bp_notify_claim`. */
 export interface ClaimedRow {
   id: string;
-  kind: 'notify:mention' | 'notify:assignment';
+  kind: 'notify:mention' | 'notify:assignment' | 'notify:intake';
   to_email: string;
   recipient_user_id: string;
   project_id: string | null;
@@ -51,6 +70,8 @@ export interface ClaimedRow {
   task_text: string | null;
   task_done: boolean;
   task_due: string | null;
+  /** ★ fix-637: set for `notify:intake` only. */
+  payload?: IntakePayload | null;
 }
 
 export interface OutboxRow {
@@ -276,6 +297,101 @@ export function renderAssignment(rows: ClaimedRow[]): RenderedNotification {
 }
 
 // ---------------------------------------------------------------------------
+// ★★★ fix-637 (P-180) — the daily Seattle intake warning
+// ---------------------------------------------------------------------------
+// ⚖️ Bobby, 10-11: "an email notication daily until resolved", 7 business days
+// out, to the people Settings names (Miles and Brianna). The list was decided
+// by `bp_intake_warning_due` — the same function the pop-up reads — and frozen
+// into the payload at 7 AM. ★ A work alert: the mention/assignment switches do
+// not cover it, so its footer says how it is actually stopped.
+
+/** ★ A deliberate copy of `INTAKE_TRACKER_PATH` (functions cannot import src/). */
+export const INTAKE_TRACKER_URL = `${BRIDGE_APP_ORIGIN}/draw-schedule?tab=intake`;
+
+export function projectUrl(projectId: string): string {
+  return `${BRIDGE_APP_ORIGIN}/project/${encodeURIComponent(projectId)}`;
+}
+
+/** M/D/YYYY. */
+export function usDate(iso: string): string {
+  const [y, m, d] = (iso ?? '').slice(0, 10).split('-').map(Number);
+  return y && m && d ? `${m}/${d}/${y}` : iso;
+}
+
+/** ★ Mirrors `slotPermitLabel` in src/lib/intakeWarning.ts. */
+export function intakePermitLabel(i: IntakeItem): string {
+  if (i.is_placeholder) return 'Placeholder';
+  const num = (i.permit_num ?? '').trim();
+  const type = (i.permit_type ?? '').trim();
+  if (num && type) return `${num} · ${type}`;
+  return num || type || 'No permit linked';
+}
+
+/** ★ Mirrors `dueLabel` in src/lib/intakeWarning.ts. */
+export function intakeDueLabel(i: IntakeItem): string {
+  if (i.past_date) return 'Past date';
+  const n = i.business_days_left;
+  if (n <= 0) return 'Today';
+  return `${n} business day${n === 1 ? '' : 's'} left`;
+}
+
+export function intakeSubject(count: number): string {
+  return `Seattle intakes to reschedule · ${count} due`;
+}
+
+const INTAKE_WHY_TEXT =
+  "You're getting this because you're on the Seattle intake warning list " +
+  '(Settings → Teams → Seattle intake warning goes to). It comes each business ' +
+  'day while anything is due, and is not affected by the mention/assignment email switches.';
+
+export function renderIntake(row: ClaimedRow): RenderedNotification {
+  const items = row.payload?.items ?? [];
+  const subject = intakeSubject(items.length);
+  const RED = '#b42318';
+  const AMBER = '#b54708';
+  const cell = 'padding:6px 10px 6px 0;border-top:1px solid #e5e7eb;vertical-align:top';
+
+  const rowsHtml = items.map((i) => {
+    const address = i.project_id
+      ? `<a href="${escapeHtml(projectUrl(i.project_id))}" style="color:${BLUE}">${escapeHtml(i.address)}</a>`
+      : escapeHtml(i.address);
+    return '<tr>' +
+      `<td style="${cell};font-weight:600">${address}</td>` +
+      `<td style="${cell}">${escapeHtml(intakePermitLabel(i))}</td>` +
+      `<td style="${cell};white-space:nowrap">${escapeHtml(usDate(i.intake_date))}</td>` +
+      `<td style="${cell};white-space:nowrap;font-weight:600;color:${i.past_date ? RED : AMBER}">` +
+      `${escapeHtml(intakeDueLabel(i))}</td>` +
+      '</tr>';
+  }).join('');
+
+  const head = (t: string) =>
+    `<th align="left" style="padding:0 10px 4px 0;font-size:11px;text-transform:uppercase;letter-spacing:.04em;color:${MUTED}">${t}</th>`;
+
+  const bodyHtml =
+    `<p style="margin:0 0 12px 0">These Seattle intake slots are within <strong>7 business days</strong> ` +
+    '(weekends skipped), or past their date and still open. Reschedule, swap or release ' +
+    'each one in the Intake Tracker.</p>' +
+    '<table role="presentation" cellpadding="0" cellspacing="0" border="0" ' +
+    `style="border-collapse:collapse;font-family:${SANS};font-size:14px;width:100%">` +
+    `<tr>${head('Address')}${head('Permit')}${head('Intake')}${head('Left')}</tr>` +
+    rowsHtml +
+    '</table>' +
+    buttonHtml(INTAKE_TRACKER_URL, 'Open in the Bridge') +
+    `<p style="font-size:12px;color:${MUTED};margin:16px 0 0 0">${escapeHtml(INTAKE_WHY_TEXT)}</p>`;
+
+  const bodyText =
+    'These Seattle intake slots are within 7 business days (weekends skipped), or past ' +
+    'their date and still open. Reschedule, swap or release each one in the Intake Tracker.\n\n' +
+    items.map((i) =>
+      `- ${i.address} · ${intakePermitLabel(i)} · intake ${usDate(i.intake_date)} · ${intakeDueLabel(i)}`,
+    ).join('\n') +
+    `\n\nOpen in the Bridge: ${INTAKE_TRACKER_URL}\n\n${INTAKE_WHY_TEXT}`;
+
+  const branded = renderBrandedEmail({ bodyHtml, bodyText });
+  return { subject, html: branded.html, text: branded.text, inlineImages: branded.inlineImages };
+}
+
+// ---------------------------------------------------------------------------
 // The drain
 // ---------------------------------------------------------------------------
 
@@ -284,19 +400,21 @@ export function skipReason(row: ClaimedRow): string | null {
   if (row.opted_out) return 'recipient opted out';
   if (row.kind === 'notify:mention' && row.message_deleted) return 'message deleted before send';
   if (row.kind === 'notify:assignment' && row.task_done) return 'task done before send';
+  if (row.kind === 'notify:intake' && (row.payload?.items?.length ?? 0) === 0) return 'nothing due';
   if ((row.to_email ?? '').trim() === '') return 'no recipient address';
   return null;
 }
 
 /**
- * ★★ Mentions: one email each. Assignments: one email PER RECIPIENT per drain,
+ * ★★ Mentions and intake warnings: one email each. Assignments: one email PER RECIPIENT per drain,
  *    so a bulk reassignment arrives as one list rather than a pile.
  */
 export function planEmails(rows: ClaimedRow[]): ClaimedRow[][] {
   const out: ClaimedRow[][] = [];
   const byRecipient = new Map<string, ClaimedRow[]>();
   for (const r of rows) {
-    if (r.kind === 'notify:mention') {
+    // ★ fix-637: an intake warning is already one email per person per day.
+    if (r.kind === 'notify:mention' || r.kind === 'notify:intake') {
       out.push([r]);
     } else {
       const k = r.to_email.trim().toLowerCase();
@@ -331,7 +449,10 @@ export async function drain(deps: Deps, rows: ClaimedRow[]): Promise<DrainSummar
     const ids = group.map((r) => r.id);
     let rendered: RenderedNotification;
     try {
-      rendered = first.kind === 'notify:mention' ? renderMention(first) : renderAssignment(group);
+      rendered =
+        first.kind === 'notify:mention' ? renderMention(first)
+        : first.kind === 'notify:intake' ? renderIntake(first)
+        : renderAssignment(group);
     } catch (e) {
       // ★ A render bug still leaves a failed row, never nothing.
       const error = `Could not render the email: ${(e as Error).message}`;

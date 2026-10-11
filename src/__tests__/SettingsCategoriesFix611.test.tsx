@@ -177,6 +177,7 @@ const TODAY_TO_NEW: ReadonlyArray<readonly [string, string, string]> = [
 //    nowhere".
 const ADDED_AFTER_FIX_611: ReadonlyArray<readonly [string, string]> = [
   ['email-notifications', 'fix-634 (P-323): mention + assignment email opt-outs'],
+  ['seattle-intake-warning', 'fix-637 (P-180): who the daily Seattle intake warning reaches'],
 ];
 const ADDED_IDS = new Set(ADDED_AFTER_FIX_611.map(([id]) => id));
 
@@ -251,6 +252,7 @@ describe('fix-611 §B — every one of today’s 43 blocks has a home', () => {
       'Draw Schedule Layout',
       'Active Quarters',
       'Chat Tags',
+      'Seattle intake warning goes to', // fix-637
     ]);
     expect(blocksForCategory('lists').map((b) => b.title)).toEqual([
       'Jurisdictions',
@@ -516,7 +518,9 @@ describe('fix-611 §D — search finds a setting by what is in it', () => {
     expect(found[0]?.block.id).toBe('zones');
     expect(found[0]?.via).toBe('title');
     // ★ a query matching twenty zones is ONE row, not twenty
-    const many = searchSettings('Seattle', SETTINGS_BLOCKS, VALUES);
+    // ★ fix-637: "Seattle intake warning goes to" now matches by TITLE as well,
+    //   so the claim is checked on the VALUE rows — still exactly one.
+    const many = searchSettings('Seattle', SETTINGS_BLOCKS, VALUES).filter((f) => f.via === 'value');
     expect(many).toHaveLength(1);
     expect(many[0]?.value).toBe('Seattle');
   });
