@@ -84,6 +84,24 @@ export interface WeeklyPayload {
   agenda: WeeklyAgendaItem[];
 }
 
+/**
+ * ★★ fix-643 (P-338): the payload on a `notify:mention` row that is the
+ * Bridge's "corrections are out" notice (`bp_cr_notice_payload`). The row stays
+ * a mention — the mention opt-out, the deleted-message skip and one-email-each
+ * all apply unchanged — and only the wording differs.
+ */
+export interface CorrectionNoticePayload {
+  notice: 'corrections';
+  round: number;
+  permit_num: string | null;
+  permit_type: string | null;
+  corr_issued: string;
+}
+
+export function isCorrectionNotice(p: unknown): p is CorrectionNoticePayload {
+  return !!p && typeof p === 'object' && (p as { notice?: unknown }).notice === 'corrections';
+}
+
 /** One row of `bp_notify_claim`. */
 export interface ClaimedRow {
   id: string;
@@ -103,8 +121,9 @@ export interface ClaimedRow {
   task_text: string | null;
   task_done: boolean;
   task_due: string | null;
-  /** ★ fix-637: set for `notify:intake`; ★ fix-642: and for `notify:weekly`. */
-  payload?: IntakePayload | WeeklyPayload | null;
+  /** ★ fix-637: set for `notify:intake`; ★ fix-642: and for `notify:weekly`;
+   *  ★ fix-643: and for a `notify:mention` that is a corrections notice. */
+  payload?: IntakePayload | WeeklyPayload | CorrectionNoticePayload | null;
 }
 
 export interface OutboxRow {
@@ -260,6 +279,44 @@ export function renderMention(row: ClaimedRow): RenderedNotification {
   const bodyText =
     `${actor} mentioned you${address ? ` in the chat for ${address}` : ''}.\n` +
     (title ? `Post: ${title}\n` : '') +
+    (body ? `\n${body}\n` : '') +
+    `\nOpen in the Bridge: ${url}\n\n${whyText('mention')}`;
+
+  const branded = renderBrandedEmail({ bodyHtml, bodyText });
+  return { subject, html: branded.html, text: branded.text, inlineImages: branded.inlineImages };
+}
+
+/** ★ fix-643: the sender's name on a notice — the chat signs it the same way. */
+export const BRIDGE_BYLINE = 'The Bridge';
+
+/**
+ * ★★ fix-643 (P-338): "Corrections are out · <address> · CR N", signed by the
+ * Bridge, linking to the reply itself.
+ */
+export function renderCorrectionNotice(row: ClaimedRow): RenderedNotification {
+  const p = row.payload as CorrectionNoticePayload;
+  const address = addressOf(row);
+  const cr = `CR ${p.round}`;
+  const subject = address ? `Corrections are out · ${address} · ${cr}` : `Corrections are out · ${cr}`;
+  const body = excerpt(row.message_body ?? '');
+  const url = row.project_id && row.message_id
+    ? messageUrl(row.project_id, row.message_id)
+    : `${BRIDGE_APP_ORIGIN}/`;
+
+  const bodyHtml =
+    `<p style="margin:0 0 12px 0"><strong>${BRIDGE_BYLINE}</strong> posted in ` +
+    `<strong>${escapeHtml(cr)}</strong>` +
+    (address ? ` for <strong>${escapeHtml(address)}</strong>` : '') +
+    ' and tagged you.</p>' +
+    (body
+      ? `<div style="border-left:3px solid ${BLUE};padding:8px 12px;margin:0;background:#f7f8fb">` +
+        `${paragraphHtml(body)}</div>`
+      : '') +
+    buttonHtml(url, 'Open in the Bridge') +
+    whyHtml('mention');
+
+  const bodyText =
+    `${BRIDGE_BYLINE} posted in ${cr}${address ? ` for ${address}` : ''} and tagged you.\n` +
     (body ? `\n${body}\n` : '') +
     `\nOpen in the Bridge: ${url}\n\n${whyText('mention')}`;
 
@@ -690,7 +747,8 @@ export async function drain(deps: Deps, rows: ClaimedRow[]): Promise<DrainSummar
     let rendered: RenderedNotification;
     try {
       rendered =
-        first.kind === 'notify:mention' ? renderMention(first)
+        first.kind === 'notify:mention'
+          ? (isCorrectionNotice(first.payload) ? renderCorrectionNotice(first) : renderMention(first))
         : first.kind === 'notify:intake' ? renderIntake(first)
         : first.kind === 'notify:weekly' ? renderWeekly(first)
         : renderAssignment(group);
