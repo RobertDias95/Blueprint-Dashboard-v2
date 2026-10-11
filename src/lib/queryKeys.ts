@@ -174,6 +174,10 @@ export const queryKeys = {
   //   circles for one person sign once. Same shape as chatAttachmentUrl.
   avatarPaths: (tenantId: string) => ['avatar_paths', tenantId] as const,
   avatarUrl: (path: string) => ['avatar_url', path] as const,
+  // fix-634 (P-323): the signed-in person's email-notification opt-outs.
+  //   Keyed by USER, not tenant — a preference belongs to the login.
+  notificationPreferences: (userId: string) =>
+    ['notification_preferences', userId] as const,
   /** ★ Which login a roster name belongs to — `profiles` is read-own-only, so
    *  Settings → Team cannot look one up without an RPC. */
   profileIdForName: (tenantId: string, name: string) =>

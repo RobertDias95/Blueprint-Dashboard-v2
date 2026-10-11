@@ -7,8 +7,8 @@ imports from here, so a change in this folder reaches production only when the
 functions that import it are **redeployed**.
 
 ★★★ Which means a bug fixed here is fixed in nothing until every importing
-function is deployed again. Today that is `auth-send-email` alone; check
-`DEPLOY_STATUS.md` before assuming.
+function is deployed again. Today that is `auth-send-email` and `notify-send`
+(fix-634); check `DEPLOY_STATUS.md` before assuming.
 
 ## What is here
 
