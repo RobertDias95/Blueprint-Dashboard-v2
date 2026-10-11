@@ -616,6 +616,64 @@ export function groupIntoPosts(
  */
 export const NO_AUTHOR_LABEL = 'Not recorded';
 
+/**
+ * ★★★ fix-641 (P-336) — POSTS THE BRIDGE CREATED ITSELF ARE SIGNED "THE BRIDGE".
+ *
+ * Bobby, 10-11, over a "CR 3" posted by "Not recorded": *"these auto chats
+ * should maybe say 'the Bridge' since they are the creator of that
+ * chat/message"*.
+ *
+ * ★★★ THE TEST IS THE TEXT, NOT THE MISSING AUTHOR. Measured on prod 10-11:
+ *   · `bp_ensure_cr_thread` mints CR N with author_id NULL (271 posts — every
+ *     authorless post on prod is one of these or a General);
+ *   · `bp_seed_project_posts` runs from the project-insert trigger and stamps
+ *     `auth.uid()` — so 936 seeded posts carry the NAME of whoever created the
+ *     project, on words that person never wrote;
+ *   · 55 replies imported from Notes (fix-542) have no author and ARE human —
+ *     they keep "Not recorded".
+ *   So a post is the Bridge's when it is a top-level post whose title AND body
+ *   are exactly what one of those functions writes. A null author alone proves
+ *   nothing; a seeded author alone proves nothing either.
+ *
+ * ★★ AN EDITED SEED IS A PERSON'S. Once somebody rewrites the body it no
+ *    longer matches, and the row goes back to its recorded author.
+ *
+ * ★ DISPLAY ONLY. author_id is untouched, so Edit/Delete (gated on author_id
+ *   in RLS) behave exactly as before.
+ */
+export const BRIDGE_AUTHOR_LABEL = 'The Bridge';
+
+/** The body `bp_cr_thread_body(n)` writes — keep identical to the SQL. */
+export function crThreadBody(round: number): string {
+  return round <= 1
+    ? 'The first round of city corrections — what came back, and who is clearing what.'
+    : `Round ${round} of city corrections — what came back, and who is clearing what.`;
+}
+
+/** Title → the bodies the system writes under it (bp_seed_project_posts,
+ *  fix-542's General, fix-334's backfill General). */
+const SYSTEM_POST_BODIES: Readonly<Record<string, readonly string[]>> = {
+  'ACQ Questions': ['Anything acquisitions — questions for the ACQ team live here.'],
+  'Design Phase': ['Design through intake: drawings, consultants, and the submittal set.'],
+  'Preliminary Assessment': ["The city's initial comments on what we are submitting."],
+  General: [
+    'General discussion for this project.',
+    'Messages posted before this project had posts.',
+  ],
+};
+
+export function isSystemPost(
+  m: Pick<ProjectMessage, 'parent_message_id' | 'title' | 'body'>,
+): boolean {
+  if (m.parent_message_id !== null && m.parent_message_id !== undefined) return false;
+  const title = (m.title ?? '').trim();
+  const body = (m.body ?? '').trim();
+  if (!title) return false;
+  const round = crRoundOf(title);
+  if (round !== null) return title === `CR ${round}` && body === crThreadBody(round);
+  return (SYSTEM_POST_BODIES[title] ?? []).includes(body);
+}
+
 /** ★★★ THE LIFECYCLE, DECLARED ONCE. Compared case-insensitively so a hand-typed
  *  "acq questions" lands with the seeded one.
  *

@@ -161,7 +161,7 @@ describe('fix-632 §B: the map and drone links', () => {
   it('★★★ no project link → the shared folder, and "Add project link" for editors', () => {
     cfg.map = new Map([[DRONE_FOLDER_CONFIG_KEY, FOLDER]]);
     renderBox(project());
-    expect(screen.getByTestId('pd-site-drone-folder')).toHaveTextContent('Drone footage folder ↗');
+    expect(screen.getByTestId('pd-site-drone-folder')).toHaveTextContent('Footage folder ↗');
     expect(screen.getByTestId('pd-site-drone-folder').getAttribute('href')).toBe(FOLDER);
     expect(screen.getByTestId('pd-site-drone-add')).toHaveTextContent('Add project link');
     expect(screen.getByTestId('pd-site-drone-add').getAttribute('href')).toBe('/?data=site#drone-video-url');

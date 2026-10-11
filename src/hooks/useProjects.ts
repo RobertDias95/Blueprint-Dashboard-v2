@@ -87,6 +87,9 @@ export function useProjects() {
             // as `undefined`, and Site Data would offer "Add drone link" for
             // ever while the database held the link.
             'drone_video_url',
+            // ★★★ fix-641: and `drone_folder` beside it — the EIGHTH recording.
+            // Unlisted, every project would open the shared library again.
+            'drone_folder',
             // fix-126: redesign concept columns. Drive the "Redesign of"
             // top badge + the expandable "Redesigns (N)" subsection on
             // Project Overview, plus the yellow border on draw schedule
