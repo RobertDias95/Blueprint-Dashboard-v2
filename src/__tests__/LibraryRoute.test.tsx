@@ -47,13 +47,19 @@ vi.mock('../components/IntakeTracker', () => ({
 import routerSrc from '../router.tsx?raw';
 import { RIBBON_ENTRIES, allRibbonRoutes, visibleEntries } from '../lib/ribbonNav';
 import DrawSchedule from '../pages/DrawSchedule';
+import { MemoryRouter } from 'react-router-dom';
 import LibraryMatrix from '../components/LibraryMatrix';
 
 function wrap(node: ReactNode) {
   const qc = new QueryClient({
     defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
   });
-  return render(<QueryClientProvider client={qc}>{node}</QueryClientProvider>);
+  // ★ fix-637: DrawSchedule reads `?tab=intake` from the URL, so it needs a router.
+  return render(
+    <QueryClientProvider client={qc}>
+      <MemoryRouter>{node}</MemoryRouter>
+    </QueryClientProvider>,
+  );
 }
 
 beforeEach(() => {

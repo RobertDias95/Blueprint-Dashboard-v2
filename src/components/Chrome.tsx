@@ -9,6 +9,7 @@ import { useDesktopAlerts } from '../hooks/useDesktopAlerts';
 import { useDingUnlock } from '../hooks/useDingUnlock';
 import NewBuildNotice from './NewBuildNotice';
 import WeeklyUpdateModal from './WeeklyUpdate/WeeklyUpdateModal';
+import IntakeWarningModal from './IntakeWarning/IntakeWarningModal';
 import SaveFailureBanner from './SaveFailureBanner';
 import MissedScrapeBanner from './MissedScrapeBanner';
 import { rosterRoleTitle } from '../lib/roleLabels';
@@ -106,6 +107,9 @@ export default function Chrome() {
             ★ It renders null for a non-member and for anybody who has already
             closed this week's edition, so it costs the other 23 people nothing. */}
         <WeeklyUpdateModal />
+        {/* ★★★ fix-637 (P-180): Seattle intakes 7 business days out — the
+            Weekly Update's pattern, daily, for the people Settings names. */}
+        <IntakeWarningModal />
         {/* *** fix-372 section 6: renders nothing until a save dies. Above the
             header, full width, and it does NOT fade - see stores/saveFailureStore. */}
         <SaveFailureBanner />

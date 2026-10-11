@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import TabStrip from '../components/shared/TabStrip';
 import DrawScheduleGrid from '../components/DrawScheduleGrid';
 import IntakeTracker from '../components/IntakeTracker';
@@ -18,7 +19,18 @@ import StatusLegend from '../components/DrawSchedule/StatusLegend';
 type DSTab = 'schedule' | 'intake';
 
 export default function DrawSchedule() {
-  const [tab, setTab] = useState<DSTab>('schedule');
+  // ★ fix-637: `?tab=intake` opens Seattle Intakes, so the intake warning (pop-up
+  //   and email) can link straight to the tracker — also when you are already
+  //   on this page (the fix-217 in-render pattern: applied once per change of
+  //   the parameter, so a person who then clicks the other tab stays there).
+  const [params] = useSearchParams();
+  const wanted: DSTab | null = params.get('tab') === 'intake' ? 'intake' : null;
+  const [tab, setTab] = useState<DSTab>(wanted ?? 'schedule');
+  const [seenWanted, setSeenWanted] = useState<DSTab | null>(wanted);
+  if (wanted !== seenWanted) {
+    setSeenWanted(wanted);
+    if (wanted) setTab(wanted);
+  }
 
   // ★ fix-313: the root was h-[calc(100vh-52px-48px)] — the old 52px header
   // plus Chrome's 48px vertical padding, hard-coded. The Bridge shell makes

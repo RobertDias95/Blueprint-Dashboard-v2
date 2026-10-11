@@ -136,6 +136,9 @@ export const queryKeys = {
   permitTypeDefaults: (tenantId: string) =>
     ['permit_type_defaults', tenantId] as const,
   appConfig: (tenantId: string) => ['app_config', tenantId] as const,
+  // ★ fix-637: the Seattle intake warning's due list, for one Pacific day.
+  intakeWarningDue: (tenantId: string, day: string) =>
+    ['intake_warning_due', tenantId, day] as const,
   teamMembers: (tenantId: string) => ['team_members', tenantId] as const,
   taskTemplates: (tenantId: string) => ['task_templates', tenantId] as const,
   taskTemplateSubtasks: (tenantId: string) =>
