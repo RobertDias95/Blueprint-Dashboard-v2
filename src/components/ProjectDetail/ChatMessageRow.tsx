@@ -160,18 +160,22 @@ export default function ChatMessageRow({
   return (
     <div
       ref={ref}
-      className="flex gap-2.5"
+      // ★★ fix-638 §B (P-334): EVERY message is a bordered box — Bobby: *"the
+      //    gray looks good, but the white ones look endless."* So the box (and
+      //    its padding and corners) is no longer the shaded rows' privilege;
+      //    only the FILL still alternates. ★ The negative margin fix-633 used
+      //    is gone: with every row boxed the text lines up anyway, and the
+      //    margin would make bordered neighbours touch across the 14px gap.
+      className="flex gap-2.5 border border-border"
       style={{
-        // ★ fix-633 §4: the shade and the "to me" highlight share one box
-        //   (the negative margin keeps the text aligned with unshaded rows).
+        padding: '7px 9px',
+        borderRadius: 8,
+        // ★ fix-633 §4: the shade and the "to me" highlight share one box.
         //   A message to you keeps its blue — that is the louder fact.
         ...((toMe && !deleted) || shaded
           ? {
               background:
                 toMe && !deleted ? 'var(--color-de-bg)' : 'var(--color-s2)',
-              margin: '-7px -9px',
-              padding: '7px 9px',
-              borderRadius: 8,
             }
           : {}),
         ...(focused

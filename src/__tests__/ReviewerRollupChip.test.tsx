@@ -1,5 +1,16 @@
 import { describe, expect, it, vi } from 'vitest';
-import { fireEvent, render, screen } from '@testing-library/react';
+import { fireEvent, screen } from '@testing-library/react';
+import { renderWithQuery as render } from '../test/renderWithQuery';
+
+// ★ fix-638: the popover fetches its open reviewers' due dates. Stubbed empty
+//   here — these suites are about the chip and the list, not the dates.
+vi.mock('../lib/supabase', () => ({
+  supabase: {
+    from: () => ({
+      select: () => ({ in: () => Promise.resolve({ data: [], error: null }) }),
+    }),
+  },
+}));
 import ReviewerRollupChip from '../components/ProjectDetail/ReviewerRollupChip';
 import type {
   PermitCycleReviewer,

@@ -339,6 +339,25 @@ describe('fix-633 §4: every other reply is shaded', () => {
     expect([shade('a'), shade('b'), shade('c')]).toEqual(['false', 'true', 'false']);
     expect(screen.getByTestId('project-chat-message-b').style.background).toContain('--color-s2');
   });
+
+  it('★★ fix-638 §B (P-334): every message is bordered — the post, white rows and shaded rows', () => {
+    mocks.messages = [
+      post(),
+      reply({ id: 'a', created_at: '2026-08-15T10:00:00Z' }),
+      reply({ id: 'b', created_at: '2026-08-15T10:01:00Z' }),
+    ];
+    renderModal();
+    const rows = screen.getAllByTestId(/^project-chat-message-/);
+    expect(rows.length).toBe(3);
+    for (const row of rows) {
+      expect(row.className).toContain('border');
+      expect(row.className).toContain('border-border');
+      expect(row.style.borderRadius).toBe('8px');
+    }
+    // the shading still alternates on top of the border
+    expect(screen.getByTestId('project-chat-message-a').dataset.shaded).toBe('false');
+    expect(screen.getByTestId('project-chat-message-b').dataset.shaded).toBe('true');
+  });
 });
 
 // ===========================================================================
