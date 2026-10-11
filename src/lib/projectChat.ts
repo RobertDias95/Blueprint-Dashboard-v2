@@ -389,12 +389,37 @@ export function lastMessages(
 
 /** A compact "Thu 16:40" stamp, as the mockup shows. Falls back to the raw
  *  string rather than rendering "Invalid Date" at anyone. */
-export function chatStamp(iso: string): string {
+// ★★ fix-633 §6 (P-327) — Dave: "the time/date stamp changes to just the date
+// when its older than a week (i.e a message from this Monday says 'Monday 3:15'
+// – a message from last Monday says '9/28/2026')."
+//
+// ★★ THE WEEK IS COUNTED IN CALENDAR DAYS, NOT HOURS. An hours rule would
+// stamp a message from last Monday at 4 PM as "Mon 4:00 PM" when read this
+// Monday at 9 AM — the same word as today, a week apart. Counting local
+// midnights makes "same weekday as today" mean today and only today.
+//
+// ★ A stamp in the future (clock skew) counts as recent — it has no week to
+// be older than.
+export const CHAT_STAMP_WEEK_DAYS = 7;
+
+function localDayNumber(d: Date): number {
+  // Days since the epoch in LOCAL time; Date.UTC on the local fields cancels
+  // the offset so a DST change cannot shave an hour off a day.
+  return Math.floor(
+    Date.UTC(d.getFullYear(), d.getMonth(), d.getDate()) / 86_400_000,
+  );
+}
+
+export function chatStamp(iso: string, now: Date = new Date()): string {
   const d = new Date(iso);
   if (Number.isNaN(d.getTime())) return iso;
+  const daysAgo = localDayNumber(now) - localDayNumber(d);
+  if (daysAgo >= CHAT_STAMP_WEEK_DAYS) {
+    return `${d.getMonth() + 1}/${d.getDate()}/${d.getFullYear()}`;
+  }
   return d.toLocaleString(undefined, {
     weekday: 'short',
-    hour: '2-digit',
+    hour: 'numeric',
     minute: '2-digit',
   });
 }

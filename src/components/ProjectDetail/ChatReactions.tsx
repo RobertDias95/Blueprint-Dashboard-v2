@@ -134,10 +134,13 @@ export default function ChatReactions({
           onClick={() => setPicking((v) => !v)}
           className="px-1.5 py-0.5 rounded-full border border-border text-[11px] text-dim hover:text-de transition"
           title="React — it tells people you have seen this, and notifies nobody"
+          aria-label="Add a reaction"
           aria-expanded={picking}
           data-testid={`chat-react-open-${messageId}`}
         >
-          ☺+
+          {/* ★ fix-633 §12: just the emoji — Dave: "remove the '+' sign… so it
+              looks cleaner". The label above still says what it does. */}
+          ☺
         </button>
         {picking && (
           <div

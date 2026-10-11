@@ -59,7 +59,13 @@ import { mentionTargets, projectTagTarget } from '../../lib/mentionTags';
 import { emptyMentionTargets } from '../../lib/projectChat';
 // ★ fix-494: `Permit` is no longer imported — every `permits` prop in this
 //   file is `PermitWithCycles[]` now, because the phase decision reads cycles.
-import type { PermitWithCycles, Project } from '../../lib/database.types';
+import type {
+  MentionablePerson,
+  PermitWithCycles,
+  Project,
+} from '../../lib/database.types';
+import type { MentionTarget } from '../../lib/mentionTags';
+import type { MessageReaction } from '../../hooks/useMessageReactions';
 import { useDirtySurface } from '../../hooks/useDirtySurface';
 
 // fix-334 — the conversation, organised.
@@ -239,6 +245,7 @@ export default function ProjectChatModal({
     posts.find((p) => p.post.id === selectedPostId) ?? byActivity[0] ?? null;
 
   const hits = useMemo(() => searchChat(posts, query), [posts, query]);
+  const searching = query.trim().length >= 2;
 
   // ★ Mark the mentions in this thread read — once, for the keys actually on
   // screen. Idempotent (INSERT … ON CONFLICT DO NOTHING), and the guard keeps it
@@ -283,7 +290,11 @@ export default function ProjectChatModal({
     >
       <div
         className="bg-surface rounded-xl flex flex-col overflow-hidden"
-        style={{ width: 'min(1000px, 94vw)', height: 'min(680px, 90vh)' }}
+        // ★ fix-633 §1: Dave — "larger pop-up window = more space to type and
+        //   less cramped". Most of the screen, capped so a wide monitor does
+        //   not stretch a line of chat past reading width.
+        style={{ width: 'min(1600px, 92vw)', height: '90vh' }}
+        data-testid="project-chat-frame"
       >
         {/* ★★★ fix-362 §3: the message the notification pointed at is gone.
             Said once, at the top, in words — and the modal below it is the
@@ -363,46 +374,21 @@ export default function ProjectChatModal({
           {/* ── posts + search ─────────────────────────────────────────── */}
           <aside
             className="flex-none border-r border-border flex flex-col min-h-0"
-            style={{ width: 268 }}
+            // ★ fix-633 §1: the old 268 px of a 1000 px modal, kept as a
+            //   proportion so the bigger window grows both panes alike.
+            style={{ width: '26.8%', minWidth: 240 }}
             data-testid="project-chat-posts"
           >
-            <div className="p-2.5 flex flex-col gap-2 flex-none border-b border-border">
-              <input
-                type="search"
-                value={query}
-                onChange={(e) => setQuery(e.target.value)}
-                placeholder="Search this conversation…"
-                className="w-full border border-border rounded px-2 py-1 text-[11.5px] bg-bg text-text placeholder:text-dim focus:outline-none focus:border-de"
-                aria-label="Search this conversation"
-                data-testid="project-chat-search"
-              />
-              {/* ★★ ADMINS ONLY — and the policy says so too (fix-334).
-                  ★ fix-339: everyone else gets the ASK. Non-admins still cannot
-                  create a post; without this their topic just gets buried at
-                  the bottom of General, which is the hole fix-334's report
-                  flagged. */}
-              {isAdmin ? (
-                <button
-                  type="button"
-                  onClick={() => {
-                    setFulfilling(null);
-                    setNewPostOpen(true);
-                  }}
-                  className="w-full text-[11px] font-bold rounded py-1 bg-de text-white hover:opacity-90 transition"
-                  data-testid="project-chat-new-post"
-                >
-                  ＋ New post
-                </button>
-              ) : (
-                <button
-                  type="button"
-                  onClick={() => setRequestOpen(true)}
-                  className="w-full text-[11px] font-bold rounded py-1 border border-de text-de hover:bg-de-bg transition"
-                  data-testid="project-chat-request-post"
-                >
-                  ✋ Request a post
-                </button>
-              )}
+            {/* ★★ fix-633 §11 — Dave: "the separate conversations get a heading
+                and the new post button lives at the end of the current posts…
+                perhaps the search is better anchored to the bottom of the left
+                panel". So: a heading, the list, the button after the last post,
+                and the search pinned to the foot of the panel. */}
+            <div
+              className="px-3 pt-3 pb-1.5 flex-none text-[10.5px] font-bold uppercase tracking-wide text-dim"
+              data-testid="project-chat-posts-heading"
+            >
+              {searching ? 'Search results' : 'Posts'}
             </div>
 
             {/* ★ An admin opening the chat sees what has been asked for here,
@@ -417,8 +403,11 @@ export default function ProjectChatModal({
               />
             )}
 
-            <div className="flex-1 min-h-0 overflow-y-auto p-1.5">
-              {query.trim().length >= 2 ? (
+            <div
+              className="flex-1 min-h-0 overflow-y-auto p-1.5"
+              data-testid="project-chat-post-list"
+            >
+              {searching ? (
                 <SearchResults
                   hits={hits}
                   onOpen={(postId, messageId) => {
@@ -426,28 +415,77 @@ export default function ProjectChatModal({
                     setFocusMessageId(messageId);
                   }}
                 />
-              ) : posts.length === 0 ? (
-                <div
-                  className="text-[11px] text-dim italic px-1.5 py-2"
-                  data-testid="project-chat-empty"
-                >
-                  {isAdmin
-                    ? 'No posts yet — start one.'
-                    : 'No posts yet. An admin starts a post; anyone can reply.'}
-                </div>
               ) : (
-                posts.map((p) => (
-                  <PostRow
-                    key={p.post.id}
-                    entry={p}
-                    active={selected?.post.id === p.post.id}
-                    onSelect={() => {
-                      setSelectedPostId(p.post.id);
-                      setFocusMessageId(null);
-                    }}
-                  />
-                ))
+                <>
+                  {posts.length === 0 ? (
+                    <div
+                      className="text-[11px] text-dim italic px-1.5 py-2"
+                      data-testid="project-chat-empty"
+                    >
+                      {isAdmin
+                        ? 'No posts yet — start one.'
+                        : 'No posts yet. An admin starts a post; anyone can reply.'}
+                    </div>
+                  ) : (
+                    posts.map((p) => (
+                      <PostRow
+                        key={p.post.id}
+                        entry={p}
+                        active={selected?.post.id === p.post.id}
+                        onSelect={() => {
+                          setSelectedPostId(p.post.id);
+                          setFocusMessageId(null);
+                        }}
+                      />
+                    ))
+                  )}
+                  {/* ★★ ADMINS ONLY — and the policy says so too (fix-334).
+                      ★ fix-339: everyone else gets the ASK. Non-admins still
+                      cannot create a post; without this their topic just gets
+                      buried at the bottom of General.
+                      ★ fix-633 §11: after the last post, where the next one
+                      will go. */}
+                  <div className="px-0.5 pt-1.5">
+                    {isAdmin ? (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setFulfilling(null);
+                          setNewPostOpen(true);
+                        }}
+                        className="w-full text-[11.5px] font-bold rounded py-1.5 bg-de text-white hover:opacity-90 transition"
+                        data-testid="project-chat-new-post"
+                      >
+                        ＋ New post
+                      </button>
+                    ) : (
+                      <button
+                        type="button"
+                        onClick={() => setRequestOpen(true)}
+                        className="w-full text-[11.5px] font-bold rounded py-1.5 border border-de text-de hover:bg-de-bg transition"
+                        data-testid="project-chat-request-post"
+                      >
+                        ✋ Request a post
+                      </button>
+                    )}
+                  </div>
+                </>
               )}
+            </div>
+
+            <div
+              className="p-2.5 flex-none border-t border-border"
+              data-testid="project-chat-search-dock"
+            >
+              <input
+                type="search"
+                value={query}
+                onChange={(e) => setQuery(e.target.value)}
+                placeholder="Search this conversation…"
+                className="w-full border border-border rounded px-2 py-1.5 text-[12px] bg-bg text-text placeholder:text-dim focus:outline-none focus:border-de"
+                aria-label="Search this conversation"
+                data-testid="project-chat-search"
+              />
             </div>
           </aside>
 
@@ -493,53 +531,22 @@ export default function ProjectChatModal({
               </div>
             ) : (
               <>
-                <div
-                  className="flex-1 min-h-0 overflow-y-auto px-4 py-4 flex flex-col gap-4"
-                  data-testid="project-chat-thread"
-                >
-                  <div>
-                    <h3
-                      className="text-[15px] font-display font-bold text-text mb-2"
-                      data-testid="project-chat-post-title"
-                    >
-                      {selected.post.title}
-                    </h3>
-                    <ChatMessageRow
-                      message={selected.post}
-                      projectId={projectId}
-                      userId={userId}
-                      people={people}
-                      targets={targets}
-                      reactions={reactions}
-                      projectTeamIds={projectTag.userIds}
-                      permits={permits}
-                      variant="post"
-                      focused={focusMessageId === selected.post.id}
-                    />
-                  </div>
-
-                  {selected.replies.length > 0 && (
-                    <div
-                      className="border-t border-border pt-3 flex flex-col gap-3.5"
-                      data-testid="project-chat-replies"
-                    >
-                      {selected.replies.map((r) => (
-                        <ChatMessageRow
-                          key={r.id}
-                          message={r}
-                          projectId={projectId}
-                          userId={userId}
-                          people={people}
-                          targets={targets}
-                          reactions={reactions}
-                          projectTeamIds={projectTag.userIds}
-                          permits={permits}
-                          focused={focusMessageId === r.id}
-                        />
-                      ))}
-                    </div>
-                  )}
-                </div>
+                {/* ★ Keyed by post: opening a post is a fresh mount, and that
+                    mount is what lands it on the newest message (fix-633 §3). */}
+                <ThreadView
+                  // ★ Prefixed: the ReplyComposer beside it is keyed by the
+                  //   same post id, and siblings must not share a key.
+                  key={`thread-${selected.post.id}`}
+                  selected={selected}
+                  focusMessageId={focusMessageId}
+                  projectId={projectId}
+                  userId={userId}
+                  people={people}
+                  targets={targets}
+                  reactions={reactions}
+                  projectTeamIds={projectTag.userIds}
+                  permits={permits}
+                />
 
                 <ReplyComposer
                   key={selected.post.id}
@@ -557,6 +564,150 @@ export default function ProjectChatModal({
   );
 }
 
+// ------------------------------------------------------------------ thread --
+
+/** ★ fix-633 §2: ~5 lines of 12.5 px text plus padding to start; the top
+ *  handle can take it from a 3-line floor up to a third of a tall screen. */
+const REPLY_BOX_SIZE = { initial: 112, min: 58, max: 360 } as const;
+
+/** Within this many px of the bottom counts as "reading the newest". */
+const NEWEST_SLACK_PX = 48;
+
+function scrollToNewest(el: HTMLElement | null) {
+  if (el) el.scrollTop = el.scrollHeight;
+}
+
+/**
+ * ★★ fix-633 §3 — OPENING A POST LANDS ON THE NEWEST MESSAGE.
+ *
+ * Dave: "opening a conversation goes to most recent, not top of thread." A
+ * 38-reply post used to open on the opener, with the thing you came for a
+ * long scroll below it.
+ *
+ * ★★★ ONLY THE SCROLL POSITION. The sidebar's post ORDER is fix-484's
+ *     lifecycle ruling (P-145) and is untouched; replies still read oldest →
+ *     newest inside the thread, so "newest" is the bottom.
+ *
+ * ★ A NAMED MESSAGE WINS. A search hit or a notification deep link (fix-362)
+ *   sets `focusMessageId`, and that row scrolls itself into view — landing on
+ *   the newest would undo it.
+ *
+ * ★ AND IT STAYS THERE WHILE THE THREAD GROWS UNDER YOU. Attachments load
+ *   after the first paint and new replies arrive over realtime; either would
+ *   leave the "newest" view short of the bottom. A ResizeObserver re-pins it
+ *   — but only while you are still at the bottom. Scroll up to read, and the
+ *   thread leaves you there.
+ */
+function ThreadView({
+  selected,
+  focusMessageId,
+  projectId,
+  userId,
+  people,
+  targets,
+  reactions,
+  projectTeamIds,
+  permits,
+}: {
+  selected: ChatPost;
+  focusMessageId: string | null;
+  projectId: string;
+  userId: string | null;
+  people: MentionablePerson[];
+  targets: (MentionablePerson | MentionTarget)[];
+  reactions: readonly MessageReaction[];
+  projectTeamIds: readonly string[];
+  permits: PermitWithCycles[];
+}) {
+  const threadRef = useRef<HTMLDivElement | null>(null);
+  const contentRef = useRef<HTMLDivElement | null>(null);
+  /** True while the reader is at the newest message. Handlers + effects only. */
+  const pinnedRef = useRef(true);
+
+  // On mount (the parent keys this by post): newest, unless a message is named.
+  // Also when a search hit lands inside the post that is already open.
+  useEffect(() => {
+    if (focusMessageId) {
+      pinnedRef.current = false;
+      return;
+    }
+    pinnedRef.current = true;
+    scrollToNewest(threadRef.current);
+  }, [focusMessageId]);
+
+  useEffect(() => {
+    const content = contentRef.current;
+    if (!content || typeof ResizeObserver === 'undefined') return;
+    const ro = new ResizeObserver(() => {
+      if (pinnedRef.current) scrollToNewest(threadRef.current);
+    });
+    ro.observe(content);
+    return () => ro.disconnect();
+  }, []);
+
+  return (
+    <div
+      ref={threadRef}
+      className="flex-1 min-h-0 overflow-y-auto px-4 py-4"
+      onScroll={(e) => {
+        const el = e.currentTarget;
+        pinnedRef.current =
+          el.scrollHeight - el.scrollTop - el.clientHeight <= NEWEST_SLACK_PX;
+      }}
+      data-testid="project-chat-thread"
+    >
+      <div ref={contentRef} className="flex flex-col gap-4">
+        <div>
+          <h3
+            className="text-[15px] font-display font-bold text-text mb-2"
+            data-testid="project-chat-post-title"
+          >
+            {selected.post.title}
+          </h3>
+          <ChatMessageRow
+            message={selected.post}
+            projectId={projectId}
+            userId={userId}
+            people={people}
+            targets={targets}
+            reactions={reactions}
+            projectTeamIds={projectTeamIds}
+            permits={permits}
+            variant="post"
+            focused={focusMessageId === selected.post.id}
+          />
+        </div>
+
+        {selected.replies.length > 0 && (
+          <div
+            className="border-t border-border pt-3 flex flex-col gap-3.5"
+            data-testid="project-chat-replies"
+          >
+            {selected.replies.map((r, i) => (
+              <ChatMessageRow
+                key={r.id}
+                message={r}
+                projectId={projectId}
+                userId={userId}
+                people={people}
+                targets={targets}
+                reactions={reactions}
+                projectTeamIds={projectTeamIds}
+                permits={permits}
+                focused={focusMessageId === r.id}
+                // ★ fix-633 §4: every other reply shaded, so neighbours
+                //   read as separate messages (Dave's img 2). The post
+                //   above the rule is already set apart by its title.
+                shaded={i % 2 === 1}
+              />
+            ))}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
 // --------------------------------------------------------------- post list --
 
 function PostRow({
@@ -568,24 +719,37 @@ function PostRow({
   active: boolean;
   onSelect: () => void;
 }) {
+  // ★ "Messages" = the post plus its live replies — the same unit the
+  //   header's "N messages" counts.
+  const messageCount = entry.replyCount + 1;
+  const countLabel = `${messageCount} message${messageCount === 1 ? '' : 's'}`;
   return (
     <button
       type="button"
       onClick={onSelect}
-      className="w-full text-left rounded px-2 py-1.5 mb-0.5 transition"
+      className="w-full text-left rounded px-2.5 py-2 mb-0.5 transition"
       style={{ background: active ? 'var(--color-de-bg)' : 'transparent' }}
       data-testid={`project-chat-post-${entry.post.id}`}
       data-active={active ? 'true' : 'false'}
     >
-      <div className="text-[11.5px] font-bold text-text truncate">
-        {entry.post.title}
-      </div>
-      <div className="text-[9.5px] text-dim truncate">
-        {entry.post.author_name ?? 'Unknown'} ·{' '}
-        <span data-testid={`project-chat-post-replies-${entry.post.id}`}>
-          {entry.replyCount} {entry.replyCount === 1 ? 'reply' : 'replies'}
-        </span>{' '}
-        · {chatStamp(entry.lastActivityAt)}
+      {/* ★★ fix-633 §10 — Dave: "the information under the post titles on
+          the side bar seems unnecessary… Maybe it just shows the number of
+          messages… Perhaps all we really need is just the post name (and it
+          gets bigger?)". So the author · replies · time line is gone; the
+          title is bigger, with the message count muted on the same line.
+          The newest activity survives as the hover. */}
+      <div className="flex items-baseline gap-2">
+        <span className="flex-1 min-w-0 text-[15px] font-semibold text-text truncate">
+          {entry.post.title}
+        </span>
+        <span
+          className="flex-none text-[11px] text-dim tabular-nums"
+          title={`${countLabel} · last ${chatStamp(entry.lastActivityAt)}`}
+          aria-label={countLabel}
+          data-testid={`project-chat-post-count-${entry.post.id}`}
+        >
+          {messageCount}
+        </span>
       </div>
     </button>
   );
@@ -901,6 +1065,9 @@ function ReplyComposer({
         onPaste={onPaste}
         placeholder="Reply… type @ to mention someone or a group, or paste a snip"
         testId="project-chat-input"
+        // ★ fix-633 §2 + §9: about five lines to start (Dave: "a larger text
+        //   box relative to the overall window"), handle on the top edge.
+        resizeFromTop={REPLY_BOX_SIZE}
       />
 
       {/* ★★ AN UNRESOLVED @word IS NOT A MENTION, AND IT SAYS SO (fix-330). */}
@@ -1110,6 +1277,11 @@ function ReplyComposer({
  *  survives every tool that rewrites this file. */
 const NEWLINE = String.fromCharCode(10);
 
+/** ★ fix-633 §5: Dave — "can the people head circles at the top be 10-20%
+ *  bigger in the same relative space". 22 → 25 (+14%); the header's height
+ *  is set by its two text lines, which already stand taller than this. */
+const TEAM_AVATAR_SIZE = 25;
+
 function InternalTeam({
   project,
   bp,
@@ -1171,14 +1343,20 @@ function InternalTeam({
       data-testid="project-chat-team"
     >
       {shown.map((p) => (
-        <Avatar key={p.name} name={fullNameOf(p.name)} titled title={label(p)} />
+        <Avatar
+          key={p.name}
+          name={fullNameOf(p.name)}
+          titled
+          title={label(p)}
+          size={TEAM_AVATAR_SIZE}
+        />
       ))}
       {rest.length > 0 && (
         <span
           className="text-[10px] font-bold rounded-full flex items-center justify-center flex-shrink-0"
           style={{
-            width: 22,
-            height: 22,
+            width: TEAM_AVATAR_SIZE,
+            height: TEAM_AVATAR_SIZE,
             background: 'var(--color-s2)',
             color: 'var(--color-muted)',
           }}

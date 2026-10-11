@@ -43,6 +43,19 @@ export interface MentionTextareaProps {
   onPaste?: (e: React.ClipboardEvent<HTMLTextAreaElement>) => void;
   placeholder?: string;
   testId: string;
+  /** ★ fix-633 §2 + §9: the reply box. Starts taller, and its resize handle
+   *  is on the TOP edge — Dave: "the handle to size the text box feels more
+   *  intuitive at the top since it is being pulled up". Dragging up grows it,
+   *  clamped to [min, max] px. Omitted → the browser's own corner handle, as
+   *  before (the edit box and the new-post body keep that). */
+  resizeFromTop?: { initial: number; min: number; max: number };
+}
+
+/** One arrow-key press on the handle, in px. */
+const HANDLE_KEY_STEP = 16;
+
+function clampHeight(h: number, min: number, max: number): number {
+  return Math.min(max, Math.max(min, Math.round(h)));
 }
 
 export default function MentionTextarea({
@@ -53,8 +66,13 @@ export default function MentionTextarea({
   onPaste,
   placeholder,
   testId,
+  resizeFromTop,
 }: MentionTextareaProps) {
   const ref = useRef<HTMLTextAreaElement | null>(null);
+  const [height, setHeight] = useState(resizeFromTop?.initial ?? 0);
+  /** The drag in progress: where the pointer started and the height then.
+   *  Read only in event handlers, never during render. */
+  const drag = useRef<{ y: number; h: number } | null>(null);
   const [caret, setCaret] = useState(0);
   const [open, setOpen] = useState(false);
   const [active, setActive] = useState(0);
@@ -135,8 +153,61 @@ export default function MentionTextarea({
     }
   }
 
+  const sizeTo = (h: number) => {
+    if (resizeFromTop) setHeight(clampHeight(h, resizeFromTop.min, resizeFromTop.max));
+  };
+
   return (
     <div className="relative">
+      {resizeFromTop && (
+        <div
+          role="separator"
+          aria-orientation="horizontal"
+          aria-label="Resize the reply box — drag up to make it taller"
+          aria-valuemin={resizeFromTop.min}
+          aria-valuemax={resizeFromTop.max}
+          aria-valuenow={height}
+          tabIndex={0}
+          title="Drag up to make the reply box taller"
+          className="group absolute left-0 right-0 z-[1] flex justify-center items-start focus:outline-none"
+          style={{ top: -6, height: 12, cursor: 'ns-resize', touchAction: 'none' }}
+          onPointerDown={(e) => {
+            e.preventDefault();
+            drag.current = { y: e.clientY, h: height };
+            e.currentTarget.setPointerCapture?.(e.pointerId);
+          }}
+          onPointerMove={(e) => {
+            const d = drag.current;
+            if (!d) return;
+            // Up is a smaller clientY, and up is taller.
+            sizeTo(d.h + (d.y - e.clientY));
+          }}
+          onPointerUp={(e) => {
+            drag.current = null;
+            e.currentTarget.releasePointerCapture?.(e.pointerId);
+          }}
+          onPointerCancel={() => {
+            drag.current = null;
+          }}
+          onKeyDown={(e) => {
+            if (e.key === 'ArrowUp') {
+              e.preventDefault();
+              sizeTo(height + HANDLE_KEY_STEP);
+            } else if (e.key === 'ArrowDown') {
+              e.preventDefault();
+              sizeTo(height - HANDLE_KEY_STEP);
+            }
+          }}
+          data-testid={`${testId}-resize-top`}
+        >
+          {/* The grip: a short bar centred on the top edge. */}
+          <span
+            aria-hidden
+            className="mt-[4px] block rounded-full bg-border group-hover:bg-de group-focus-visible:bg-de transition"
+            style={{ width: 40, height: 4 }}
+          />
+        </div>
+      )}
       <textarea
         ref={ref}
         value={value}
@@ -156,7 +227,11 @@ export default function MentionTextarea({
         onBlur={() => window.setTimeout(() => setOpen(false), 120)}
         placeholder={placeholder}
         className="w-full border border-border rounded-lg px-3 py-2 text-[12.5px] bg-bg text-text placeholder:text-dim focus:outline-none focus:border-de"
-        style={{ minHeight: 58, resize: 'vertical' }}
+        style={
+          resizeFromTop
+            ? { height, resize: 'none' }
+            : { minHeight: 58, resize: 'vertical' }
+        }
         role="combobox"
         aria-expanded={showing}
         aria-controls={`${testId}-mention-list`}
