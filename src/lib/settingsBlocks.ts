@@ -73,6 +73,15 @@ export const SETTINGS_BLOCKS: readonly SettingsBlock[] = [
     keywords: 'avatar photo headshot profile picture upload',
   },
   {
+    // ★★ fix-634 (P-323): on by default; this is the per-person opt-out.
+    id: 'email-notifications',
+    category: 'account',
+    title: 'Email notifications',
+    summary: 'Email me when I am @-mentioned or assigned a task',
+    feeds: ['Email'],
+    keywords: 'email notification mention assigned task alert opt out bridge@',
+  },
+  {
     id: 'sign-in-info',
     category: 'account',
     title: 'Sign-in info',

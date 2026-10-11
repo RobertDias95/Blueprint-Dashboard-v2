@@ -394,8 +394,10 @@ describe('fix-604 §1 — every write mutation names what it writes', () => {
     //    exported and still counted here: what fix-617 removed is the Team
     //    Structure editor's USE of them, not the hooks. 119 → 120, and the new
     //    one is NAMED (`meta: { write: 'bp_set_dm_for_da' }`).
-    expect(all.length).toBe(120);
-    expect(named.length).toBe(119);
+    // ⬆️ fix-634 ADDED `useSetNotificationPreference`
+    //    (`notification_preferences.upsert`) — named. 120 → 121.
+    expect(all.length).toBe(121);
+    expect(named.length).toBe(120);
     expect(listed.length).toBe(1);
     expect(named.length + listed.length).toBe(all.length);
   });

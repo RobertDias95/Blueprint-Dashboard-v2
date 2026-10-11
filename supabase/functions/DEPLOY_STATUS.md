@@ -25,6 +25,7 @@
 | `admin-create-user` | ⚠️ **DEPLOYED, BUT STALE** — version 2 (2026-09-15) is live; fix-608 changed the gate and is NOT yet deployed | `true` | a signed-in admin (checked again inside the function — as of fix-608 against the caller’s `tenant_memberships` row for the tenant being written to, no longer `profiles.role`) | `supabase functions deploy admin-create-user --project-ref eibnmwthkcuumyclyxoe` |
 | `plan-share` | ⛔️ **NOT DEPLOYED — this is P-279, live and external-facing** | must be `false` | **anon**; the share token is the whole credential | `supabase functions deploy plan-share --project-ref eibnmwthkcuumyclyxoe --no-verify-jwt` |
 | `auth-send-email` | ⛔️ **NOT DEPLOYED — new in fix-628 (P-092); the Send Email hook is also NOT enabled** | must be `false` | **Supabase Auth**, which calls it with no user JWT; the Standard Webhooks signature is the whole credential | `supabase functions deploy auth-send-email --project-ref eibnmwthkcuumyclyxoe --no-verify-jwt` |
+| `notify-send` | ✅ **DEPLOYED by fix-634 (P-323) from `origin/main` right after merge** — needs `migrations/fix_634_mention_assignment_emails.sql` applied (it is) | must be `false` | **the database** (pg_net, no JWT). The body is never read; a caller can only make it drain mail already queued | `supabase functions deploy notify-send --project-ref eibnmwthkcuumyclyxoe --no-verify-jwt` |
 
 ## ⛔️ The outstanding actions
 

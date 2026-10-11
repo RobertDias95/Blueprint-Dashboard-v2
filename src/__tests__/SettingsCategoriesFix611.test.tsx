@@ -171,6 +171,15 @@ const TODAY_TO_NEW: ReadonlyArray<readonly [string, string, string]> = [
   ['Schedule', 'Permit-type defaults', 'per-type-schedule'],
 ];
 
+// ★★ BLOCKS ADDED AFTER fix-611, each with the ticket that added it. The map
+//    above is fix-611's inventory of what existed THEN; a later block has no
+//    row there, so it is declared here instead — still traceable, never "from
+//    nowhere".
+const ADDED_AFTER_FIX_611: ReadonlyArray<readonly [string, string]> = [
+  ['email-notifications', 'fix-634 (P-323): mention + assignment email opt-outs'],
+];
+const ADDED_IDS = new Set(ADDED_AFTER_FIX_611.map(([id]) => id));
+
 describe('fix-611 §B — every one of today’s 43 blocks has a home', () => {
   it('★★★ the map covers exactly 43 blocks, each named once', () => {
     expect(TODAY_TO_NEW).toHaveLength(43);
@@ -197,7 +206,9 @@ describe('fix-611 §B — every one of today’s 43 blocks has a home', () => {
     // every block in the registry must be the destination of at least one of
     // today's 43. A block nobody can trace back is one somebody invented.
     const destinations = new Set(TODAY_TO_NEW.map(([, , dest]) => dest));
-    const orphans = SETTINGS_BLOCKS.filter((b) => !destinations.has(b.id));
+    const orphans = SETTINGS_BLOCKS.filter(
+      (b) => !destinations.has(b.id) && !ADDED_IDS.has(b.id),
+    );
     expect(orphans.map((b) => b.id), 'untraceable blocks').toEqual([]);
   });
 
@@ -217,6 +228,7 @@ describe('fix-611 §B — every one of today’s 43 blocks has a home', () => {
     // checkable against the map, so it is checked — a wrong badge is worse than
     // none, because it is the thing a reader trusts instead of counting.
     for (const block of SETTINGS_BLOCKS) {
+      if (ADDED_IDS.has(block.id)) continue;
       const sources = TODAY_TO_NEW.filter(([, , d]) => d === block.id).length;
       if (block.merged) {
         const claimed = Number(block.merged.split('→')[0]!.trim());
@@ -230,6 +242,7 @@ describe('fix-611 §B — every one of today’s 43 blocks has a home', () => {
   it('★★ each category lists its blocks in the mock’s order', () => {
     expect(blocksForCategory('account').map((b) => b.title)).toEqual([
       'Your picture',
+      'Email notifications',
       'Sign-in info',
     ]);
     expect(blocksForCategory('teams').map((b) => b.title)).toEqual([

@@ -4,6 +4,7 @@ import { useAuthStore } from '../../stores/authStore';
 import { useSelfScope } from '../../hooks/useSelfScope';
 import DbToolsCard from '../SettingsModal/DbToolsCard';
 import AvatarControl from './AvatarControl';
+import EmailNotificationsPanel from './EmailNotificationsPanel';
 import SettingsBlock from './SettingsBlock';
 
 // Q7.3.d: Account tab. Read-only sign-in info + sign-out.
@@ -56,6 +57,11 @@ export default function AdminAccountTab() {
           canEdit
           testId="account-avatar"
         />
+      </SettingsBlock>
+
+      {/* ★★ fix-634 (P-323): mention + assignment emails, on by default. */}
+      <SettingsBlock id="email-notifications">
+        <EmailNotificationsPanel />
       </SettingsBlock>
 
       <SettingsBlock id="sign-in-info">
