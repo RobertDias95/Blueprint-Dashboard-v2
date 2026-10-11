@@ -655,6 +655,11 @@ export interface PermitCycleReviewer {
   last_event_date: string | null;
   created_at: string;
   updated_at: string;
+  /** fix-476's city due date for the slot; fix-640 put it on the
+   *  `permit_cycle_reviewers_current` view. Optional because older fixtures
+   *  predate it. Equal to `last_event_date` means "the day the slot opened",
+   *  which is not a deadline — see `usableCityTarget`. */
+  target_date?: string | null;
 }
 
 // fix-276: one row per numbered comment on a jurisdiction correction letter.

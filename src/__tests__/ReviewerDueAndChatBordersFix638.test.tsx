@@ -14,34 +14,29 @@ import type { PermitCycleReviewer, ReviewerStatus } from '../lib/database.types'
 // §A — Bobby, 2026-10-11, on "REVIEWERS — CYCLE 4": *"werent we going to be the
 //      target review date of the reviewer below the in review?"*
 //
-// ★★★ THE TRAP THIS TICKET NEARLY FELL INTO. The popover's rows come from
-//     `permit_cycle_reviewers_current` (fix-454) and that VIEW has no
-//     `target_date` — the table does (measured 2026-10-11). A render that read
-//     `r.target_date` off the view's rows would have shown nothing, forever,
-//     and passed every test that built its fixture with the field filled in.
-//     So the dates are asked of the TABLE by id, and the mock below answers the
-//     TABLE — a fixture that put `target_date` on the row would prove nothing.
+// ★★★ fix-640 MOVED THE DATE ONTO THE ROW. fix-638 asked the TABLE for each
+//     open reviewer's `target_date` because the view did not carry it; fix-640
+//     widened the view, so the date now arrives with the row and that second
+//     fetch is gone. The only request left is the ESTIMATE RPC, for open rows
+//     with no usable city date — the mock below answers that and records it.
 
-const tableCalls: { table: string; ids: string[] }[] = [];
-let tableRows: { id: string; target_date: string | null }[] = [];
+const rpcCalls: { fn: string; ids: string[] }[] = [];
 
 vi.mock('../lib/supabase', () => ({
   supabase: {
-    from: (table: string) => ({
-      select: () => ({
-        in: (_col: string, ids: string[]) => {
-          tableCalls.push({ table, ids });
-          return Promise.resolve({
-            data: tableRows.filter((r) => ids.includes(r.id)),
-            error: null,
-          });
-        },
-      }),
-    }),
+    rpc: (fn: string, args: { p_ids: string[] }) => {
+      rpcCalls.push({ fn, ids: args.p_ids });
+      return Promise.resolve({ data: [], error: null });
+    },
   },
 }));
 
-function reviewer(id: string, status: ReviewerStatus, last: string | null = null): PermitCycleReviewer {
+function reviewer(
+  id: string,
+  status: ReviewerStatus,
+  last: string | null = null,
+  target: string | null = null,
+): PermitCycleReviewer {
   return {
     id,
     tenant_id: 't',
@@ -53,6 +48,7 @@ function reviewer(id: string, status: ReviewerStatus, last: string | null = null
     last_event_date: last,
     created_at: '2026-10-01T00:00:00Z',
     updated_at: '2026-10-01T00:00:00Z',
+    target_date: target,
   };
 }
 
@@ -84,13 +80,7 @@ describe('fix-638 §A — the popover', () => {
   beforeEach(() => {
     vi.useFakeTimers({ toFake: ['Date'] });
     vi.setSystemTime(new Date(2026, 9, 11, 12, 0, 0)); // local 2026-10-11
-    tableCalls.length = 0;
-    tableRows = [
-      { id: 'open-future', target_date: '2026-10-14' },
-      { id: 'open-past', target_date: '2026-10-09' },
-      { id: 'open-none', target_date: null },
-      { id: 'done', target_date: '2026-10-01' },
-    ];
+    rpcCalls.length = 0;
   });
   afterEach(() => vi.useRealTimers());
 
@@ -99,10 +89,10 @@ describe('fix-638 §A — the popover', () => {
       <ReviewerRollupChip
         permitId={7}
         rows={[
-          reviewer('open-future', 'in_review'),
-          reviewer('open-past', 'pending'),
-          reviewer('open-none', 'assigned'),
-          reviewer('done', 'approved', '2026-10-05'),
+          reviewer('open-future', 'in_review', null, '2026-10-14'),
+          reviewer('open-past', 'pending', null, '2026-10-09'),
+          reviewer('open-none', 'assigned', null, null),
+          reviewer('done', 'approved', '2026-10-05', '2026-10-01'),
         ]}
         fallbackReviewer={null}
       />,
@@ -110,14 +100,14 @@ describe('fix-638 §A — the popover', () => {
     fireEvent.click(screen.getByTestId('reviewer-chip-7'));
   }
 
-  it('★★★ shows "Due …" under an open reviewer, read from the TABLE', async () => {
+  it('★★★ shows "Due …" under an open reviewer, read from the ROW (fix-640)', async () => {
     open();
     const due = await screen.findByTestId('reviewer-due-open-future');
     expect(due.textContent).toBe('Due 10/14/2026');
     expect(due.getAttribute('data-past-due')).toBe('false');
-    // ★ asked of the table, for the OPEN rows only — never the approved one
-    expect(tableCalls.every((c) => c.table === 'permit_cycle_reviewers')).toBe(true);
-    expect(tableCalls.flatMap((c) => c.ids).sort()).toEqual(['open-future', 'open-none', 'open-past']);
+    // ★ the only request is the estimate, for the open row with NO city date
+    expect(rpcCalls.every((c) => c.fn === 'bp_reviewer_due_estimates')).toBe(true);
+    expect(rpcCalls.flatMap((c) => c.ids)).toEqual(['open-none']);
   });
 
   it('★★★ past due and open → "· past due" in the warning colour', async () => {
