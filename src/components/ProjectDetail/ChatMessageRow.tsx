@@ -13,8 +13,8 @@ import {
   originalBody,
   parseMentions,
 } from '../../lib/projectChat';
-import { Avatar, MessageBody } from './ChatMessageBody';
-import { NO_AUTHOR_LABEL } from '../../lib/projectChat';
+import { Avatar, BridgeAvatar, MessageBody } from './ChatMessageBody';
+import { BRIDGE_AUTHOR_LABEL, NO_AUTHOR_LABEL, isSystemPost } from '../../lib/projectChat';
 import ChatReactions from './ChatReactions';
 import { useRosterFullName } from '../../hooks/useRosterFullName';
 import type { MessageReaction } from '../../hooks/useMessageReactions';
@@ -105,6 +105,9 @@ export default function ChatMessageRow({
   const toMe = mentionsMe(message, userId);
   const mine = !!userId && message.author_id === userId;
   const deleted = isDeleted(message);
+  // ★★ fix-641 (P-336): a post the Bridge minted is signed by the Bridge —
+  //    the rule (title + exact system body) lives in lib/projectChat.
+  const bySystem = isSystemPost(message);
   const made = !!message.task_id;
   // ★ fix-603: null until the migration is applied → the row is unchanged.
   const taskStatus = made ? chatTaskStatus(message) : null;
@@ -192,7 +195,7 @@ export default function ChatMessageRow({
       data-focused={focused ? 'true' : 'false'}
       data-shaded={shaded ? 'true' : 'false'}
     >
-      <Avatar name={fullNameOf(message.author_name)} />
+      {bySystem ? <BridgeAvatar /> : <Avatar name={fullNameOf(message.author_name)} />}
       <div className="flex-1 min-w-0">
         <div className="flex items-center gap-2 flex-wrap">
           <span
@@ -201,6 +204,8 @@ export default function ChatMessageRow({
                 ? 'text-[13px] font-bold text-text'
                 : 'text-[12.5px] font-bold text-text'
             }
+            data-testid={`project-chat-author-${message.id}`}
+            data-by-system={bySystem ? 'true' : 'false'}
           >
             {/* ★★★ fix-542 (P-218) — "NOT RECORDED", NOT "UNKNOWN".
                 51% of the notes coming across from Notes (55 of 107) have no
@@ -208,7 +213,7 @@ export default function ChatMessageRow({
                 invent. *Unknown* says we lost it; **not recorded** says it was
                 never captured — fix-363's third state, and the true one.
                 35 messages were already authorless before this. */}
-            {message.author_name ?? NO_AUTHOR_LABEL}
+            {bySystem ? BRIDGE_AUTHOR_LABEL : (message.author_name ?? NO_AUTHOR_LABEL)}
           </span>
           <span className="text-[10px] text-dim">
             {chatStamp(message.created_at)}

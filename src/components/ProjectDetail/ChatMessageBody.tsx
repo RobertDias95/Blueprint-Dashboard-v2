@@ -1,6 +1,7 @@
 import { useMemo, useState } from 'react';
 import { initialsOf, splitBody, type MentionSource } from '../../lib/projectChat';
 import { useAvatarPathFor, useSignedAvatarUrl } from '../../hooks/useAvatars';
+import bridgeIcon from '../../assets/brand/bridge-icon-2026-256.png';
 
 // fix-331 §3 — the two pieces of chat rendering that BOTH surfaces need.
 //
@@ -136,6 +137,32 @@ export function Avatar({
       ) : (
         initialsOf(name)
       )}
+    </span>
+  );
+}
+
+/**
+ * ★★ fix-641 (P-336): the face of a post the Bridge created itself. The app's
+ * own square mark (BridgeMark's `icon` crop — the one asset, not a copy), on
+ * a white ground with the border colour round it, so the pale-blue bridge
+ * still reads on a shaded row. Same box as `Avatar`, same testid, so the row's
+ * layout does not move.
+ */
+export function BridgeAvatar({ size = 22 }: { size?: number }) {
+  return (
+    <span
+      className="rounded-full border border-border flex items-center justify-center flex-shrink-0 overflow-hidden"
+      style={{ width: size, height: size, background: '#fff' }}
+      aria-hidden
+      data-testid="chat-avatar"
+      data-bridge="true"
+    >
+      <img
+        src={bridgeIcon}
+        alt=""
+        style={{ width: '100%', height: '100%', objectFit: 'contain' }}
+        data-testid="chat-avatar-bridge"
+      />
     </span>
   );
 }

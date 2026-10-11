@@ -40,7 +40,7 @@ import {
 import type { PermitWithCycles, Project, UnitType } from '../../lib/database.types';
 import { useAppConfig } from '../../hooks/useAppConfig';
 import { Link } from 'react-router-dom';
-import { droneFolderUrl, googleMapsUrl, isWebUrl } from '../../lib/siteLinks';
+import { droneFolderUrl, footageLink, googleMapsUrl } from '../../lib/siteLinks';
 import { useMayWriteProject } from '../../hooks/useMayWriteProject';
 import { PARAM_DATA } from '../../lib/projectDataTabs';
 
@@ -850,13 +850,21 @@ export function SiteAndDates({
  * ★ Bobby, 10-10: *"lets build everything out that we can, and then clean it
  *   up once the location is set."* — so the folder is a Settings value, not a
  *   constant, and the per-project field is optional.
+ *
+ * ★★ fix-641 (P-337): "Footage folder ↗" now opens the PROJECT'S folder
+ *   (`drone_folder`, seeded from the library's folder names) and only falls
+ *   back to the whole library when the project has none. The priority lives
+ *   in `footageLink` — pasted link, then the project's folder, then the
+ *   shared one.
  */
 function SiteLinkRows({ project }: { project: Project }) {
   const cfgMap = useAppConfig().map;
   const mayWrite = useMayWriteProject(project.id);
   const mapUrl = googleMapsUrl(project.address, project.juris);
-  const own = isWebUrl(project.drone_video_url) ? project.drone_video_url.trim() : null;
-  const folder = droneFolderUrl(cfgMap);
+  const footage = footageLink(project, droneFolderUrl(cfgMap));
+  const own = footage.kind === 'own' ? footage.href : null;
+  const folder =
+    footage.kind === 'project-folder' || footage.kind === 'shared-folder' ? footage.href : null;
   // ★ Opens Project Data on Site, where the field focuses itself (#drone-video-url).
   const addTo = { search: `?${PARAM_DATA}=site`, hash: '#drone-video-url' };
   const linkCls = 'text-de font-semibold hover:underline';
@@ -881,8 +889,16 @@ function SiteLinkRows({ project }: { project: Project }) {
         ) : (
           <span className="flex flex-wrap items-baseline gap-x-1.5">
             {folder && (
-              <a href={folder} target="_blank" rel="noopener noreferrer" className={linkCls} data-testid="pd-site-drone-folder">
-                Drone footage folder ↗
+              <a
+                href={folder}
+                target="_blank"
+                rel="noopener noreferrer"
+                className={linkCls}
+                data-testid="pd-site-drone-folder"
+                data-folder-kind={footage.kind === 'project-folder' ? 'project' : 'shared'}
+                title={footage.kind === 'project-folder' ? (project.drone_folder ?? undefined) : 'Drone Photos'}
+              >
+                Footage folder ↗
               </a>
             )}
             {mayWrite ? (
