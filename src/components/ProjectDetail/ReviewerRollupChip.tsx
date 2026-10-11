@@ -9,14 +9,14 @@ import {
   isUnassignedReviewer,
   reviewerDisplayName,
   rollupCounts,
-  reviewerDue,
   rowsForCycle,
   statusLabel,
 } from '../../lib/reviewerRollup';
 import type { ReviewerCounts } from '../../lib/reviewerRollup';
 import { isTerminalPositiveStatus } from '../../lib/permitTerminalStatus';
 import { useViewportAwarePopover } from '../../hooks/useViewportAwarePopover';
-import { useReviewerTargetDates } from '../../hooks/useReviewerTargetDates';
+import { useReviewerDueEstimates } from '../../hooks/useReviewerDueEstimates';
+import { dueLine, usableCityTarget } from '../../lib/reviewerDueEstimate';
 import { todayIso } from '../../lib/dateUtils';
 
 // fix-64 (2026-05-27): popup is now viewport-aware. The hook flips
@@ -310,16 +310,18 @@ function ReviewerPopover({
     // A bare .localeCompare threw here and took the whole popover down.
     return compareReviewerNames(a, b);
   });
-  // ★★ fix-638 §A (P-333): due dates for the OPEN reviewers only. The rows
-  //    come from a view without `target_date`, so the popover asks the table
-  //    for its own handful of ids — see useReviewerTargetDates.
-  const openIds = rows
-    .filter((r) => {
-      const b = bucketStatus(r.current_status);
-      return b === 'in_review' || b === 'pending';
-    })
+  // ★★ fix-638 §A + fix-640 (P-335): a due date for every OPEN reviewer. The
+  //    city's `target_date` now arrives on the row (fix-640 widened the view);
+  //    the ones with no usable city date — none, or the slot's own open date —
+  //    ask the database for an estimate. Only while the popover is open.
+  const isOpen = (r: PermitCycleReviewer) => {
+    const b = bucketStatus(r.current_status);
+    return b === 'in_review' || b === 'pending';
+  };
+  const needEstimate = rows
+    .filter((r) => isOpen(r) && !usableCityTarget(r.target_date, r.last_event_date))
     .map((r) => r.id);
-  const targetDates = useReviewerTargetDates(openIds);
+  const estimates = useReviewerDueEstimates(needEstimate);
   const today = todayIso();
   // fix-103: stacked 2-line breakdown mirrors fix-95's PermitMiniTable cell
   // (src/pages/ProjectList.tsx) so Project View and Schedule Health speak
@@ -459,21 +461,27 @@ function ReviewerPopover({
                   </span>
                 )}
                 {(() => {
-                  const due = reviewerDue(
-                    r.current_status,
-                    targetDates.data?.get(r.id) ?? null,
+                  if (!isOpen(r)) return null;
+                  const due = dueLine(
+                    usableCityTarget(r.target_date, r.last_event_date),
+                    estimates.data?.get(r.id) ?? null,
                     today,
                   );
                   if (!due) return null;
+                  // ★ fix-640: an ESTIMATE reads muted (italic, never bold) —
+                  //   but a past-due one keeps the warning colour, because this
+                  //   is the follow-up queue. The tooltip names the basis.
                   return (
                     <span
-                      className="text-[8px] font-mono"
+                      className={`text-[8px] font-mono${due.estimated ? ' italic' : ''}`}
                       style={{
                         color: due.pastDue ? 'var(--color-wa)' : 'var(--color-dim)',
-                        fontWeight: due.pastDue ? 700 : undefined,
+                        fontWeight: due.pastDue && !due.estimated ? 700 : undefined,
                       }}
+                      title={due.title ?? undefined}
                       data-testid={`reviewer-due-${r.id}`}
                       data-past-due={due.pastDue ? 'true' : 'false'}
+                      data-estimated={due.estimated ? 'true' : 'false'}
                     >
                       {due.text}
                     </span>
