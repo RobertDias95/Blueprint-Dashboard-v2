@@ -1,4 +1,5 @@
 import { crNoticeHeadline } from './projectChat';
+import { resolveTagUserIds } from './mentionTags';
 
 // ===========================================================================
 // ★★★ fix-643 (P-338) — WHEN CORRECTIONS COME OUT, THE BRIDGE TAGS THE TEAM
@@ -47,10 +48,12 @@ export function ledgerKey(w: Pick<CycleWrite, 'permitId' | 'cycleIndex'>): strin
   return `${w.permitId}|${w.cycleIndex}`;
 }
 
-export interface Person {
-  userId: string;
-  /** The chip text — bp_mentionable_people's name for this login. */
+/** One role of the chat's project team (`bp_project_team_names`). */
+export interface TeamRole {
+  role: 'ENT' | 'DM' | 'DA';
   name: string;
+  /** null = no single active login (skipped, and reported). */
+  userId: string | null;
 }
 
 export interface NoticeInput {
@@ -58,10 +61,10 @@ export interface NoticeInput {
   permitType: string;
   round: number;
   corrIssued: string;
-  /** DM, DA, ENT in that order; null = no single active login (skipped). */
-  roles: readonly { role: 'DM' | 'DA' | 'ENT'; name: string | null; person: Person | null }[];
+  /** The project's ENT · DM · DA — the `@project` rule. */
+  team: readonly TeamRole[];
   /** null when the tenant has no Corrections tag. */
-  tag: { name: string; memberIds: readonly string[] } | null;
+  tag: { name: string; memberIds: readonly string[]; includeProjectTeam: boolean } | null;
 }
 
 export interface Notice {
@@ -71,32 +74,29 @@ export interface Notice {
   missing: string[];
 }
 
-/** MIRROR of bp_post_cr_notice's body and mentions. */
+/**
+ * MIRROR of bp_post_cr_notice.
+ *
+ * ★★★ fix-643b — ONE RULE: the notice reaches exactly who a person typing
+ * @Corrections in that project's chat reaches (`resolveTagUserIds`, the mirror
+ * of `bp_resolve_mention_tag`), and its body shows the single @Corrections
+ * chip. With no Corrections tag it still reaches the project team.
+ */
 export function buildNotice(n: NoticeInput): Notice {
-  const ids: string[] = [];
-  const tokens: string[] = [];
+  const teamIds = n.team.filter((r) => r.userId).map((r) => r.userId!);
   const missing: string[] = [];
-  for (const r of n.roles) {
-    if (!r.name || r.name.trim() === '') continue;
-    if (!r.person) {
-      missing.push(`${r.role} ${r.name.trim()}`);
-      continue;
-    }
-    if (ids.includes(r.person.userId)) continue;
-    ids.push(r.person.userId);
-    const t = `@${r.person.name}`;
-    if (!tokens.includes(t)) tokens.push(t);
-  }
+  let mentions: string[];
   if (!n.tag) {
     missing.push(`the ${CORRECTIONS_TAG} tag`);
+    mentions = [...new Set(teamIds)];
   } else {
-    for (const id of n.tag.memberIds) if (!ids.includes(id)) ids.push(id);
-    tokens.push(`@${n.tag.name.trim()}`);
+    mentions = resolveTagUserIds(n.tag.memberIds, n.tag.includeProjectTeam, teamIds);
   }
+  for (const r of n.team) if (!r.userId) missing.push(`${r.role} ${r.name}`);
   const headline = crNoticeHeadline(n.permitNum, n.permitType, n.round, n.corrIssued);
   return {
-    body: tokens.length ? `${headline}\n${tokens.join(' ')}` : headline,
-    mentions: ids,
+    body: n.tag ? `${headline}\n@${n.tag.name.trim()}` : headline,
+    mentions,
     missing,
   };
 }

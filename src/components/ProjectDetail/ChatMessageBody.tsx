@@ -16,8 +16,13 @@ import bridgeIcon from '../../assets/brand/bridge-icon-2026-256.png';
 export function MessageBody({
   body,
   people,
+  reachedNames,
 }: {
   body: string;
+  /** ★★ fix-643b: who this message ACTUALLY notified (its stored `mentions`,
+   *  as names). A tag chip's hover lists them — the tag's members today may
+   *  differ, and a smart tag differs per chat, so the stored ids are the truth. */
+  reachedNames?: readonly string[];
   /** ★ fix-347: people OR mention targets — a tag tints exactly like a person,
    *  because to the reader it is the same thing: a run of text that reached
    *  somebody. */
@@ -37,6 +42,11 @@ export function MessageBody({
               padding: '0 2px',
             }}
             data-testid="project-chat-mention"
+            title={
+              (seg.kind === 'tag' || seg.kind === 'smart') && reachedNames && reachedNames.length > 0
+                ? `Reached: ${reachedNames.join(', ')}`
+                : undefined
+            }
           >
             {seg.text}
           </span>

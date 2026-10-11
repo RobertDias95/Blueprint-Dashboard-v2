@@ -53,6 +53,33 @@ export interface MentionTag {
   name: string;
   member_ids: string[];
   updated_at?: string;
+  /** ★★ fix-643b: a SMART custom tag — it also reaches the chat's project team
+   *  (ENT · DM · DA, the `@project` rule). Optional so a pre-migration row reads
+   *  as a plain tag. */
+  include_project_team?: boolean;
+}
+
+/**
+ * ★★★ fix-643b — WHO A TAG REACHES IN ONE CHAT. MIRROR of
+ * `bp_resolve_mention_tag` (migrations/fix_643b_smart_corrections_tag.sql):
+ * the members first, then — only when the tag is smart and the chat has a
+ * project — the project team, each person once.
+ *
+ * Bobby, 2026-10-12: *"We could just do @corrections in any chat, and the rule
+ * would follow any chat … if I'm in Fisk or if I'm in Amadi, it will be able
+ * to distinguish that and then @ the correct people."*
+ */
+export function resolveTagUserIds(
+  memberIds: readonly string[],
+  includeProjectTeam: boolean,
+  projectTeamIds: readonly string[] | null,
+): string[] {
+  const out: string[] = [];
+  for (const id of memberIds) if (!out.includes(id)) out.push(id);
+  if (includeProjectTeam && projectTeamIds) {
+    for (const id of projectTeamIds) if (!out.includes(id)) out.push(id);
+  }
+  return out;
 }
 
 /** ★ What the parser scans for: a token you type after `@`, and everyone it
@@ -167,15 +194,29 @@ export function resolveRosterNames(
   return out;
 }
 
-/** A custom tag as a target. */
-export function customTagTarget(tag: MentionTag): MentionTarget {
+/**
+ * A custom tag as a target.
+ *
+ * ★★ fix-643b: `resolved` is what the database's one resolver returned for
+ * THIS chat (`bp_mention_tags_for_project`), and it wins — that is the same
+ * rule the Bridge's corrections notice uses. Until it arrives, a smart tag
+ * resolves here with the mirror over this chat's `@project` ids, so a message
+ * sent in the first instant still reaches the project team.
+ */
+export function customTagTarget(
+  tag: MentionTag,
+  ctx: { resolved?: readonly string[] | null; projectTeamIds?: readonly string[] | null } = {},
+): MentionTarget {
+  const smart = !!tag.include_project_team;
+  const userIds = ctx.resolved
+    ? [...new Set(ctx.resolved)]
+    : resolveTagUserIds(tag.member_ids ?? [], smart, ctx.projectTeamIds ?? null);
+  const n = smart ? userIds.length : (tag.member_ids ?? []).length;
   return {
     name: tag.name,
-    userIds: [...new Set(tag.member_ids ?? [])],
+    userIds,
     kind: 'tag',
-    hint: `${(tag.member_ids ?? []).length} ${
-      (tag.member_ids ?? []).length === 1 ? 'person' : 'people'
-    }`,
+    hint: `${n} ${n === 1 ? 'person' : 'people'}${smart ? " · incl. this project's team" : ''}`,
   };
 }
 
@@ -193,10 +234,17 @@ export function mentionTargets(input: {
   people: readonly MentionablePerson[];
   tags?: readonly MentionTag[];
   projectTag?: MentionTarget | null;
+  /** ★ fix-643b: tag id → the ids the database resolved for this chat. */
+  resolvedTags?: ReadonlyMap<string, readonly string[]> | null;
 }): (MentionablePerson | MentionTarget)[] {
   const out: (MentionablePerson | MentionTarget)[] = [];
   if (input.projectTag) out.push(input.projectTag);
-  for (const t of input.tags ?? []) out.push(customTagTarget(t));
+  for (const t of input.tags ?? []) {
+    out.push(customTagTarget(t, {
+      resolved: input.resolvedTags?.get(t.id) ?? null,
+      projectTeamIds: input.projectTag?.userIds ?? null,
+    }));
+  }
   // ★ THE PEOPLE STAY PEOPLE. Converting them to targets here would have cost
   // the picker their email and their user id — the two things it uses to tell
   // two "Matt"s apart and to key a row — and would have made every option look

@@ -41,17 +41,15 @@ import {
 
 const repo = (p: string) => readFileSync(resolve(__dirname, '../..', p), 'utf8');
 const sql = repo('migrations/fix_643_correction_notices.sql')
-  .split('\n')
+  // ★ CRLF-safe: in JS `.` does not match `\r`, so on a Windows checkout the
+  //   comment strip below would silently strip nothing.
+  .split(/\r?\n/)
   .map((l) => l.replace(/--.*$/, ''))
   .join('\n');
 
 const TODAY = '2026-10-11';
 const BP = 'Building Permit';
 
-const derry = { userId: 'u-derry', name: 'Derry' };
-const qisheng = { userId: 'u-qisheng', name: 'Qisheng' };
-const miles = { userId: 'u-miles', name: 'Miles' };
-const brittani = { userId: 'u-brittani', name: 'Brittani' };
 const CORRECTIONS = ['u-brittani', 'u-dave', 'u-gena', 'u-lucas', 'u-bobby'];
 
 function input(over: Partial<NoticeInput> = {}): NoticeInput {
@@ -60,12 +58,13 @@ function input(over: Partial<NoticeInput> = {}): NoticeInput {
     permitType: BP,
     round: 3,
     corrIssued: TODAY,
-    roles: [
-      { role: 'DM', name: 'Derry', person: derry },
-      { role: 'DA', name: 'Qisheng', person: qisheng },
-      { role: 'ENT', name: 'Miles', person: miles },
+    // ★ fix-643b: the project team (ENT · DM · DA) and a SMART Corrections tag.
+    team: [
+      { role: 'ENT', name: 'Miles', userId: 'u-miles' },
+      { role: 'DM', name: 'Derry', userId: 'u-derry' },
+      { role: 'DA', name: 'Qisheng', userId: 'u-qisheng' },
     ],
-    tag: { name: 'Corrections', memberIds: CORRECTIONS },
+    tag: { name: 'Corrections', memberIds: CORRECTIONS, includeProjectTeam: true },
     ...over,
   };
 }
@@ -84,8 +83,9 @@ describe('fix-643: which corrections writes post a notice', () => {
     expect(noticeEligible(w, TODAY)).toBe(true);
     const n = buildNotice(input());
     expect(n.body).toBe(
+      // ★ fix-643b: one @Corrections chip — the smart tag carries the team.
       'Corrections are out — BSF26-05168 (Building Permit), round 3. The city issued them Oct 11.\n' +
-      '@Derry @Qisheng @Miles @Corrections',
+      '@Corrections',
     );
     expect(n.mentions.sort()).toEqual(
       ['u-bobby', 'u-brittani', 'u-dave', 'u-derry', 'u-gena', 'u-lucas', 'u-miles', 'u-qisheng'],
@@ -125,7 +125,7 @@ describe('fix-643: which corrections writes post a notice', () => {
   });
 
   it('★★ someone who is both DM and in the tag gets one mention and one email', () => {
-    const n = buildNotice(input({ roles: [{ role: 'DM', name: 'Brittani', person: brittani }] }));
+    const n = buildNotice(input({ team: [{ role: 'DM', name: 'Brittani', userId: 'u-brittani' }] }));
     expect(n.mentions.filter((id) => id === 'u-brittani')).toHaveLength(1);
     expect(noticeQueue(n.mentions, emailOf, new Set()).filter((e) => e.startsWith('brittani'))).toHaveLength(1);
   });
@@ -139,14 +139,14 @@ describe('fix-643: which corrections writes post a notice', () => {
   });
 
   it('★★ an unresolvable DA is skipped and reported, and the notice still posts', () => {
-    const n = buildNotice(input({ roles: [{ role: 'DA', name: 'Alex', person: null }] }));
+    const n = buildNotice(input({ team: [{ role: 'DA', name: 'Alex', userId: null }] }));
     expect(n.missing).toEqual(['DA Alex']);
     expect(n.body).toContain('@Corrections');
     expect(n.body).not.toContain('@Alex');
     expect(sql).toMatch(/RAISE WARNING 'fix-643: corrections notice for permit % round % could not tag: %'/);
   });
 
-  it('★★ no Corrections tag: the permit\'s people are still tagged, and it is reported', () => {
+  it('★★ no Corrections tag: the project team is still tagged, and it is reported', () => {
     const n = buildNotice(input({ tag: null }));
     expect(n.missing).toEqual(['the Corrections tag']);
     expect(n.mentions.sort()).toEqual(['u-derry', 'u-miles', 'u-qisheng']);

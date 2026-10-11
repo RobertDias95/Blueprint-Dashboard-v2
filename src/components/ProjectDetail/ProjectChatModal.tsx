@@ -51,7 +51,7 @@ import { Avatar } from './ChatMessageBody';
 import { projectInternalTeam } from '../../lib/projectTeam';
 import { TEAM_INTERNAL_ROWS } from '../../lib/overviewCardLayout';
 import { defaultTaskBucket } from '../../lib/permitPhase';
-import { useMentionTags } from '../../hooks/useMentionTags';
+import { useMentionTags, useResolvedMentionTags } from '../../hooks/useMentionTags';
 import {
   useProjectReactions,
 } from '../../hooks/useMessageReactions';
@@ -140,6 +140,8 @@ export default function ProjectChatModal({
   // not get an opinion about who is on a project).
   const projectsQ = useProjects();
   const tagsQ = useMentionTags();
+  // ★★ fix-643b: smart tags (@Corrections) resolved for THIS chat's project.
+  const resolvedTagsQ = useResolvedMentionTags(projectId);
   const reactionsQ = useProjectReactions(projectId);
   const project = useMemo(
     () => (projectsQ.data ?? []).find((p) => p.id === projectId) ?? null,
@@ -169,8 +171,9 @@ export default function ProjectChatModal({
         people,
         tags: tagsQ.data ?? [],
         projectTag,
+        resolvedTags: resolvedTagsQ.data ?? null,
       }),
-    [people, tagsQ.data, projectTag],
+    [people, tagsQ.data, projectTag, resolvedTagsQ.data],
   );
   const reactions = useMemo(() => reactionsQ.data ?? [], [reactionsQ.data]);
 

@@ -365,7 +365,13 @@ export default function ChatMessageRow({
             className="text-[13px] text-text mt-0.5"
             style={{ whiteSpace: 'pre-wrap' }}
           >
-            <MessageBody body={message.body} people={targets ?? people} />
+            <MessageBody
+              body={message.body}
+              people={targets ?? people}
+              reachedNames={(message.mentions ?? []).map(
+                (id) => people.find((p) => p.user_id === id)?.name ?? 'Someone',
+              )}
+            />
           </div>
         )}
 

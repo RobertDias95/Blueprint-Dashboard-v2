@@ -736,7 +736,42 @@ describe('fix-347 §2: creating and editing a custom tag', () => {
       p_id: null,
       p_name: 'Leadership',
       p_member_ids: [DERRY, ANA],
+      // ★ fix-643b: the smart switch is always sent, off unless ticked.
+      p_include_project_team: false,
     });
+  });
+
+  it('★★ fix-643b: "Also tag this chat\'s project team" saves the tag as SMART', async () => {
+    db.tags = [{ id: 'tag-c', name: 'Corrections', member_ids: [DERRY] }];
+    renderTags();
+    await waitFor(() =>
+      expect(screen.getByTestId('mention-tag-edit-Corrections')).toBeInTheDocument(),
+    );
+    fireEvent.click(screen.getByTestId('mention-tag-edit-Corrections'));
+    const box = screen.getByTestId('mention-tag-include-project-team') as HTMLInputElement;
+    expect(box.checked).toBe(false);
+    fireEvent.click(box);
+    fireEvent.click(screen.getByTestId('mention-tag-save'));
+    await waitFor(() =>
+      expect(db.rpcCalls.some((c) => c.name === 'bp_upsert_mention_tag')).toBe(true),
+    );
+    expect(db.rpcCalls.find((c) => c.name === 'bp_upsert_mention_tag')!.args).toEqual({
+      p_id: 'tag-c',
+      p_name: 'Corrections',
+      p_member_ids: [DERRY],
+      p_include_project_team: true,
+    });
+  });
+
+  it('★ fix-643b: a smart tag says so in the list, and opens with the box ticked', async () => {
+    db.tags = [{ id: 'tag-c', name: 'Corrections', member_ids: [DERRY], include_project_team: true }];
+    renderTags();
+    await waitFor(() =>
+      expect(screen.getByTestId('mention-tag-smart-note-Corrections')).toBeInTheDocument(),
+    );
+    expect(screen.getByTestId('mention-tag-smart-note-Corrections').textContent).toContain('ENT · DM · DA');
+    fireEvent.click(screen.getByTestId('mention-tag-edit-Corrections'));
+    expect((screen.getByTestId('mention-tag-include-project-team') as HTMLInputElement).checked).toBe(true);
   });
 
   it('★ an existing tag is edited in place, membership replaced whole', async () => {
@@ -760,6 +795,7 @@ describe('fix-347 §2: creating and editing a custom tag', () => {
       p_id: 'tag-1',
       p_name: 'Leadership',
       p_member_ids: [NICKY],
+      p_include_project_team: false,
     });
   });
 
