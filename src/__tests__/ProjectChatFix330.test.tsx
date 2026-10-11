@@ -585,7 +585,9 @@ describe('fix-330: the @ picker, driven', () => {
 
 describe('fix-330: creating a task chooses its permit', () => {
   beforeEach(() => {
-    mocks.messages = [message({ id: 'm-7', body: 'chase the survey' })];
+    // ★ fix-633 §7: only the POSTER can create a task from a message, so the
+    //   viewer (Bobby) authors it here.
+    mocks.messages = [message({ id: 'm-7', body: 'chase the survey', author_id: BOBBY })];
   });
 
   it('★ the chooser shows number AND type, so two permits are distinguishable', () => {

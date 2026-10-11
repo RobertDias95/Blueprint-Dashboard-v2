@@ -210,12 +210,14 @@ describe('fix-334 §1: posts, with replies inside them', () => {
     expect(within(replies).getByText('Thanks')).toBeInTheDocument();
   });
 
-  it('the post list shows a reply count and the newest activity', () => {
+  // ★ fix-633 §10 superseded "N replies · time" with a bare message count
+  //   (the post + its replies); the newest activity moved to the hover.
+  it('the post list shows a message count, with the newest activity on hover', () => {
     mocks.messages = [post(), reply({ id: 'r-1' }), reply({ id: 'r-2' })];
     renderModal();
-    expect(
-      screen.getByTestId(`project-chat-post-replies-${POST_ID}`),
-    ).toHaveTextContent('2 replies');
+    const count = screen.getByTestId(`project-chat-post-count-${POST_ID}`);
+    expect(count).toHaveTextContent('3');
+    expect(count.getAttribute('title')).toMatch(/^3 messages · last /);
   });
 
   it('★ different posts keep different conversations apart', () => {

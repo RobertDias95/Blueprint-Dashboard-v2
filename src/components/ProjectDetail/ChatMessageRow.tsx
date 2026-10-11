@@ -48,6 +48,10 @@ import { useDirtySurface } from '../../hooks/useDirtySurface';
 // render only for your own message AND the database refuses anyone else's row —
 // proved on prod with a second identity.
 
+/** ★ fix-633 §8: compact enough to sit on the name line without growing it. */
+const ACTION_BTN =
+  'text-[10px] leading-4 border border-border rounded px-1.5 text-text hover:bg-s2 transition';
+
 export default function ChatMessageRow({
   message,
   projectId,
@@ -61,6 +65,9 @@ export default function ChatMessageRow({
   focused = false,
   /** A post's own row is styled a little louder than a reply. */
   variant = 'reply',
+  /** ★ fix-633 §4: every other message carries a light shade so neighbours
+   *  read as separate messages. The caller decides the alternation. */
+  shaded = false,
 }: {
   message: ProjectMessage;
   projectId: string;
@@ -80,6 +87,7 @@ export default function ChatMessageRow({
   permits: PermitWithCycles[];
   focused?: boolean;
   variant?: 'post' | 'reply';
+  shaded?: boolean;
 }) {
   // ★★ fix-343 / register #127: THE AVATAR'S INITIALS READ THE ROSTER NOW.
   //
@@ -154,9 +162,13 @@ export default function ChatMessageRow({
       ref={ref}
       className="flex gap-2.5"
       style={{
-        ...(toMe && !deleted
+        // ★ fix-633 §4: the shade and the "to me" highlight share one box
+        //   (the negative margin keeps the text aligned with unshaded rows).
+        //   A message to you keeps its blue — that is the louder fact.
+        ...((toMe && !deleted) || shaded
           ? {
-              background: 'var(--color-de-bg)',
+              background:
+                toMe && !deleted ? 'var(--color-de-bg)' : 'var(--color-s2)',
               margin: '-7px -9px',
               padding: '7px 9px',
               borderRadius: 8,
@@ -174,10 +186,11 @@ export default function ChatMessageRow({
       data-to-me={toMe ? 'true' : 'false'}
       data-deleted={deleted ? 'true' : 'false'}
       data-focused={focused ? 'true' : 'false'}
+      data-shaded={shaded ? 'true' : 'false'}
     >
       <Avatar name={fullNameOf(message.author_name)} />
       <div className="flex-1 min-w-0">
-        <div className="flex items-baseline gap-2 flex-wrap">
+        <div className="flex items-center gap-2 flex-wrap">
           <span
             className={
               variant === 'post'
@@ -213,6 +226,89 @@ export default function ChatMessageRow({
               data-testid={`project-chat-deleted-${message.id}`}
             >
               deleted
+            </span>
+          )}
+          {/* ★★ fix-633 §7 + §8 — THE POSTER'S BUTTONS, ON THE NAME LINE.
+              Dave: "only the person making a post can create a task – similar
+              to the way only they can edit or delete" (Bobby: poster only), and
+              "move to the top to condense the size of the overall post". So
+              somebody else's message has NO action buttons at all — the
+              "Add a task" toggle under the reply box is still everyone's.
+              ★ Edit/delete permissions are unchanged: the author only, and the
+              database refuses anyone else's row regardless. */}
+          {mine && !deleted && !editing && (
+            <span
+              className="ml-auto flex items-center gap-1 flex-none"
+              data-testid={`project-chat-actions-${message.id}`}
+            >
+              {!made && !composing && (
+                <button
+                  type="button"
+                  onClick={() => setComposing(true)}
+                  disabled={permits.length === 0}
+                  title={
+                    permits.length === 0
+                      ? 'This project has no permit to hang a task on yet'
+                      : 'Create a task from this message'
+                  }
+                  className={ACTION_BTN + ' disabled:opacity-50 disabled:cursor-not-allowed'}
+                  data-testid={`project-chat-create-task-${message.id}`}
+                >
+                  Create task
+                </button>
+              )}
+              <button
+                type="button"
+                onClick={() => {
+                  setDraft(message.body);
+                  setEditing(true);
+                }}
+                className={ACTION_BTN}
+                data-testid={`project-chat-edit-${message.id}`}
+              >
+                Edit
+              </button>
+              {confirmDelete ? (
+                <span className="flex items-center gap-1">
+                  <span className="text-[10px] text-dim">Delete this?</span>
+                  <button
+                    type="button"
+                    onClick={() =>
+                      del.mutate(
+                        { messageId: message.id },
+                        { onSuccess: () => setConfirmDelete(false) },
+                      )
+                    }
+                    disabled={del.isPending}
+                    className="text-[10px] leading-4 rounded px-1.5 font-bold disabled:opacity-50"
+                    style={{
+                      background: '#fee2e2',
+                      color: '#991b1b',
+                      border: '1px solid #fca5a5',
+                    }}
+                    data-testid={`project-chat-delete-confirm-${message.id}`}
+                  >
+                    Delete
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setConfirmDelete(false)}
+                    className="text-[10px] text-dim hover:text-text px-1"
+                    data-testid={`project-chat-delete-cancel-${message.id}`}
+                  >
+                    Keep
+                  </button>
+                </span>
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => setConfirmDelete(true)}
+                  className="text-[10px] leading-4 border border-border rounded px-1.5 text-dim hover:text-text transition"
+                  data-testid={`project-chat-delete-${message.id}`}
+                >
+                  Delete
+                </button>
+              )}
             </span>
           )}
         </div>
@@ -358,85 +454,6 @@ export default function ChatMessageRow({
           />
         ) : null}
 
-        {!deleted && !editing && (
-          <div className="flex gap-1.5 mt-2 flex-wrap">
-            {!made && !composing && (
-              <button
-                type="button"
-                onClick={() => setComposing(true)}
-                disabled={permits.length === 0}
-                title={
-                  permits.length === 0
-                    ? 'This project has no permit to hang a task on yet'
-                    : 'Create a task from this message'
-                }
-                className="text-[10.5px] border border-border rounded px-2 py-0.5 text-text hover:bg-s2 transition disabled:opacity-50 disabled:cursor-not-allowed"
-                data-testid={`project-chat-create-task-${message.id}`}
-              >
-                Create task
-              </button>
-            )}
-            {/* ★ Only the author's own. The database agrees — this is not the
-                only thing standing between somebody and another person's
-                words. */}
-            {mine && (
-              <>
-                <button
-                  type="button"
-                  onClick={() => {
-                    setDraft(message.body);
-                    setEditing(true);
-                  }}
-                  className="text-[10.5px] border border-border rounded px-2 py-0.5 text-text hover:bg-s2 transition"
-                  data-testid={`project-chat-edit-${message.id}`}
-                >
-                  Edit
-                </button>
-                {confirmDelete ? (
-                  <span className="flex items-center gap-1.5">
-                    <span className="text-[10px] text-dim">Delete this?</span>
-                    <button
-                      type="button"
-                      onClick={() =>
-                        del.mutate(
-                          { messageId: message.id },
-                          { onSuccess: () => setConfirmDelete(false) },
-                        )
-                      }
-                      disabled={del.isPending}
-                      className="text-[10.5px] rounded px-2 py-0.5 font-bold disabled:opacity-50"
-                      style={{
-                        background: '#fee2e2',
-                        color: '#991b1b',
-                        border: '1px solid #fca5a5',
-                      }}
-                      data-testid={`project-chat-delete-confirm-${message.id}`}
-                    >
-                      Delete
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setConfirmDelete(false)}
-                      className="text-[10.5px] text-dim hover:text-text px-1"
-                      data-testid={`project-chat-delete-cancel-${message.id}`}
-                    >
-                      Keep
-                    </button>
-                  </span>
-                ) : (
-                  <button
-                    type="button"
-                    onClick={() => setConfirmDelete(true)}
-                    className="text-[10.5px] border border-border rounded px-2 py-0.5 text-dim hover:text-text transition"
-                    data-testid={`project-chat-delete-${message.id}`}
-                  >
-                    Delete
-                  </button>
-                )}
-              </>
-            )}
-          </div>
-        )}
       </div>
     </div>
   );

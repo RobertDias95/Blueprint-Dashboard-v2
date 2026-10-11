@@ -489,7 +489,9 @@ describe('fix-329: the modal', () => {
   // that same anchor and lets the person disagree. The anchor itself is still a
   // fix-329 contract and is asserted below, unchanged.
   it('★ Create task opens the chooser instead of choosing for you', () => {
-    mocks.messages = [message({ id: 'm-7', body: 'chase the survey' })];
+    // ★ fix-633 §7: only the POSTER can create a task from a message, so the
+    //   viewer (Bobby) authors it here.
+    mocks.messages = [message({ id: 'm-7', body: 'chase the survey', author_id: BOBBY })];
     openModal([permit({ id: 21, type: 'Demolition' }), permit({ id: 12, type: 'Building Permit' })]);
     fireEvent.click(screen.getByTestId('project-chat-create-task-m-7'));
     expect(screen.getByTestId('chat-task-composer-m-7')).toBeInTheDocument();
@@ -509,7 +511,9 @@ describe('fix-329: the modal', () => {
   });
 
   it('a project with no permits disables Create task and says why', () => {
-    mocks.messages = [message({ id: 'm-3', body: 'no permits here' })];
+    // ★ fix-633 §7: only the POSTER can create a task from a message, so the
+    //   viewer (Bobby) authors it here.
+    mocks.messages = [message({ id: 'm-3', body: 'no permits here', author_id: BOBBY })];
     openModal([]);
     const btn = screen.getByTestId('project-chat-create-task-m-3') as HTMLButtonElement;
     expect(btn).toBeDisabled();

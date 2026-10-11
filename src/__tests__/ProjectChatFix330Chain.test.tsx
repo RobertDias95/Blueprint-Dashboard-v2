@@ -440,7 +440,9 @@ beforeEach(() => {
     {
       id: 'm-7',
       project_id: PROJECT,
-      author_id: BOBBY,
+      // ★ fix-633 §7: only the poster can create a task from a message —
+      //   so the signed-in viewer authors it.
+      author_id: authMock.userId,
       author_name: 'Bobby',
       body: 'Chase the demo survey',
       mentions: [],
