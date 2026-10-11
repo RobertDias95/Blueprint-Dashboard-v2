@@ -22,6 +22,18 @@ This function decides only **whether it is still worth sending** (opted out,
 message deleted, or task finished in the seconds since) and **how it looks**.
 Several assignments for one person in one drain become one email listing them.
 
+## Scheduled kinds (pg_cron → queue → this function)
+
+| kind | queued by | when | who | switch |
+|---|---|---|---|---|
+| `notify:intake` (fix-637) | `bp_intake_warning_enqueue()` | weekdays 7 AM Pacific, while anything is due | Settings → Teams → Seattle intake warning | none (work alert) |
+| `notify:weekly` (fix-642) | `bp_weekly_update_enqueue()` | Wednesday 7 AM Pacific, once per edition | agenda members | "Weekly Update" |
+
+Both freeze their content into `notification_email_queue.payload` at queue time,
+so the email says what was true at 7 AM. Both cron jobs fire at 14:00 and 15:00
+UTC (7 AM in either DST state); the function's own Pacific-hour gate and the
+dedupe key make the extra firing a no-op.
+
 ## Deploy
 
 ```

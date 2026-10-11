@@ -77,9 +77,9 @@ export const SETTINGS_BLOCKS: readonly SettingsBlock[] = [
     id: 'email-notifications',
     category: 'account',
     title: 'Email notifications',
-    summary: 'Email me when I am @-mentioned or assigned a task',
+    summary: 'Email me when I am @-mentioned or assigned a task, and the Weekly Update',
     feeds: ['Email'],
-    keywords: 'email notification mention assigned task alert opt out bridge@',
+    keywords: 'email notification mention assigned task alert opt out bridge@ weekly update agenda',
   },
   {
     id: 'sign-in-info',

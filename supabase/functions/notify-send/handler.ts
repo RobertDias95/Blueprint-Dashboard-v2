@@ -51,10 +51,43 @@ export interface IntakePayload {
   items: IntakeItem[];
 }
 
+/** ★ fix-642: one snapshot row, as `bp_weekly_snapshot_for` returns it (the
+ *  pop-up's `SnapshotRow`, a deliberate copy — functions cannot import src/). */
+export interface WeeklyRow {
+  bucket: WeeklyBucket;
+  permit_id: number;
+  project_id: string | null;
+  address: string | null;
+  num: string | null;
+  type: string | null;
+  ent_lead: string | null;
+  da: string | null;
+  status: string | null;
+  on_date: string | null;
+  age_days: number | null;
+}
+
+/** ★ fix-642: one open agenda item, as `bp_weekly_update_payload` froze it. */
+export interface WeeklyAgendaItem {
+  id: string;
+  text: string | null;
+  assigned_to: string | null;
+  priority: boolean;
+  created_at: string | null;
+  days_on_agenda: number | null;
+}
+
+/** ★ fix-642: the `notify:weekly` payload. */
+export interface WeeklyPayload {
+  edition: string;
+  snapshot: { today: string; rows: WeeklyRow[] };
+  agenda: WeeklyAgendaItem[];
+}
+
 /** One row of `bp_notify_claim`. */
 export interface ClaimedRow {
   id: string;
-  kind: 'notify:mention' | 'notify:assignment' | 'notify:intake';
+  kind: 'notify:mention' | 'notify:assignment' | 'notify:intake' | 'notify:weekly';
   to_email: string;
   recipient_user_id: string;
   project_id: string | null;
@@ -70,8 +103,8 @@ export interface ClaimedRow {
   task_text: string | null;
   task_done: boolean;
   task_due: string | null;
-  /** ★ fix-637: set for `notify:intake` only. */
-  payload?: IntakePayload | null;
+  /** ★ fix-637: set for `notify:intake`; ★ fix-642: and for `notify:weekly`. */
+  payload?: IntakePayload | WeeklyPayload | null;
 }
 
 export interface OutboxRow {
@@ -345,7 +378,7 @@ const INTAKE_WHY_TEXT =
   'day while anything is due, and is not affected by the mention/assignment email switches.';
 
 export function renderIntake(row: ClaimedRow): RenderedNotification {
-  const items = row.payload?.items ?? [];
+  const items = (row.payload as IntakePayload | null | undefined)?.items ?? [];
   const subject = intakeSubject(items.length);
   const RED = '#b42318';
   const AMBER = '#b54708';
@@ -392,6 +425,209 @@ export function renderIntake(row: ClaimedRow): RenderedNotification {
 }
 
 // ---------------------------------------------------------------------------
+// ★★★ fix-642 (P-017 #44) — the Weekly Update, by email
+// ---------------------------------------------------------------------------
+// ⚖️ Same people as the pop-up (agenda members), the Wednesday morning the
+// edition goes live, one per person per edition, with its own opt-out switch.
+// The payload was frozen at 7 AM by `bp_weekly_update_payload`: the SAME
+// snapshot function the pop-up reads, plus the open agenda items. This renders
+// what the pop-up renders — agenda, then the five buckets, each sorted the way
+// the pop-up opens (its default sort) and cut to the top 5.
+
+/** ★ The pop-up's five buckets. */
+export type WeeklyBucket = 'a' | 'b' | 'c' | 'd' | 'e';
+
+/** ★ A deliberate copy of `SNAPSHOT_SECTIONS` (src/lib/weeklySnapshot.ts),
+ *  pinned by a twin test: heading, date column and age column. */
+export const WEEKLY_SECTIONS: readonly {
+  key: WeeklyBucket;
+  title: string;
+  dateLabel: string;
+  ageLabel: string;
+}[] = [
+  { key: 'a', title: 'Intake due in the next 14 days', dateLabel: 'Target submit', ageLabel: 'Due in' },
+  { key: 'b', title: 'Intake past due, still not submitted', dateLabel: 'Target submit', ageLabel: 'Days late' },
+  { key: 'c', title: 'Submitted, intake fee not paid', dateLabel: 'Submitted', ageLabel: 'Days waiting' },
+  { key: 'd', title: 'In corrections more than 7 days', dateLabel: 'Corrections issued', ageLabel: 'Days out' },
+  { key: 'e', title: 'Approved, not yet issued', dateLabel: 'Approved', ageLabel: 'Days since' },
+];
+
+/** ★ Rows per bucket in the email. The rest are "+ N more". */
+export const WEEKLY_TOP_N = 5;
+
+/** ★ A deliberate copy of `/agenda` (router.tsx). The Agenda screen renders the
+ *  Weekly Update, and the pop-up opens over it if it is still unacknowledged. */
+export const WEEKLY_UPDATE_URL = `${BRIDGE_APP_ORIGIN}/agenda`;
+
+/**
+ * ★★ The pop-up's DEFAULT order (SnapshotSection: age_days, descending):
+ * numeric, nulls last, and a STABLE sort, so ties keep the server's order
+ * (bucket, age DESC, address). Mirrors `sortRows` in src/lib/weeklySnapshot.ts
+ * for that one sort — pinned by a twin test.
+ */
+export function weeklySortRows(rows: readonly WeeklyRow[]): WeeklyRow[] {
+  return rows
+    .map((r, i) => ({ r, i }))
+    .sort((x, y) => {
+      const a = x.r.age_days;
+      const b = y.r.age_days;
+      const aNull = a === null || a === undefined;
+      const bNull = b === null || b === undefined;
+      if (aNull && bNull) return x.i - y.i;
+      if (aNull) return 1;
+      if (bNull) return -1;
+      return b - a || x.i - y.i;
+    })
+    .map((x) => x.r);
+}
+
+export interface WeeklyBucketView {
+  key: WeeklyBucket;
+  title: string;
+  dateLabel: string;
+  ageLabel: string;
+  count: number;
+  top: WeeklyRow[];
+  more: number;
+}
+
+/** Each bucket: its count, its top 5 in the pop-up's order, and how many more. */
+export function weeklyBuckets(rows: readonly WeeklyRow[]): WeeklyBucketView[] {
+  return WEEKLY_SECTIONS.map((s) => {
+    const mine = weeklySortRows(rows.filter((r) => r.bucket === s.key));
+    const top = mine.slice(0, WEEKLY_TOP_N);
+    return { ...s, count: mine.length, top, more: mine.length - top.length };
+  });
+}
+
+const WEEKDAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+
+/** "Wed, Oct 14" from `2026-10-14`. No locale, no zone: the key is the date. */
+export function editionLabel(edition: string): string {
+  const [y, m, d] = (edition ?? '').slice(0, 10).split('-').map(Number);
+  if (!y || !m || !d) return edition;
+  const wd = new Date(Date.UTC(y, m - 1, d)).getUTCDay();
+  return `${WEEKDAYS[wd]}, ${MONTHS[m - 1]} ${d}`;
+}
+
+export function weeklySubject(edition: string): string {
+  return `Weekly Update · ${editionLabel(edition)}`;
+}
+
+function permitOf(r: WeeklyRow): string {
+  return (r.num ?? '').trim() || (r.type ?? '').trim() || '—';
+}
+
+function addressOfRow(r: WeeklyRow): string {
+  return (r.address ?? '').trim() || '(no address)';
+}
+
+function dateOf(r: WeeklyRow): string {
+  return r.on_date ? usDate(r.on_date) : '—';
+}
+
+function ageOf(r: WeeklyRow): string {
+  return r.age_days === null || r.age_days === undefined ? '—' : String(r.age_days);
+}
+
+function daysOnAgenda(i: WeeklyAgendaItem): string {
+  const n = i.days_on_agenda ?? 0;
+  return n === 1 ? '1 day on the agenda' : `${n} days on the agenda`;
+}
+
+const WEEKLY_WHY_TEXT =
+  "You're getting this because you're in the weekly meeting (an agenda member). " +
+  'Turn it off in Settings → My account → Email notifications → Weekly Update.';
+
+export function renderWeekly(row: ClaimedRow): RenderedNotification {
+  const p = (row.payload ?? null) as WeeklyPayload | null;
+  const edition = p?.edition ?? '';
+  const agenda = p?.agenda ?? [];
+  const buckets = weeklyBuckets(p?.snapshot?.rows ?? []);
+  const subject = weeklySubject(edition);
+
+  const h2 = (t: string) =>
+    `<h2 style="font-family:${SANS};font-size:16px;margin:22px 0 8px 0;color:#111111">${t}</h2>`;
+  const cell = 'padding:6px 8px 6px 0;border-top:1px solid #e5e7eb;vertical-align:top';
+  const head = (t: string, right = false) =>
+    `<th align="${right ? 'right' : 'left'}" style="padding:0 8px 4px 0;font-size:11px;` +
+    `text-transform:uppercase;letter-spacing:.04em;color:${MUTED}">${escapeHtml(t)}</th>`;
+  const table = (inner: string) =>
+    '<table role="presentation" cellpadding="0" cellspacing="0" border="0" ' +
+    `style="border-collapse:collapse;font-family:${SANS};font-size:14px;width:100%">${inner}</table>`;
+
+  // — the agenda —
+  const agendaHtml = agenda.length === 0
+    ? `<p style="margin:0;color:${MUTED}">Nothing on the agenda yet.</p>`
+    : '<ul style="padding-left:20px;margin:0">' +
+      agenda.map((i) =>
+        '<li style="margin:0 0 8px 0">' +
+        (i.priority ? `<strong style="color:#b42318">Priority · </strong>` : '') +
+        `<strong>${escapeHtml(excerpt(i.text ?? '(untitled)', 200))}</strong>` +
+        `<br /><span style="font-size:13px;color:${MUTED}">` +
+        `${escapeHtml(i.assigned_to ?? 'Unassigned')} · ${escapeHtml(daysOnAgenda(i))}</span>` +
+        '</li>').join('') +
+      '</ul>';
+
+  // — the five buckets —
+  const bucketHtml = buckets.map((b) => {
+    const heading = h2(`${escapeHtml(b.title)} <span style="color:${MUTED};font-weight:400">· ${b.count}</span>`);
+    if (b.count === 0) {
+      return heading + `<p style="margin:0;color:${MUTED}">None this week.</p>`;
+    }
+    const rows = b.top.map((r) => {
+      const addr = r.project_id
+        ? `<a href="${escapeHtml(projectUrl(r.project_id) + '?permit=' + encodeURIComponent(String(r.permit_id)))}" ` +
+          `style="color:${BLUE}">${escapeHtml(addressOfRow(r))}</a>`
+        : escapeHtml(addressOfRow(r));
+      return '<tr>' +
+        `<td style="${cell};font-weight:600">${addr}</td>` +
+        `<td style="${cell}">${escapeHtml(permitOf(r))}</td>` +
+        `<td style="${cell};white-space:nowrap">${escapeHtml(dateOf(r))}</td>` +
+        `<td align="right" style="${cell};white-space:nowrap;font-weight:600">${escapeHtml(ageOf(r))}</td>` +
+        '</tr>';
+    }).join('');
+    return heading +
+      table(`<tr>${head('Project')}${head('Permit')}${head(b.dateLabel)}${head(b.ageLabel, true)}</tr>${rows}`) +
+      (b.more > 0
+        ? `<p style="margin:6px 0 0 0;font-size:13px;color:${MUTED}">+ ${b.more} more</p>`
+        : '');
+  }).join('');
+
+  const bodyHtml =
+    `<p style="margin:0 0 4px 0">The Weekly Update for <strong>${escapeHtml(editionLabel(edition))}</strong>, ` +
+    'before our weekly meeting. Counts are as of 7 AM.</p>' +
+    h2('Agenda') + agendaHtml +
+    bucketHtml +
+    buttonHtml(WEEKLY_UPDATE_URL, 'Open the Weekly Update') +
+    `<p style="font-size:12px;color:${MUTED};margin:16px 0 0 0">${escapeHtml(WEEKLY_WHY_TEXT)} ` +
+    `<a href="${escapeHtml(SETTINGS_URL)}" style="color:${BLUE}">Email settings</a></p>`;
+
+  const bodyText =
+    `The Weekly Update for ${editionLabel(edition)}, before our weekly meeting. Counts are as of 7 AM.\n\n` +
+    'AGENDA\n' +
+    (agenda.length === 0
+      ? 'Nothing on the agenda yet.\n'
+      : agenda.map((i) =>
+        `- ${i.priority ? 'Priority · ' : ''}${excerpt(i.text ?? '(untitled)', 200)} · ` +
+        `${i.assigned_to ?? 'Unassigned'} · ${daysOnAgenda(i)}`,
+      ).join('\n') + '\n') +
+    buckets.map((b) =>
+      `\n${b.title.toUpperCase()} · ${b.count}\n` +
+      (b.count === 0
+        ? 'None this week.\n'
+        : b.top.map((r) =>
+          `- ${addressOfRow(r)} · ${permitOf(r)} · ${b.dateLabel} ${dateOf(r)} · ${b.ageLabel} ${ageOf(r)}`,
+        ).join('\n') + '\n' + (b.more > 0 ? `+ ${b.more} more\n` : '')),
+    ).join('') +
+    `\nOpen the Weekly Update: ${WEEKLY_UPDATE_URL}\n\n${WEEKLY_WHY_TEXT} ${SETTINGS_URL}`;
+
+  const branded = renderBrandedEmail({ bodyHtml, bodyText });
+  return { subject, html: branded.html, text: branded.text, inlineImages: branded.inlineImages };
+}
+
+// ---------------------------------------------------------------------------
 // The drain
 // ---------------------------------------------------------------------------
 
@@ -400,7 +636,10 @@ export function skipReason(row: ClaimedRow): string | null {
   if (row.opted_out) return 'recipient opted out';
   if (row.kind === 'notify:mention' && row.message_deleted) return 'message deleted before send';
   if (row.kind === 'notify:assignment' && row.task_done) return 'task done before send';
-  if (row.kind === 'notify:intake' && (row.payload?.items?.length ?? 0) === 0) return 'nothing due';
+  if (row.kind === 'notify:intake' && ((row.payload as IntakePayload | null | undefined)?.items?.length ?? 0) === 0) return 'nothing due';
+  // ★ fix-642: a weekly row with no payload has nothing to say. (An EMPTY week
+  //   still sends — the pop-up shows on an empty week too.)
+  if (row.kind === 'notify:weekly' && !(row.payload as WeeklyPayload | null | undefined)?.edition) return 'no weekly payload';
   if ((row.to_email ?? '').trim() === '') return 'no recipient address';
   return null;
 }
@@ -414,7 +653,8 @@ export function planEmails(rows: ClaimedRow[]): ClaimedRow[][] {
   const byRecipient = new Map<string, ClaimedRow[]>();
   for (const r of rows) {
     // ★ fix-637: an intake warning is already one email per person per day.
-    if (r.kind === 'notify:mention' || r.kind === 'notify:intake') {
+    // ★ fix-642: and a Weekly Update is one per person per edition.
+    if (r.kind === 'notify:mention' || r.kind === 'notify:intake' || r.kind === 'notify:weekly') {
       out.push([r]);
     } else {
       const k = r.to_email.trim().toLowerCase();
@@ -452,6 +692,7 @@ export async function drain(deps: Deps, rows: ClaimedRow[]): Promise<DrainSummar
       rendered =
         first.kind === 'notify:mention' ? renderMention(first)
         : first.kind === 'notify:intake' ? renderIntake(first)
+        : first.kind === 'notify:weekly' ? renderWeekly(first)
         : renderAssignment(group);
     } catch (e) {
       // ★ A render bug still leaves a failed row, never nothing.
