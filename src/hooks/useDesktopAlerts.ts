@@ -1,10 +1,11 @@
 import { useEffect, useRef } from 'react';
 import { useBoardNotifications } from './useBoardNotifications';
 import { useSoundPref } from './useSoundPref';
-import { bannerBody, bannerTag, planAlerts } from '../lib/desktopAlerts';
+import { bannerBody, bannerTag, isAudible, planAlerts } from '../lib/desktopAlerts';
 import { playDing } from '../lib/alertSound';
 import { targetHref } from '../lib/notificationTargets';
 import { appServiceWorker } from '../lib/serviceWorker';
+import { recordDeliveries } from '../lib/deliveryReceipts';
 
 // ===========================================================================
 // ★★★ fix-369 — the driver: one model, three renderings
@@ -116,7 +117,7 @@ export interface DesktopAlertsState {
 }
 
 export function useDesktopAlerts(): DesktopAlertsState {
-  const { unseen, unseenCount, isLoading } = useBoardNotifications();
+  const { unseen, unseenCount, isLoading, viewerUserId } = useBoardNotifications();
   const { pref } = useSoundPref();
 
   // ★★ `null` is "no pass has run yet", which is NOT the same as "nothing was
@@ -131,6 +132,16 @@ export function useDesktopAlerts(): DesktopAlertsState {
   // rule that cost fix-350 two attempts. Re-running on a preference change is
   // harmless anyway: by then every current key is already announced, so the
   // pass produces no banners and no sound.
+  // ★★★ fix-650 §A: THE BELL RECEIPT. The first time an item is in the
+  // unseen list — the list the bell's badge counts — this document says so,
+  // once per item. Read items never get here (`unseen` excludes them), so a
+  // receipt is never written for something already read. Fire-and-forget:
+  // see lib/deliveryReceipts.
+  useEffect(() => {
+    if (isLoading) return;
+    recordDeliveries(unseen, 'bell', viewerUserId ?? null);
+  }, [unseen, isLoading, viewerUserId]);
+
   useEffect(() => {
     if (isLoading) return;
     const plan = planAlerts(unseen, announced.current, pref);
@@ -142,8 +153,19 @@ export function useDesktopAlerts(): DesktopAlertsState {
     // arrived; the bell tells them what. Coupling them would mean a denial
     // silently removed a second feature they never refused.
     if (plan.ding) playDing();
+    const granted = permissionNow() === 'granted';
+    // ★★★ fix-650 §A: THE DESKTOP RECEIPT — for every item a banner or the
+    // ding actually announced: all of them when banners are allowed, only the
+    // audible ones when the ding was all that fired. Nothing fired means
+    // nothing reached the desktop, and no receipt claims it did.
+    const announcedOnDesktop = granted
+      ? plan.banners
+      : plan.ding
+        ? plan.banners.filter((i) => isAudible(i, pref))
+        : [];
+    recordDeliveries(announcedOnDesktop, 'desktop', viewerUserId ?? null);
 
-    if (permissionNow() !== 'granted') return;
+    if (!granted) return;
     void (async () => {
       const reg = await appServiceWorker();
       if (!reg) return;
@@ -172,7 +194,7 @@ export function useDesktopAlerts(): DesktopAlertsState {
         }
       }
     })();
-  }, [unseen, isLoading, pref]);
+  }, [unseen, isLoading, pref, viewerUserId]);
 
   useEffect(() => {
     if (isLoading) return;

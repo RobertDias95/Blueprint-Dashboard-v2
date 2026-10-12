@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { Link } from 'react-router-dom';
 import {
   useErrorGroups,
   useUpdateErrorGroupStatus,
@@ -37,6 +38,7 @@ const SOURCE_LABEL: Record<ErrorGroup['source'], string> = {
   frontend_exception: 'JS',
   backend_rpc: 'RPC',
   scraper: 'Scraper',
+  notification_delivery: 'Delivery',
 };
 
 const SOURCE_CLASS: Record<ErrorGroup['source'], string> = {
@@ -44,6 +46,7 @@ const SOURCE_CLASS: Record<ErrorGroup['source'], string> = {
   frontend_exception: 'bg-co-bg/60 text-co border-co-border',
   backend_rpc: 'bg-jv-bg text-jv border-jv-border',
   scraper: 'bg-de-bg text-de border-de-border',
+  notification_delivery: 'bg-pm-bg text-pm border-pm-border',
 };
 
 const STATUS_LABEL: Record<ErrorGroupStatus, string> = {
@@ -84,6 +87,15 @@ export default function ErrorsPage() {
             worth fixing; dismiss the noise. Permit conditions are not errors —
             they reach the entitlement lead as a notification.
           </p>
+          {/* ★ fix-650 §D: the delivery report lives beside triage. Its gaps
+              arrive here too, as "Delivery" rows. */}
+          <Link
+            to="/settings/notification-delivery"
+            className="text-[11px] font-display font-semibold text-de hover:underline"
+            data-testid="errors-to-notification-delivery"
+          >
+            Notification delivery →
+          </Link>
         </div>
         {/* ★★★ fix-485 §B (P-137) — THIS IS NOT A TAB STRIP, AND IT USED TO
             SAY IT WAS.
