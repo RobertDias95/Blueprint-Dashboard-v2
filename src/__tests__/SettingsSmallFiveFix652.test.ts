@@ -55,15 +55,13 @@ describe('fix-652 · 31 — the two dead quarter-layout hooks are gone', () => {
     expect(existsSync(join(SRC, 'hooks/useDeleteQuarterLayoutRow.ts'))).toBe(false);
   });
 
-  it('★★ nothing in src names them (the grep guard)', () => {
-    const names = ['useUpsert' + 'QuarterLayoutRow', 'useDelete' + 'QuarterLayoutRow'];
+  it('★★ nothing in src imports them (the grep guard)', () => {
+    // ★ IMPORTS, not mentions: a history comment may still name the hooks
+    //   (fix-604's census does). An import path ends at the quote.
+    const importOf = /hooks\/use(Upsert|Delete)QuarterLayoutRow['"]/;
     const files = walk(SRC);
     expect(files.length).toBeGreaterThan(100); // the walk found the tree
-    const hits = files.filter((p) => {
-      if (p.endsWith('SettingsSmallFiveFix652.test.ts')) return false; // this guard
-      const text = readFileSync(p, 'utf8');
-      return names.some((n) => text.includes(n));
-    });
+    const hits = files.filter((p) => importOf.test(readFileSync(p, 'utf8')));
     expect(hits).toEqual([]);
   }, 60_000);
 });
