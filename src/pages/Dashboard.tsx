@@ -10,6 +10,13 @@ import {
   type BucketInput,
 } from '../lib/permitStage';
 import { cardUrgency } from '../lib/urgencyHelpers';
+import { useReviewerDueEstimates } from '../hooks/useReviewerDueEstimates';
+import {
+  openRoundCityTarget,
+  openRoundCityTargetText,
+  openRoundEstimateIds,
+} from '../lib/openRoundCityTarget';
+import type { OpenRoundCityTarget } from '../lib/openRoundCityTarget';
 import {
   useAllProjectHolds,
   activeHoldProjectIds,
@@ -721,6 +728,37 @@ export default function Dashboard() {
     retiredSets,
   ]);
 
+  // ★★★ fix-651 (P-340): "City Target" on an Under Review card is the OPEN
+  // round's date — its own city_target, else the latest due date among its open
+  // reviewers (the city's, else fix-640's estimate, from the same RPC the
+  // reviewer pop-up asks). One request for the whole column: only the open
+  // reviewers of Under Review permits whose open round has no city_target and
+  // who have no usable city date of their own (38 ids, ~0.2 s, prod 10-12).
+  const cityTargetEstimateIds = useMemo(() => {
+    const ids: string[] = [];
+    for (const p of buckets.pm) {
+      ids.push(
+        ...openRoundEstimateIds(cyclesByPermit.get(p.id) ?? [], reviewersByPermit.get(p.id) ?? []),
+      );
+    }
+    return ids;
+  }, [buckets, cyclesByPermit, reviewersByPermit]);
+  const cityTargetEstimatesQ = useReviewerDueEstimates(cityTargetEstimateIds);
+  const cityTargetByPermit = useMemo(() => {
+    const out = new Map<number, OpenRoundCityTarget | null>();
+    for (const p of buckets.pm) {
+      out.set(
+        p.id,
+        openRoundCityTarget(
+          cyclesByPermit.get(p.id) ?? [],
+          reviewersByPermit.get(p.id) ?? [],
+          cityTargetEstimatesQ.data,
+        ),
+      );
+    }
+    return out;
+  }, [buckets, cyclesByPermit, reviewersByPermit, cityTargetEstimatesQ.data]);
+
   const dashCtx: DashContext = useMemo(
     () => ({
       highlightedAddress,
@@ -934,8 +972,11 @@ export default function Dashboard() {
               dotColor: '#5cb8b2',
               permits: buckets.pm,
               keyDateLabel: 'City Target',
-              getKeyDate: getMostRecentCityTarget(permitsQ.data ?? []),
-              // Q9.5.c: 'pm' urgency uses the latest city_target across cycles.
+              // ★★★ fix-651: the OPEN round's city target (or its reviewers'
+              // latest due date, `~… (est.)` when estimated) — never a closed
+              // round's. The colour reads the same value.
+              getKeyDate: (p) => openRoundCityTargetText(cityTargetByPermit.get(p.id) ?? null),
+              getCityTarget: (p) => cityTargetByPermit.get(p.id) ?? null,
               urgencyStage: 'pm',
             },
             {
@@ -1031,6 +1072,9 @@ interface SubBucket {
   permits: Permit[];
   keyDateLabel: string;
   getKeyDate: (p: Permit) => string | null;
+  /** ★ fix-651: the open round's city target, for the Under Review column —
+   *  drives the pm colour and the estimate's tooltip. */
+  getCityTarget?: (p: Permit) => OpenRoundCityTarget | null;
   /** Q9.5.c: optional override for urgency math when the sub-bucket's
    *  urgency stage differs from the group's parent stage (e.g., the
    *  Corrections sub-bucket inside the Permitting group uses 'co'
@@ -1402,6 +1446,7 @@ function PipelineGroup({
                         activeHeld={activeHeld}
                         keyDateLabel={sub.keyDateLabel}
                         getKeyDate={sub.getKeyDate}
+                        getCityTarget={sub.getCityTarget}
                         ctx={ctx}
                       />
                     )}
@@ -1423,15 +1468,6 @@ function PipelineGroup({
 
 // Helpers for permitting column key dates — pull most-recent cycle field
 // across all cycles attached to that permit.
-function getMostRecentCityTarget(permits: Permit[]) {
-  const cycles = new Map<number, { city_target: string | null }[]>();
-  for (const p of permits) {
-    const ps = p as Permit & { permit_cycles?: { city_target: string | null }[] };
-    cycles.set(ps.id, ps.permit_cycles ?? []);
-  }
-  return (p: Permit) => mostRecent(cycles.get(p.id) ?? [], (c) => c.city_target);
-}
-
 function getMostRecentCorrIssued(permits: Permit[]) {
   const cycles = new Map<number, { corr_issued: string | null }[]>();
   for (const p of permits) {
@@ -1467,6 +1503,7 @@ interface SubBucketGroupsProps {
   activeHeld: Set<string>;
   keyDateLabel: string;
   getKeyDate: (p: Permit) => string | null;
+  getCityTarget?: (p: Permit) => OpenRoundCityTarget | null;
   ctx: DashContext;
 }
 
@@ -1479,6 +1516,7 @@ function SubBucketGroups({
   activeHeld,
   keyDateLabel,
   getKeyDate,
+  getCityTarget,
   ctx,
 }: SubBucketGroupsProps) {
   const groups = useMemo(() => {
@@ -1502,6 +1540,7 @@ function SubBucketGroups({
       const inputs = ps.map((p) => ({
         permit: p,
         cycles: cyclesByPermit.get(p.id) ?? [],
+        pmTarget: getCityTarget ? getCityTarget(p)?.date ?? null : undefined,
       }));
       const first = ps[0];
       // fix-170: a held project's card is never urgency-colored.
@@ -1562,7 +1601,7 @@ function SubBucketGroups({
       return a.address.localeCompare(b.address);
     });
     return entries;
-  }, [permits, projectById, cyclesByPermit, stage, activeHeld]);
+  }, [permits, projectById, cyclesByPermit, stage, activeHeld, getCityTarget]);
 
   return (
     <>
@@ -1587,6 +1626,7 @@ function SubBucketGroups({
           }
           keyDateLabel={keyDateLabel}
           getKeyDate={getKeyDate}
+          getCityTarget={getCityTarget}
           isOpen={ctx.openAddresses.has(g.address)}
           isHighlighted={ctx.highlightedAddress === g.address}
           // ★★ fix-383: the whole project's spread, not this bucket's slice.

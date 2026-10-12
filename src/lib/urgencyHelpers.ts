@@ -1,4 +1,5 @@
 import type { Permit, PermitCycle, Stage } from './database.types';
+import { openRoundCityTarget } from './openRoundCityTarget';
 
 // Q9.5.c: per-permit urgency predicate ported verbatim from v1
 // (Blueprint-Dashboard-/index.html:2520-2577). The dashboard, my-tasks,
@@ -8,7 +9,7 @@ import type { Permit, PermitCycle, Stage } from './database.types';
 // Predicate table (REBUILD_V1_VISUAL_SPEC.md §4.6.b):
 //   de — businessDaysUntil(target_submit):
 //        bd < 0 → red ; bd ≤ 5 → yellow ; else ok ; no target → ok
-//   pm — businessDaysUntil(latest city_target across cycles):
+//   pm — businessDaysUntil(the OPEN round's city target — fix-651):
 //        same red/yellow/ok thresholds as de
 //   co — businessDaysSince(latest open corrIssued without resubmitted,
 //        else latest corrIssued):
@@ -55,6 +56,10 @@ export function permitUrgency(
   stage: Stage,
   now: Date = new Date(),
   activeHold = false,
+  /** ★ fix-651: the 'pm' date, already resolved by `openRoundCityTarget` with
+   *  the open round's reviewers and estimates. Omitted → the open round's own
+   *  city_target only (rule 1). Never a closed round's. */
+  pmTarget?: string | null,
 ): UrgencyLevel {
   // fix-170 (On-Hold Phase 2, effect D): a project with an ACTIVE hold is
   // parked — it isn't flagged overdue/late while held. A closed/past hold does
@@ -70,13 +75,12 @@ export function permitUrgency(
   }
 
   if (stage === 'pm') {
-    // Latest city_target across all cycles — v1 sorts ascending and
-    // takes the last element. Empty/null filtered out.
-    const cityTargets = cycles
-      .map((c) => c.city_target ?? '')
-      .filter(Boolean)
-      .sort();
-    const latest = cityTargets[cityTargets.length - 1];
+    // ★★★ fix-651 (P-340): the OPEN round's target — never the latest across
+    // all cycles (the v1 port), which painted a closed round's date red for
+    // months once the open round had none. An estimate colours like a real
+    // date (Bobby can change that later).
+    const latest =
+      pmTarget !== undefined ? pmTarget : openRoundCityTarget(cycles)?.date ?? null;
     if (!latest) return 'ok';
     const bd = businessDaysUntil(latest, now);
     if (bd === null) return 'ok';
@@ -122,7 +126,7 @@ export function permitUrgency(
  * single border + bg tint at the address-group level even when only
  * one permit at that address is urgent. */
 export function cardUrgency(
-  permits: Array<{ permit: Permit; cycles: PermitCycle[] }>,
+  permits: Array<{ permit: Permit; cycles: PermitCycle[]; pmTarget?: string | null }>,
   stage: Stage,
   now: Date = new Date(),
   activeHold = false,
@@ -131,8 +135,8 @@ export function cardUrgency(
   if (activeHold) return 'ok';
   const levels: UrgencyLevel[] = ['red', 'yellow', 'ok'];
   let worst = 2; // index into levels
-  for (const { permit, cycles } of permits) {
-    const u = permitUrgency(permit, cycles, stage, now);
+  for (const { permit, cycles, pmTarget } of permits) {
+    const u = permitUrgency(permit, cycles, stage, now, false, pmTarget);
     const idx = levels.indexOf(u);
     if (idx < worst) worst = idx;
   }

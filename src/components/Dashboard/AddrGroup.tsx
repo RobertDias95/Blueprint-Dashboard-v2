@@ -4,6 +4,7 @@ import { PREVIOUS_ORIGINS } from '../../lib/previousOrigin';
 import { effectiveStage } from '../../lib/permitStage';
 import { STAGE_FULL_LABEL } from '../../lib/stageLabel';
 import { permitUrgency, type UrgencyLevel } from '../../lib/urgencyHelpers';
+import type { OpenRoundCityTarget } from '../../lib/openRoundCityTarget';
 import PendingScrapeChip from '../shared/PendingScrapeChip';
 import { HoldBadge } from '../shared/HoldBadge';
 import PermitWaitingOn from './PermitWaitingOn';
@@ -61,6 +62,9 @@ interface AddrGroupProps {
   hold?: Pick<ProjectHold, 'reason' | 'hold_start' | 'note'> | null;
   keyDateLabel: string;
   getKeyDate: (p: Permit) => string | null;
+  /** ★ fix-651: the Under Review column's open-round city target. When given,
+   *  the pm colour reads its date and an estimate carries its basis tooltip. */
+  getCityTarget?: (p: Permit) => OpenRoundCityTarget | null;
   isOpen: boolean;
   isHighlighted: boolean;
   /**
@@ -128,6 +132,7 @@ export default function AddrGroup({
   hold = null,
   keyDateLabel,
   getKeyDate,
+  getCityTarget,
   isOpen,
   isHighlighted,
   distribution,
@@ -457,12 +462,14 @@ export default function AddrGroup({
             // ★★ fix-390: held EITHER way — by this permit's own hold or by its
             // project's. Reading downward only; a permit hold never reaches up.
             const permitHeld = !!heldPermitIds?.has(p.id);
+            const ct = getCityTarget?.(p) ?? null;
             const u = permitUrgency(
               p,
               cyclesByPermit.get(p.id) ?? [],
               stage,
               undefined,
               activeHold || permitHeld,
+              getCityTarget ? ct?.date ?? null : undefined,
             );
             const ownHold = permitHoldMap?.get(p.id) ?? null;
             return (
@@ -501,6 +508,8 @@ export default function AddrGroup({
                   <span
                     className="text-dim"
                     style={{ marginLeft: 5, fontSize: 9 }}
+                    title={ct?.basis ?? undefined}
+                    data-testid={`addr-group-keydate-${p.id}`}
                   >
                     {getKeyDate(p)}
                   </span>
@@ -529,6 +538,7 @@ export default function AddrGroup({
               cycles={cyclesByPermit.get(p.id) ?? []}
               keyDate={getKeyDate(p)}
               keyDateLabel={keyDateLabel}
+              cityTarget={getCityTarget ? getCityTarget(p) : undefined}
               activeHold={activeHold}
             />
           ))}
@@ -573,6 +583,7 @@ function ExpandedRow({
   cycles,
   keyDate,
   keyDateLabel,
+  cityTarget,
   activeHold = false,
 }: {
   permit: Permit;
@@ -581,9 +592,18 @@ function ExpandedRow({
   cycles: PermitCycle[];
   keyDate: string | null;
   keyDateLabel: string;
+  /** ★ fix-651: undefined = not the Under Review column. */
+  cityTarget?: OpenRoundCityTarget | null;
   activeHold?: boolean;
 }) {
-  const urgency = permitUrgency(permit, cycles, stage, undefined, activeHold);
+  const urgency = permitUrgency(
+    permit,
+    cycles,
+    stage,
+    undefined,
+    activeHold,
+    cityTarget === undefined ? undefined : cityTarget?.date ?? null,
+  );
   // fix-notes-2: the "what's this waiting on?" summary. One shared tenant-wide
   // query (deduped across every ExpandedRow); an absent permit → Nothing pending.
   const cardsQ = useDashboardPermitCards();
@@ -644,6 +664,8 @@ function ExpandedRow({
         <span
           className="text-[11px] font-mono font-bold"
           style={{ color: dateColor }}
+          title={cityTarget?.basis ?? undefined}
+          data-testid={`addr-group-expanded-keydate-${permit.id}`}
         >
           {keyDate ?? '—'}
         </span>
