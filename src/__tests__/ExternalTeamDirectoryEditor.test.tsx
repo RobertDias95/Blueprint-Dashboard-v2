@@ -136,3 +136,34 @@ describe('ExternalTeamDirectoryEditor (fix-227)', () => {
     expect(upsertSpy).not.toHaveBeenCalled();
   });
 });
+
+// ★ fix-652 (census 11): a stored discipline that is NOT on the list. On the
+//   built-in list (no tenant → config disabled) `Acoustics` is off-list. fix-606
+//   already keeps its group on screen; these pin that it stays, marked, AND that
+//   a save from inside it keeps the discipline instead of dropping it.
+describe('fix-652 — an off-list discipline survives render + save', () => {
+  it('★★ renders its group, marked as not a current option', () => {
+    DIR_REF.rows = [firm('Acoustics', 'SoundCo')];
+    renderEditor(false);
+    const group = screen.getByTestId('etd-group-Acoustics');
+    expect(group).toHaveTextContent('Acoustics (not a current option)');
+    expect(screen.getByTestId('etd-firm-name-Acoustics-SoundCo')).toHaveTextContent('SoundCo');
+  });
+
+  it('★★★ renaming or adding a firm under it saves the SAME discipline', () => {
+    DIR_REF.rows = [firm('Acoustics', 'SoundCo')];
+    renderEditor(false);
+    fireEvent.click(screen.getByTestId('etd-firm-name-Acoustics-SoundCo'));
+    const input = screen.getByTestId('etd-firm-rename-Acoustics-SoundCo');
+    fireEvent.change(input, { target: { value: 'SoundCo LLC' } });
+    fireEvent.keyDown(input, { key: 'Enter' });
+    expect(upsertSpy.mock.calls[0][0]).toEqual({
+      id: 'Acoustics-SoundCo',
+      discipline: 'Acoustics',
+      name: 'SoundCo LLC',
+    });
+    fireEvent.change(screen.getByTestId('etd-add-Acoustics'), { target: { value: 'EchoCo' } });
+    fireEvent.click(screen.getByTestId('etd-add-btn-Acoustics'));
+    expect(upsertSpy.mock.calls[1][0]).toEqual({ discipline: 'Acoustics', name: 'EchoCo' });
+  });
+});

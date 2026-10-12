@@ -427,7 +427,8 @@ describe('fix-617 §A.2 — the layout editor cannot change a DA\'s group', () =
     // who reports to whom, so taking it away would remove a real control.
     renderLayout();
     const cell = screen.getByTestId('ql-group-r-dm');
-    expect(cell.tagName).toBe('INPUT');
+    // ★ fix-652 (census 33): editable still, but a SELECT over the list now.
+    expect(cell.tagName).toBe('SELECT');
     expect(cell.getAttribute('data-readonly')).toBeNull();
   });
 

@@ -380,7 +380,7 @@ describe('fix-604 §1 — every write mutation names what it writes', () => {
     }
   });
 
-  it('★★ the census covers the whole app: 121 mutations, 120 named, 1 listed', () => {
+  it('★★ the census covers the whole app: 119 mutations, 118 named, 1 listed', () => {
     // ★ Re-derived at d35ec2d, and pinned so a NEW hook cannot slip in without
     //   this number moving and someone noticing.
     // ★ fix-609: +1, `useAddTemplateTasks` (bp_add_template_tasks_to_permit) —
@@ -396,8 +396,10 @@ describe('fix-604 §1 — every write mutation names what it writes', () => {
     //    one is NAMED (`meta: { write: 'bp_set_dm_for_da' }`).
     // ⬆️ fix-634 ADDED `useSetNotificationPreference`
     //    (`notification_preferences.upsert`) — named. 120 → 121.
-    expect(all.length).toBe(121);
-    expect(named.length).toBe(120);
+    // ⚠️ fix-652 (census 31) deleted `useUpsertQuarterLayoutRow` and
+    //    `useDeleteQuarterLayoutRow` — nothing imported them. 121 → 119.
+    expect(all.length).toBe(119);
+    expect(named.length).toBe(118);
     expect(listed.length).toBe(1);
     expect(named.length + listed.length).toBe(all.length);
   });

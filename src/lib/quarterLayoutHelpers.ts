@@ -212,3 +212,34 @@ export function buildDrawColumns(input: DrawColumnModelInput): {
   }
   return { renderGroups, renderColumns, renderTopGroups: [] };
 }
+
+// ═══ fix-652 (census 33) — the layout's labels are picked, not typed ═══
+//
+// `group_label` (on a DM / OPEN column) and `top_label` used to be free text
+// with a datalist. They are now selects over the roster list the datalist
+// already suggested. ★ A stored value that is NOT on the list is kept: it is
+// appended, marked, and stays selectable for its own row — never wiped, and
+// never offered to another row (fix-605/606's rule for a retired option).
+
+/** The suffix a stored layout label wears when it is not on the list. */
+export const QL_LABEL_OFF_LIST_MARKER = ' (not on the list)';
+
+export interface LabelOption {
+  value: string;
+  label: string;
+}
+
+/** The options one row's label select shows: the list, plus this row's own
+ *  stored value when the list lacks it. The blank ("none") option is the
+ *  caller's, because its wording differs per field. */
+export function labelSelectOptions(
+  list: readonly string[],
+  stored: string | null | undefined,
+): LabelOption[] {
+  const out: LabelOption[] = list.map((v) => ({ value: v, label: v }));
+  const value = stored ?? '';
+  if (value.trim() !== '' && !list.includes(value)) {
+    out.push({ value, label: `${value}${QL_LABEL_OFF_LIST_MARKER}` });
+  }
+  return out;
+}

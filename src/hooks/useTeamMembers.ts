@@ -30,7 +30,8 @@ export interface TeamMembersResult {
   /** ★★★ fix-487 (P-144): the Construction Admin roster — Steve and David.
    *  Sources the Settings section and the project's CA picker
    *  (ProjectSettingsModal). fix-644: the permit-level picker this once named,
-   *  "QuickEditPermitModal", does not exist — nothing writes `permits.ca` yet.
+   *  "QuickEditPermitModal", does not exist — nothing writes `permits.ca`, and
+   *  fix-652 records that nothing will (Bobby: project level is enough).
    *
    *  ★ WITHOUT THIS BUCKET the role exists and nobody can be added to it,
    *    removed from it or renamed in it — AdminTeamTab's sections each render

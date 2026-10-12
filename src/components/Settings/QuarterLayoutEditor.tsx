@@ -18,7 +18,7 @@ import {
 import { CSS } from '@dnd-kit/utilities';
 import type { TeamMember, DrawScheduleQuarterLayoutRow } from '../../lib/database.types';
 import { formerLabel, formerMemberNames } from '../../lib/roster';
-import { deriveGroupSpans } from '../../lib/quarterLayoutHelpers';
+import { deriveGroupSpans, labelSelectOptions } from '../../lib/quarterLayoutHelpers';
 import { useQuarterLayout } from '../../hooks/useQuarterLayout';
 import { useDmDaGroups } from '../../hooks/useDmDaGroups';
 import { findDmForDa } from '../wizard/dmRouting';
@@ -64,9 +64,9 @@ import { useDirtySurface } from '../../hooks/useDirtySurface';
 interface Props {
   /** role='da' members (active + former) for the DA dropdown. */
   das: TeamMember[];
-  /** role='dm' members — DM dropdown + group-header datalist. */
+  /** role='dm' members — DM dropdown + group-header select. */
   dms: TeamMember[];
-  /** fix-190b: role='ent' members — top-tier datalist suggestions. Optional. */
+  /** fix-190b: role='ent' members — top-tier select options. Optional. */
   ents?: TeamMember[];
   readOnly?: boolean;
 }
@@ -240,25 +240,27 @@ export default function QuarterLayoutEditor({ das, dms, ents = [], readOnly = fa
     return findDmForDa(da, dmDaGroups.rows ?? []);
   }
 
-  // Dropdown / datalist options: roster names + whatever the DRAFT already uses
-  // (so a departed person on a backfilled quarter still shows).
+  // Dropdown options: roster names + whatever the DRAFT already uses (so a
+  // departed person on a backfilled quarter still shows).
   const daNames = useMemo(() => {
     const s = new Set<string>(das.map((d) => d.name));
     for (const r of draft) if (r.da_name) s.add(r.da_name);
     return Array.from(s).sort((a, b) => a.localeCompare(b));
   }, [das, draft]);
-  const groupSuggestions = useMemo(() => {
+  // ★ fix-652 (census 33): the label selects offer the ROSTER list only. A
+  //   row's own off-list value is added per row by `labelSelectOptions` —
+  //   pooling every row's stored labels here (as the old datalist did) would
+  //   offer one row's typo to all the others.
+  const groupOptions = useMemo(() => {
     const s = new Set<string>(dms.map((d) => d.name));
-    for (const r of draft) if (r.group_label) s.add(r.group_label);
     return Array.from(s).sort((a, b) => a.localeCompare(b));
-  }, [dms, draft]);
-  const topSuggestions = useMemo(() => {
+  }, [dms]);
+  const topOptions = useMemo(() => {
     const s = new Set<string>();
     for (const e of ents) s.add(e.name);
     for (const d of dms) s.add(d.name);
-    for (const r of draft) if (r.top_label) s.add(r.top_label);
     return Array.from(s).sort((a, b) => a.localeCompare(b));
-  }, [ents, dms, draft]);
+  }, [ents, dms]);
   const dmNames = useMemo(() => {
     const s = new Set<string>(dms.map((d) => d.name));
     for (const r of draft) if (r.col_kind === 'dm' && r.da_name) s.add(r.da_name);
@@ -539,17 +541,6 @@ export default function QuarterLayoutEditor({ das, dms, ents = [], readOnly = fa
             ))}
           </div>
 
-          <datalist id="ql-group-suggestions">
-            {groupSuggestions.map((g) => (
-              <option key={g} value={g} />
-            ))}
-          </datalist>
-          <datalist id="ql-top-suggestions">
-            {topSuggestions.map((t) => (
-              <option key={t} value={t} />
-            ))}
-          </datalist>
-
           <DndContext
             sensors={sensors}
             collisionDetection={closestCenter}
@@ -568,6 +559,8 @@ export default function QuarterLayoutEditor({ das, dms, ents = [], readOnly = fa
                     daNames={daNames}
                     departedNames={departedDaNames}
                     dmNames={dmNames}
+                    groupOptions={groupOptions}
+                    topOptions={topOptions}
                     inactiveInQuarter={
                       row.col_kind === 'da' &&
                       !!row.da_name &&
@@ -777,6 +770,8 @@ function ColumnRow({
   daNames,
   departedNames,
   dmNames,
+  groupOptions,
+  topOptions,
   inactiveInQuarter,
   onChangeType,
   onChangeDa,
@@ -792,6 +787,10 @@ function ColumnRow({
   /** fix-321: names the roster has retired — marked, never omitted. */
   departedNames: Set<string>;
   dmNames: string[];
+  /** fix-652: the group-label select's list (DM roster names). */
+  groupOptions: string[];
+  /** fix-652: the top-label select's list (ent + DM roster names). */
+  topOptions: string[];
   inactiveInQuarter: boolean;
   onChangeType: (kind: DraftRow['col_kind']) => void;
   onChangeDa: (da: string) => void;
@@ -943,27 +942,42 @@ function ColumnRow({
           </a>
         </span>
       ) : (
-        <input
-          list="ql-group-suggestions"
+        // ★ fix-652 (census 33): picked from the list, not typed. A stored
+        //   label the list lacks stays shown and selected (marked).
+        <select
           value={row.group_label ?? ''}
-          placeholder="Manager (blank = standalone)"
+          title="Manager header (blank = standalone)"
           disabled={readOnly}
           onChange={(e) => onChangeGroup(e.target.value)}
           className="text-xs px-2 py-1 border border-border rounded bg-bg text-text flex-1 min-w-0 disabled:opacity-50"
           data-testid={`ql-group-${row.id}`}
-        />
+        >
+          <option value="">No manager (standalone)</option>
+          {labelSelectOptions(groupOptions, row.group_label).map((o) => (
+            <option key={o.value} value={o.value}>
+              {o.label}
+            </option>
+          ))}
+        </select>
       )}
 
-      {/* fix-190b: top-tier (regional/ent) header — free text; blank = none. */}
-      <input
-        list="ql-top-suggestions"
+      {/* fix-190b: top-tier (regional/ent) header; blank = none.
+          ★ fix-652: a select over the list, keeping an off-list stored value. */}
+      <select
         value={row.top_label ?? ''}
-        placeholder="Top tier (blank = none)"
+        title="Top tier (blank = none)"
         disabled={readOnly}
         onChange={(e) => onChangeTop(e.target.value)}
         className="text-xs px-2 py-1 border border-border rounded bg-bg text-text flex-1 min-w-0 disabled:opacity-50"
         data-testid={`ql-top-${row.id}`}
-      />
+      >
+        <option value="">No top tier</option>
+        {labelSelectOptions(topOptions, row.top_label).map((o) => (
+          <option key={o.value} value={o.value}>
+            {o.label}
+          </option>
+        ))}
+      </select>
 
       {!readOnly && (
         <button

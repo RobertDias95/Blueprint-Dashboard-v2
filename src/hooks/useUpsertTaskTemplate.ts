@@ -90,8 +90,7 @@ export function useUpsertTaskTemplate() {
           text: payload.text as string,
           default_team: payload.default_team as string | null,
           default_co_assignees: payload.default_co_assignees as string[],
-          default_waiting_on:
-            payload.default_waiting_on as TaskTemplate['default_waiting_on'],
+          default_waiting_on: payload.default_waiting_on as string | null,
           cat: payload.cat as string | null,
           sort_order: payload.sort_order as number,
           updated_at: row.updated_at,

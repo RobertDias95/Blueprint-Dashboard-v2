@@ -265,3 +265,16 @@ These read out or diagnose; they do not configure. Listed, not moved.
 - Also open: 7, 8, 11, 12, 29–33, 35, 42.
 
 **Gap 43** belongs to fix-643.
+
+## fix-652 status (2026-10-12)
+
+The five small gaps, closed (frontend only, no migration, no data change):
+- **11:** already closed by fix-606 — a directory firm under an off-list discipline keeps its group, marked "(not a current option)". fix-652 adds the save-path pin (rename/add keep the discipline).
+- **12:** `waiting_on` / `default_waiting_on` are typed `string`; the cast in `useWaitingOnTasks` is gone.
+- **31:** `useUpsertQuarterLayoutRow` and `useDeleteQuarterLayoutRow` deleted (only their own test imported them).
+- **33:** quarter-layout `group_label` (DM/OPEN columns) and `top_label` are selects over the roster; a stored off-list value stays shown and selected, marked "(not on the list)".
+- **35:** a viewer's title reads `team_members.department` first, notes as fallback. Prod: 6 viewer-only logins, 0 fall back.
+
+**39:** ruled out by Bobby ("Skip it, project level is enough") — no per-permit CA picker; `permits.ca` stays as a read-only column and its comments now say it has no writer.
+
+Still open: 7, 8, 29, 30, 32, 42.

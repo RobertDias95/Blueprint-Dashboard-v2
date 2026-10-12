@@ -3,9 +3,9 @@ import { renderHook, act } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { createElement, type ReactNode } from 'react';
 import { useAuthStore } from '../stores/authStore';
-import { isOCCConflict } from '../lib/occ';
 
-// fix-182b: caller contract for the quarter-layout mutation hooks. The SQL
+// fix-182b: caller contract for the quarter-layout mutation hooks. (fix-652
+// deleted the per-row upsert/delete hooks — nothing imported them.) The SQL
 // behavior is verified by rolled-back MCP probes (fix-182a / fix-182b); these
 // pin the hook -> RPC wire (arg names) + the OCC conflict mapping so a refactor
 // can't silently drop them.
@@ -39,8 +39,6 @@ vi.mock('../stores/toastStore', () => ({
   useToastStore: () => ({ toasts: [], push: vi.fn(), dismiss: vi.fn() }),
 }));
 
-import { useUpsertQuarterLayoutRow } from '../hooks/useUpsertQuarterLayoutRow';
-import { useDeleteQuarterLayoutRow } from '../hooks/useDeleteQuarterLayoutRow';
 import { useReorderQuarterLayout } from '../hooks/useReorderQuarterLayout';
 import {
   useCloneQuarterLayout,
@@ -70,102 +68,6 @@ beforeEach(() => {
   pushToast.mockClear();
   mocks.setResult({ data: null, error: null });
   useAuthStore.setState({ activeTenantId: T } as never);
-});
-
-describe('useUpsertQuarterLayoutRow', () => {
-  it('inserts with p_id null + the full payload', async () => {
-    mocks.setResult({ data: [{ out_id: 'id-1', updated_at: NOW, conflict: false }], error: null });
-    const { result } = renderHook(() => useUpsertQuarterLayoutRow(), { wrapper });
-    await act(async () => {
-      await result.current.mutateAsync({
-        op: 'insert',
-        data: {
-          quarter: '2026-Q2',
-          position: 3,
-          col_kind: 'da',
-          da_name: 'Marc',
-          group_label: 'Brittani',
-          label_override: null,
-          top_label: null,
-        },
-      });
-    });
-    expect(mocks.rpcFn).toHaveBeenCalledWith('bp_upsert_quarter_layout_row', {
-      p_id: null,
-      p_expected_updated_at: null,
-      p_data: expect.objectContaining({ quarter: '2026-Q2', col_kind: 'da', da_name: 'Marc' }),
-    });
-  });
-
-  it('updates by merging the patch over the current row + threads OCC', async () => {
-    mocks.setResult({ data: [{ out_id: 'id-9', updated_at: NOW, conflict: false }], error: null });
-    const { result } = renderHook(() => useUpsertQuarterLayoutRow(), { wrapper });
-    await act(async () => {
-      await result.current.mutateAsync({
-        op: 'update',
-        row: {
-          id: 'id-9', quarter: '2026-Q2', position: 0, col_kind: 'da',
-          da_name: 'Marc', group_label: null, label_override: null, top_label: null, updated_at: NOW,
-        },
-        patch: { group_label: 'Ana' },
-      });
-    });
-    expect(mocks.rpcFn).toHaveBeenCalledWith('bp_upsert_quarter_layout_row', {
-      p_id: 'id-9',
-      p_expected_updated_at: NOW,
-      p_data: expect.objectContaining({ da_name: 'Marc', group_label: 'Ana' }),
-    });
-  });
-
-  it('maps conflict:true to an OCCConflictError + warns', async () => {
-    mocks.setResult({ data: [{ out_id: 'id-9', updated_at: NOW, conflict: true }], error: null });
-    const { result } = renderHook(() => useUpsertQuarterLayoutRow(), { wrapper });
-    let caught: unknown;
-    await act(async () => {
-      try {
-        await result.current.mutateAsync({
-          op: 'update',
-          row: {
-            id: 'id-9', quarter: '2026-Q2', position: 0, col_kind: 'open',
-            da_name: null, group_label: null, label_override: 'OPEN', top_label: null, updated_at: NOW,
-          },
-          patch: { label_override: 'X' },
-        });
-      } catch (e) {
-        caught = e;
-      }
-    });
-    expect(isOCCConflict(caught)).toBe(true);
-    expect(pushToast).toHaveBeenCalledWith(expect.stringContaining('changed since you loaded it'), 'warn');
-  });
-});
-
-describe('useDeleteQuarterLayoutRow', () => {
-  it('deletes by id + expected updated_at', async () => {
-    mocks.setResult({ data: [{ deleted: true, conflict: false, current_updated_at: null }], error: null });
-    const { result } = renderHook(() => useDeleteQuarterLayoutRow(), { wrapper });
-    await act(async () => {
-      await result.current.mutateAsync({ id: 'id-1', updated_at: NOW, quarter: '2026-Q2' });
-    });
-    expect(mocks.rpcFn).toHaveBeenCalledWith('bp_delete_quarter_layout_row', {
-      p_id: 'id-1',
-      p_expected_updated_at: NOW,
-    });
-  });
-
-  it('maps conflict:true to an OCCConflictError', async () => {
-    mocks.setResult({ data: [{ deleted: false, conflict: true, current_updated_at: NOW }], error: null });
-    const { result } = renderHook(() => useDeleteQuarterLayoutRow(), { wrapper });
-    let caught: unknown;
-    await act(async () => {
-      try {
-        await result.current.mutateAsync({ id: 'id-1', updated_at: 'stale', quarter: '2026-Q2' });
-      } catch (e) {
-        caught = e;
-      }
-    });
-    expect(isOCCConflict(caught)).toBe(true);
-  });
 });
 
 describe('useReorderQuarterLayout', () => {

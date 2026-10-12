@@ -11,10 +11,7 @@ import {
   isNotRequired,
   resolveExternalFirm,
 } from '../lib/externalTeam';
-import type {
-  WaitingOnDiscipline,
-  WaitingOnTaskRow,
-} from '../lib/database.types';
+import type { WaitingOnTaskRow } from '../lib/database.types';
 
 // fix-140 / fix-190d: My Tasks "Waiting On" reporting view. bp_list_waiting_on_tasks
 // still enumerates every task with waiting_on set (+ its project/permit/sort), but
@@ -104,7 +101,8 @@ export interface WaitingOnFirmGroup {
 }
 
 export interface WaitingOnDisciplineGroup {
-  discipline: WaitingOnDiscipline;
+  /** ★ fix-652: the stored value as-is (City and admin-added values included). */
+  discipline: string;
   /** sorted by firm_name asc; the "(no firm)" group is always last. */
   firms: WaitingOnFirmGroup[];
   totalTasks: number;
@@ -157,7 +155,7 @@ export function groupByDisciplineThenFirm(
         return (a.firmName ?? '').localeCompare(b.firmName ?? '');
       });
       return {
-        discipline: discipline as WaitingOnDiscipline,
+        discipline,
         firms,
         totalTasks: drows.length,
       };
