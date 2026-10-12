@@ -160,7 +160,11 @@ export function routeSentence(
   const corr = correctionSentence(f);
   // ★ fix-622 §B: any milestone that had passed and was moved forward.
   const moved = reanchorSentences(f);
-  const corrPart = `${corr ? ` ${corr}` : ''}${moved ? ` ${moved}` : ''}`;
+  // ★ fix-656: rounds past 4 have no learned cell of their own.
+  const past = f.roundsPastLearner
+    ? " Rounds past 4 reuse the last learned round's timing."
+    : '';
+  const corrPart = `${corr ? ` ${corr}` : ''}${moved ? ` ${moved}` : ''}${past}`;
 
   switch (route) {
     case 'holistic_learned': {

@@ -271,6 +271,9 @@ export interface ProjectedApprovalRouteFacts {
   overrideCycle?: number;
   /** fix-32's bump: reviewers flagged corrections on this cycle. */
   reviewerBumpCycle?: number;
+  /** ★ fix-656: the walk projected a round past 4, which the learner has no
+   *  cell for — it reused the last learned round's durations. */
+  roundsPastLearner?: true;
   // ★ fix-614 (P-300): what the correction count did — lib/correctionOdds.
   correctionAdjust?: CorrectionFacts['correctionAdjust'];
   correctionCount?: number;
@@ -623,10 +626,17 @@ function computeProjectedApprovalCore(
   }
 
   // Non-ULS branch (v1 :4394-4542).
-  const r1 = cycles.find((c) => c.cycle_index === 1) ?? null;
-  const r2 = cycles.find((c) => c.cycle_index === 2) ?? null;
-  const r3 = cycles.find((c) => c.cycle_index === 3) ?? null;
-  const r4 = cycles.find((c) => c.cycle_index === 4) ?? null;
+  // ★★★ fix-656 (P-341): EVERY review round, not just 1–4. v1 hard-coded
+  //     r1..r4, so a permit on round 5+ was projected as if its later rounds
+  //     did not exist (8 live permits, 2026-10-12). `rows[i]` is cycle i+1;
+  //     there are always at least four, so a ≤4-round permit walks exactly the
+  //     same rows as before.
+  const maxCycleIdx = cycles.reduce((m, c) => (c.cycle_index > m ? c.cycle_index : m), 0);
+  const rows: (PermitCycle | null)[] = Array.from(
+    { length: Math.max(4, maxCycleIdx) },
+    (_, i) => cycles.find((c) => c.cycle_index === i + 1) ?? null,
+  );
+  const r1 = rows[0] ?? null;
   const base = r1?.submitted ?? permit.target_submit ?? projectGoDate ?? null;
   if (!base) {
     return {
@@ -679,7 +689,7 @@ function computeProjectedApprovalCore(
     return today;
   };
 
-  const actualCorrCycles = [r1, r2, r3, r4].filter((c) => c?.corr_issued).length;
+  const actualCorrCycles = rows.filter((c) => c?.corr_issued).length;
   // fix-32 (2026-05-19): "reviewer signaled corrections on the
   // latest cycle, but no corr_issued or next-cycle row has been
   // written yet" — predict one more correction round. Computed
@@ -704,14 +714,7 @@ function computeProjectedApprovalCore(
     );
   const lastRealDate = [
     r1?.submitted,
-    r1?.corr_issued,
-    r1?.resubmitted,
-    r2?.corr_issued,
-    r2?.resubmitted,
-    r3?.corr_issued,
-    r3?.resubmitted,
-    r4?.corr_issued,
-    r4?.resubmitted,
+    ...rows.flatMap((r) => [r?.corr_issued, r?.resubmitted]),
   ]
     .filter((d): d is string => Boolean(d))
     .sort()
@@ -772,7 +775,10 @@ function computeProjectedApprovalCore(
   // the only path to 5–8. durFor's walk-back handles missing data at
   // those depths gracefully (falls back to earlier-cycle signal or
   // default).
-  targetCycle = Math.max(1, Math.min(targetCycle, 8));
+  //
+  // ★ fix-656: never below the round the permit is actually on — a permit
+  //   with eight real correction rounds still targets its ninth.
+  targetCycle = Math.max(1, Math.min(targetCycle, Math.max(8, currentReviewCycle)));
 
   // Holistic shortcut (v1 :4442-4446 + fix-24h).
   //
@@ -896,14 +902,19 @@ function computeProjectedApprovalCore(
     // for permits with ACTUAL corrections. fix-53 re-anchors only the cycle-1
     // PROJECTED review (reviewAnchor below), keeping the change decomposition-
     // only for intake-known, already-in-corrections permits.
-    { cr: positiveDaysBetween(r1?.submitted, r1?.corr_issued), co: positiveDaysBetween(r1?.corr_issued, r1?.resubmitted) },
-    { cr: positiveDaysBetween(r1?.resubmitted, r2?.corr_issued), co: positiveDaysBetween(r2?.corr_issued, r2?.resubmitted) },
-    { cr: positiveDaysBetween(r2?.resubmitted, r3?.corr_issued), co: positiveDaysBetween(r3?.corr_issued, r3?.resubmitted) },
-    { cr: positiveDaysBetween(r3?.resubmitted, r4?.corr_issued), co: positiveDaysBetween(r4?.corr_issued, r4?.resubmitted) },
+    //
+    // ★ fix-656: one entry per round (round 1 from submitted, later rounds
+    //   from the previous resubmittal) — the same four for rounds 1–4.
+    ...rows.map((r, i) => ({
+      cr: positiveDaysBetween(i === 0 ? r?.submitted : rows[i - 1]?.resubmitted, r?.corr_issued),
+      co: positiveDaysBetween(r?.corr_issued, r?.resubmitted),
+    })),
   ];
 
   // Cycle-by-cycle walk.
   const rounds: ProjectedApprovalRounds = {};
+  // ★ fix-656: set when a round past 4 is PROJECTED (durations, not dates).
+  let pastLearner = false;
   let cursor = base;
   if (targetCycle === 1) {
     // Approving in first review without corrections. v1 :4515-4523:
@@ -918,7 +929,13 @@ function computeProjectedApprovalCore(
       cursor = addDays(baseAnchor, cr1Days + FINAL_APPROVAL_BUFFER);
     }
   } else {
-    const cycleRows = [r1, r2, r3, r4];
+    // ★★ fix-656: ROUNDS PAST THE LEARNER. The learner has cells for rounds
+    //    1–4 only. durFor walks back from the round asked for to the nearest
+    //    earlier round with a signal (this permit's own actual blended with
+    //    the learned value), so round 5+ reuses the last learned round's
+    //    durations — round 4's, else the nearest before it — and the route
+    //    sentence says so (`roundsPastLearner`). Real dates always win.
+    const cycleRows = rows;
     // Q9.5.f-fix-18 C: v1 :4530 cityTarget shortcut for cycle 1 only.
     // If cycle 1 has no actual corr_issued and has its own city_target after
     // `cursor`, that date is the round's crEnd (a city-supplied deadline).
@@ -959,6 +976,7 @@ function computeProjectedApprovalCore(
         rd?.corr_issued ??
         (cityTargetCrEnd ? cityDue(cityTargetCrEnd) : null) ??
         addDays(flooredAnchor(reviewAnchor) ?? reviewAnchor, crDays);
+      if (i >= 4 && !(rd?.corr_issued && rd?.resubmitted)) pastLearner = true;
       const resubEnd =
         rd?.resubmitted ??
         (rd?.corr_issued
@@ -993,6 +1011,7 @@ function computeProjectedApprovalCore(
       // ★ fix-622 §B: the usual turnaround from the ACTUAL corrections date —
       //   or today once it has passed (and said so).
       const projResub = resubDue(finalCycle.corr_issued, finalCoDays);
+      if (targetCycle >= 5) pastLearner = true;
       rounds[`corrIssued${targetCycle}` as keyof ProjectedApprovalRounds] =
         finalCycle.corr_issued;
       rounds[`resubmitted${targetCycle}` as keyof ProjectedApprovalRounds] =
@@ -1005,16 +1024,17 @@ function computeProjectedApprovalCore(
       // An actual city_target on the final cycle, when later than the
       // cursor, is the city's stated review-completion date — prefer it.
       //
-      // ★★★ fix-653 (P-340): only when the final cycle IS the open round. The
-      //     walk reads cycles 1–4, so a permit whose open round is cycle 5+
-      //     (8256 Ashworth Ave N, SIP: open cycle 6) landed here on a CLOSED
-      //     cycle 4 and treated its old city_target as the current review's end.
+      // ★★★ fix-653 (P-340): only when the final cycle IS the open round. Before
+      //     fix-656 the walk read cycles 1–4 only, so a permit whose open round
+      //     was cycle 5+ could land here on a CLOSED cycle 4 and treat its old
+      //     city_target as the current review's end.
       const finalCityTarget =
         finalCycle &&
         openTarget?.cycleIndex === finalCycle.cycle_index &&
         openTarget.date > cursor
           ? openTarget.date
           : null;
+      if (targetCycle >= 5 && !finalCityTarget) pastLearner = true;
       // ★ fix-622 §B: a passed, unanswered city review date → cityDue.
       cursor =
         (finalCityTarget && !finalCycle?.corr_issued ? cityDue(finalCityTarget) : null) ??
@@ -1063,6 +1083,7 @@ function computeProjectedApprovalCore(
           }
         : {}),
       ...(reviewerBumpCycle !== undefined ? { reviewerBumpCycle } : {}),
+      ...(pastLearner ? { roundsPastLearner: true as const } : {}),
       ...(correctionFacts ?? {}),
       ...(reanchors.length > 0 ? { reanchors } : {}),
     },
