@@ -835,6 +835,13 @@ export const ROUTES_INTENTIONALLY_NOT_IN_RIBBON: ReadonlyArray<{
   // exists — the entry is in the ribbon now — so the exemption is gone with it.
   // A path may not be both a ribbon entry and an exemption; keeping the row
   // would have made the coverage guard silently double-count it.
+  // ★ fix-650 §D: the delivery report sits BESIDE Error triage, linked from
+  //   its header. A second admin-only ribbon entry for a once-a-week check
+  //   would crowd the utility block for nothing.
+  {
+    path: '/settings/notification-delivery',
+    why: 'Opened from the Error triage page header ("Notification delivery →"); Error triage is in the ribbon and its delivery gaps link back here.',
+  },
   {
     path: '/reports/builder',
     why: 'Opened from the Reporting hub ("Saved reports"), which is in the ribbon. A blank builder is not somewhere you navigate to cold.',

@@ -7,6 +7,7 @@ import NewProjectWizard from './NewProjectWizard';
 import { useSelfScope } from '../hooks/useSelfScope';
 import { useDesktopAlerts } from '../hooks/useDesktopAlerts';
 import { useDingUnlock } from '../hooks/useDingUnlock';
+import { usePresenceHeartbeat } from '../hooks/usePresenceHeartbeat';
 import NewBuildNotice from './NewBuildNotice';
 import WeeklyUpdateModal from './WeeklyUpdate/WeeklyUpdateModal';
 import IntakeWarningModal from './IntakeWarning/IntakeWarningModal';
@@ -79,6 +80,9 @@ export default function Chrome() {
   // handlers, so on any load where nobody visited /notifications the ding was a
   // guaranteed no-op. See hooks/useDingUnlock.
   useDingUnlock();
+  // ★★★ fix-650 §B: presence for the notification-delivery check — at most
+  // every 5 minutes, only while the window is visible. See lib/deliveryReceipts.
+  usePresenceHeartbeat();
   const paneRef = useRef<HTMLElement | null>(null);
   useRestorePreviousScroll(paneRef);
 

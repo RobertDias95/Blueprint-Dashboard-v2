@@ -43,6 +43,8 @@ const GRANDFATHERED_SQL: Record<string, string> = {
   bp_target_submit_benchmark: 'fix-249 display-only benchmark of the lag above.',
   bp_phase_durations: 'fix-253 per-cycle display. Same clocks as bp_duration_stats — the client-rewire ticket repoints it.',
   bp_phase_duration_grid: 'fix-253 per-cycle display grid. the client-rewire ticket repoints it.',
+  bp_notification_delivery_report:
+    'fix-650: median minutes from a notification to its bell receipt / read. Delivery latency, not a permit review duration — nothing here estimates a permit date.',
 };
 const THE_LEARNER_SQL = 'bp_duration_stats';
 

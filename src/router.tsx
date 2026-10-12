@@ -29,6 +29,7 @@ import { SETTINGS_REDIRECTS } from './lib/settingsSections';
 import CustomReport from './pages/CustomReport';
 import ReportBuilder from './pages/ReportBuilder';
 import ErrorsPage from './pages/Errors';
+import NotificationDeliveryPage from './pages/NotificationDelivery';
 import SharedPlan from './pages/SharedPlan';
 
 // Q2: routes wired to real read-side pages.
@@ -263,6 +264,12 @@ export const router = createBrowserRouter([
       // with it. Hiding the ribbon entry without gating the route would be the
       // hidden-link-over-an-open-door shape fix-234 already ruled out.
       { path: 'settings/errors', element: <AdminRoute><ErrorsPage /></AdminRoute> },
+      // ★ fix-650 §D: the delivery report sits BESIDE Error triage — linked from
+      //   its header, admin-gated on the route like it. No ribbon entry.
+      {
+        path: 'settings/notification-delivery',
+        element: <AdminRoute><NotificationDeliveryPage /></AdminRoute>,
+      },
       // fix-69: report builder Phase 3 — freeform builder + custom viewer.
       { path: 'reports/builder', element: <AdminRoute><ReportBuilder /></AdminRoute> },
       { path: 'reports/builder/:id', element: <AdminRoute><ReportBuilder /></AdminRoute> },

@@ -25,7 +25,9 @@ export type ErrorGroupSource =
   | 'frontend_toast'
   | 'frontend_exception'
   | 'backend_rpc'
-  | 'scraper';
+  | 'scraper'
+  // ★ fix-650: a notification that never reached somebody's bell.
+  | 'notification_delivery';
 
 export interface ErrorGroup {
   fingerprint: string;

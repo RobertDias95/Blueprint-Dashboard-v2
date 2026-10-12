@@ -88,6 +88,9 @@ export interface BoardNotifications {
   activityTruncationNote: string | null;
   /** True while any input query is still loading. */
   isLoading: boolean;
+  /** ★ fix-650: the signed-in auth user id, so the delivery receipts are
+   *  written for the same person the list was derived for. */
+  viewerUserId: string | null;
 }
 
 export function useBoardNotifications(): BoardNotifications {
@@ -221,5 +224,6 @@ export function useBoardNotifications(): BoardNotifications {
       tasksQ.isLoading ||
       activityQ.isLoading ||
       readsQ.isLoading,
+    viewerUserId,
   };
 }

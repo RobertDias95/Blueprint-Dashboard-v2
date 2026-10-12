@@ -457,7 +457,9 @@ describe('fix-369 §4: a banner is a second rendering, not a second source', () 
     );
     expect(stripComments(alertsSource)).not.toMatch(/supabase|useQuery|buildNewItems/);
     // Its whole input is the list, the count and the loading flag.
-    expect(driverSource).toContain('const { unseen, unseenCount, isLoading } = useBoardNotifications()');
+    // ★ fix-650 adds viewerUserId — the id the list was derived for, so the
+    //   delivery receipt is written for the same person. Still fix-360's model.
+    expect(driverSource).toContain('const { unseen, unseenCount, isLoading, viewerUserId } = useBoardNotifications()');
   });
 
   it('★★★ the FIRST pass announces nothing — the backlog is not news', () => {
@@ -607,9 +609,12 @@ describe('fix-369 §7: a denied permission degrades cleanly', () => {
   it('★★★ the banner is the ONLY thing gated on permission', () => {
     const body = stripComments(driverSource);
     // One gate, and everything before it runs regardless.
-    const gate = body.indexOf("permissionNow() !== 'granted'");
+    // ★ fix-650: the permission is read once, into `granted`, so the desktop
+    //   receipt can say what was announced; the gate is `if (!granted) return`.
+    const gate = body.indexOf('if (!granted) return;');
     expect(gate).toBeGreaterThan(-1);
-    expect(body.match(/permissionNow\(\) !== 'granted'/g)).toHaveLength(1);
+    expect(body.match(/permissionNow\(\)/g)).toHaveLength(2); // its definition + the one read
+    expect(body.match(/if \(!granted\) return;/g)).toHaveLength(1);
 
     // ★★★ The sound is decided and played BEFORE the gate…
     expect(body.indexOf('playDing()')).toBeLessThan(gate);
