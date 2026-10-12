@@ -78,6 +78,8 @@ import { useProjectExternalTeamBlob } from '../../hooks/useProjectExternalTeamBl
 import BotBadge from '../shared/BotBadge';
 import AutoClosedBadge from '../shared/AutoClosedBadge';
 import PendingScrapeChip from '../shared/PendingScrapeChip';
+import ResubmitByBadge from '../shared/ResubmitByBadge';
+import { useResubmitRounds } from '../../hooks/useResubmitRounds';
 import { DISCIPLINE_LABEL, DISCIPLINE_SHORT } from '../../lib/disciplineLabels';
 import { STAGE_LABEL } from '../../lib/stageLabel';
 import { LandUsePhaseBadge } from './LandUsePhaseBadge';
@@ -912,6 +914,10 @@ function DateStrip({
   // currentPhase is kept around for the cycle-tab initial-selection logic
   // (DrawScheduleGrid + a few legacy callers still want it).
   void currentPhase;
+  // ★★ fix-646 (P-066): the permit's OPEN correction round, if any, with its
+  //    smart Resubmit-by date (THE rule lives in bp_resubmit_rounds_for).
+  //    Called before the early returns below — hooks must not be conditional.
+  const openRound = useResubmitRounds().byPermit.get(permit.id) ?? null;
   // fix-35 Bug 3: optimistic, mutation-free highlight overlay. DateCell reports
   // its in-flight draft here; the highlight reads the draft, then clears back to
   // committed on blur (mutation fires there) or on cycle-tab switch.
@@ -1199,6 +1205,7 @@ function DateStrip({
   // pair-check; city_target stays unchecked (not in fix-89's chain).
   const cycleErrors = chainErrorsFor(cycle);
   return (
+    <>
     <div
       className="grid border-b"
       style={{
@@ -1315,6 +1322,18 @@ function DateStrip({
         testid="pd-cell-actual_issue"
       />
     </div>
+    {/* ★★ fix-646 (P-066): "Resubmit by <Mon D>" on the OPEN round only —
+        red "· N days past" when past; the tooltip names the basis. */}
+    {openRound && openRound.cycle_index === viewIdx && (
+      <div
+        className="px-4 py-1.5 border-b flex items-center gap-2"
+        style={{ borderBottomColor: 'var(--color-border)', background: 'var(--color-s2)' }}
+        data-testid={`pd-v2-resubmit-by-cycle-${viewIdx}`}
+      >
+        <ResubmitByBadge round={openRound} testid="pd-v2-resubmit-by" />
+      </div>
+    )}
+    </>
   );
 }
 
@@ -3020,6 +3039,8 @@ function CycleHistory({
     (c) =>
       c.submitted || c.city_target || c.corr_issued || c.resubmitted,
   );
+  // ★ fix-646: the open round's Resubmit-by date, shown on its history row.
+  const openRound = useResubmitRounds().byPermit.get(permit.id) ?? null;
 
   // fix-109 (smart Add Cycle): the "source" cycle the new submitted
   // date comes from. Prefer the cycle the user is currently viewing —
@@ -3127,6 +3148,11 @@ function CycleHistory({
             )}
             {c.corr_issued && (
               <CycleHistRow label="corr. issued" value={c.corr_issued} color="var(--color-co)" />
+            )}
+            {openRound && openRound.cycle_index === c.cycle_index && !c.resubmitted && (
+              <div className="flex items-center justify-end" data-testid={`pd-v2-cyclehist-resubmit-by-${c.cycle_index}`}>
+                <ResubmitByBadge round={openRound} testid={`pd-v2-cyclehist-resubmit-by-badge-${c.cycle_index}`} />
+              </div>
             )}
             {c.resubmitted && (
               <CycleHistRow label="resubmitted" value={c.resubmitted} color="var(--color-pm)" />

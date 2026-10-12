@@ -178,6 +178,7 @@ const TODAY_TO_NEW: ReadonlyArray<readonly [string, string, string]> = [
 const ADDED_AFTER_FIX_611: ReadonlyArray<readonly [string, string]> = [
   ['email-notifications', 'fix-634 (P-323): mention + assignment email opt-outs'],
   ['seattle-intake-warning', 'fix-637 (P-180): who the daily Seattle intake warning reaches'],
+  ['resubmit-warning', 'fix-646 (P-011): the fixed people on every Resubmit-by warning'],
 ];
 const ADDED_IDS = new Set(ADDED_AFTER_FIX_611.map(([id]) => id));
 
@@ -253,6 +254,7 @@ describe('fix-611 §B — every one of today’s 43 blocks has a home', () => {
       'Active Quarters',
       'Chat Tags',
       'Seattle intake warning goes to', // fix-637
+      'Resubmit-by warning goes to', // fix-646
     ]);
     expect(blocksForCategory('lists').map((b) => b.title)).toEqual([
       'Jurisdictions',

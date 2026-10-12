@@ -9,6 +9,7 @@ import PermitsMissingLeadPanel from './PermitsMissingLeadPanel';
 import WorkDataNamesPanel from './WorkDataNamesPanel';
 import MentionTagsEditor from './MentionTagsEditor';
 import IntakeWarningRecipientsEditor from './IntakeWarningRecipientsEditor';
+import ResubmitWarningRecipientsEditor from './ResubmitWarningRecipientsEditor';
 import TeamActiveQuartersEditor from './TeamActiveQuartersEditor';
 import QuarterLayoutEditor from './QuarterLayoutEditor';
 import { useTeamMembers } from '../../hooks/useTeamMembers';
@@ -277,6 +278,12 @@ export default function AdminTeamTab() {
           Seattle intake warning. Admin-gated the same way. */}
       <SettingsBlock id="seattle-intake-warning">
         <IntakeWarningRecipientsEditor readOnly={!isAdmin} />
+      </SettingsBlock>
+
+      {/* ★★ fix-646 (P-011): the fixed people on every Resubmit-by warning
+          (the permit's ENT lead and DM are added per round). */}
+      <SettingsBlock id="resubmit-warning">
+        <ResubmitWarningRecipientsEditor readOnly={!isAdmin} />
       </SettingsBlock>
 
       <SettingsBlock id="draw-schedule-layout">

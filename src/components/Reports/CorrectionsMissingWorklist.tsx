@@ -7,6 +7,8 @@ import { SkeletonRows } from '../Skeleton';
 import ExportCsvButton from '../shared/ExportCsvButton';
 import { rowsToCsv, reportCsvFilename } from '../../lib/reportCsv';
 import IndexerFreshness from './IndexerFreshness';
+import ResubmitByBadge from '../shared/ResubmitByBadge';
+import { useResubmitRounds } from '../../hooks/useResubmitRounds';
 import {
   AGE_WINDOWS,
   DEFAULT_AGE_WINDOW_DAYS,
@@ -35,6 +37,13 @@ import {
 
 export default function CorrectionsMissingWorklist() {
   const q = useCorrectionMissingWorklist();
+  // ★ fix-646 (P-066): a row that is the permit's OPEN round shows its smart
+  //   Resubmit-by date. Older rounds (already resubmitted) show a dash.
+  const resubmit = useResubmitRounds();
+  const openRoundFor = (permitId: number, cycle: number) => {
+    const o = resubmit.byPermit.get(permitId);
+    return o && o.cycle_index === cycle ? o : null;
+  };
   const [jurisFilter, setJurisFilter] = useState('');
   const [hideParked, setHideParked] = useState(false);
   // *** fix-376 section 3: DEFAULT AWAY FROM THE BACKLOG, NEVER HIDE IT.
@@ -193,6 +202,7 @@ export default function CorrectionsMissingWorklist() {
                 { key: 'cycle', label: 'Cycle' },
                 { key: 'disciplines_expected', label: 'Disciplines expected' },
                 { key: 'corr_issued', label: 'Corrections issued' },
+                { key: 'resubmit_by', label: 'Resubmit by' },
                 { key: 'days_since_corr_issued', label: 'Days outstanding' },
                 { key: 'project_parked', label: 'Project on hold' },
                 { key: 'status_note', label: 'Status' },
@@ -205,6 +215,7 @@ export default function CorrectionsMissingWorklist() {
                 cycle: r.cycle,
                 disciplines_expected: r.disciplines_expected ?? '',
                 corr_issued: r.corr_issued ?? '',
+                resubmit_by: openRoundFor(r.permit_id, r.cycle)?.resubmit_by ?? '',
                 days_since_corr_issued: r.days_since_corr_issued ?? '',
                 project_parked: r.project_parked ? 'yes' : 'no',
                 // The wording travels with the file.
@@ -260,7 +271,7 @@ export default function CorrectionsMissingWorklist() {
             </span>
           </div>
           <div className="overflow-x-auto">
-            <table className="w-full text-xs min-w-[780px]">
+            <table className="w-full text-xs min-w-[900px]">
               <thead>
                 <tr className="text-[10px] uppercase tracking-wide text-dim border-b border-border">
                   <th className="text-left py-1.5 font-display font-bold">Project</th>
@@ -271,6 +282,9 @@ export default function CorrectionsMissingWorklist() {
                   </th>
                   <th className="text-left py-1.5 font-display font-bold">
                     Corrections issued
+                  </th>
+                  <th className="text-left py-1.5 font-display font-bold">
+                    Resubmit by
                   </th>
                   <th className="text-right py-1.5 font-display font-bold">
                     Outstanding
@@ -320,6 +334,16 @@ export default function CorrectionsMissingWorklist() {
                       )}
                     </td>
                     <td className="py-1.5 text-muted">{r.corr_issued ?? '—'}</td>
+                    <td className="py-1.5" data-testid={`missing-resubmit-${r.permit_id}-${r.cycle}`}>
+                      {(() => {
+                        const o = openRoundFor(r.permit_id, r.cycle);
+                        return o ? (
+                          <ResubmitByBadge round={o} testid={`missing-resubmit-badge-${r.permit_id}-${r.cycle}`} />
+                        ) : (
+                          <span className="text-dim">—</span>
+                        );
+                      })()}
+                    </td>
                     <td className="py-1.5 text-right">
                       {r.days_since_corr_issued == null ? (
                         <span className="text-dim">—</span>
