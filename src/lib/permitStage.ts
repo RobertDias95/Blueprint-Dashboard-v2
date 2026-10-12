@@ -15,6 +15,7 @@ import {
   reviewerVerdictForCycle,
 } from './reviewerRollup';
 import { isSubPermit } from './subPermit';
+import { openRoundCityTarget } from './openRoundCityTarget';
 
 // Q2: Pure stage-classification helpers. Ported from v1's
 // computeStage/effectiveStage and DE early/late split (see v1 index.html
@@ -272,11 +273,13 @@ function byActualIssue(a: Permit, b: Permit): number {
   return (a.actual_issue ?? '9999') > (b.actual_issue ?? '9999') ? 1 : -1;
 }
 
+// ★ fix-651: sorts on the OPEN round's city_target (rule 1 of
+// openRoundCityTarget), never the latest across all cycles.
 function byMostRecentCityTarget(inputs: BucketInput[]) {
   const cyclesByPermit = new Map(inputs.map((i) => [i.permit.id, i.cycles]));
   return (a: Permit, b: Permit): number => {
-    const ka = mostRecent(cyclesByPermit.get(a.id) ?? [], (c) => c.city_target);
-    const kb = mostRecent(cyclesByPermit.get(b.id) ?? [], (c) => c.city_target);
+    const ka = openRoundCityTarget(cyclesByPermit.get(a.id) ?? [])?.date ?? null;
+    const kb = openRoundCityTarget(cyclesByPermit.get(b.id) ?? [])?.date ?? null;
     return (ka ?? '9999') > (kb ?? '9999') ? 1 : -1;
   };
 }
