@@ -139,6 +139,11 @@ export const queryKeys = {
   // ★ fix-637: the Seattle intake warning's due list, for one Pacific day.
   intakeWarningDue: (tenantId: string, day: string) =>
     ['intake_warning_due', tenantId, day] as const,
+  // ★ fix-646: every open correction round with its Resubmit-by date. Under
+  //   the `permit_cycles` prefix so a cycle edit (realtime or mutation)
+  //   refreshes it with the cycles themselves.
+  resubmitRounds: (tenantId: string) =>
+    ['permit_cycles', 'resubmit_rounds', tenantId] as const,
   teamMembers: (tenantId: string) => ['team_members', tenantId] as const,
   taskTemplates: (tenantId: string) => ['task_templates', tenantId] as const,
   taskTemplateSubtasks: (tenantId: string) =>

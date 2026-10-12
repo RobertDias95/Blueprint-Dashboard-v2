@@ -6,7 +6,8 @@
 // module holds the parts that are logic rather than markup: the section
 // vocabulary, the three-state disclosure, and the type-aware sort.
 
-export type SnapshotBucket = 'a' | 'b' | 'c' | 'd' | 'e';
+// ★ fix-646: bucket f, "Past resubmit-by" — shown right after d, which stays.
+export type SnapshotBucket = 'a' | 'b' | 'c' | 'd' | 'e' | 'f';
 
 /** One permit row, exactly the eight columns the mock-up shows. */
 export interface SnapshotRow {
@@ -48,6 +49,8 @@ export const SNAPSHOT_SECTIONS: readonly SectionSpec[] = [
   { key: 'b', title: 'Intake past due, still not submitted', dateLabel: 'Target submit', ageLabel: 'Days late' },
   { key: 'c', title: 'Submitted, intake fee not paid', dateLabel: 'Submitted', ageLabel: 'Days waiting' },
   { key: 'd', title: 'In corrections more than 7 days', dateLabel: 'Corrections issued', ageLabel: 'Days out' },
+  // ★ fix-646 (P-066): the smart date from bp_resubmit_rounds_for; age = BUSINESS days past.
+  { key: 'f', title: 'Past resubmit-by', dateLabel: 'Resubmit by', ageLabel: 'Days past' },
   { key: 'e', title: 'Approved, not yet issued', dateLabel: 'Approved', ageLabel: 'Days since' },
 ];
 

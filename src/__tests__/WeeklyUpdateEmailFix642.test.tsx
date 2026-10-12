@@ -34,7 +34,7 @@ vi.mock('../hooks/useNotificationPreferences', () => ({
   useNotificationPreferences: () => ({
     isLoading: false,
     error: null,
-    data: { mention: true, assignment: true, weekly: true },
+    data: { mention: true, assignment: true, weekly: true, resubmit: true },
   }),
   useSetNotificationPreference: () => ({ isPending: false, mutate: vi.fn() }),
 }));
@@ -194,7 +194,8 @@ describe('fix-642: the "Weekly Update" switch', () => {
 
   it('★★ the category twin: database and client both allow exactly three', () => {
     expect(sql).toContain("CHECK (category IN ('mention', 'assignment', 'weekly'))");
-    expect([...NOTIFICATION_CATEGORIES]).toEqual(['mention', 'assignment', 'weekly']);
+    // ★ fix-646 added a fourth ('resubmit'); ResubmitByFix646 pins the full twin.
+    expect([...NOTIFICATION_CATEGORIES].slice(0, 3)).toEqual(['mention', 'assignment', 'weekly']);
     expect(sql).toContain("CHECK (kind IN ('notify:mention', 'notify:assignment', 'notify:intake', 'notify:weekly'))");
     expect(sql).toContain("OR (kind = 'notify:weekly' AND payload IS NOT NULL)");
   });
@@ -202,7 +203,7 @@ describe('fix-642: the "Weekly Update" switch', () => {
   it('★★ ON by default: absence means on, and only enabled=false turns it off', () => {
     expect(preferencesFromRows([]).weekly).toBe(true);
     expect(preferencesFromRows([{ category: 'weekly', enabled: false }]))
-      .toEqual({ mention: true, assignment: true, weekly: false });
+      .toEqual({ mention: true, assignment: true, weekly: false, resubmit: true });
   });
 
   it('★ Settings → My account → Email notifications shows a third switch, "Weekly Update", on', () => {

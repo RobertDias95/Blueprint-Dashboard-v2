@@ -227,8 +227,9 @@ describe('fix-634 — the migration keeps its promises', () => {
 
   it('★★ the categories agree with the client (twin)', () => {
     expect(sql).toContain("CHECK (category IN ('mention', 'assignment'))");
-    // ★ fix-642 widened the constraint to three; its own test pins that twin.
-    expect([...NOTIFICATION_CATEGORIES]).toEqual(['mention', 'assignment', 'weekly']);
+    // ★ fix-642 widened the constraint to three, fix-646 to four; the latest
+    //   ticket's own test pins the full twin. These two still lead the list.
+    expect([...NOTIFICATION_CATEGORIES].slice(0, 2)).toEqual(['mention', 'assignment']);
   });
 });
 
@@ -402,10 +403,10 @@ describe('fix-634 — the Settings panel is registered', () => {
     const block = SETTINGS_BLOCKS.find((b) => b.id === 'email-notifications');
     expect(block?.category).toBe('account');
     expect(block?.title).toBe('Email notifications');
-    expect(preferencesFromRows([])).toEqual({ mention: true, assignment: true, weekly: true });
+    expect(preferencesFromRows([])).toEqual({ mention: true, assignment: true, weekly: true, resubmit: true });
     expect(preferencesFromRows([{ category: 'mention', enabled: false }]))
-      .toEqual({ mention: false, assignment: true, weekly: true });
+      .toEqual({ mention: false, assignment: true, weekly: true, resubmit: true });
     expect(preferencesFromRows([{ category: 'bogus', enabled: false }]))
-      .toEqual({ mention: true, assignment: true, weekly: true });
+      .toEqual({ mention: true, assignment: true, weekly: true, resubmit: true });
   });
 });

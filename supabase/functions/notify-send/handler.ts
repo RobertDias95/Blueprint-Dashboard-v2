@@ -84,6 +84,31 @@ export interface WeeklyPayload {
   agenda: WeeklyAgendaItem[];
 }
 
+/** ★ fix-646: one round past its Resubmit-by date, as
+ *  `bp_resubmit_warning_enqueue` froze it. */
+export interface ResubmitItem {
+  permit_id: number;
+  project_id: string | null;
+  address: string | null;
+  num: string | null;
+  type: string | null;
+  cycle_index: number;
+  corr_issued: string;
+  items: number;
+  business_days: number;
+  resubmit_by: string;
+  days_past: number;
+  ent_lead: string | null;
+}
+
+/** ★ fix-646: the `notify:resubmit` payload. `launch` is true on the very first
+ *  digest, which lists everything already past. */
+export interface ResubmitPayload {
+  date: string;
+  launch: boolean;
+  items: ResubmitItem[];
+}
+
 /**
  * ★★ fix-643 (P-338): the payload on a `notify:mention` row that is the
  * Bridge's "corrections are out" notice (`bp_cr_notice_payload`). The row stays
@@ -105,7 +130,7 @@ export function isCorrectionNotice(p: unknown): p is CorrectionNoticePayload {
 /** One row of `bp_notify_claim`. */
 export interface ClaimedRow {
   id: string;
-  kind: 'notify:mention' | 'notify:assignment' | 'notify:intake' | 'notify:weekly';
+  kind: 'notify:mention' | 'notify:assignment' | 'notify:intake' | 'notify:weekly' | 'notify:resubmit';
   to_email: string;
   recipient_user_id: string;
   project_id: string | null;
@@ -122,8 +147,9 @@ export interface ClaimedRow {
   task_done: boolean;
   task_due: string | null;
   /** ★ fix-637: set for `notify:intake`; ★ fix-642: and for `notify:weekly`;
-   *  ★ fix-643: and for a `notify:mention` that is a corrections notice. */
-  payload?: IntakePayload | WeeklyPayload | CorrectionNoticePayload | null;
+   *  ★ fix-643: and for a `notify:mention` that is a corrections notice;
+   *  ★ fix-646: and for `notify:resubmit`. */
+  payload?: IntakePayload | WeeklyPayload | CorrectionNoticePayload | ResubmitPayload | null;
 }
 
 export interface OutboxRow {
@@ -492,7 +518,7 @@ export function renderIntake(row: ClaimedRow): RenderedNotification {
 // the pop-up opens (its default sort) and cut to the top 5.
 
 /** ★ The pop-up's five buckets. */
-export type WeeklyBucket = 'a' | 'b' | 'c' | 'd' | 'e';
+export type WeeklyBucket = 'a' | 'b' | 'c' | 'd' | 'e' | 'f';
 
 /** ★ A deliberate copy of `SNAPSHOT_SECTIONS` (src/lib/weeklySnapshot.ts),
  *  pinned by a twin test: heading, date column and age column. */
@@ -506,6 +532,7 @@ export const WEEKLY_SECTIONS: readonly {
   { key: 'b', title: 'Intake past due, still not submitted', dateLabel: 'Target submit', ageLabel: 'Days late' },
   { key: 'c', title: 'Submitted, intake fee not paid', dateLabel: 'Submitted', ageLabel: 'Days waiting' },
   { key: 'd', title: 'In corrections more than 7 days', dateLabel: 'Corrections issued', ageLabel: 'Days out' },
+  { key: 'f', title: 'Past resubmit-by', dateLabel: 'Resubmit by', ageLabel: 'Days past' },
   { key: 'e', title: 'Approved, not yet issued', dateLabel: 'Approved', ageLabel: 'Days since' },
 ];
 
@@ -685,6 +712,112 @@ export function renderWeekly(row: ClaimedRow): RenderedNotification {
 }
 
 // ---------------------------------------------------------------------------
+// ★★★ fix-646 (P-011) — "Past resubmit-by": the 7 AM digest
+// ---------------------------------------------------------------------------
+// ⚖️ Bobby 10-11: the permit's ENT lead and DM, plus the Settings list (Dave,
+// Brittani, Bobby). One email per person per day, listing the rounds that
+// passed their smart Resubmit-by date since the last run — frozen into the
+// payload by `bp_resubmit_warning_enqueue`. Its own opt-out switch.
+
+export function resubmitSubject(count: number): string {
+  return `Past resubmit-by · ${count} permit${count === 1 ? '' : 's'}`;
+}
+
+/** "Oct 22" from `2026-10-22`. Mirrors `monDay` in src/lib/resubmitBy.ts. */
+export function monDay(iso: string): string {
+  const [, m, d] = (iso ?? '').slice(0, 10).split('-').map(Number);
+  return m && d ? `${MONTHS[m - 1]} ${d}` : iso;
+}
+
+export function resubmitPermitLabel(i: ResubmitItem): string {
+  const num = (i.num ?? '').trim();
+  const type = (i.type ?? '').trim();
+  if (num && type) return `${num} · ${type}`;
+  return num || type || '—';
+}
+
+export function resubmitPastLabel(i: ResubmitItem): string {
+  const n = i.days_past ?? 0;
+  return `${n} day${n === 1 ? '' : 's'} past`;
+}
+
+/** "14 items" / "letter not indexed". */
+export function resubmitItemsLabel(i: ResubmitItem): string {
+  const n = i.items ?? 0;
+  return n > 0 ? `${n} item${n === 1 ? '' : 's'}` : 'letter not indexed';
+}
+
+export function permitUrl(projectId: string, permitId: number): string {
+  return `${projectUrl(projectId)}?permit=${encodeURIComponent(String(permitId))}`;
+}
+
+const RESUBMIT_WHY_TEXT =
+  "You're getting this because you're the ENT lead or DM on these permits, or on the " +
+  'Resubmit-by warning list (Settings → Teams). Turn it off in Settings → My account → ' +
+  'Email notifications → Resubmit-by warnings.';
+
+export function renderResubmit(row: ClaimedRow): RenderedNotification {
+  const p = (row.payload ?? null) as ResubmitPayload | null;
+  const items = p?.items ?? [];
+  const subject = resubmitSubject(items.length);
+  const RED = '#b42318';
+  const cell = 'padding:6px 8px 6px 0;border-top:1px solid #e5e7eb;vertical-align:top';
+  const head = (t: string, right = false) =>
+    `<th align="${right ? 'right' : 'left'}" style="padding:0 8px 4px 0;font-size:11px;` +
+    `text-transform:uppercase;letter-spacing:.04em;color:${MUTED}">${escapeHtml(t)}</th>`;
+
+  const rowsHtml = items.map((i) => {
+    const address = (i.address ?? '').trim() || '(no address)';
+    const addr = i.project_id
+      ? `<a href="${escapeHtml(permitUrl(i.project_id, i.permit_id))}" style="color:${BLUE}">${escapeHtml(address)}</a>`
+      : escapeHtml(address);
+    return '<tr>' +
+      `<td style="${cell};font-weight:600">${addr}</td>` +
+      `<td style="${cell}">${escapeHtml(resubmitPermitLabel(i))}</td>` +
+      `<td style="${cell};white-space:nowrap">CR${escapeHtml(String(i.cycle_index))}</td>` +
+      `<td style="${cell};white-space:nowrap">${escapeHtml(monDay(i.resubmit_by))}</td>` +
+      `<td align="right" style="${cell};white-space:nowrap;font-weight:600;color:${RED}">${escapeHtml(resubmitPastLabel(i))}</td>` +
+      `<td style="${cell};white-space:nowrap">${escapeHtml(resubmitItemsLabel(i))}</td>` +
+      `<td style="${cell}">${escapeHtml((i.ent_lead ?? '').trim() || '—')}</td>` +
+      '</tr>';
+  }).join('');
+
+  const introText = p?.launch
+    ? 'The Bridge now gives every open correction round a Resubmit by date (CR1: 10 business ' +
+      'days, later rounds: 5 — more for bigger letters). This first email lists every round ' +
+      'already past it; from now on you will only hear about a round on the morning after it passes.'
+    : 'These correction rounds passed their Resubmit by date since the last email. Each one is listed once.';
+  const intro = escapeHtml(introText).replace('Resubmit by', '<strong>Resubmit by</strong>');
+
+  const bodyHtml =
+    `<p style="margin:0 0 12px 0">${intro}</p>` +
+    '<table role="presentation" cellpadding="0" cellspacing="0" border="0" ' +
+    `style="border-collapse:collapse;font-family:${SANS};font-size:14px;width:100%">` +
+    `<tr>${head('Address')}${head('Permit')}${head('Round')}${head('Resubmit by')}` +
+    `${head('Past', true)}${head('Items')}${head('ENT')}</tr>` +
+    rowsHtml +
+    '</table>' +
+    `<p style="font-size:12px;color:${MUTED};margin:8px 0 0 0">Days past are business days. ` +
+    'Weekends are skipped; holidays are not.</p>' +
+    `<p style="font-size:12px;color:${MUTED};margin:16px 0 0 0">${escapeHtml(RESUBMIT_WHY_TEXT)} ` +
+    `<a href="${escapeHtml(SETTINGS_URL)}" style="color:${BLUE}">Email settings</a></p>`;
+
+  const bodyText =
+    `${introText}\n\n` +
+    items.map((i) =>
+      `- ${(i.address ?? '').trim() || '(no address)'} · ${resubmitPermitLabel(i)} · CR${i.cycle_index} · ` +
+      `resubmit by ${monDay(i.resubmit_by)} · ${resubmitPastLabel(i)} · ${resubmitItemsLabel(i)} · ` +
+      `ENT ${(i.ent_lead ?? '').trim() || '—'}` +
+      (i.project_id ? `\n  ${permitUrl(i.project_id, i.permit_id)}` : ''),
+    ).join('\n') +
+    '\n\nDays past are business days. Weekends are skipped; holidays are not.' +
+    `\n\n${RESUBMIT_WHY_TEXT} ${SETTINGS_URL}`;
+
+  const branded = renderBrandedEmail({ bodyHtml, bodyText });
+  return { subject, html: branded.html, text: branded.text, inlineImages: branded.inlineImages };
+}
+
+// ---------------------------------------------------------------------------
 // The drain
 // ---------------------------------------------------------------------------
 
@@ -697,6 +830,8 @@ export function skipReason(row: ClaimedRow): string | null {
   // ★ fix-642: a weekly row with no payload has nothing to say. (An EMPTY week
   //   still sends — the pop-up shows on an empty week too.)
   if (row.kind === 'notify:weekly' && !(row.payload as WeeklyPayload | null | undefined)?.edition) return 'no weekly payload';
+  // ★ fix-646: a resubmit digest with no rounds has nothing to say.
+  if (row.kind === 'notify:resubmit' && ((row.payload as ResubmitPayload | null | undefined)?.items?.length ?? 0) === 0) return 'nothing past';
   if ((row.to_email ?? '').trim() === '') return 'no recipient address';
   return null;
 }
@@ -711,7 +846,9 @@ export function planEmails(rows: ClaimedRow[]): ClaimedRow[][] {
   for (const r of rows) {
     // ★ fix-637: an intake warning is already one email per person per day.
     // ★ fix-642: and a Weekly Update is one per person per edition.
-    if (r.kind === 'notify:mention' || r.kind === 'notify:intake' || r.kind === 'notify:weekly') {
+    // ★ fix-646: and a Resubmit-by digest is one per person per day.
+    if (r.kind === 'notify:mention' || r.kind === 'notify:intake' || r.kind === 'notify:weekly'
+      || r.kind === 'notify:resubmit') {
       out.push([r]);
     } else {
       const k = r.to_email.trim().toLowerCase();
@@ -751,6 +888,7 @@ export async function drain(deps: Deps, rows: ClaimedRow[]): Promise<DrainSummar
           ? (isCorrectionNotice(first.payload) ? renderCorrectionNotice(first) : renderMention(first))
         : first.kind === 'notify:intake' ? renderIntake(first)
         : first.kind === 'notify:weekly' ? renderWeekly(first)
+        : first.kind === 'notify:resubmit' ? renderResubmit(first)
         : renderAssignment(group);
     } catch (e) {
       // ★ A render bug still leaves a failed row, never nothing.

@@ -235,6 +235,15 @@ export const SETTINGS_BLOCKS: readonly SettingsBlock[] = [
     feeds: ['Seattle intake pop-up', 'Email'],
     keywords: 'seattle intake warning reschedule slot placeholder business days email pop-up miles briana',
   },
+  {
+    // ★★ fix-646 (P-011): the fixed people every Resubmit-by warning reaches.
+    id: 'resubmit-warning',
+    category: 'teams',
+    title: 'Resubmit-by warning goes to',
+    summary: '7 AM email when a correction round passes its Resubmit-by date',
+    feeds: ['Email'],
+    keywords: 'resubmit by resubmittal corrections overdue past late warning email dave brittani bobby',
+  },
 
   // ═══════════════════════════════════════════════════════ Project lists ══
   {

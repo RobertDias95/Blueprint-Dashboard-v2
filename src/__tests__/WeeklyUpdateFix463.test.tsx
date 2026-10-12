@@ -107,7 +107,8 @@ describe('fix-463 §A — the five sections', () => {
   });
 
   it('★★ five sections, in the mock-up’s order and words', () => {
-    expect(SNAPSHOT_SECTIONS.map((s) => s.key)).toEqual(['a', 'b', 'c', 'd', 'e']);
+    // fix-646 added bucket f ("Past resubmit-by") right after d; ResubmitByFix646 pins it.
+    expect(SNAPSHOT_SECTIONS.map((s) => s.key)).toEqual(['a', 'b', 'c', 'd', 'f', 'e']);
     expect(SNAPSHOT_SECTIONS[0]!.title).toBe('Intake due in the next 14 days');
     expect(SNAPSHOT_SECTIONS[2]!.title).toBe('Submitted, intake fee not paid');
     // ★ The two variable column labels travel with the section, so a heading
