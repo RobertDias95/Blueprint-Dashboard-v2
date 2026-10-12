@@ -1,4 +1,5 @@
 import type {
+  Department,
   MyTaskNode,
   Permit,
   Project,
@@ -62,8 +63,15 @@ export interface RosterIdentity {
    *  Lucas `Policy`. The two are not redundant and must not be merged: this is
    *  the NAME PLATE and prints as written, while `department` is a controlled
    *  vocabulary of six that groups the roster. Keenan's note stays `IT` even
-   *  though his department reads "IT & Investor Relations". */
+   *  though his department reads "IT & Investor Relations".
+   *
+   *  ★★ fix-652 (census 35) SUPERSEDES the "prints as written" half: the name
+   *  plate now reads `department` first (see `rosterRoleTitle`), and this note
+   *  is only the fallback for a viewer with no department. */
   notes: string | null;
+  /** ★ fix-652: the person's department (first non-null across their rows) —
+   *  what a viewer's title prints. null when none is set. */
+  department: Department | null;
   /** fix-179: scope derived from real assignments — 'project' when the name
    *  leads ≥1 project, 'permit' when mapped but leads none, 'all' when unmapped. */
   scope: SelfScopeKind;
@@ -173,15 +181,16 @@ export function resolveRosterIdentity(
     email: string | null;
     role: TeamRole;
     notes?: string | null;
+    department?: Department | null;
   }>,
   projects: ReadonlyArray<Pick<Project, 'entitlement_lead' | 'design_manager'>>,
 ): RosterIdentity {
   const target = norm(email);
-  if (!target) return { name: null, roles: [], notes: null, scope: 'all' };
+  if (!target) return { name: null, roles: [], notes: null, department: null, scope: 'all' };
 
   const matches = members.filter((m) => norm(m.email) === target);
   if (matches.length === 0) {
-    return { name: null, roles: [], notes: null, scope: 'all' };
+    return { name: null, roles: [], notes: null, department: null, scope: 'all' };
   }
 
   const name = matches[0].name;
@@ -196,7 +205,11 @@ export function resolveRosterIdentity(
   const notes =
     matches.map((m) => (m.notes ?? '').trim()).find((n) => n !== '') ?? null;
 
-  return { name, roles, notes, scope: deriveSelfScope(name, projects) };
+  // ★ fix-652: the department is per PERSON (a trigger syncs it across their
+  //   rows), so the first non-null is the answer.
+  const department = matches.map((m) => m.department ?? null).find((d) => d) ?? null;
+
+  return { name, roles, notes, department, scope: deriveSelfScope(name, projects) };
 }
 
 // ===========================================================================
@@ -380,8 +393,9 @@ export function redesignsOfRedesigns(
  *    not a predicate to bend.
  *
  * ★ `permits.ca` is empty on **every** permit, so fix-487's permit-level CA rule
- *   has never matched a row either. The CA columns are unmaintained on both
- *   sides; this ticket makes the app ready for them rather than pretending.
+ *   has never matched a row either. ★ fix-652: and it never will — Bobby ruled
+ *   the CA project-level only (no per-permit picker), so `permits.ca` has no
+ *   writer; only `projects.construction_admin` can ever scope a CA.
  */
 export function projectMatchesSelf(
   project: ProjectLeads & Partial<Pick<Project, 'redesign_of_project_id'>>,

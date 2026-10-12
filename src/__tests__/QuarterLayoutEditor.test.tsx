@@ -179,7 +179,9 @@ describe('<QuarterLayoutEditor /> draft model (fix-190c)', () => {
     renderIt();
     // Edit r0's DA and r1's top tier, then save.
     fireEvent.change(screen.getByTestId('ql-da-r0'), { target: { value: 'Ahmadi' } });
-    fireEvent.change(screen.getByTestId('ql-top-r1'), { target: { value: 'Miles' } });
+    // ★ fix-652: the top tier is a SELECT over the roster now, so the edit picks
+    //   a listed name (the DM) instead of typing a free one.
+    fireEvent.change(screen.getByTestId('ql-top-r1'), { target: { value: 'Brittani' } });
     fireEvent.click(screen.getByTestId('ql-save'));
     expect(mocks.replace).toHaveBeenCalledTimes(1);
     const input = mocks.replace.mock.calls[0][0];
@@ -187,7 +189,7 @@ describe('<QuarterLayoutEditor /> draft model (fix-190c)', () => {
     expect(input.expectedFingerprint).toBe(NOW); // max(updated_at) of loaded rows
     expect(input.rows).toEqual([
       { col_kind: 'da', da_name: 'Ahmadi', group_label: 'Brittani', label_override: null, top_label: null },
-      { col_kind: 'da', da_name: 'Fisk', group_label: 'Brittani', label_override: null, top_label: 'Miles' },
+      { col_kind: 'da', da_name: 'Fisk', group_label: 'Brittani', label_override: null, top_label: 'Brittani' },
       { col_kind: 'open', da_name: null, group_label: null, label_override: 'OPEN', top_label: null },
     ]);
   });
@@ -279,5 +281,42 @@ describe('<QuarterLayoutEditor /> read-only', () => {
     expect(screen.queryByTestId('ql-add-da-select')).not.toBeInTheDocument();
     expect((screen.getByTestId('ql-da-r0') as HTMLSelectElement).disabled).toBe(true);
     expect(screen.queryByTestId('ql-remove-r0')).not.toBeInTheDocument();
+  });
+});
+
+// ★ fix-652 (census 33): the group / top labels are SELECTS over the roster
+//   list now. A stored value the list lacks must stay shown, selected and
+//   saved — never wiped to blank by the switch from free text.
+describe('fix-652 — an off-list layout label survives render + save', () => {
+  function offListFixture(): DrawScheduleQuarterLayoutRow[] {
+    return [
+      row({ id: 'r0', position: 0, da_name: 'Marc', group_label: 'Brittani', top_label: 'North Region' }),
+      row({ id: 'r1', position: 1, col_kind: 'dm', da_name: 'Brittani', group_label: 'Old Team' }),
+    ];
+  }
+
+  it('★★ the selects show the stored value, marked, and offer the list', () => {
+    state.rows = offListFixture();
+    renderIt();
+    const top = screen.getByTestId('ql-top-r0') as HTMLSelectElement;
+    expect(top.tagName).toBe('SELECT');
+    expect(top.value).toBe('North Region');
+    const topLabels = Array.from(top.options).map((o) => o.textContent);
+    expect(topLabels).toContain('North Region (not on the list)');
+    expect(topLabels).toContain('Brittani');
+    const group = screen.getByTestId('ql-group-r1') as HTMLSelectElement;
+    expect(group.value).toBe('Old Team');
+    // ★ one row's off-list value is never offered to another row
+    expect(Array.from(top.options).map((o) => o.value)).not.toContain('Old Team');
+  });
+
+  it('★★★ saving an unrelated edit keeps the off-list values', () => {
+    state.rows = offListFixture();
+    renderIt();
+    fireEvent.change(screen.getByTestId('ql-da-r0'), { target: { value: 'Ahmadi' } });
+    fireEvent.click(screen.getByTestId('ql-save'));
+    const input = mocks.replace.mock.calls[0][0];
+    expect(input.rows[0]).toMatchObject({ da_name: 'Ahmadi', top_label: 'North Region' });
+    expect(input.rows[1]).toMatchObject({ col_kind: 'dm', group_label: 'Old Team' });
   });
 });

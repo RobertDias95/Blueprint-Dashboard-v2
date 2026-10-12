@@ -203,16 +203,26 @@ const TITLE_SEPARATOR = ' · ';
  * already had one: "Blueprint Services"). Inventing "Team member" would be a
  * placeholder, and printing "Viewer" would be the thing this ticket removes.
  *
+ * ★★ fix-652 (census 35): THE DEPARTMENT WINS. A viewer's function is now read
+ *    from `team_members.department` (a controlled list Settings edits) rather
+ *    than free-text notes. Notes remain the FALLBACK, so a viewer whose
+ *    department is blank keeps today's title instead of going empty. Measured
+ *    2026-10-12: all 6 viewer-only logins have a department (0 fall back).
+ *
  * @param roles every role the person holds, in any order
- * @param notes team_members.notes for that person — the real function of a viewer
+ * @param notes team_members.notes for that person — the fallback function
+ * @param department team_members.department — a viewer's function when set
  */
 export function rosterRoleTitle(
   roles: readonly TeamRole[] | null | undefined,
   notes?: string | null,
+  department?: Department | null,
 ): string | null {
   const held = primaryRoles(roles ?? []);
   if (held.length === 0) return null;
   if (held.length === 1 && held[0] === 'viewer') {
+    const dept = department ? DEPARTMENT_LABEL[department] : undefined;
+    if (dept) return dept;
     const fn = (notes ?? '').trim();
     return fn === '' ? null : fn;
   }

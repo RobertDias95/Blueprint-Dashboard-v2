@@ -245,7 +245,8 @@ describe('fix-343: resolveRosterIdentity orders roles and carries notes', () => 
 
   it('★ an unmapped login is unchanged — name null, no roles, no note', () => {
     const id = resolveRosterIdentity('nobody@example.com', [], projects);
-    expect(id).toEqual({ name: null, roles: [], notes: null, scope: 'all' });
+    // ★ fix-652 added `department` to the identity (null here too).
+    expect(id).toEqual({ name: null, roles: [], notes: null, department: null, scope: 'all' });
   });
 });
 

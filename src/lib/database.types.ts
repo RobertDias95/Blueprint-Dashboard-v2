@@ -879,7 +879,13 @@ export interface Permit {
    *  one.
    *
    *  ★ No select-list cost: `usePermits` reads `select('*')`, the opposite of
-   *  `useProjects`. */
+   *  `useProjects`.
+   *
+   *  ★★★ fix-652 (census 39): NOTHING WRITES THIS, AND NOTHING WILL. Bobby,
+   *  2026-10-12: *"Skip it, project level is enough"* — the CA is
+   *  `projects.construction_admin`, and there is no per-permit picker. The
+   *  column stays (read-only, empty on every permit) because dropping it is a
+   *  full column-drop sweep; readers just see null. */
   ca?: string | null;
   target_submit: string | null;
   /** True when target_submit was hand-typed. The engine never overwrites a
@@ -984,11 +990,12 @@ export interface PermitTask {
    *  done_at on any non-Resolved status, so this column is the entire restore
    *  mechanism — bp_restore_project reads it, restores it, then NULLs it. */
   prior_completion_status?: string | null;
-  /** fix-138-a: external-blocker discipline. Vocab owned by the
-   *  TypeScript layer (see WAITING_ON_OPTIONS / WaitingOnDiscipline); no
-   *  DB CHECK so the team can expand the list without migrations. Null =
-   *  no external block. */
-  waiting_on?: WaitingOnDiscipline | null;
+  /** fix-138-a: external-blocker discipline. No DB CHECK so the team can
+   *  expand the list without migrations. Null = no external block.
+   *  ★ fix-652 (census 12): typed `string`, not the constant's union — the
+   *  vocabulary is Settings → Waiting On (`lib/waitingOn.ts`), which includes
+   *  `City` and admin-added values the union never could. */
+  waiting_on?: string | null;
   /** fix-138-a: priority flag (star). Defaults to false in the DB. */
   priority?: boolean | null;
   /** fix-138-a: free-form notes shown in the task detail panel. */
@@ -1105,7 +1112,8 @@ export interface WaitingOnTaskRow {
   task_id: string;
   task_text: string;
   bucket: string;
-  waiting_on: WaitingOnDiscipline;
+  /** ★ fix-652: any stored value — see PermitTask.waiting_on. */
+  waiting_on: string;
   firm_id: string | null;
   firm_name: string | null;
   firm_active: boolean | null;
@@ -1203,8 +1211,9 @@ export interface TaskNode {
   /** fix-138-a: explicit `assigned_to` text column. Distinct from
    *  primary_assignee (derived) and co_assignees (join table). */
   assigned_to?: string | null;
-  /** fix-138-a: external party blocking this task ('Civil', 'Surveyor', …). */
-  waiting_on?: WaitingOnDiscipline | null;
+  /** fix-138-a: external party blocking this task ('Civil', 'Surveyor', …).
+   *  ★ fix-652: any stored value — see PermitTask.waiting_on. */
+  waiting_on?: string | null;
   /** fix-138-a: priority star. */
   priority?: boolean;
   /** fix-138-a: free-form notes. */
@@ -1396,8 +1405,9 @@ export interface TaskTemplate {
    *  names or free-text. */
   default_co_assignees: string[];
   /** fix-153: discipline that seeds permit_tasks.waiting_on at create time.
-   *  Same controlled vocab as WAITING_ON_OPTIONS; null = no default block. */
-  default_waiting_on: WaitingOnDiscipline | null;
+   *  Same vocabulary as permit_tasks.waiting_on (Settings → Waiting On, so
+   *  `string` since fix-652); null = no default block. */
+  default_waiting_on: string | null;
   /** fix-223: RETIRED from the settings UI — it was unused (null on every
    *  template, no anchor, nothing computed a date from it). Dropped from the
    *  fetch select + upsert payload; the nullable column stays in place, unused.

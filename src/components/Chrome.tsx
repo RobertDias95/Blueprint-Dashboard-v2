@@ -310,7 +310,8 @@ export default function Chrome() {
                   function — and the neutral line that was already the fallback
                   here covers that case rather than a placeholder. */}
               <div className="text-dim" style={{ fontSize: 10.5 }} data-testid="chrome-user-role">
-                {rosterRoleTitle(identity.roles, identity.notes) ?? 'Blueprint Services'}
+                {rosterRoleTitle(identity.roles, identity.notes, identity.department) ??
+                  'Blueprint Services'}
               </div>
             </div>
           </div>
