@@ -12,6 +12,7 @@ import type {
   ProjectHold,
 } from './database.types';
 import { activeHoldElapsedDays, type HoldWindow } from './holdOverlap';
+import { openRoundCityTarget } from './openRoundCityTarget';
 import {
   adjustForCorrections,
   type CorrectionFacts,
@@ -453,7 +454,12 @@ function getULSAnchorDates(
       flooredAnchor(corrCycle.corr_issued) ?? corrCycle.corr_issued,
       bpCorrResponse1,
     );
-  } else if (corrCycle?.city_target) {
+  } else if (
+    corrCycle?.city_target &&
+    // ★ fix-653: a city date only stands for the BP's OPEN round — never a
+    //   closed round's (the same rule as fix-651's board).
+    openRoundCityTarget(bpCycles)?.cycleIndex === corrCycle.cycle_index
+  ) {
     cy1Resub = addDays(
       flooredAnchor(corrCycle.city_target) ?? corrCycle.city_target,
       bpCorrResponse1,
@@ -914,14 +920,20 @@ function computeProjectedApprovalCore(
   } else {
     const cycleRows = [r1, r2, r3, r4];
     // Q9.5.f-fix-18 C: v1 :4530 cityTarget shortcut for cycle 1 only.
-    // If cycle 1 has no actual corr_issued but ANY cycle has a city_target
-    // date after `cursor`, use the earliest such date as that round's
-    // crEnd. Mirrors v1's projection more closely (accounts for the team
-    // entering a city-target date as a city-supplied corrections deadline).
-    const earliestCityTargetAfterCursor = cycles
-      .map((c) => c.city_target ?? '')
-      .filter((t) => t && t > cursor)
-      .sort()[0] ?? '';
+    // If cycle 1 has no actual corr_issued and has its own city_target after
+    // `cursor`, that date is the round's crEnd (a city-supplied deadline).
+    //
+    // ★★★ fix-653 (P-340): v1 took the earliest city_target from ANY cycle.
+    //     A city date only ever stands for the OPEN round's review end — the
+    //     same rule as fix-651's board (`openRoundCityTarget`, rule 1). The
+    //     round-1 shortcut fires only when cycle 1 IS the open round; any other
+    //     round with no corr_issued falls through to the learned duration.
+    //     Closed rounds' ACTUAL corr_issued / resubmitted are untouched.
+    const openTarget = openRoundCityTarget(cycles);
+    const earliestCityTargetAfterCursor =
+      openTarget && openTarget.cycleIndex === 1 && openTarget.date > cursor
+        ? openTarget.date
+        : '';
     for (let i = 0; i < targetCycle - 1; i++) {
       const rd = cycleRows[i];
       const crDays = durFor(i, 'cr', learnedEstimate, thisPermitDur);
@@ -992,9 +1004,16 @@ function computeProjectedApprovalCore(
       // its city review hasn't been added yet. Add it from `cursor`.
       // An actual city_target on the final cycle, when later than the
       // cursor, is the city's stated review-completion date — prefer it.
+      //
+      // ★★★ fix-653 (P-340): only when the final cycle IS the open round. The
+      //     walk reads cycles 1–4, so a permit whose open round is cycle 5+
+      //     (8256 Ashworth Ave N, SIP: open cycle 6) landed here on a CLOSED
+      //     cycle 4 and treated its old city_target as the current review's end.
       const finalCityTarget =
-        finalCycle?.city_target && finalCycle.city_target > cursor
-          ? finalCycle.city_target
+        finalCycle &&
+        openTarget?.cycleIndex === finalCycle.cycle_index &&
+        openTarget.date > cursor
+          ? openTarget.date
           : null;
       // ★ fix-622 §B: a passed, unanswered city review date → cityDue.
       cursor =
