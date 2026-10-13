@@ -2,9 +2,15 @@ import { useMemo } from 'react';
 import { usePermits } from '../../hooks/usePermits';
 import { useProjects } from '../../hooks/useProjects';
 import { useAllPermitTasks } from '../../hooks/useAllPermitTasks';
-import { useUpdatePermit } from '../../hooks/useUpdatePermit';
+import { useUpdateProjectWithPermits } from '../../hooks/useUpdateProjectWithPermits';
 import { isTaskLive } from '../../lib/taskStatus';
-import { buildMissingLeadRows, type MissingLeadRow } from '../../lib/unclaimedWork';
+import {
+  buildMissingLeadRows,
+  missingLeadSaveInput,
+  type MissingLeadRow,
+} from '../../lib/unclaimedWork';
+import { pushRecoveredToast } from '../../stores/toastStore';
+import { routedEntLeadFor, type DaTeamRoutingRow } from '../../lib/daRouting';
 import type { TeamMember } from '../../lib/database.types';
 
 // ===========================================================================
@@ -34,23 +40,53 @@ import type { TeamMember } from '../../lib/database.types';
 // reassign one, or touch `permit_tasks` at all — the tasks reappear on somebody's
 // My Tasks the moment the lead resolves, because fix-230's fallback was always
 // correct and was only ever resolving to nobody.
+//
+// ===========================================================================
+// ★★★ fix-659 (P-318, census 29) — THE SAME SAVE PROJECT DETAILS MAKES
+// ===========================================================================
+// This list used to write `permits.ent_lead` with a direct table UPDATE
+// (`useUpdatePermit`), while Project Details saves a permit's lead through
+// `bp_update_project_with_permits`. Measured on prod 2026-10-12, the two land
+// on the SAME triggers (`permits_lead_cascade`, `permits_derive_dm`), so the
+// stored routing was not different — but the PATH was, and the picker ignored
+// the permit's DA routing entirely. Now:
+//   ★★ the save is one permit upsert through `bp_update_project_with_permits`,
+//      under that RPC's project lock and per-permit OCC, exactly as Project
+//      Details sends it; and
+//   ★ the permit's ROUTED lead (`routedEntLeadFor`, the client mirror of
+//     `bp_ent_lead_for_da`) is offered first, so the list suggests what the
+//     wizard and the Draw Schedule cascade would have written.
 
 interface Props {
   /** Current entitlement leads, deduped by person by useTeamMembers. Passed IN
    *  rather than fetched, so the panel works in a provider-less suite. */
   ents: readonly TeamMember[];
+  /** ★ fix-659: `da_team_routing` rows, passed in for the same reason. */
+  routing?: readonly DaTeamRoutingRow[];
   readOnly: boolean;
 }
 
-export default function PermitsMissingLeadPanel({ ents, readOnly }: Props) {
+export default function PermitsMissingLeadPanel({
+  ents,
+  routing = [],
+  readOnly,
+}: Props) {
   const permitsQ = usePermits();
   const projectsQ = useProjects();
   const tasksQ = useAllPermitTasks();
-  const update = useUpdatePermit();
+  const update = useUpdateProjectWithPermits();
 
   const addressById = useMemo(() => {
     const m = new Map<string, string>();
     for (const p of projectsQ.data ?? []) m.set(p.id, p.address ?? '(no address)');
+    return m;
+  }, [projectsQ.data]);
+
+  const projectById = useMemo(() => {
+    const m = new Map<string, { juris: string | null; updated_at: string | null }>();
+    for (const p of projectsQ.data ?? []) {
+      m.set(p.id, { juris: p.juris ?? null, updated_at: p.updated_at ?? null });
+    }
     return m;
   }, [projectsQ.data]);
 
@@ -70,12 +106,15 @@ export default function PermitsMissingLeadPanel({ ents, readOnly }: Props) {
 
   function setLead(row: MissingLeadRow, name: string) {
     if (name === '' || !row.updatedAt) return;
-    update.mutate({
-      permitId: row.permitId,
-      projectId: row.projectId,
-      expectedUpdatedAt: row.updatedAt,
-      patch: { ent_lead: name },
-      fieldLabel: 'Permitting lead',
+    update.mutate(missingLeadSaveInput(row, name, projectById.get(row.projectId)?.updated_at ?? null), {
+      onSuccess: (result) => {
+        if (result.conflict) {
+          pushRecoveredToast(
+            'This permit was changed elsewhere — reload and retry.',
+            'warn',
+          );
+        }
+      },
     });
   }
 
@@ -181,6 +220,22 @@ export default function PermitsMissingLeadPanel({ ents, readOnly }: Props) {
                 data-testid={`missing-lead-set-${r.permitId}`}
               >
                 <option value="">Set lead…</option>
+                {(() => {
+                  // ★★ fix-659: the DA's routed lead, first and named as such.
+                  const routed = routedEntLeadFor(
+                    r.da,
+                    projectById.get(r.projectId)?.juris ?? null,
+                    routing,
+                  );
+                  return routed ? (
+                    <option
+                      value={routed}
+                      data-testid={`missing-lead-routed-${r.permitId}`}
+                    >
+                      {routed} (routed for {r.da})
+                    </option>
+                  ) : null;
+                })()}
                 {ents.map((m) => (
                   <option key={m.id} value={m.name}>
                     {m.name}

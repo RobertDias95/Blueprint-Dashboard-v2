@@ -18,6 +18,7 @@ import {
 } from '../../lib/unitVocabulary';
 import ReuseSourcePicker, { type ReuseSource } from './ReuseSourcePicker';
 import BuilderAutocompleteField from '../builder/BuilderAutocompleteField';
+import { useBuilderById, isLinkedBuilderInactive } from '../../hooks/useBuilderById';
 import { memberLabel, isNonActiveMember } from '../../lib/teamMemberLabel';
 import { quarterToDateRange, snapToMonday } from '../../lib/dateUtils';
 import { useNextAvailableDaSlot } from '../../hooks/useNextAvailableDaSlot';
@@ -112,6 +113,8 @@ export default function Step1ProjectInfo({
   const [unitsBlurred, setUnitsBlurred] = useState(false);
   const unitsBad =
     (unitsBlurred || showFieldErrors) && !unitsIsValid(value.units);
+  const linkedBuilderQ = useBuilderById(value.builder_id);
+  const builderInactive = isLinkedBuilderInactive(linkedBuilderQ.data);
   // fix-216: reuse mode is open when the toggle is checked OR a source is
   // already selected (e.g. re-entering Step 1). Local UI state only.
   const [reuseOpen, setReuseOpen] = useState(
@@ -358,6 +361,8 @@ export default function Step1ProjectInfo({
    *  picking any suggestion fills all four sibling fields in one shot. */
   function fillFromBuilder(b: Builder) {
     onChange({
+      // ★★ fix-659 (census 32): the pick is kept, not re-derived from text.
+      builder_id: b.id,
       builder_name: b.name ?? '',
       builder_company: b.company ?? '',
       builder_email: b.email ?? '',
@@ -1303,12 +1308,24 @@ export default function Step1ProjectInfo({
           <label className="flex flex-col gap-1">
             <span className="text-[10px] uppercase tracking-wide text-dim">
               Builder Name
+              {/* ★★ fix-659: a redesign's builder stays its builder even once
+                  deactivated — shown, selected, and marked as such. */}
+              {builderInactive && (
+                <span
+                  className="ml-1 normal-case tracking-normal italic"
+                  data-testid="wizard-builder-inactive"
+                >
+                  (inactive)
+                </span>
+              )}
             </span>
             <BuilderAutocompleteField
               field="name"
               label="Builder Name"
               value={value.builder_name}
-              onChange={(v) => set('builder_name', v)}
+              // ★★ fix-659: typing over the NAME is no longer the picked
+              //    builder, so the link goes with it (fix-425's rule, here).
+              onChange={(v) => onChange({ builder_name: v, builder_id: null })}
               onSelectBuilder={fillFromBuilder}
               placeholder="Full name"
               inputClassName="bg-bg border border-border rounded-md px-3 py-1.5 text-xs font-display text-text placeholder:text-dim focus:outline-none focus:border-de w-full"
@@ -1323,7 +1340,10 @@ export default function Step1ProjectInfo({
               field="company"
               label="Company"
               value={value.builder_company}
-              onChange={(v) => set('builder_company', v)}
+              // ★ fix-659: the LLC is half of a builder's identity, so editing
+              //   it unlinks too. Email/phone/address are contact details and
+              //   keep the link.
+              onChange={(v) => onChange({ builder_company: v, builder_id: null })}
               onSelectBuilder={fillFromBuilder}
               placeholder="Company name"
               inputClassName="bg-bg border border-border rounded-md px-3 py-1.5 text-xs font-display text-text placeholder:text-dim focus:outline-none focus:border-de w-full"

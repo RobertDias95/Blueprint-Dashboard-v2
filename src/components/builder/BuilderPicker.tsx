@@ -55,6 +55,10 @@ export interface BuilderPickerProps {
   /** Create a catalogue row and link it in one gesture. */
   onCreated: (b: Builder) => void;
   onClear: () => void;
+  /** ★★ fix-659: the LINKED builder has been deactivated. It stays shown and
+   *  selected (it is still this project's builder) and is marked, while the
+   *  search keeps offering only active rows. */
+  inactive?: boolean;
   disabled?: boolean;
   inputClassName?: string;
   inputStyle?: React.CSSProperties;
@@ -67,6 +71,7 @@ export default function BuilderPicker({
   onPick,
   onCreated,
   onClear,
+  inactive = false,
   disabled,
   inputClassName,
   inputStyle,
@@ -164,6 +169,15 @@ export default function BuilderPicker({
           role="combobox"
           aria-expanded={open}
         />
+        {inactive && value !== '' && !open && (
+          <span
+            className="text-[10px] italic text-dim whitespace-nowrap"
+            title="This builder has been deactivated in Settings. It stays on this project; pickers no longer offer it."
+            data-testid={`${testid}-inactive`}
+          >
+            (inactive)
+          </span>
+        )}
         {value !== '' && !disabled && (
           // ★★★ fix-425's clear, unchanged in meaning: the link and all five
           //     cache fields go together. Never one without the other (§B3).

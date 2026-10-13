@@ -110,6 +110,28 @@ export function daHasRoutingFor(
   return false;
 }
 
+/** ★★ fix-659 (census 29): the entitlement lead `bp_ent_lead_for_da` would
+ *  return — a juris-specific row first, then the DA's default, else null. Used
+ *  to OFFER the routed lead on the "permits with no lead" list, so that list
+ *  suggests what the wizard and the Draw Schedule cascade would have written.
+ *  Mirrors the SQL's `ORDER BY (jurisdiction IS NULL) ASC LIMIT 1`. */
+export function routedEntLeadFor(
+  da: string | null | undefined,
+  juris: string | null | undefined,
+  rows: readonly DaTeamRoutingRow[],
+): string | null {
+  const d = (da ?? '').trim();
+  if (d === '') return null;
+  let fallback: string | null = null;
+  for (const r of rows) {
+    if (r.da !== d) continue;
+    const lead = (r.ent_lead ?? '').trim() || null;
+    if (!isDefaultRule(r) && r.jurisdiction === (juris ?? null)) return lead;
+    if (isDefaultRule(r) && fallback === null) fallback = lead;
+  }
+  return fallback;
+}
+
 /** One DA's rules: the default (jurisdiction NULL) and any overrides. */
 export interface DaRoutingGroup {
   da: string;

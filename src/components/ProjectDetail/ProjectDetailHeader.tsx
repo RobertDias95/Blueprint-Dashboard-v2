@@ -56,6 +56,7 @@ import { ConsultantBand } from './ConsultantBand';
 // ★ fix-475 §2: the fix-343 pair, reached through the components that already
 //   use it (fix-467/fix-468). No third initials function.
 import { useRosterFullName } from '../../hooks/useRosterFullName';
+import { useBuilderById, isLinkedBuilderInactive } from '../../hooks/useBuilderById';
 import { Avatar } from './ChatMessageBody';
 
 // Q9.5.e: 4-column header top strip per v1 §4.2.1. Left card holds an
@@ -1211,6 +1212,8 @@ function ReadOnlyBuilderLine({
 
 function BuilderOwnerCell({ project }: { project: Project }) {
   const updateProject = useUpdateProject();
+  // ★★ fix-659: a deactivated builder stays this project's builder, marked.
+  const linkedBuilderQ = useBuilderById(project.builder_id);
   const occMissing = !project.updated_at;
 
   // ★★★ fix-448 §B: THE FIVE LOCAL DRAFTS ARE GONE with the free-text boxes.
@@ -1372,6 +1375,7 @@ function BuilderOwnerCell({ project }: { project: Project }) {
           onPick={fillFromBuilder}
           onCreated={fillFromBuilder}
           onClear={clearBuilder}
+          inactive={isLinkedBuilderInactive(linkedBuilderQ.data)}
           disabled={occMissing}
           inputClassName={inputClass}
           inputStyle={inputStyle}

@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useBuilderSearch } from '../../hooks/useBuilderSearch';
 import type { Builder } from '../../lib/database.types';
 
@@ -83,7 +83,15 @@ export default function BuilderAutocompleteField({
   // (on the suggestion) calls handleSelect and closes the menu naturally.
   const suggestionMouseDownRef = useRef(false);
 
-  const { data: suggestions, isLoading } = useBuilderSearch(open ? value : '');
+  const { data: found, isLoading } = useBuilderSearch(open ? value : '');
+  // ★★ fix-659 (census 32): ACTIVE ONLY, as BuilderPicker already does
+  //    (fix-448) — `useBuilderSearch` returns deactivated rows too, so
+  //    Settings' Deactivate meant nothing in the wizard. A project already
+  //    linked to one keeps it: the field shows the linked TEXT, not a row.
+  const suggestions = useMemo(
+    () => (found ?? []).filter((b) => b.active !== false),
+    [found],
+  );
 
   // Reset highlight whenever the visible list changes to keep arrow-down
   // behaviour intuitive after a query change.

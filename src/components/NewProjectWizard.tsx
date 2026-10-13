@@ -500,6 +500,9 @@ export default function NewProjectWizard({ open, onClose, initialState }: Props)
       product_types: state.product_types,
       project_tags: state.project_tags.length > 0 ? state.project_tags : null,
       // fix-22-final / Migration 6 + 7: Builder/Owner contact fields.
+      // ★★ fix-659 (census 32): the pick IS the link. Sent only while the
+      //    name it came with is still there — the RPC links it as-is.
+      builder_id: state.builder_name.trim() ? state.builder_id : null,
       builder_name: strOrNull(state.builder_name),
       builder_company: strOrNull(state.builder_company),
       builder_email: strOrNull(state.builder_email),
