@@ -14,6 +14,7 @@ import ScrapeSilenceRecipientsEditor from './ScrapeSilenceRecipientsEditor';
 import TeamActiveQuartersEditor from './TeamActiveQuartersEditor';
 import QuarterLayoutEditor from './QuarterLayoutEditor';
 import { useTeamMembers } from '../../hooks/useTeamMembers';
+import { useDaTeamRouting } from '../../hooks/useDaTeamRouting';
 import { formerMemberNames } from '../../lib/roster';
 import { useIsTenantAdmin } from '../../hooks/useIsTenantAdmin';
 // ★★★ fix-436 (P-086): the first card on this tab. Adding a person and
@@ -55,6 +56,8 @@ import QueryError from '../QueryError';
 export default function AdminTeamTab() {
   const teamQ = useTeamMembers();
   const isAdmin = useIsTenantAdmin();
+  // ★ fix-659: the lead-less list offers each permit's ROUTED lead first.
+  const routingQ = useDaTeamRouting();
   // ★ `useUpsertTeamMember` moved into PeopleTable with the roster; the three
   //   write hooks this tab used for renaming and deleting are gone entirely.
 
@@ -265,7 +268,11 @@ export default function AdminTeamTab() {
           no routing row is why a permit ends up with no lead, and a permit with
           no lead is why seventeen tasks reach nobody. */}
       <SettingsBlock id="permits-with-no-lead">
-        <PermitsMissingLeadPanel ents={teamQ.ents} readOnly={!isAdmin} />
+        <PermitsMissingLeadPanel
+          ents={teamQ.ents}
+          routing={routingQ.data ?? []}
+          readOnly={!isAdmin}
+        />
       </SettingsBlock>
 
       {/* ★★ fix-347 §2: the custom chat tags. Beside the other roster that

@@ -205,8 +205,10 @@ vi.mock('../hooks/useAllPermitTasks', () => ({
     isLoading: false,
   }),
 }));
-vi.mock('../hooks/useUpdatePermit', () => ({
-  useUpdatePermit: () => ({ mutate: state.update, isPending: false }),
+// ★★ fix-659 (census 29): the panel now saves through the same RPC Project
+//    Details uses, not a direct `permits` UPDATE.
+vi.mock('../hooks/useUpdateProjectWithPermits', () => ({
+  useUpdateProjectWithPermits: () => ({ mutate: state.update, isPending: false }),
 }));
 
 import PermitsMissingLeadPanel from '../components/Settings/PermitsMissingLeadPanel';
@@ -233,11 +235,13 @@ describe('fix-458 §A — the panel', () => {
       target: { value: 'Briana' },
     });
     expect(state.update).toHaveBeenCalledTimes(1);
+    // ★ fix-659: one permit upsert with the permit's own OCC token, and an
+    //   empty project patch — superseding the direct-UPDATE shape.
     expect(state.update.mock.calls[0]![0]).toMatchObject({
-      permitId: 1,
       projectId: 'pA',
-      expectedUpdatedAt: 'u1',
-      patch: { ent_lead: 'Briana' },
+      projectPatch: {},
+      permitUpserts: [{ id: 1, expected_updated_at: 'u1', ent_lead: 'Briana' }],
+      permitDeletes: [],
     });
   });
 

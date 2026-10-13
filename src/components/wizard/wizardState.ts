@@ -189,6 +189,11 @@ export interface WizardState {
   product_types: string[];
   project_tags: string[];
   // Step 1 — Builder / Owner (fix-22-final / Migration 6)
+  /** ★★ fix-659 (census 32): the catalogue row a PICK chose. Set only by a
+   *  pick (or carried from a redesign's parent); typing over the name or the
+   *  company clears it, so the link can never name a builder the text does
+   *  not. The RPC links this id as-is. */
+  builder_id: string | null;
   builder_name: string;
   builder_company: string;
   builder_email: string;
@@ -294,6 +299,7 @@ export function makeEmptyWizardState(): WizardState {
     alley: '',
     product_types: [],
     project_tags: [],
+    builder_id: null,
     builder_name: '',
     builder_company: '',
     builder_email: '',
@@ -379,6 +385,7 @@ export function makeRedesignWizardState(
     product_types?: string[] | null;
     project_tags?: string[] | null;
     unit_types?: UnitType[] | null;
+    builder_id?: string | null;
     builder_name?: string | null;
     builder_company?: string | null;
     builder_email?: string | null;
@@ -448,6 +455,9 @@ export function makeRedesignWizardState(
     project_tags: Array.isArray(parentProject.project_tags)
       ? parentProject.project_tags
       : [],
+    // ★ fix-659: the parent's LINK comes over with its text — even when that
+    //   builder has since been deactivated, it stays this project's builder.
+    builder_id: parentProject.builder_id ?? null,
     builder_name: parentProject.builder_name ?? '',
     builder_company: parentProject.builder_company ?? '',
     builder_email: parentProject.builder_email ?? '',

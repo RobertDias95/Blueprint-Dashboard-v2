@@ -69,6 +69,9 @@ export interface ProjectData {
    *  selected" representation. */
   product_types?: string[] | null;
   project_tags?: string[] | null;
+  /** ★★ fix-659: the picked catalogue row. The RPC links it as-is when it is
+   *  in this tenant; without it, it reuses a same-name same-company row. */
+  builder_id?: string | null;
   builder_name?: string | null;
   builder_company?: string | null;
   builder_email?: string | null;

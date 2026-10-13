@@ -350,7 +350,11 @@ describe('<Step1ProjectInfo />', () => {
     fireEvent.change(screen.getByTestId('wizard-builder-name'), {
       target: { value: 'Jane Builder' },
     });
-    expect(onChange).toHaveBeenLastCalledWith({ builder_name: 'Jane Builder' });
+    // ★★ fix-659 (census 32): typing over the name also drops the pick's link.
+    expect(onChange).toHaveBeenLastCalledWith({
+      builder_name: 'Jane Builder',
+      builder_id: null,
+    });
   });
 
   it('typing into Builder Company fires onChange with the new value', () => {
@@ -358,8 +362,10 @@ describe('<Step1ProjectInfo />', () => {
     fireEvent.change(screen.getByTestId('wizard-builder-company'), {
       target: { value: 'Acme Builders LLC' },
     });
+    // ★ fix-659: the LLC is half the builder's identity — editing it unlinks.
     expect(onChange).toHaveBeenLastCalledWith({
       builder_company: 'Acme Builders LLC',
+      builder_id: null,
     });
   });
 

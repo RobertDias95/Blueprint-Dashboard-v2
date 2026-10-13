@@ -134,6 +134,42 @@ export interface MissingLeadRow {
   oldestTaskAt: string | null;
 }
 
+/**
+ * ★★★ fix-659 (census 29): what the "permits with no lead" list sends to
+ * `bp_update_project_with_permits` — ONE permit upsert carrying `ent_lead`,
+ * with the permit's own OCC token, and an EMPTY project patch so the project
+ * row is untouched (the RPC skips step 2 on `{}`). It is the same element
+ * Project Details sends for that permit, minus the fields this list does not
+ * edit; the RPC's `CASE WHEN v_elem ? 'col'` leaves absent keys alone.
+ */
+export function missingLeadSaveInput(
+  row: Pick<MissingLeadRow, 'permitId' | 'projectId' | 'updatedAt'>,
+  lead: string,
+  projectUpdatedAt: string | null,
+): {
+  projectId: string;
+  projectExpectedUpdatedAt: string;
+  projectPatch: Record<string, never>;
+  permitUpserts: Array<{ id: number; expected_updated_at: string; ent_lead: string }>;
+  permitDeletes: number[];
+} {
+  return {
+    projectId: row.projectId,
+    // ★ Not compared: the RPC checks the project token only when it writes the
+    //   project, and this patch is empty.
+    projectExpectedUpdatedAt: projectUpdatedAt ?? '',
+    projectPatch: {},
+    permitUpserts: [
+      {
+        id: row.permitId,
+        expected_updated_at: row.updatedAt ?? '',
+        ent_lead: lead.trim(),
+      },
+    ],
+    permitDeletes: [],
+  };
+}
+
 interface PermitLike {
   id: number;
   project_id: string;

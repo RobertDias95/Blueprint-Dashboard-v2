@@ -14,6 +14,7 @@ import { ROLE_TITLE } from '../../lib/roleLabels';
 import { PERSON_FIELD_INPUT, PersonFieldRow } from './personFields';
 import type { RosterPerson } from '../../lib/personDetails';
 import { useDirtySurface } from '../../hooks/useDirtySurface';
+import { useChangeSignInEmail, useRosterNameHasLogin } from '../../hooks/useSignInEmail';
 
 // ===========================================================================
 // ★★★ fix-487 §B (P-120) — EDIT A PERSON'S DETAILS
@@ -107,6 +108,7 @@ export default function PersonDetailsDialog({ person, onClose }: Props) {
   //     logins on prod 2026-09-08).
   const isAdmin = useIsTenantAdmin();
   const profileIdQ = useProfileIdForRosterName(person?.name ?? null);
+  const hasLoginQ = useRosterNameHasLogin(person?.name ?? null);
   const [first, setFirst] = useState('');
   const [last, setLast] = useState('');
   const [email, setEmail] = useState('');
@@ -139,7 +141,8 @@ export default function PersonDetailsDialog({ person, onClose }: Props) {
     seeded !== null &&
       (first !== (person?.first_name ?? '') ||
         last !== (person?.last_name ?? '') ||
-        email !== (person?.email ?? '')),
+        // ★ fix-659: a sign-in email is not editable here, so not a draft.
+        (hasLoginQ.data === false && email !== (person?.email ?? ''))),
   );
   if (person && person.name !== seeded) {
     setSeeded(person.name);
@@ -153,10 +156,17 @@ export default function PersonDetailsDialog({ person, onClose }: Props) {
 
   if (!person) return null;
 
+  // ★★★ fix-659 (census 42): for somebody with a login the email is their
+  //     sign-in, so this form never edits it — Save sends the stored value
+  //     back unchanged, and "Change sign-in email" is the only way to move it.
+  //     Until the answer loads, treat it as a login (the safe side): a
+  //     read-only box for a moment is better than an edit the server refuses.
+  const emailIsSignIn = hasLoginQ.data !== false;
+
   const dirty =
     first.trim() !== (person.first_name ?? '') ||
     last.trim() !== (person.last_name ?? '') ||
-    email.trim() !== (person.email ?? '');
+    (!emailIsSignIn && email.trim() !== (person.email ?? ''));
 
   function submit(e: React.FormEvent) {
     e.preventDefault();
@@ -166,7 +176,7 @@ export default function PersonDetailsDialog({ person, onClose }: Props) {
         name: person.name,
         first_name: first,
         last_name: last,
-        email,
+        email: emailIsSignIn ? (person.email ?? '') : email,
       },
       { onSuccess: () => onClose() },
     );
@@ -290,17 +300,37 @@ export default function PersonDetailsDialog({ person, onClose }: Props) {
             // ★★★ NOT COSMETIC. `resolveRosterIdentity` matches the signed-in
             //     address against this column; a person with none signs in and
             //     the Bridge cannot tell who they are.
-            hint="How their login is matched to this roster row."
+            hint={
+              emailIsSignIn
+                ? 'This is their sign-in email.'
+                : 'How their login is matched to this roster row.'
+            }
           >
-            <input
-              id={`${formId}-email`}
-              type="email"
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-              className={PERSON_FIELD_INPUT}
-              placeholder="person@blueprintcap.com"
-              data-testid="person-details-email"
-            />
+            {emailIsSignIn ? (
+              <div className="space-y-1.5">
+                <input
+                  id={`${formId}-email`}
+                  type="email"
+                  value={person.email ?? ''}
+                  readOnly
+                  disabled
+                  className={`${PERSON_FIELD_INPUT} opacity-60 cursor-not-allowed`}
+                  data-testid="person-details-email"
+                  data-signin="true"
+                />
+                {isAdmin && <ChangeSignInEmail person={person} />}
+              </div>
+            ) : (
+              <input
+                id={`${formId}-email`}
+                type="email"
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                className={PERSON_FIELD_INPUT}
+                placeholder="person@blueprintcap.com"
+                data-testid="person-details-email"
+              />
+            )}
           </PersonFieldRow>
 
           {/* ═══ ★★★ fix-613 §A — THE THREE CONTROLS THE NINE LISTS HELD ═══
@@ -491,6 +521,131 @@ export default function PersonDetailsDialog({ person, onClose }: Props) {
           </div>
         </form>
       </div>
+    </div>
+  );
+}
+
+/**
+ * ★★★ fix-659 (census 42) — "Change sign-in email", admin-only.
+ *
+ * Two steps on purpose: type the new address, then a confirm that says in
+ * plain words what changes for the person — they sign in with the new
+ * address, and the old one stops working. The write is the Edge Function,
+ * which moves auth, profile and every roster row together or not at all.
+ *
+ * ★ It sits INSIDE the dialog's <form>, so every button is type="button" and
+ *   Enter in the box is caught — otherwise Enter would submit the outer Save.
+ */
+function ChangeSignInEmail({ person }: { person: RosterPerson }) {
+  const change = useChangeSignInEmail();
+  const [open, setOpen] = useState(false);
+  const [next, setNext] = useState('');
+  const [confirming, setConfirming] = useState(false);
+  const typed = next.trim().toLowerCase();
+  const looksValid = /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(typed);
+  const same = typed === (person.email ?? '').trim().toLowerCase();
+
+  function reset() {
+    setOpen(false);
+    setNext('');
+    setConfirming(false);
+  }
+
+  if (!open) {
+    return (
+      <button
+        type="button"
+        onClick={() => setOpen(true)}
+        className="text-[11px] font-bold underline"
+        style={{ color: 'var(--color-de)' }}
+        data-testid="person-details-change-signin"
+      >
+        Change sign-in email
+      </button>
+    );
+  }
+
+  return (
+    <div
+      className="rounded border px-2.5 py-2 space-y-2"
+      style={{ borderColor: 'var(--color-border)' }}
+      data-testid="person-details-change-signin-panel"
+    >
+      {!confirming ? (
+        <>
+          <input
+            type="email"
+            value={next}
+            onChange={(e) => setNext(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') {
+                e.preventDefault();
+                if (looksValid && !same) setConfirming(true);
+              }
+            }}
+            placeholder="new address"
+            autoFocus
+            className={PERSON_FIELD_INPUT}
+            data-testid="person-details-change-signin-input"
+          />
+          <div className="flex gap-2">
+            <button
+              type="button"
+              disabled={!looksValid || same}
+              onClick={() => setConfirming(true)}
+              className="text-[11px] font-bold px-2 py-1 rounded border disabled:opacity-40"
+              style={{ borderColor: 'var(--color-de)', color: 'var(--color-de)' }}
+              data-testid="person-details-change-signin-next"
+            >
+              Continue
+            </button>
+            <button
+              type="button"
+              onClick={reset}
+              className="text-[11px] text-muted px-2 py-1"
+            >
+              Cancel
+            </button>
+          </div>
+        </>
+      ) : (
+        <>
+          <p className="text-[11px] text-text m-0" data-testid="person-details-change-signin-confirm">
+            {person.name} will sign in with <strong>{typed}</strong> from now on.{' '}
+            {person.email ? (
+              <>
+                <span className="font-mono">{person.email}</span> will stop working
+                for signing in.
+              </>
+            ) : null}
+          </p>
+          <div className="flex gap-2">
+            <button
+              type="button"
+              disabled={change.isPending}
+              onClick={() =>
+                change.mutate(
+                  { name: person.name, new_email: typed },
+                  { onSuccess: reset },
+                )
+              }
+              className="text-[11px] font-bold px-2 py-1 rounded disabled:opacity-50"
+              style={{ background: 'var(--color-de)', color: 'var(--color-bg)' }}
+              data-testid="person-details-change-signin-confirm-btn"
+            >
+              {change.isPending ? 'Changing…' : 'Change sign-in email'}
+            </button>
+            <button
+              type="button"
+              disabled={change.isPending}
+              onClick={() => setConfirming(false)}
+              className="text-[11px] text-muted px-2 py-1"
+            >
+              Back
+            </button>
+          </div>
+        </>
+      )}
     </div>
   );
 }
