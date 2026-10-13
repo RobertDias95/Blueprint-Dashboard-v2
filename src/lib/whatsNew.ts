@@ -53,6 +53,15 @@ export interface WhatsNewEntry {
    * renderer, and a renderer is a dependency plus an injection surface.
    */
   how_to?: string | null;
+  /** ★ fix-657: the one-line card text. Null until somebody writes it — the
+   *  card falls back to the first sentence of `body` (display only). */
+  summary?: string | null;
+  /** ★ fix-657: one of app_config `whatsNewAreas`. Null = not yet sorted. */
+  area?: string | null;
+  /** ★ fix-657: the words people would search for — they act as synonyms. */
+  keywords?: string[] | null;
+  /** ★ fix-657: a screenshot or GIF — https, or an app path. */
+  media_url?: string | null;
 }
 
 /**
@@ -155,4 +164,140 @@ export function formatDay(iso: string): string {
  *  precisely the failure this predicate exists to catch. */
 export function readsLikeATicket(text: string): boolean {
   return /\bfix-\d{2,}\b/i.test(text) || /\B#\d{2,}\b/.test(text);
+}
+
+// ===========================================================================
+// ★★★ fix-657 (P-342) — A TIPS-STYLE GUIDE
+// ===========================================================================
+//
+// Bobby, 2026-10-12: "a highlevel summary of what the TIP is, then you click it
+// for more info, and details of how to use it if so. think of apples tip app".
+// The pure half: what a card says, how the steps split, which area holds what.
+
+/** The area list when app_config has none (or before it loads). The database
+ *  seeds the same eleven, in the same order, into `whatsNewAreas`. */
+export const DEFAULT_WHATS_NEW_AREAS: readonly string[] = [
+  'Projects',
+  'Project Overview',
+  'Permits & Reviews',
+  'Corrections',
+  'Chat & Notifications',
+  'Draw Schedule',
+  'My Tasks & Board',
+  'Reports',
+  'Library',
+  'Settings',
+  'Email',
+];
+
+/** The editor's target length for a summary; the database refuses > 200. */
+export const SUMMARY_TARGET_CHARS = 120;
+
+/**
+ * ★★ What the card says. The written summary when there is one; otherwise the
+ * first sentence of `body` — computed here, at display time, and never written
+ * back (no existing row changes in this ticket).
+ *
+ * A sentence ends at . ! or ? followed by a space and a capital/digit/quote, or
+ * the end — so "7 a.m. on weekdays" is not split, and a body with no full stop
+ * is used whole (cut at a word boundary if it runs long).
+ */
+export function cardSummary(entry: Pick<WhatsNewEntry, 'summary' | 'body'>): string {
+  const own = (entry.summary ?? '').trim();
+  if (own) return own;
+  const body = (entry.body ?? '').replace(/\s+/g, ' ').trim();
+  const m = /^(.+?[.!?])(?=\s+[A-Z0-9"“(]|$)/.exec(body);
+  const first = (m ? m[1]! : body).trim();
+  if (first.length <= 160) return first;
+  const cut = first.slice(0, 157);
+  const space = cut.lastIndexOf(' ');
+  return `${cut.slice(0, space > 80 ? space : 157)}…`;
+}
+
+/** ★ `how_to` is one step per line. Leading "1." / "1)" / "-" / "•" are
+ *  stripped so a writer who numbers by hand does not get "1. 1. Open…". */
+export function howToSteps(howTo: string | null | undefined): string[] {
+  return (howTo ?? '')
+    .split(/\r?\n/)
+    .map((l) => l.replace(/^\s*(?:\d+[.)]|[-*•])\s*/, '').trim())
+    .filter((l) => l !== '');
+}
+
+/** Entries per area, in the list's own order; entries with no area (or one not
+ *  on the list) are counted under `null` so nothing silently disappears. */
+export function areaCounts(
+  entries: ReadonlyArray<Pick<WhatsNewEntry, 'area'>>,
+  areas: ReadonlyArray<string>,
+): { area: string | null; count: number }[] {
+  const known = new Set(areas);
+  const counts = new Map<string | null, number>();
+  for (const e of entries) {
+    const a = e.area && known.has(e.area) ? e.area : null;
+    counts.set(a, (counts.get(a) ?? 0) + 1);
+  }
+  const out: { area: string | null; count: number }[] = areas.map((a) => ({
+    area: a,
+    count: counts.get(a) ?? 0,
+  }));
+  const unsorted = counts.get(null) ?? 0;
+  if (unsorted > 0) out.push({ area: null, count: unsorted });
+  return out;
+}
+
+/** A stable id fragment for an area ("Permits & Reviews" → permits-reviews;
+ *  null → unsorted). */
+export function areaSlug(area: string | null): string {
+  if (area === null) return 'unsorted';
+  return area.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
+}
+
+/** Does this entry belong in the area tile `area` (null = "Not yet sorted")? */
+export function inArea(
+  entry: Pick<WhatsNewEntry, 'area'>,
+  area: string | null,
+  areas: ReadonlyArray<string>,
+): boolean {
+  if (area === null) return !entry.area || !areas.includes(entry.area);
+  return entry.area === area;
+}
+
+/** ★ 2–3 cards from the same area, newest first, never the entry itself. An
+ *  entry with no area has no "Related" — guessing would be noise. */
+export function relatedEntries(
+  entry: WhatsNewEntry,
+  all: ReadonlyArray<WhatsNewEntry>,
+  max = 3,
+): WhatsNewEntry[] {
+  if (!entry.area) return [];
+  return sortEntries(all.filter((e) => e.id !== entry.id && e.area === entry.area)).slice(0, max);
+}
+
+/** ★★ A media URL the page may load: https, or an in-app path (the same rule
+ *  as go_href). Anything else renders nothing. */
+export function isSafeMediaUrl(url: string | null | undefined): boolean {
+  const u = (url ?? '').trim();
+  if (!u) return false;
+  if (/^https:\/\/\S+$/i.test(u)) return true;
+  return isAppPath(u);
+}
+
+/** Video for .mp4/.webm, otherwise an image (PNG, JPG, GIF). */
+export function mediaKind(url: string): 'video' | 'image' {
+  return /\.(mp4|webm)(\?|#|$)/i.test(url) ? 'video' : 'image';
+}
+
+/** ★ The search snippet marks matches with « » (bp_search_whats_new). Split it
+ *  into plain and marked runs so the page renders <mark> — never HTML. */
+export function snippetParts(snippet: string): { text: string; mark: boolean }[] {
+  const out: { text: string; mark: boolean }[] = [];
+  const re = /«([^»]*)»/g;
+  let last = 0;
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(snippet))) {
+    if (m.index > last) out.push({ text: snippet.slice(last, m.index), mark: false });
+    out.push({ text: m[1]!, mark: true });
+    last = m.index + m[0].length;
+  }
+  if (last < snippet.length) out.push({ text: snippet.slice(last), mark: false });
+  return out;
 }

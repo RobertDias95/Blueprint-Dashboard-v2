@@ -39,6 +39,7 @@ const state = vi.hoisted(() => ({
   reads: [] as string[],
   admin: false,
   saved: null as Record<string, unknown> | null,
+  marks: [] as string[][],
 }));
 
 vi.mock('../hooks/useIsTenantAdmin', () => ({
@@ -47,7 +48,12 @@ vi.mock('../hooks/useIsTenantAdmin', () => ({
 vi.mock('../hooks/useWhatsNew', () => ({
   useWhatsNewEntries: () => ({ data: state.entries, isLoading: false }),
   useWhatsNewReads: () => ({ data: state.reads, isLoading: false }),
-  useMarkWhatsNewRead: () => ({ mutate: vi.fn(), isPending: false }),
+  useMarkWhatsNewRead: () => ({
+    mutate: (ids: string[]) => {
+      state.marks.push(ids);
+    },
+    isPending: false,
+  }),
   useUpsertWhatsNewEntry: () => ({
     mutate: (d: Record<string, unknown>, o?: { onSuccess?: () => void }) => {
       state.saved = d;
@@ -100,6 +106,7 @@ function renderPage() {
 }
 
 beforeEach(() => {
+  state.marks = [];
   state.entries = [];
   state.reads = [];
   state.admin = false;
@@ -139,126 +146,123 @@ describe('fix-387: an entry with neither column is unchanged', () => {
 });
 
 // ---------------------------------------------------------------------------
+// ★★★ fix-657 (P-342) — SUPERSEDED, NOT MISTAKEN. Bobby, 2026-10-12: "a
+// highlevel summary of what the TIP is, then you click it for more info, and
+// details of how to use it". The two affordances moved off the row into the
+// card's DETAIL panel: "Open it →" is now "Show me →", and the how-to is a
+// numbered list there rather than an expander. What each test protected is
+// still protected below — client-side navigation, app paths only, nothing
+// opening uninvited — only WHERE the controls live changed.
+// ---------------------------------------------------------------------------
 
-describe('fix-387: go_href navigates client-side', () => {
-  it('★★★ clicking "Open it →" reaches the destination without a reload', () => {
+/** Click the card — the only way the detail opens. */
+function openCard(id = 'e1') {
+  fireEvent.click(screen.getByTestId(`whats-new-entry-${id}`));
+}
+
+describe('fix-387 → fix-657: go_href navigates client-side, from the detail', () => {
+  it('★★★ clicking "Show me →" reaches the destination without a reload', () => {
     state.entries = [entry({ go_href: '/board' })];
     renderPage();
+    // ★ Not on the card — only inside the detail.
+    expect(screen.queryByTestId('whats-new-go-e1')).toBeNull();
+    openCard();
     fireEvent.click(screen.getByTestId('whats-new-go-e1'));
-    // The stub route rendered — react-router, in-app, no navigation away.
     expect(screen.getByTestId('stub-board')).toBeInTheDocument();
   });
 
   it('★★★ it is a button using navigate(), never a bare href', () => {
     state.entries = [entry({ go_href: '/board' })];
     renderPage();
+    openCard();
     const go = screen.getByTestId('whats-new-go-e1');
     expect(go.tagName).toBe('BUTTON');
     expect(go.getAttribute('href')).toBeNull();
-    // ★ fix-408 added the origin argument — an entry can point at a project,
-    //   and Previous should bring you back to the announcement you were
-    //   reading. The property this line guards is unchanged: it is a BUTTON
-    //   calling react-router's navigate(), never an <a href> that could leave
-    //   the origin whatever the stored string says.
     expect(pageSource).toContain('navigate(href, { state: originState() })');
   });
 
   it('★★★ a value that is not an app path renders no link at all', () => {
-    // Belt to the CHECK's braces: something that reached the client without
-    // passing the constraint still does not become a link.
     for (const bad of ['//evil.com', 'https://evil.com', 'javascript:alert(1)']) {
       state.entries = [entry({ go_href: bad })];
       const { unmount } = renderPage();
+      openCard();
       expect(screen.queryByTestId('whats-new-go-e1')).toBeNull();
       unmount();
     }
   });
 });
 
-// ---------------------------------------------------------------------------
-
-describe('fix-387: the how-to expands, and never opens itself', () => {
-  it('★★ collapsed by default, expands and collapses again', () => {
+describe('fix-387 → fix-657: the how-to is numbered steps in the detail', () => {
+  it('★★ not on the card; in the detail, one list item per line', () => {
     state.entries = [entry({ how_to: 'Open My Board.\nClick the tab.' })];
     renderPage();
-    // ★ Collapsed on arrival — teaching is opened, never opening.
     expect(screen.queryByTestId('whats-new-how-e1')).toBeNull();
-    const toggle = screen.getByTestId('whats-new-how-toggle-e1');
-    expect(toggle.getAttribute('aria-expanded')).toBe('false');
-
-    fireEvent.click(toggle);
-    expect(screen.getByTestId('whats-new-how-e1')).toBeInTheDocument();
-    expect(toggle.getAttribute('aria-expanded')).toBe('true');
-
-    fireEvent.click(toggle);
-    expect(screen.queryByTestId('whats-new-how-e1')).toBeNull();
+    openCard();
+    const how = screen.getByTestId('whats-new-how-e1');
+    expect(how.tagName).toBe('OL');
+    expect([...how.querySelectorAll('li')].map((li) => li.textContent)).toEqual([
+      'Open My Board.',
+      'Click the tab.',
+    ]);
   });
 
-  it('★★ expanding one entry does not expand another', () => {
+  it('★★ opening one card shows only that card’s steps', () => {
     state.entries = [
       entry({ id: 'e1', how_to: 'Steps for one.' }),
       entry({ id: 'e2', title: 'Second', how_to: 'Steps for two.' }),
     ];
     renderPage();
-    fireEvent.click(screen.getByTestId('whats-new-how-toggle-e1'));
+    openCard('e1');
     expect(screen.getByTestId('whats-new-how-e1')).toBeInTheDocument();
     expect(screen.queryByTestId('whats-new-how-e2')).toBeNull();
   });
 
-  it('★ line breaks come from whitespace-pre-line, not a markdown renderer', () => {
-    state.entries = [entry({ how_to: 'One.\nTwo.' })];
-    renderPage();
-    fireEvent.click(screen.getByTestId('whats-new-how-toggle-e1'));
-    expect(screen.getByTestId('whats-new-how-e1').className).toContain(
-      'whitespace-pre-line',
-    );
-    // and no renderer was added anywhere — asserted on the CODE, since the
-    // comments legitimately talk about entries being "marked read".
+  it('★ still no markdown renderer — plain lines, rendered as text', () => {
     const code = stripComments(pageSource);
     expect(code).not.toMatch(/markdown|remark-|rehype|dangerouslySetInnerHTML/i);
     expect(code).not.toMatch(/from '[^']*markdown[^']*'/i);
   });
 
-  it('★★ nothing opens uninvited — no modal, no tour', () => {
-    expect(pageSource).not.toMatch(/role="dialog"|<Modal|useTour|autoFocus/i);
+  it('★★ nothing opens uninvited — the detail exists only after a click', () => {
+    state.entries = [entry({ how_to: 'Steps.' })];
+    renderPage();
+    expect(screen.queryByRole('dialog')).toBeNull();
+    openCard();
+    expect(screen.getByRole('dialog')).toBeInTheDocument();
+    expect(pageSource).not.toMatch(/useTour|autoFocus/);
   });
 });
 
 // ---------------------------------------------------------------------------
-// ★★★ READ STATE — the choice, asserted both ways
+// ★★★ READ STATE — fix-387's choice, and what fix-657 changed about it
 // ---------------------------------------------------------------------------
 
-describe('fix-387: neither action touches read state', () => {
-  // ★★★ THE CHOICE. fix-350 marks every entry that was unread ON ARRIVAL as
-  // read when the page UNMOUNTS — "you have read it when you have had it open".
-  // So clicking "Open it →" navigates away, unmounts the page, and is marked
-  // read by that existing mechanism; and expanding marks nothing on its own,
-  // because a second rule clearing ONE entry while its neighbours wait for
-  // unmount would leave two identically-read entries in different states.
-  it('★★★ expanding the how-to does not mark that entry read', () => {
-    state.entries = [entry({ how_to: 'Steps.' })];
+describe('fix-387 → fix-657: read state', () => {
+  // ★★★ SUPERSEDED, NOT MISTAKEN. fix-387 kept ONE writer (the unmount sweep)
+  // so that two entries read the same way never ended up in different states.
+  // fix-657's brief rules the other way, by name: "Opening it marks the entry
+  // read." Opening a card's DETAIL is a deliberate act on one entry, which the
+  // inline expander never was. The unmount sweep is unchanged and still the
+  // only writer for everything you only scrolled past.
+  it('★★★ opening a card marks THAT entry read, and nothing else', () => {
+    state.entries = [entry({ id: 'e1' }), entry({ id: 'e2', title: 'Second' })];
     renderPage();
-    expect(screen.getByTestId('whats-new-entry-e1').dataset.unread).toBe('true');
-    fireEvent.click(screen.getByTestId('whats-new-how-toggle-e1'));
-    // Still unread on screen — it clears on the way out, like every other row.
-    expect(screen.getByTestId('whats-new-entry-e1').dataset.unread).toBe('true');
+    openCard('e1');
+    expect(state.marks).toEqual([['e1']]);
   });
 
-  it('★★★ no second read-marking mechanism was added', () => {
-    // The unmount cleanup is the ONE writer. fix-350 references the mutation in
-    // four places, but only ONE of them CALLS it — so count invocations, not
-    // mentions. If a click handler ever fires it directly, this fails.
+  it('★★★ exactly two writers: the open, and the unmount sweep', () => {
     const code = stripComments(pageSource);
     expect(code.match(/markRef\.current\(/g) ?? []).toHaveLength(1);
-    expect(code.match(/markRead\.mutate\(/g) ?? []).toHaveLength(0);
+    expect(code.match(/markRead\.mutate\(/g) ?? []).toHaveLength(1);
     expect(code).toContain('if (toClear.current.length > 0) markRef.current(toClear.current);');
   });
 
-  it('★★ the click-through inherits fix-350 marking by unmounting the page', () => {
+  it('★★ the click-through still leaves the page, which runs the sweep', () => {
     state.entries = [entry({ go_href: '/board' })];
     renderPage();
+    openCard();
     fireEvent.click(screen.getByTestId('whats-new-go-e1'));
-    // The page is gone — which is precisely what triggers the existing cleanup.
     expect(screen.queryByTestId('whats-new-page')).toBeNull();
     expect(screen.getByTestId('stub-board')).toBeInTheDocument();
   });

@@ -45,6 +45,8 @@ const GRANDFATHERED_SQL: Record<string, string> = {
   bp_phase_duration_grid: 'fix-253 per-cycle display grid. the client-rewire ticket repoints it.',
   bp_notification_delivery_report:
     'fix-650: median minutes from a notification to its bell receipt / read. Delivery latency, not a permit review duration — nothing here estimates a permit date.',
+  bp_search_whats_new:
+    'fix-657: AVG of per-word search-match scores to rank What\'s New entries. A relevance score, not a duration — no date, no clock, nothing learned.',
 };
 const THE_LEARNER_SQL = 'bp_duration_stats';
 
