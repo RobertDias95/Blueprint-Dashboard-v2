@@ -25,6 +25,7 @@ import QueryError from '../QueryError';
 // key (see hooks/useBuilderRegistry).
 import BuildersRegistryPanel from './BuildersRegistryPanel';
 import DroneFolderEditor from './DroneFolderEditor';
+import ShareRootEditor from './ShareRootEditor';
 
 // Q7.3.a: Settings → Projects tab. Four catalog editors:
 //   1. Jurisdictions (table) — pill list + per-row learn_window_days input
@@ -177,6 +178,10 @@ export default function AdminProjectsTab() {
             other links this block holds. */}
         <SettingsSubBlock title="Drone footage folder">
           <DroneFolderEditor readOnly={!isAdmin} />
+        </SettingsSubBlock>
+        {/* ★ fix-654 (P-149): the share root behind "Project folder ↗". */}
+        <SettingsSubBlock title="Project share folder">
+          <ShareRootEditor readOnly={!isAdmin} />
         </SettingsSubBlock>
       </SettingsBlock>
 

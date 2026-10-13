@@ -39,6 +39,10 @@ export interface PlanOfRecordSetRow {
   variant: string;
   /** How many page images the indexer wrote. 1 for internal. */
   page_count: number | null;
+  /** ★ fix-654 (P-149): the set's original file on the share. "Open original"
+   *  in the enlarged view opens it through the Bridge opener (and copies it).
+   *  Optional because fixtures omit it; on prod all 606 are filled. */
+  unc_path?: string | null;
   /** `ok` | `pending` | `failed` | null. Anything but `ok` degrades to the
    *  single thumbnail, exactly as `thumb_status` already does. */
   pages_status: string | null;
@@ -119,7 +123,10 @@ const MISSING_RELATION = '42P01';
 //     fix-526's backfill has filled **336 of 336** current sets, every one
 //     `pdf_status = 'ok'`. So the refusal expires and the column is asked for.
 const SELECT_COLUMNS =
-  'project_id,set_type,variant,page_count,pages_status,pages_prefix,is_archived_fallback,thumb_path,thumb_status,file_name,pdf_path,pdf_bytes';
+  'project_id,set_type,variant,page_count,pages_status,pages_prefix,is_archived_fallback,thumb_path,thumb_status,file_name,pdf_path,pdf_bytes,' +
+  // ★ fix-654: the explicit-select trap again — unlisted, "Open original" would
+  //   fall back to the plan-of-record row's file for both Marketing variants.
+  'unc_path';
 
 export function usePlanOfRecordSets(projectId: string | undefined) {
   const tenantId = useAuthStore((s) => s.activeTenantId);

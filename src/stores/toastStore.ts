@@ -21,10 +21,18 @@ import { logError } from '../lib/errorLogger';
 
 export type ToastKind = 'info' | 'success' | 'warn' | 'error';
 
+/** ★ fix-654: an in-app link a toast can carry ("set up one-click folders"). */
+export interface ToastLink {
+  label: string;
+  /** An in-app path, e.g. `/settings/account#one-click-folders`. */
+  href: string;
+}
+
 export interface Toast {
   id: number;
   message: string;
   kind: ToastKind;
+  link?: ToastLink;
 }
 
 /** fix-165: per-toast options. `log` (default true) controls whether an
@@ -34,6 +42,8 @@ export interface Toast {
  *  out of Error Reports. */
 export interface ToastOptions {
   log?: boolean;
+  /** fix-654: a link shown under the message. */
+  link?: ToastLink;
 }
 
 interface ToastState {
@@ -72,7 +82,8 @@ export const useToastStore = create<ToastState>((set, get) => ({
   toasts: [],
   push: (message, kind = 'info', opts) => {
     const id = nextId++;
-    set((s) => ({ toasts: [...s.toasts, { id, message, kind }] }));
+    const toast: Toast = opts?.link ? { id, message, kind, link: opts.link } : { id, message, kind };
+    set((s) => ({ toasts: [...s.toasts, toast] }));
     // fix-86: schedule auto-dismiss for ALL kinds (errors too — the original
     // "stay until manually dismissed" behavior caused the 4563 34th Ave W
     // pile-up). The timer Map drives pause/resume + cleanup on dismiss.

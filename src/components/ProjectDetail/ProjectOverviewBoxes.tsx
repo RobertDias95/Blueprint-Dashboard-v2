@@ -43,6 +43,8 @@ import { Link } from 'react-router-dom';
 import { droneFolderUrl, footageLink, googleMapsUrl } from '../../lib/siteLinks';
 import { useMayWriteProject } from '../../hooks/useMayWriteProject';
 import { PARAM_DATA } from '../../lib/projectDataTabs';
+import { projectSharePath, shareRoot } from '../../lib/bridgeOpen';
+import ShareOpenLink from '../ShareOpenLink';
 
 // ===========================================================================
 // ★★★ fix-506 §B/§C/§D (P-139) — THE PROJECT CARD, READ AS A BOOK
@@ -856,6 +858,17 @@ export function SiteAndDates({
  *   back to the whole library when the project has none. The priority lives
  *   in `footageLink` — pasted link, then the project's folder, then the
  *   shared one.
+ *
+ * ★★★ fix-654 (P-149):
+ *   - "Add project link" is GONE from here. Bobby: *"not sure what 'add project
+ *     link' means"* — it was the manual drone-link override, and the ruling is
+ *     that it lives only in Project Data → Site (unchanged there). The muted
+ *     "Add drone link" for a project with NO footage at all stays, because it
+ *     is the only way to that field from a project that has nothing to show.
+ *   - A FOLDER row under Drone: "Project folder ↗" opens the project's folder
+ *     on \bpc-file through the Bridge opener, and always copies the path
+ *     (`ShareOpenLink`). Hidden when the project has no `share_folder` or
+ *     Settings has no share root.
  */
 function SiteLinkRows({ project }: { project: Project }) {
   const cfgMap = useAppConfig().map;
@@ -865,6 +878,7 @@ function SiteLinkRows({ project }: { project: Project }) {
   const own = footage.kind === 'own' ? footage.href : null;
   const folder =
     footage.kind === 'project-folder' || footage.kind === 'shared-folder' ? footage.href : null;
+  const sharePath = projectSharePath(shareRoot(cfgMap), project.share_folder);
   // ★ Opens Project Data on Site, where the field focuses itself (#drone-video-url).
   const addTo = { search: `?${PARAM_DATA}=site`, hash: '#drone-video-url' };
   const linkCls = 'text-de font-semibold hover:underline';
@@ -901,16 +915,29 @@ function SiteLinkRows({ project }: { project: Project }) {
                 Footage folder ↗
               </a>
             )}
-            {mayWrite ? (
-              <Link to={addTo} className={mutedCls} data-testid="pd-site-drone-add">
-                {folder ? 'Add project link' : 'Add drone link'}
-              </Link>
-            ) : (
-              !folder && <span className="text-dim italic text-[9px]">none</span>
-            )}
+            {!folder &&
+              (mayWrite ? (
+                <Link to={addTo} className={mutedCls} data-testid="pd-site-drone-add">
+                  Add drone link
+                </Link>
+              ) : (
+                <span className="text-dim italic text-[9px]">none</span>
+              ))}
           </span>
         )}
       </Field>
+      {sharePath && (
+        <Field label="Folder" labelWidth={SITE_LABEL_WIDTH} testId="pd-site-folder-row">
+          <ShareOpenLink
+            path={sharePath}
+            kind="folder"
+            className={linkCls}
+            testId="pd-site-folder-link"
+          >
+            Project folder ↗
+          </ShareOpenLink>
+        </Field>
+      )}
     </>
   );
 }

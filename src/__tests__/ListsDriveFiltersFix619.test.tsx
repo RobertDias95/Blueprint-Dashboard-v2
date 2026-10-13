@@ -87,6 +87,7 @@ import { JURISDICTION_LINKS_KEY } from '../lib/jurisdictionLinks';
 import { PERMIT_DESCRIPTIONS_KEY } from '../hooks/usePermitDescriptions';
 import { WAITING_ON_CONFIG_KEY } from '../lib/waitingOn';
 import { INTAKE_WARNING_RECIPIENTS_KEY } from '../lib/intakeWarning';
+import { SHARE_ROOT_CONFIG_KEY } from '../lib/bridgeOpen';
 import { parseUnitTypes } from '../lib/unitTypeNaming';
 import { RoofDeckSelect } from '../components/shared/UnitParkingInputs';
 
@@ -357,6 +358,7 @@ describe('fix-619 gap 25: every key Settings writes has a plain label', () => {
     PERMIT_DESCRIPTIONS_KEY,
     WAITING_ON_CONFIG_KEY,
     INTAKE_WARNING_RECIPIENTS_KEY,
+    SHARE_ROOT_CONFIG_KEY, // fix-654
   };
   it('★★★ humanizeKey covers every key a setKey.mutate call writes', () => {
     const keys = new Set<string>();

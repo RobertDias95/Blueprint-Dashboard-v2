@@ -294,7 +294,7 @@ describe('fix-641 §B: the link priority and the label', () => {
       </MemoryRouter>,
     );
 
-  it('★★★ Site Data: "Footage folder ↗" opens the project\'s own folder; "Add project link" stays', () => {
+  it('★★★ Site Data: "Footage folder ↗" opens the project\'s own folder (fix-654: "Add project link" gone)', () => {
     cfg.map = new Map([[DRONE_FOLDER_CONFIG_KEY, SHARED]]);
     renderBox(project({ drone_folder: '10431 SE 19th St - Bellevue' }));
     const a = screen.getByTestId('pd-site-drone-folder');
@@ -302,7 +302,8 @@ describe('fix-641 §B: the link priority and the label', () => {
     expect(a).not.toHaveTextContent('Drone');
     expect(a.getAttribute('data-folder-kind')).toBe('project');
     expect(a.getAttribute('href')).toBe(projectFolderUrl(SHARED, '10431 SE 19th St - Bellevue'));
-    expect(screen.getByTestId('pd-site-drone-add')).toHaveTextContent('Add project link');
+    // ★ fix-654 (P-149) removed it from Site Data; Project Data → Site keeps it.
+    expect(screen.queryByTestId('pd-site-drone-add')).toBeNull();
   });
 
   it('★★ no matched folder → the shared library, as before', () => {
