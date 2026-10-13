@@ -23,8 +23,9 @@ export function useWhatsNewEntries() {
         // ★★★ fix-387: go_href/how_to MUST be listed. This select is explicit,
         // so a column left out of it is written and never read — the trap
         // fix-122 hit for months and fix-386 hit again last night.
+        // ★★ fix-657: and the four guide columns, for the same reason.
         .select(
-          'id, published_on, kind, title, body, sort_order, updated_at, go_href, how_to',
+          'id, published_on, kind, title, body, sort_order, updated_at, go_href, how_to, summary, area, keywords, media_url',
         )
         .order('published_on', { ascending: false })
         .order('sort_order', { ascending: false });
@@ -94,6 +95,12 @@ export interface WhatsNewDraft {
    *  entry rather than only ever added. */
   go_href?: string | null;
   how_to?: string | null;
+  /** ★ fix-657: the guide fields — blank (or an empty list) is written as NULL,
+   *  so each can be taken back off an entry. */
+  summary?: string | null;
+  area?: string | null;
+  keywords?: string[] | null;
+  media_url?: string | null;
 }
 
 /** ★★ Admin-only, and the gate is the DATABASE. The editor is hidden from a
@@ -117,6 +124,14 @@ export function useUpsertWhatsNewEntry() {
         // as a broken "Open it →".
         go_href: draft.go_href?.trim() || null,
         how_to: draft.how_to?.trim() || null,
+        // ★ fix-657: one line, so any line break the editor let through is a space.
+        summary: draft.summary?.replace(/\s+/g, ' ').trim() || null,
+        area: draft.area?.trim() || null,
+        keywords: (() => {
+          const k = [...new Set((draft.keywords ?? []).map((w) => w.trim()).filter(Boolean))];
+          return k.length > 0 ? k : null;
+        })(),
+        media_url: draft.media_url?.trim() || null,
         updated_at: new Date().toISOString(),
       };
       const { error } = draft.id
