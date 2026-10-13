@@ -10,6 +10,7 @@ import WorkDataNamesPanel from './WorkDataNamesPanel';
 import MentionTagsEditor from './MentionTagsEditor';
 import IntakeWarningRecipientsEditor from './IntakeWarningRecipientsEditor';
 import ResubmitWarningRecipientsEditor from './ResubmitWarningRecipientsEditor';
+import ScrapeSilenceRecipientsEditor from './ScrapeSilenceRecipientsEditor';
 import TeamActiveQuartersEditor from './TeamActiveQuartersEditor';
 import QuarterLayoutEditor from './QuarterLayoutEditor';
 import { useTeamMembers } from '../../hooks/useTeamMembers';
@@ -284,6 +285,11 @@ export default function AdminTeamTab() {
           (the permit's ENT lead and DM are added per round). */}
       <SettingsBlock id="resubmit-warning">
         <ResubmitWarningRecipientsEditor readOnly={!isAdmin} />
+      </SettingsBlock>
+
+      {/* ★★ fix-658 (P-343): who hears when the permit scrape stops running. */}
+      <SettingsBlock id="scrape-silence-alert">
+        <ScrapeSilenceRecipientsEditor readOnly={!isAdmin} />
       </SettingsBlock>
 
       <SettingsBlock id="draw-schedule-layout">

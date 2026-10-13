@@ -39,6 +39,7 @@ const SOURCE_LABEL: Record<ErrorGroup['source'], string> = {
   backend_rpc: 'RPC',
   scraper: 'Scraper',
   notification_delivery: 'Delivery',
+  scrape_silence: 'Scrape',
 };
 
 const SOURCE_CLASS: Record<ErrorGroup['source'], string> = {
@@ -47,6 +48,7 @@ const SOURCE_CLASS: Record<ErrorGroup['source'], string> = {
   backend_rpc: 'bg-jv-bg text-jv border-jv-border',
   scraper: 'bg-de-bg text-de border-de-border',
   notification_delivery: 'bg-pm-bg text-pm border-pm-border',
+  scrape_silence: 'bg-co-bg text-co border-co-border',
 };
 
 const STATUS_LABEL: Record<ErrorGroupStatus, string> = {
