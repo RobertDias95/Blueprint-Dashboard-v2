@@ -66,6 +66,8 @@ import {
  *  Notifications.tsx names it, so there is no second unread style. */
 const UNREAD_ROW = 'bg-de-bg';
 const READ_ROW = 'bg-surface';
+/** fix-663: the unread accent down the left edge, drawn inside the border. */
+const UNREAD_STRIPE = 'inset 3px 0 0 var(--color-de)';
 
 /** The chip beside a title. One closed set, mirroring the CHECK constraint. */
 const KIND_CLASS: Record<WhatsNewKind, string> = {
@@ -441,7 +443,12 @@ function EntryCard({
       className={`px-3 py-2 rounded-md border border-border/70 cursor-pointer hover:border-de transition outline-none focus-visible:border-de ${
         unread ? UNREAD_ROW : READ_ROW
       }`}
-      style={{ borderLeft: `3px solid ${unread ? 'var(--color-de)' : 'transparent'}` }}
+      // ★ fix-663 (P-346): the unread stripe is an INSET SHADOW, not a left
+      //   border. A 3px left border had to go transparent on a read card, which
+      //   left it with three sides. Now every card has the same 1px border on
+      //   all four sides (so hover/focus turn all four blue), and the stripe
+      //   sits inside it — the text does not move when a card turns read.
+      style={unread ? { boxShadow: UNREAD_STRIPE } : undefined}
       data-testid={`whats-new-entry-${entry.id}`}
       data-unread={unread ? 'true' : 'false'}
       data-kind={entry.kind}
