@@ -180,6 +180,7 @@ const ADDED_AFTER_FIX_611: ReadonlyArray<readonly [string, string]> = [
   ['seattle-intake-warning', 'fix-637 (P-180): who the daily Seattle intake warning reaches'],
   ['resubmit-warning', 'fix-646 (P-011): the fixed people on every Resubmit-by warning'],
   ['scrape-silence-alert', 'fix-658 (P-343): who hears when the permit scrape stops running'],
+  ['one-click-folders', 'fix-654 (P-149): the Bridge opener for \bpc-file folders'],
 ];
 const ADDED_IDS = new Set(ADDED_AFTER_FIX_611.map(([id]) => id));
 
@@ -246,6 +247,7 @@ describe('fix-611 §B — every one of today’s 43 blocks has a home', () => {
     expect(blocksForCategory('account').map((b) => b.title)).toEqual([
       'Your picture',
       'Email notifications',
+      'One-click folders', // fix-654
       'Sign-in info',
     ]);
     expect(blocksForCategory('teams').map((b) => b.title)).toEqual([

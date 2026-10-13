@@ -90,6 +90,9 @@ export function useProjects() {
             // ★★★ fix-641: and `drone_folder` beside it — the EIGHTH recording.
             // Unlisted, every project would open the shared library again.
             'drone_folder',
+            // ★★★ fix-654: `share_folder` (fix-655's column) — the NINTH
+            // recording. Unlisted, Site Data's "Project folder" would never show.
+            'share_folder',
             // fix-126: redesign concept columns. Drive the "Redesign of"
             // top badge + the expandable "Redesigns (N)" subsection on
             // Project Overview, plus the yellow border on draw schedule

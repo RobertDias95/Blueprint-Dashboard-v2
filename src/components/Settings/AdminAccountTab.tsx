@@ -5,6 +5,7 @@ import { useSelfScope } from '../../hooks/useSelfScope';
 import DbToolsCard from '../SettingsModal/DbToolsCard';
 import AvatarControl from './AvatarControl';
 import EmailNotificationsPanel from './EmailNotificationsPanel';
+import OneClickFoldersPanel from './OneClickFoldersPanel';
 import SettingsBlock from './SettingsBlock';
 
 // Q7.3.d: Account tab. Read-only sign-in info + sign-out.
@@ -62,6 +63,12 @@ export default function AdminAccountTab() {
       {/* ★★ fix-634 (P-323): mention + assignment emails, on by default. */}
       <SettingsBlock id="email-notifications">
         <EmailNotificationsPanel />
+      </SettingsBlock>
+
+      {/* ★★★ fix-654 (P-149): the Bridge opener — download, remove, and the
+          steps in plain words. Per person, so it lives under My account. */}
+      <SettingsBlock id="one-click-folders">
+        <OneClickFoldersPanel />
       </SettingsBlock>
 
       <SettingsBlock id="sign-in-info">

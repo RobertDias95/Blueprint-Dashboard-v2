@@ -72,6 +72,8 @@ export const APP_CONFIG_KEY_LABELS: Readonly<Record<string, string>> = {
   storiesOptions: 'unit stories options',
   jurisdictionLinks: 'jurisdiction links',
   droneFootageFolderUrl: 'drone footage folder',
+  // fix-654 (P-149)
+  projectShareRoot: 'project share folder',
   seattleIntakeWarningRecipients: 'Seattle intake warning recipients',
   resubmitWarningRecipients: 'Resubmit-by warning recipients',
   scrapeSilenceAlertRecipients: 'Scraper-down alert recipients',

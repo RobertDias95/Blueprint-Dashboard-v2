@@ -347,6 +347,12 @@ export interface Project {
    *  shared Drone Photos folder (app_config droneFootageFolderUrl). The link
    *  is built from the Settings URL — see lib/siteLinks.footageLink. */
   drone_folder?: string | null;
+  /** ★ fix-654 (P-149): this project's level-1 folder NAME under the Building
+   *  Permits share (no root). Created and kept filled by the scraper's
+   *  indexer (fix-655) — blank when a project has two or more folders, so a
+   *  person picks. The Bridge only READS it; the root is the app_config
+   *  `projectShareRoot` value — see lib/bridgeOpen.projectSharePath. */
+  share_folder?: string | null;
   /** fix-265: the free-text qualifier on that reuse relationship — what Gena
    *  writes by hand today ("Units are Similar to 13515 27th? XL?", "7315 Jones
    *  Ave NW (W/O GAR)"). reused_from_project_id carries the LINK; this carries

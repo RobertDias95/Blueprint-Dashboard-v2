@@ -82,6 +82,15 @@ export const SETTINGS_BLOCKS: readonly SettingsBlock[] = [
     keywords: 'email notification mention assigned task alert opt out bridge@ weekly update agenda',
   },
   {
+    // ★★★ fix-654 (P-149): the per-PC Bridge opener for \bpc-file folders.
+    id: 'one-click-folders',
+    category: 'account',
+    title: 'One-click folders',
+    summary: 'Let “Project folder ↗” open the server folder directly on this computer',
+    feeds: ['Site Data', 'Plan of Record'],
+    keywords: 'folder server bpc-file share explorer open opener install download unc path file plan original',
+  },
+  {
     id: 'sign-in-info',
     category: 'account',
     title: 'Sign-in info',
@@ -269,7 +278,7 @@ export const SETTINGS_BLOCKS: readonly SettingsBlock[] = [
       'Ribbon city links',
       'Library',
     ],
-    keywords: 'city cities juris jurisdiction link portal gis code drone footage video folder',
+    keywords: 'city cities juris jurisdiction link portal gis code drone footage video folder share server bpc-file building permits',
     merged: '2 → 1',
   },
   {

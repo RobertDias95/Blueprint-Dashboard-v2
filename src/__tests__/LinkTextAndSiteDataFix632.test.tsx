@@ -158,13 +158,15 @@ describe('fix-632 §B: the map and drone links', () => {
     expect(rows.slice(rows.indexOf('pd-site-tags-row'))).toEqual(['pd-site-tags-row', 'pd-site-map-row', 'pd-site-drone-row']);
   });
 
-  it('★★★ no project link → the shared folder, and "Add project link" for editors', () => {
+  it('★★★ no project link → the shared folder (fix-654: and NO "Add project link")', () => {
     cfg.map = new Map([[DRONE_FOLDER_CONFIG_KEY, FOLDER]]);
     renderBox(project());
     expect(screen.getByTestId('pd-site-drone-folder')).toHaveTextContent('Footage folder ↗');
     expect(screen.getByTestId('pd-site-drone-folder').getAttribute('href')).toBe(FOLDER);
-    expect(screen.getByTestId('pd-site-drone-add')).toHaveTextContent('Add project link');
-    expect(screen.getByTestId('pd-site-drone-add').getAttribute('href')).toBe('/?data=site#drone-video-url');
+    // ★★★ fix-654 (P-149): Bobby — "not sure what 'add project link' means".
+    //     The override lives only in Project Data → Site now.
+    expect(screen.queryByTestId('pd-site-drone-add')).toBeNull();
+    expect(screen.queryByText('Add project link')).toBeNull();
   });
 
   it('★★ neither → a muted "Add drone link" for editors; nothing to click for others', () => {

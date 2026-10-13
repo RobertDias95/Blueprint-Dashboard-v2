@@ -21,7 +21,16 @@ const KIND_LABEL: Record<ToastKind, string> = {
   error: 'Error',
 };
 
-export default function ToastHost() {
+/**
+ * ★ fix-654: `onNavigate` follows a toast's in-app link. The host is mounted
+ *   OUTSIDE the router (App.tsx), so App passes `router.navigate`; without it a
+ *   link falls back to a plain page load.
+ */
+export default function ToastHost({
+  onNavigate,
+}: {
+  onNavigate?: (href: string) => void;
+} = {}) {
   const toasts = useToastStore((s) => s.toasts);
   const dismiss = useToastStore((s) => s.dismiss);
   const pause = useToastStore((s) => s.pause);
@@ -35,8 +44,8 @@ export default function ToastHost() {
       aria-label="Notifications"
     >
       {toasts.map((toast) => (
+        <div key={toast.id} className="flex flex-col">
         <button
-          key={toast.id}
           type="button"
           onClick={() => dismiss(toast.id)}
           onMouseEnter={() => pause(toast.id)}
@@ -62,6 +71,27 @@ export default function ToastHost() {
             ×
           </span>
         </button>
+        {/* ★ fix-654: a toast's link sits UNDER its button, never inside it —
+            a link nested in a button is invalid HTML and the click would
+            dismiss rather than navigate. */}
+        {toast.link && (
+          <button
+            type="button"
+            onClick={() => {
+              const href = toast.link!.href;
+              dismiss(toast.id);
+              if (onNavigate) onNavigate(href);
+              else window.location.assign(href);
+            }}
+            onMouseEnter={() => pause(toast.id)}
+            onMouseLeave={() => resume(toast.id)}
+            className="pointer-events-auto self-end -mt-1 mr-2 text-[12px] font-semibold text-de underline hover:opacity-80"
+            data-testid={`toast-link-${toast.id}`}
+          >
+            {toast.link.label}
+          </button>
+        )}
+        </div>
       ))}
     </div>
   );

@@ -64,6 +64,8 @@ import type {
 } from '../../lib/database.types';
 import { useEmailPlanPdf } from '../../hooks/useEmailPlanPdf';
 import { shareLinkText } from '../../lib/shareLinkText';
+import { isAllowedSharePath } from '../../lib/bridgeOpen';
+import ShareOpenLink from '../ShareOpenLink';
 
 // fix-285: the Design Plan of Record card.
 //
@@ -1247,6 +1249,26 @@ function Lightbox({
             style={{ borderColor: 'var(--color-border)' }}
           >
             {missingThumbnailReason(row)}
+          </div>
+        )}
+
+        {/* ★★★ fix-654 (P-149): "Open original" — the SHOWN set's own file
+            (Site Plan or Marketing), else the plan-of-record row's. fix-289's
+            finding still stands: the browser cannot open \bpc-file itself,
+            which is why this is a `bridge-open:` link through the per-user
+            Bridge opener and ALWAYS copies the path too. It lives here, beside
+            the path, not on the card face (fix-506 §E keeps the face to the two
+            set buttons). */}
+        {isAllowedSharePath(shownSet?.unc_path ?? row.unc_path) && (
+          <div className="mt-2.5 flex justify-end">
+            <ShareOpenLink
+              path={(shownSet?.unc_path ?? row.unc_path) as string}
+              kind="file"
+              className="text-[10.5px] text-de font-semibold hover:underline"
+              testId="plan-of-record-open-original"
+            >
+              Open original ↗
+            </ShareOpenLink>
           </div>
         )}
 

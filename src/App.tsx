@@ -336,7 +336,7 @@ export default function App() {
     <QueryClientProvider client={queryClient}>
       <RealtimeMount />
       <RouterProvider router={router} />
-      <ToastHost />
+      <ToastHost onNavigate={(href) => void router.navigate(href)} />
       <BlockOverlapPrompt />
       {import.meta.env.DEV && <ReactQueryDevtools initialIsOpen={false} />}
     </QueryClientProvider>

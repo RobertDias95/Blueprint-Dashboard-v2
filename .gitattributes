@@ -1,0 +1,4 @@
+# fix-654 (P-149): the Bridge opener downloads are served byte-for-byte.
+# cmd.exe wants CRLF and PowerShell 5.1 wants plain ASCII, so git must never
+# convert their line endings (a test pins both).
+public/bridge-opener/* -text
