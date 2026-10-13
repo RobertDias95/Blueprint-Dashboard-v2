@@ -2415,3 +2415,117 @@ describe('fix-446: milestones on My Tasks', () => {
     ).toBe(true);
   });
 });
+
+// ===========================================================================
+// ★★★ fix-660 (census 23, P-318) — the Department filter
+// ===========================================================================
+//
+// Department was filled for 37 of 43 people and only Settings read it. The
+// filter selects PEOPLE, then asks the same ownership question the person
+// dropdowns ask — so "Acquisitions" shows exactly what selecting each
+// Acquisitions person would.
+describe('fix-660: Department filter on My Tasks', () => {
+  function withDepartments() {
+    teamRef.current = [
+      // ★ Bobby holds TWO rows — the filter must read the PERSON, not a row.
+      member({ name: 'Bobby', role: 'ent_lead', department: 'acquisitions' }),
+      member({ name: 'Bobby', role: 'ent', department: 'acquisitions' }),
+      member({ name: 'Edmund', role: 'ent', department: 'design_entitlements' }),
+      member({ name: 'Trevor', role: 'da', department: 'design_entitlements' }),
+      member({ name: 'Ainsley', role: 'da', department: 'acquisitions' }),
+      member({ name: 'Miles', role: 'dm', department: null }),
+    ];
+    // Ownership resolves through the permit (fix-238b), as for the dropdowns.
+    permitsRef.current = VARIED_PERMITS;
+  }
+
+  it('offers the Settings department list, in its order', () => {
+    withDepartments();
+    renderIt();
+    const opts = Array.from(
+      (screen.getByTestId('mytasks-filter-department') as HTMLSelectElement).options,
+    ).map((o) => o.textContent);
+    expect(opts).toEqual([
+      'All departments',
+      'Policy',
+      'Design & Permitting',
+      'Acquisitions',
+      'Underwriting',
+      'Executive',
+      'IT & Investor Relations',
+      'Construction Admin',
+    ]);
+  });
+
+  it('narrows to tasks owned by people in the chosen department', () => {
+    withDepartments();
+    tasksRef.current = varied();
+    renderIt();
+    fireEvent.change(screen.getByTestId('mytasks-filter-department'), {
+      target: { value: 'acquisitions' },
+    });
+    // Bobby's and Ainsley's tasks stay; Trevor's and Edmund's go.
+    expect(screen.getByTestId('mytask-card-de-inprog')).toBeInTheDocument();
+    expect(screen.getByTestId('mytask-card-pm-open')).toBeInTheDocument();
+    expect(screen.queryByTestId('mytask-card-de-open-overdue')).toBeNull();
+    expect(screen.queryByTestId('mytask-card-pm-inprog')).toBeNull();
+    // A second department widens it again — it is a multi-select.
+    fireEvent.change(screen.getByTestId('mytasks-filter-department'), {
+      target: { value: 'design_entitlements' },
+    });
+    expect(screen.getByTestId('mytask-card-de-open-overdue')).toBeInTheDocument();
+    expect(screen.getByTestId('mytask-card-pm-inprog')).toBeInTheDocument();
+    // Removing a chip takes it back out.
+    fireEvent.click(screen.getByTestId('mytasks-filter-department-remove-design_entitlements'));
+    expect(screen.queryByTestId('mytask-card-de-open-overdue')).toBeNull();
+  });
+
+  it('combines with the stage filter (both must hold)', () => {
+    withDepartments();
+    tasksRef.current = varied();
+    renderIt();
+    fireEvent.change(screen.getByTestId('mytasks-filter-department'), {
+      target: { value: 'acquisitions' },
+    });
+    fireEvent.change(screen.getByTestId('mytasks-filter-stage'), {
+      target: { value: 'PAR/Pre-Sub' },
+    });
+    // Ainsley's PAR/Pre-Sub task survives both; Bobby's Building Permit task
+    // fails the stage; Edmund's PAR/Pre-Sub task fails the department.
+    expect(screen.getByTestId('mytask-card-pm-open')).toBeInTheDocument();
+    expect(screen.queryByTestId('mytask-card-de-inprog')).toBeNull();
+    expect(screen.queryByTestId('mytask-card-pm-inprog')).toBeNull();
+  });
+
+  it('is remembered with the other filters, and Clear resets it', () => {
+    withDepartments();
+    tasksRef.current = varied();
+    const { unmount } = renderIt();
+    fireEvent.change(screen.getByTestId('mytasks-filter-department'), {
+      target: { value: 'acquisitions' },
+    });
+    const stored = JSON.parse(window.localStorage.getItem('mytasks.filters.v2') ?? '{}');
+    expect(stored.departments).toEqual(['acquisitions']);
+    unmount();
+    renderIt();
+    expect(
+      screen.getByTestId('mytasks-filter-department-chip-acquisitions'),
+    ).toBeInTheDocument();
+    expect(screen.queryByTestId('mytask-card-de-open-overdue')).toBeNull();
+    fireEvent.click(screen.getByTestId('mytasks-filter-reset'));
+    expect(screen.queryByTestId('mytasks-filter-department-chip-acquisitions')).toBeNull();
+    expect(screen.getByTestId('mytask-card-de-open-overdue')).toBeInTheDocument();
+  });
+
+  it('★ a stored key that is not a department is dropped, not kept invisible', () => {
+    withDepartments();
+    tasksRef.current = varied();
+    window.localStorage.setItem(
+      'mytasks.filters.v2',
+      JSON.stringify({ departments: ['acquisitions', 'not_a_department', 7] }),
+    );
+    renderIt();
+    expect(screen.getByTestId('mytasks-filter-department-chip-acquisitions')).toBeInTheDocument();
+    expect(screen.queryByTestId('mytasks-filter-department-chip-not_a_department')).toBeNull();
+  });
+});

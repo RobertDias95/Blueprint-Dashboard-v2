@@ -117,6 +117,9 @@ import {
   useIsCoAssigned,
 } from '../lib/coAssignedContext';
 import ScopeToggle from '../components/shared/ScopeToggle';
+import DepartmentFilter from '../components/shared/DepartmentFilter';
+import { parseDepartments, peopleInDepartments } from '../lib/departmentFilter';
+import type { Department } from '../lib/database.types';
 import { SkeletonRows } from '../components/Skeleton';
 import QueryError from '../components/QueryError';
 import {
@@ -166,6 +169,10 @@ interface FilterState {
   quickRole: RoleQuick;
   /** Multi-select on parent permit_type (the "All stages" v1 dropdown). */
   permitTypes: string[];
+  /** ★ fix-660 (census 23): Settings departments. A task passes when any
+   *  person in one of them owns it through the same resolver as the people
+   *  dropdowns. Empty = no department filter. */
+  departments: Department[];
   /** When true (default) Resolved tasks are hidden from sub-columns. */
   activeOnly: boolean;
   /** ★★★ fix-444 §A3 — `byDueDate` IS GONE, AND IT WAS NOT A PREFERENCE.
@@ -198,6 +205,7 @@ const DEFAULT_FILTERS: FilterState = {
   roles: { ent: [], da: [], dm: [], internal: [] },
   quickRole: 'all',
   permitTypes: [],
+  departments: [],
   activeOnly: true,
   botOnly: false,
   groupByProject: false,
@@ -272,6 +280,9 @@ function loadFilters(): FilterState {
       permitTypes: Array.isArray(parsed.permitTypes)
         ? parsed.permitTypes.filter((s): s is string => typeof s === 'string')
         : [],
+      // ★ fix-660: whitelisted against the Settings list, so a stored key that
+      //   is no longer a department cannot become an invisible filter.
+      departments: parseDepartments(parsed.departments),
     };
   } catch {
     return DEFAULT_FILTERS;
@@ -361,6 +372,9 @@ function filterMilestones(
   rows: MilestoneRow[],
   filters: FilterState,
   rolesByName: Map<string, Set<Exclude<RoleQuick, 'all'>>>,
+  // ★ fix-660: a department is a PEOPLE filter, so ruling 3 applies it to a
+  //   milestone through the permit's own people, like the dropdowns above.
+  departmentPeople: readonly string[] | null,
 ): MilestoneRow[] {
   const q = filters.search.trim().toLowerCase();
   const roleNames = [
@@ -391,6 +405,12 @@ function filterMilestones(
         if (roles && roles.has(filters.quickRole)) any = true;
       }
       if (!any) return false;
+    }
+    if (departmentPeople !== null) {
+      const people = milestonePeople(m);
+      if (!departmentPeople.some((n) => people.has(n.trim().toLowerCase()))) {
+        return false;
+      }
     }
     return true;
   });
@@ -816,9 +836,23 @@ function Body({
   // ★ fix-458: `visibleTasks` is `scopedTasks` unless the Unclaimed switch is
   //   on, in which case it is the queue. Every counter, band and tab below reads
   //   this one value, so the switch reaches all of them without a second filter.
+  // ★ fix-660: the people in the chosen departments, folded per person
+  //   (lib/departmentFilter). null = no department filter.
+  const departmentPeople = useMemo(
+    () => peopleInDepartments(members, filters.departments),
+    [members, filters.departments],
+  );
   const filtered = useMemo(
-    () => filterTasks(visibleTasks, filters, rolesByName, taskMatches, structByPermitId),
-    [visibleTasks, filters, rolesByName, taskMatches, structByPermitId],
+    () =>
+      filterTasks(
+        visibleTasks,
+        filters,
+        rolesByName,
+        taskMatches,
+        structByPermitId,
+        departmentPeople,
+      ),
+    [visibleTasks, filters, rolesByName, taskMatches, structByPermitId, departmentPeople],
   );
   const today = useMemo(() => todayIso(), []);
 
@@ -905,8 +939,8 @@ function Body({
   //    and leave them visible; "Active only" is always true of a milestone,
   //    because an acked one has already left the forecast.
   const visibleMilestones = useMemo(
-    () => filterMilestones(milestoneRows, filters, rolesByName),
-    [milestoneRows, filters, rolesByName],
+    () => filterMilestones(milestoneRows, filters, rolesByName, departmentPeople),
+    [milestoneRows, filters, rolesByName, departmentPeople],
   );
   const counters = useMemo(() => {
     let open = 0;
@@ -1372,6 +1406,13 @@ function FilterRow({
         filters={filters}
         onPatch={onPatch}
         count={peopleCount}
+      />
+      {/* ★ fix-660 (census 23): beside People, not inside it — it is always
+          visible, so it needs no badge to stay honest. */}
+      <DepartmentFilter
+        selected={filters.departments}
+        onChange={(departments) => onPatch({ departments })}
+        testid="mytasks-filter-department"
       />
       {/* ★★★ fix-451 §B1 (P-099) — THE QUICK-ROLE CHIPS MOVED INTO "People".
           Bobby, 2026-08-30: *"vs 4 buttons floating that all are categorically
@@ -2684,6 +2725,10 @@ function filterTasks(
   // search haystack so a structure address finds the permit's tasks. Absent
   // entries (518 of 588 permits carry none) contribute nothing.
   structAddressByPermitId: ReadonlyMap<number, string>,
+  // ★ fix-660: people in the chosen departments (null = no filter). Matched
+  //   through `taskMatches`, so a department means exactly the union of
+  //   those people's My Work — role-assigned tasks included.
+  departmentPeople: readonly string[] | null = null,
 ): Task[] {
   const q = filters.search.trim().toLowerCase();
   const wantTypes =
@@ -2725,6 +2770,9 @@ function filterTasks(
       if (!quickRolePeople.some((n) => taskMatches(t, n))) {
         return false;
       }
+    }
+    if (departmentPeople !== null && !departmentPeople.some((n) => taskMatches(t, n))) {
+      return false;
     }
     if (q) {
       const hay =

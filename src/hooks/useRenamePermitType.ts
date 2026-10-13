@@ -20,6 +20,31 @@ import { useAuthStore } from '../stores/authStore';
 interface Row {
   out_name: string;
   out_permits_repointed: number;
+  /** ★ fix-660: rows moved per place. Absent before the migration ran. */
+  out_writes?: Record<string, number> | null;
+}
+
+/** ★ fix-660: the places a rename moves, in the words the toast uses. Keys are
+ *  bp_rename_permit_type's `out_writes`. */
+const WRITE_LABEL: Record<string, [string, string]> = {
+  task_templates: ['task template', 'task templates'],
+  target_submit_formulas: ['target-submit formula', 'target-submit formulas'],
+  permit_type_defaults: ['default', 'defaults'],
+  permit_type_descriptions: ['description', 'descriptions'],
+  intake_records: ['intake record', 'intake records'],
+};
+
+/** "4 permits, 1 task template, 1 target-submit formula" — every place that
+ *  moved, in a fixed order, skipping zeroes. Exported for tests. */
+export function describeRenameWrites(row: Row): string {
+  const n = row.out_permits_repointed;
+  const parts: string[] = [];
+  if (n > 0) parts.push(`${n} permit${n === 1 ? '' : 's'}`);
+  for (const [key, [one, many]] of Object.entries(WRITE_LABEL)) {
+    const c = row.out_writes?.[key] ?? 0;
+    if (c > 0) parts.push(`${c} ${c === 1 ? one : many}`);
+  }
+  return parts.join(', ');
 }
 
 export function useRenamePermitType() {
@@ -41,16 +66,26 @@ export function useRenamePermitType() {
       queryClient.invalidateQueries({ queryKey: queryKeys.permitTypes(tenantId) });
       // The permits themselves moved, so anything reading permits.type is stale.
       queryClient.invalidateQueries({ queryKey: queryKeys.permits(tenantId) });
-      const n = row.out_permits_repointed;
+      // ★ fix-660: and so did every other place that stores the name.
+      queryClient.invalidateQueries({ queryKey: queryKeys.taskTemplatesAll });
+      queryClient.invalidateQueries({ queryKey: queryKeys.targetSubmitFormulasAll });
+      queryClient.invalidateQueries({ queryKey: queryKeys.permitTypeDefaultsAll });
+      queryClient.invalidateQueries({ queryKey: queryKeys.appConfigAll });
+      const moved = describeRenameWrites(row);
       pushToast(
-        n === 0
+        moved === ''
           ? `Renamed to ${row.out_name}`
-          : `Renamed to ${row.out_name} — ${n} permit${n === 1 ? '' : 's'} updated`,
+          : `Renamed to ${row.out_name} — ${moved} updated`,
         'success',
       );
     },
     onError: (error) => {
-      pushToast(`Could not rename permit type — ${error.message}`, 'error');
+      // ★ fix-660: a refusal carries its reason ("…is named in the database's
+      //   own rules (…)"); show it without the function-name prefix.
+      pushToast(
+        `Could not rename permit type — ${error.message.replace(/^bp_rename_permit_type:\s*/, '')}`,
+        'error',
+      );
     },
   });
 }

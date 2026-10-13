@@ -31,7 +31,9 @@ import {
 //
 // ★ RENAME MOVES THE PERMITS WITH IT. Same reason: bp_rename_permit_type does
 // the catalogue row and every referencing permit in one transaction. See
-// useRenamePermitType.
+// useRenamePermitType. ★★ fix-660: and since then every other place that stores
+// the name too (templates, formulas, defaults, descriptions, intake), or it
+// refuses with the reason.
 
 interface Props {
   readOnly?: boolean;
@@ -180,17 +182,32 @@ export default function PermitTypeEditor({ readOnly = false }: Props) {
                   <td className="py-1.5 text-right whitespace-nowrap">
                     {!readOnly && (
                       <>
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setRenameDraft(t.name);
-                            setRenaming(t.name);
-                          }}
-                          className="text-[10px] font-bold text-de hover:underline mr-2"
-                          data-testid={`permit-type-rename-${t.name}`}
-                        >
-                          Rename
-                        </button>
+                        {/* ★★ fix-660: a BUILT-IN type's name is code — the
+                            scraper, the target-submit learner and the routing
+                            rules all key off it — so the server refuses to
+                            rename one. The button is not offered rather than
+                            offered and then refused. */}
+                        {t.is_builtin ? (
+                          <span
+                            className="text-[10px] text-dim mr-2 cursor-help"
+                            title="Built-in types are named in the app's own rules, so renaming one is a code change."
+                            data-testid={`permit-type-rename-locked-${t.name}`}
+                          >
+                            Fixed name
+                          </span>
+                        ) : (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setRenameDraft(t.name);
+                              setRenaming(t.name);
+                            }}
+                            className="text-[10px] font-bold text-de hover:underline mr-2"
+                            data-testid={`permit-type-rename-${t.name}`}
+                          >
+                            Rename
+                          </button>
+                        )}
                         <DeleteControl
                           type={t.name}
                           used={used}
