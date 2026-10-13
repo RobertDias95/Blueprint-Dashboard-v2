@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { fireEvent, render, screen } from '@testing-library/react';
 import { MemoryRouter, Routes, Route, useParams, useSearchParams } from 'react-router-dom';
 import type { PermitWithCycles, Project } from '../lib/database.types';
+import { useAuthStore } from '../stores/authStore';
 
 // fix-306 — register #29, #30, #31, #32, #33, #35.
 //
@@ -653,5 +654,92 @@ describe('fix-306 #33: the queue row scans', () => {
     expect(screen.getByTestId(/^board-queue-due-/).textContent).toBe(
       'No target date',
     );
+  });
+});
+
+// ===========================================================================
+// ★★★ fix-660 (census 23, P-318) — the Department filter on the board
+// ===========================================================================
+//
+// It narrows the PEOPLE the queue is scoped to ("My team" and "one person"),
+// exactly where the scope toggle reads — and, like that toggle, it never
+// touches the forecast or "My queue".
+describe('fix-660: Department filter on the board queue', () => {
+  function brittaniWithDepartments() {
+    state.name = 'Brittani';
+    state.members = [
+      { name: 'Brittani', role: 'dm', is_oversight: false, department: 'design_entitlements' },
+      { name: 'Fisk', role: 'da', department: 'acquisitions' },
+      { name: 'Marc', role: 'da', department: 'design_entitlements' },
+    ];
+    state.dmRows = [
+      { dm_name: 'Brittani', da_name: 'Fisk' },
+      { dm_name: 'Brittani', da_name: 'Marc' },
+    ];
+    state.projects = [mkProject('p1', 'A St'), mkProject('p2', 'B St')];
+    const cyc = (id: string, permitId: number) => ({
+      id, permit_id: permitId, cycle_index: 1,
+      submitted: '2026-04-01', intake_accepted: '2026-04-02',
+      city_target: null, corr_issued: null, resubmitted: null,
+      created_at: '', updated_at: '',
+    });
+    state.permits = [
+      mkPermit({ project_id: 'p1', da: 'Fisk', ent_lead: null, updated_at: '2026-05-01T12:00:00Z', permit_cycles: [cyc('c1', 1)] as never }),
+      mkPermit({ project_id: 'p2', da: 'Marc', ent_lead: null, updated_at: '2026-05-01T12:00:00Z', permit_cycles: [cyc('c2', 2)] as never }),
+    ];
+    useAuthStore.setState({ user: { id: 'u-brittani' } as never });
+    window.localStorage.clear();
+  }
+  const rows = () => screen.queryAllByTestId(/^board-queue-row-/);
+
+  it('narrows My team to the people in the chosen department', () => {
+    brittaniWithDepartments();
+    renderIn(<MyBoard />);
+    fireEvent.click(screen.getByTestId('board-scope-team'));
+    expect(rows()).toHaveLength(2);
+    fireEvent.change(screen.getByTestId('board-filter-department'), {
+      target: { value: 'acquisitions' },
+    });
+    expect(rows()).toHaveLength(1);
+    expect(screen.getByTestId('board-scope-team').textContent).toBe('My team (1)');
+    const people = Array.from(
+      screen.getByTestId('board-scope-person').querySelectorAll('option'),
+    ).map((o) => o.textContent);
+    expect(people).toEqual(['— one person —', 'Fisk']);
+  });
+
+  it('★★ a department nobody on the team is in shows an EMPTY queue, not your own', () => {
+    brittaniWithDepartments();
+    // Give Brittani a permit of her own, so "fell back to My queue" is visible.
+    state.permits.push(mkPermit({ project_id: 'p1', da: 'Brittani', ent_lead: null, target_submit: '2026-01-01' }));
+    renderIn(<MyBoard />);
+    fireEvent.click(screen.getByTestId('board-scope-team'));
+    fireEvent.change(screen.getByTestId('board-filter-department'), {
+      target: { value: 'underwriting' },
+    });
+    expect(rows()).toHaveLength(0);
+  });
+
+  it('picking a department from My queue moves to My team, where it reads', () => {
+    brittaniWithDepartments();
+    renderIn(<MyBoard />);
+    expect(screen.getByTestId('board-scope-mine').getAttribute('aria-pressed')).toBe('true');
+    fireEvent.change(screen.getByTestId('board-filter-department'), {
+      target: { value: 'design_entitlements' },
+    });
+    expect(screen.getByTestId('board-scope-team').getAttribute('aria-pressed')).toBe('true');
+    expect(rows()).toHaveLength(1);
+  });
+
+  it('is remembered per user', () => {
+    brittaniWithDepartments();
+    const { unmount } = renderIn(<MyBoard />);
+    fireEvent.change(screen.getByTestId('board-filter-department'), {
+      target: { value: 'acquisitions' },
+    });
+    expect(JSON.parse(window.localStorage.getItem('board.departments.v1.u-brittani') ?? '[]')).toEqual(['acquisitions']);
+    unmount();
+    renderIn(<MyBoard />);
+    expect(screen.getByTestId('board-filter-department-chip-acquisitions')).toBeTruthy();
   });
 });

@@ -36,6 +36,14 @@ import { useMyPostRequests } from '../hooks/usePostRequests';
 import { useAutoClosures } from '../hooks/useAutoClosures';
 import { usePermitConditions } from '../hooks/usePermitConditions';
 import { useAuthStore } from '../stores/authStore';
+import DepartmentFilter from '../components/shared/DepartmentFilter';
+import {
+  loadBoardDepartments,
+  namesInDepartments,
+  peopleInDepartments,
+  saveBoardDepartments,
+} from '../lib/departmentFilter';
+import type { Department } from '../lib/database.types';
 import { parseFlips } from '../lib/boardFlips';
 import {
   AGING_LEVEL_LABEL,
@@ -1068,9 +1076,34 @@ export default function MyBoard() {
   // called with `input` untouched, so a manager's day stays their own however
   // they filter the queue. The test for this is the one most likely to catch a
   // regression, and it exists.
+  // ★ fix-660 (census 23): the Department filter. Remembered per user, like
+  //   fix-365's lens; read once per user and written through on change.
+  const [deptOverride, setDeptOverride] = useState<Department[] | null>(null);
+  const storedDepartments = useMemo(
+    () => loadBoardDepartments(viewerUserId),
+    [viewerUserId],
+  );
+  const departments = deptOverride ?? storedDepartments;
+  function setDepartments(next: Department[]) {
+    setDeptOverride(next);
+    saveBoardDepartments(viewerUserId, next);
+    // ★ A department is a set of PEOPLE, and "My queue" is one person — you.
+    //   Picking one from "My queue" means "show me that department's work",
+    //   so it moves to "My team", which is where the filter reads.
+    if (next.length > 0 && queueScope.mode === 'mine') setQueueScope({ mode: 'team' });
+  }
+  const departmentPeople = useMemo(
+    () => peopleInDepartments(team.all ?? [], departments),
+    [team.all, departments],
+  );
+  const scopedTeamNames = useMemo(
+    () => namesInDepartments(teamNames, departmentPeople),
+    [teamNames, departmentPeople],
+  );
+
   const queue = useMemo(
-    () => buildQueueForScope(input, queueScope, teamNames),
-    [input, queueScope, teamNames],
+    () => buildQueueForScope(input, queueScope, teamNames, departmentPeople),
+    [input, queueScope, teamNames, departmentPeople],
   );
 
 
@@ -1415,7 +1448,7 @@ export default function MyBoard() {
                   data-testid="board-scope-team"
                   aria-pressed={queueScope.mode === 'team'}
                 >
-                  My team ({teamNames.length})
+                  My team ({scopedTeamNames.length})
                 </button>
                 <select
                   value={queueScope.mode === 'person' ? (queueScope.person ?? '') : ''}
@@ -1431,12 +1464,26 @@ export default function MyBoard() {
                   aria-label="Filter the queue to one person"
                 >
                   <option value="">— one person —</option>
-                  {teamNames.map((n) => (
+                  {scopedTeamNames.map((n) => (
                     <option key={n} value={n}>
                       {n}
                     </option>
                   ))}
                 </select>
+                <DepartmentFilter
+                  selected={departments}
+                  onChange={setDepartments}
+                  testid="board-filter-department"
+                  size="xs"
+                />
+                {departments.length > 0 && queueScope.mode === 'mine' && (
+                  <span
+                    className="text-[9px] text-dim"
+                    data-testid="board-filter-department-mine-note"
+                  >
+                    applies to My team and one person
+                  </span>
+                )}
                 {showGap && (
                   <span
                     className="text-[9px] text-co ml-auto"

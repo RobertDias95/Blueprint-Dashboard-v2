@@ -53,6 +53,7 @@ import {
 } from './projectQueue';
 // ★ fix-348: the board asks "is this task mine?" the way My Tasks does.
 import { taskMatchesSelfResolved } from './selfScope';
+import { namesInDepartments } from './departmentFilter';
 
 // fix-298 Phase 1 — My Board: the read-only planner.
 //
@@ -2502,9 +2503,22 @@ export function buildQueueForScope(
   input: BoardInput,
   scope: QueueScope,
   team: ReadonlyArray<string>,
+  /** ★ fix-660 (census 23): people in the chosen departments, or null for no
+   *  department filter (lib/departmentFilter.peopleInDepartments). It narrows
+   *  the PEOPLE the queue is scoped to — "My team" and "one person" — and,
+   *  like the scope itself, never reaches the forecast or "My queue". */
+  departmentPeople: ReadonlyArray<string> | null = null,
 ): ProjectQueue {
   if (scope.mode === 'mine') return buildQueue(input);
-  const names =
+  const base =
     scope.mode === 'person' && scope.person ? [scope.person] : [...team];
+  const names = namesInDepartments(base, departmentPeople);
+  // ★★ AN EMPTY DEPARTMENT MATCH IS AN EMPTY QUEUE. `scopeNames: []` means
+  //    "no scope" to buildQueue, which would quietly hand back the viewer's
+  //    OWN queue under a "My team · Acquisitions" heading. Only when a
+  //    department filter is set — the unfiltered path is unchanged.
+  if (departmentPeople !== null && names.length === 0) {
+    return buildQueue({ ...input, permits: [], tasks: [] });
+  }
   return buildQueue({ ...input, scopeNames: names });
 }

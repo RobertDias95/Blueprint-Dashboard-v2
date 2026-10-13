@@ -155,15 +155,13 @@ describe('fix-288 rename', () => {
 
   // ★ Renaming a type that 143 permits carry is the case that MUST go through
   // the RPC — an upsert+delete would orphan every one of them.
-  it('renames an in-use type the same way, not by add-then-remove', () => {
+  // ★★ fix-660: a built-in type's name is code, so the server refuses to
+  //    rename it and the editor does not offer to.
+  it('does not offer Rename on a built-in type', () => {
     renderEditor();
-    fireEvent.click(screen.getByTestId('permit-type-rename-Building Permit'));
-    const input = screen.getByTestId('permit-type-rename-input-Building Permit');
-    fireEvent.change(input, { target: { value: 'BP' } });
-    fireEvent.blur(input);
-    expect(mocks.rename).toHaveBeenCalledWith({ from: 'Building Permit', to: 'BP' });
-    expect(mocks.upsert).not.toHaveBeenCalled();
-    expect(mocks.remove).not.toHaveBeenCalled();
+    expect(screen.queryByTestId('permit-type-rename-Building Permit')).toBeNull();
+    expect(screen.getByTestId('permit-type-rename-locked-Building Permit').textContent).toBe('Fixed name');
+    expect(screen.getByTestId('permit-type-rename-Condo')).toBeTruthy();
   });
 
   it('does nothing when the name is unchanged or blank', () => {
