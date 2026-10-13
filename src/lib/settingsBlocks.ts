@@ -244,6 +244,15 @@ export const SETTINGS_BLOCKS: readonly SettingsBlock[] = [
     feeds: ['Email'],
     keywords: 'resubmit by resubmittal corrections overdue past late warning email dave brittani bobby',
   },
+  {
+    // ★★ fix-658 (P-343): who hears when the permit scrape stops running.
+    id: 'scrape-silence-alert',
+    category: 'teams',
+    title: 'Scraper-down alert goes to',
+    summary: 'Email + Error triage when the permit scrape hasn’t run for 36 weekday hours',
+    feeds: ['Email', 'Error triage'],
+    keywords: 'scraper scrape down silent stopped not running alert github actions email bobby',
+  },
 
   // ═══════════════════════════════════════════════════════ Project lists ══
   {

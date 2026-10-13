@@ -109,6 +109,17 @@ export interface ResubmitPayload {
   items: ResubmitItem[];
 }
 
+/** ★ fix-658: the `notify:scrape_silent` payload, frozen when the outage was filed. */
+export interface ScrapeSilentPayload {
+  last_run_at: string;
+  /** "Fri Oct 9 2:18 PM PT" */
+  last_run_label: string;
+  /** "Fri Oct 9" */
+  last_run_day: string;
+  weekday_hours: number;
+  threshold_hours: number;
+}
+
 /**
  * ★★ fix-643 (P-338): the payload on a `notify:mention` row that is the
  * Bridge's "corrections are out" notice (`bp_cr_notice_payload`). The row stays
@@ -130,7 +141,8 @@ export function isCorrectionNotice(p: unknown): p is CorrectionNoticePayload {
 /** One row of `bp_notify_claim`. */
 export interface ClaimedRow {
   id: string;
-  kind: 'notify:mention' | 'notify:assignment' | 'notify:intake' | 'notify:weekly' | 'notify:resubmit';
+  kind: 'notify:mention' | 'notify:assignment' | 'notify:intake' | 'notify:weekly' | 'notify:resubmit'
+    | 'notify:scrape_silent';
   to_email: string;
   recipient_user_id: string;
   project_id: string | null;
@@ -148,8 +160,9 @@ export interface ClaimedRow {
   task_due: string | null;
   /** ★ fix-637: set for `notify:intake`; ★ fix-642: and for `notify:weekly`;
    *  ★ fix-643: and for a `notify:mention` that is a corrections notice;
-   *  ★ fix-646: and for `notify:resubmit`. */
-  payload?: IntakePayload | WeeklyPayload | CorrectionNoticePayload | ResubmitPayload | null;
+   *  ★ fix-646: and for `notify:resubmit`; ★ fix-658: and `notify:scrape_silent`. */
+  payload?: IntakePayload | WeeklyPayload | CorrectionNoticePayload | ResubmitPayload
+    | ScrapeSilentPayload | null;
 }
 
 export interface OutboxRow {
@@ -818,6 +831,51 @@ export function renderResubmit(row: ClaimedRow): RenderedNotification {
 }
 
 // ---------------------------------------------------------------------------
+// ★★★ fix-658 (P-343) — the permit scrape hasn't run for 36 weekday hours
+// ---------------------------------------------------------------------------
+
+/** The scrape workflow's page — "Run workflow" is the fix. */
+export const SCRAPE_WORKFLOW_URL =
+  'https://github.com/RobertDias95/Blueprint-Dashboard-/actions/workflows/scrape-prod.yml';
+
+export function scrapeSilentSubject(p: ScrapeSilentPayload): string {
+  return `The Bridge: permit scrape hasn’t run since ${p.last_run_day}`;
+}
+
+export function renderScrapeSilent(row: ClaimedRow): RenderedNotification {
+  const p = row.payload as ScrapeSilentPayload;
+  const subject = scrapeSilentSubject(p);
+  const lines = [
+    `The permit scrape hasn’t run for ${p.weekday_hours} weekday hours. The last run started ${p.last_run_label}.`,
+    'Until it runs again, the Bridge isn’t picking up anything the cities post: status changes, ' +
+      'reviewer results, correction letters and issued dates all stay as they were at that last run.',
+    'To fix it, open the scrape’s page on GitHub and press “Run workflow” (branch: main). ' +
+      'If it fails again, the run’s log says why.',
+    `You’re getting this because you’re on the Scraper-down alert list in Settings. ` +
+      `It’s sent once per outage, and the Error triage entry clears itself when a run lands. ` +
+      `Weekends don’t count toward the ${p.threshold_hours} hours.`,
+  ];
+  const bodyHtml =
+    `<p style="margin:0 0 12px 0">${escapeHtml(lines[0]!)}</p>` +
+    `<p style="margin:0 0 12px 0">${escapeHtml(lines[1]!)}</p>` +
+    `<p style="margin:0 0 12px 0">${escapeHtml(lines[2]!)}</p>` +
+    `<p style="margin:0 0 12px 0"><a href="${escapeHtml(SCRAPE_WORKFLOW_URL)}" ` +
+    `style="color:${BLUE};font-weight:600">Open the permit scrape on GitHub</a></p>` +
+    `<p style="font-size:12px;color:${MUTED};margin:16px 0 0 0">${escapeHtml(lines[3]!)}</p>`;
+  const bodyText =
+    `${lines[0]}
+
+${lines[1]}
+
+${lines[2]}
+${SCRAPE_WORKFLOW_URL}
+
+${lines[3]}`;
+  const branded = renderBrandedEmail({ bodyHtml, bodyText });
+  return { subject, html: branded.html, text: branded.text, inlineImages: branded.inlineImages };
+}
+
+// ---------------------------------------------------------------------------
 // The drain
 // ---------------------------------------------------------------------------
 
@@ -832,6 +890,8 @@ export function skipReason(row: ClaimedRow): string | null {
   if (row.kind === 'notify:weekly' && !(row.payload as WeeklyPayload | null | undefined)?.edition) return 'no weekly payload';
   // ★ fix-646: a resubmit digest with no rounds has nothing to say.
   if (row.kind === 'notify:resubmit' && ((row.payload as ResubmitPayload | null | undefined)?.items?.length ?? 0) === 0) return 'nothing past';
+  // ★ fix-658: a scrape-silent row with no payload has nothing to say.
+  if (row.kind === 'notify:scrape_silent' && !(row.payload as ScrapeSilentPayload | null | undefined)?.last_run_day) return 'no scrape-silent payload';
   if ((row.to_email ?? '').trim() === '') return 'no recipient address';
   return null;
 }
@@ -848,7 +908,7 @@ export function planEmails(rows: ClaimedRow[]): ClaimedRow[][] {
     // ★ fix-642: and a Weekly Update is one per person per edition.
     // ★ fix-646: and a Resubmit-by digest is one per person per day.
     if (r.kind === 'notify:mention' || r.kind === 'notify:intake' || r.kind === 'notify:weekly'
-      || r.kind === 'notify:resubmit') {
+      || r.kind === 'notify:resubmit' || r.kind === 'notify:scrape_silent') {
       out.push([r]);
     } else {
       const k = r.to_email.trim().toLowerCase();
@@ -889,6 +949,7 @@ export async function drain(deps: Deps, rows: ClaimedRow[]): Promise<DrainSummar
         : first.kind === 'notify:intake' ? renderIntake(first)
         : first.kind === 'notify:weekly' ? renderWeekly(first)
         : first.kind === 'notify:resubmit' ? renderResubmit(first)
+        : first.kind === 'notify:scrape_silent' ? renderScrapeSilent(first)
         : renderAssignment(group);
     } catch (e) {
       // ★ A render bug still leaves a failed row, never nothing.

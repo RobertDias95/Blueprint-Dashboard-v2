@@ -27,7 +27,9 @@ export type ErrorGroupSource =
   | 'backend_rpc'
   | 'scraper'
   // ★ fix-650: a notification that never reached somebody's bell.
-  | 'notification_delivery';
+  | 'notification_delivery'
+  // ★ fix-658: the permit scrape hasn't run for 36 weekday hours.
+  | 'scrape_silence';
 
 export interface ErrorGroup {
   fingerprint: string;
