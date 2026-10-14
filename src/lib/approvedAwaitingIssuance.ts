@@ -1,7 +1,7 @@
-import type { Permit, Project } from './database.types';
+import type { Permit, Project, ProjectHold } from './database.types';
 import { isApprovedNotIssued } from './effectiveIssued';
 import { isCancelledProject } from './projectViewHelpers';
-import { daysBetween } from './teamPerformance';
+import { accountableDays, holdsForPermit } from './holdOverlap';
 
 // fix-221: pure builder for the "Approved – Awaiting Issuance" report. Given the
 // permit + project sets and today's ISO date, produces one row per approved-not-
@@ -19,7 +19,8 @@ export interface ApprovedAwaitingRow {
   num: string | null;
   da: string | null;
   approvalDate: string | null;
-  /** approval_date → today, in days. Null only if approval_date is malformed. */
+  /** approval_date → today, in days, held days left out (fix-668). Null only
+   *  if approval_date is malformed. */
   daysSinceApproval: number | null;
 }
 
@@ -33,6 +34,10 @@ export function buildApprovedAwaitingRows(
    *  A HELD project stays: the hold lifts and the issuance is still wanted.
    *  Omitted → pre-fix-264 behaviour exactly. */
   cancelledIds?: ReadonlySet<string>,
+  /** ★★★ fix-668 (P-024): hold windows by project (+ permit, via
+   *  `pauseHoldIndex`). The age leaves the held days out, so a permit approved
+   *  just before a hold does not top the list the day the hold lifts. */
+  holds?: ReadonlyMap<string, ReadonlyArray<Pick<ProjectHold, 'hold_start' | 'hold_end'>>>,
 ): ApprovedAwaitingRow[] {
   const rows: ApprovedAwaitingRow[] = [];
   for (const p of permits) {
@@ -48,7 +53,12 @@ export function buildApprovedAwaitingRows(
       num: p.num,
       da: p.da,
       approvalDate: p.approval_date ?? null,
-      daysSinceApproval: daysBetween(p.approval_date ?? null, todayIso),
+      daysSinceApproval: accountableDays(
+        holdsForPermit(holds, p),
+        p.approval_date ?? null,
+        todayIso,
+        todayIso,
+      ),
     });
   }
   rows.sort((a, b) => {

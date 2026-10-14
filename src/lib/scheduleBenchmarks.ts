@@ -1,5 +1,5 @@
 import type { PermitWithCycles, Project, ProjectHold } from './database.types';
-import { intervalOverlapsHold } from './holdOverlap';
+import { intervalOverlapsHold, holdsForPermit } from './holdOverlap';
 
 // Q7.2.a: learned schedule benchmarks. Ports v1's computeLearnedSchedule
 // (index.html 5349-5370) + _extractSample (5218-5280) + _buildEstimate
@@ -808,7 +808,7 @@ export function filterHeldLearningSamples(
 ): PermitWithCycles[] {
   if (!holdsByProjectId || holdsByProjectId.size === 0) return permits;
   return permits.filter((p) => {
-    const holds = holdsByProjectId.get(p.project_id);
+    const holds = holdsForPermit(holdsByProjectId, p);
     if (!holds || holds.length === 0) return true;
     const approval = p.approval_date ?? p.actual_issue ?? null;
     if (!approval) return true; // not an approved sample → keep

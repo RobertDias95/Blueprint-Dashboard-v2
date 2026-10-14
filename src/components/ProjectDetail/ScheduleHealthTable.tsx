@@ -25,7 +25,8 @@ import {
   useAllProjectHolds,
   holdsByProjectId,
 } from '../../hooks/useProjectHolds';
-import { hasActiveHold } from '../../lib/holdOverlap';
+import { useAllPermitHolds } from '../../hooks/usePermitHolds';
+import { hasActiveHold, holdsForPermit } from '../../lib/holdOverlap';
 // ★ fix-508 §D/§H: the ACQ-target INPUT left this file with fix-63's cell —
 //   `useUpdateProjectWithPermits` and `pushToast` went with it, because the
 //   only write on this table was that one box.
@@ -206,7 +207,12 @@ export default function ScheduleHealthTable({
   // held permits are dropped from the learner's training set so a parked
   // turnaround doesn't skew the per-(type,juris) averages.
   const holdsQ = useAllProjectHolds();
-  const holdsMap = useMemo(() => holdsByProjectId(holdsQ.data), [holdsQ.data]);
+  // ★ fix-668: the permit-scoped holds, so a permit's own hold stops its clocks too.
+  const permitHoldsQ = useAllPermitHolds();
+  const holdsMap = useMemo(
+    () => holdsByProjectId(holdsQ.data, permitHoldsQ.data),
+    [holdsQ.data, permitHoldsQ.data],
+  );
   // fix-170: the badge is masked to "On Hold" when a hold is open. fix-262: the
   // DATE next to it now respects the hold too — before this the column showed an
   // un-shifted Est. Approval beside an "On Hold" badge.
@@ -297,7 +303,8 @@ export default function ScheduleHealthTable({
       const projectedResult = computeProjectedApproval({
         permit,
         // fix-262 (fix-170 effect C): hold-aware projection.
-        holds: projectHolds,
+        // ★ fix-668: the project's holds AND this permit's own.
+        holds: holdsForPermit(holdsMap, permit),
         cycles: cycles
           .filter((c) => c.cycle_index !== 0)
           .sort((a, b) => a.cycle_index - b.cycle_index),
@@ -383,7 +390,7 @@ export default function ScheduleHealthTable({
     learningPermits,
     projectsById,
     typeDefaultsOverride,
-    projectHolds,
+    holdsMap,
     redesignLabelByPermitId,
     correctionSignalFor,
   ]);

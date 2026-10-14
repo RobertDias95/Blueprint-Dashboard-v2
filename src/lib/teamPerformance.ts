@@ -5,7 +5,7 @@ import type {
   TeamMember,
 } from './database.types';
 import { formatCompareNumber } from './comparisonCohort';
-import { accountableDays } from './holdOverlap';
+import { accountableDays, holdsForPermit } from './holdOverlap';
 import {
   attributePersonVolume,
   type PersonAttribution,
@@ -290,7 +290,7 @@ export function computeTeamMetrics(
     const correctionsCycles: number[] = [];
     const issuanceDays: number[] = [];
     for (const p of phasePermits) {
-      const holds = holdsByProjectId?.get(p.project_id);
+      const holds = holdsForPermit(holdsByProjectId, p);
       const dd = accountableDays(holds, p.dd_start, p.dd_end);
       if (dd !== null && dd >= 0) ddDays.push(dd);
       const c0 = (p.permit_cycles ?? []).find((c) => c.cycle_index === 0);

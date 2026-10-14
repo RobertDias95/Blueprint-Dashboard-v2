@@ -7,6 +7,8 @@ import {
   useAllProjectHolds,
   cancelledProjectIds,
 } from '../hooks/useProjectHolds';
+import { useAllPermitHolds } from '../hooks/usePermitHolds';
+import { pauseHoldIndex } from '../lib/holdOverlap';
 import { SkeletonRows } from '../components/Skeleton';
 import QueryError from '../components/QueryError';
 import {
@@ -56,6 +58,13 @@ export default function ApprovedAwaitingIssuanceReport() {
     [holdsQ.data],
   );
 
+  // ★ fix-668: hold time never counts toward the age.
+  const permitHoldsQ = useAllPermitHolds();
+  const pause = useMemo(
+    () => pauseHoldIndex(holdsQ.data, permitHoldsQ.data),
+    [holdsQ.data, permitHoldsQ.data],
+  );
+
   const rows = useMemo(
     () =>
       buildApprovedAwaitingRows(
@@ -63,8 +72,9 @@ export default function ApprovedAwaitingIssuanceReport() {
         projectsById,
         todayIso(),
         cancelledIds,
+        pause,
       ),
-    [permitsQ.data, projectsById, cancelledIds],
+    [permitsQ.data, projectsById, cancelledIds, pause],
   );
 
   const error = permitsQ.error ?? projectsQ.error;

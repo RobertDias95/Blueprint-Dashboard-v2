@@ -16,6 +16,7 @@ import {
   cancelledProjectIds,
 } from '../hooks/useProjectHolds';
 import { isTaskCancelled, isTaskOverdue } from '../lib/taskStatus';
+import { holdsForPermit, pauseHoldIndex } from '../lib/holdOverlap';
 
 // ===========================================================================
 // fix-385 — My Board becomes tabs: My Board · My Tasks · Notifications
@@ -267,6 +268,8 @@ function useMyTaskCounts(): { open: number; overdue: number } {
   return useMemo(() => {
     const cancelled = cancelledProjectIds(holdsQ.data);
     const held = heldSetsFrom(holdsQ.data, permitHoldsQ.data);
+    // ★ fix-668: the same hold windows My Tasks reads, so the two counts agree.
+    const pause = pauseHoldIndex(holdsQ.data, permitHoldsQ.data);
     const today = todayIso();
     const name = identity.name;
     let open = 0;
@@ -280,7 +283,8 @@ function useMyTaskCounts(): { open: number; overdue: number } {
       if (name && !matches(t, name)) continue;
       if (isTaskCancelled(t.status) || t.status === 'Resolved') continue;
       open += 1;
-      if (isTaskOverdue(t, today)) overdue += 1;
+      const w = holdsForPermit(pause, { id: t.permit_id, project_id: t.project_id });
+      if (isTaskOverdue(t, today, w)) overdue += 1;
     }
     return { open, overdue };
   }, [

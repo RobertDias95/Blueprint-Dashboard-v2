@@ -1,11 +1,16 @@
 import type {
   PermitWithCycles,
   Project,
+  ProjectHold,
   RedesignTrigger,
 } from './database.types';
 import { REDESIGN_TRIGGER_LABELS } from './database.types';
 import { formatCompareNumber } from './comparisonCohort';
-import { daysBetween } from './teamPerformance';
+import { accountableDays, holdsForPermit } from './holdOverlap';
+
+/** ★★★ fix-668 (P-024): the hold map the team snapshot takes, so a redesign's
+ *  phase times leave its held days out exactly as every other team surface. */
+type HoldsMap = ReadonlyMap<string, ReadonlyArray<Pick<ProjectHold, 'hold_start' | 'hold_end'>>>;
 import {
   groupPermitsByProject,
   holisticOwner,
@@ -311,7 +316,7 @@ export function computeRedesignAnalytics(
 // builder / associate analytics; this completes the picture with the
 // cycle-time side-by-side.
 //
-// REUSES daysBetween from teamPerformance.ts so the phase math here
+// REUSES the team snapshot's phase math (accountableDays since fix-668) so the phase math here
 // matches what's already on every other surface — the snapshot, the
 // trends, the drill-down. If the snapshot says Trevor's avg DD is 30d
 // across a cohort, that same cohort folded into a redesigns-vs-
@@ -342,23 +347,27 @@ export interface CycleTimeComparison {
  *  skips it in the avg. */
 const PHASE_VALUE: Record<
   keyof CycleTimeComparison,
-  (p: PermitWithCycles) => number | null
+  (p: PermitWithCycles, holds?: HoldsMap) => number | null
 > = {
-  ddPhase: (p) => {
-    const d = daysBetween(p.dd_start, p.dd_end);
+  ddPhase: (p, holds) => {
+    const d = accountableDays(holdsForPermit(holds, p), p.dd_start, p.dd_end);
     return d !== null && d >= 0 ? d : null;
   },
-  cityReview: (p) => {
+  cityReview: (p, holds) => {
     const c0 = (p.permit_cycles ?? []).find((c) => c.cycle_index === 0);
-    const d = daysBetween(c0?.intake_accepted, p.approval_date);
+    const d = accountableDays(
+      holdsForPermit(holds, p),
+      c0?.intake_accepted ?? null,
+      p.approval_date,
+    );
     return d !== null && d >= 0 ? d : null;
   },
   corrections: (p) =>
     typeof p.corr_rounds === 'number' && p.corr_rounds >= 0
       ? p.corr_rounds
       : null,
-  issuance: (p) => {
-    const d = daysBetween(p.approval_date, p.actual_issue);
+  issuance: (p, holds) => {
+    const d = accountableDays(holdsForPermit(holds, p), p.approval_date, p.actual_issue);
     return d !== null && d >= 0 ? d : null;
   },
 };
@@ -384,6 +393,8 @@ export function computeRedesignCycleTimeComparison(
   permits: PermitWithCycles[],
   projects: Project[],
   filters: RedesignAnalyticsFilters,
+  /** ★ fix-668: held days leave every phase. Omitted ⇒ unchanged. */
+  holdsByProjectId?: HoldsMap,
 ): CycleTimeComparison {
   // Two cohorts, gated by the same filters. A project is in the
   // redesign cohort iff it has redesign_of_project_id set; otherwise
@@ -424,7 +435,7 @@ export function computeRedesignCycleTimeComparison(
 
   const phases = {} as CycleTimeComparison;
   for (const key of PHASE_KEYS) {
-    const pick = PHASE_VALUE[key];
+    const pick = (p: PermitWithCycles) => PHASE_VALUE[key](p, holdsByProjectId);
     const r = avgFor(redesignPermits, pick);
     const o = avgFor(originalPermits, pick);
     const delta =

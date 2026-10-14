@@ -1,3 +1,4 @@
+import { pauseHoldIndex } from '../lib/holdOverlap';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import { useProjects } from '../hooks/useProjects';
@@ -111,6 +112,11 @@ export default function VendorScheduleForecastReport() {
     () => activeHoldByProjectId(holdsQ.data),
     [holdsQ.data],
   );
+  // ★ fix-668: every hold window, so "overdue" leaves the held days out.
+  const holdWindowsByProject = useMemo(
+    () => pauseHoldIndex(holdsQ.data, null),
+    [holdsQ.data],
+  );
 
   // ★ fix-499 §C: `useVendorReportExtras` is GONE. It existed to fetch
   //   `reused_from_project_id` + `reuse_notes` for the Reuse column, and the
@@ -159,6 +165,7 @@ export default function VendorScheduleForecastReport() {
         ledger: ledgerQ.data ?? [],
         cancelledIds,
         holdsByProject,
+        holdWindowsByProject,
         allPermitsDoneIds,
         consultants,
         todayIso: today,
@@ -169,6 +176,7 @@ export default function VendorScheduleForecastReport() {
       ledgerQ.data,
       cancelledIds,
       holdsByProject,
+      holdWindowsByProject,
       allPermitsDoneIds,
       consultants,
       today,

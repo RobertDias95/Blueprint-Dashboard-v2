@@ -1,3 +1,4 @@
+import type { HoldWindowLike } from '../../lib/permitHoldWindows';
 import { useEffect, useRef } from 'react';
 import OriginLink from '../OriginLink';
 import { PREVIOUS_ORIGINS } from '../../lib/previousOrigin';
@@ -58,6 +59,9 @@ interface AddrGroupProps {
    */
   heldPermitIds?: ReadonlySet<number>;
   permitHoldMap?: ReadonlyMap<number, PermitHold>;
+  /** ★★★ fix-668: every hold window over a permit, open or released — the
+   *  urgency clocks leave those days out. Omitted ⇒ no windows. */
+  getHoldWindows?: (p: Permit) => ReadonlyArray<HoldWindowLike>;
   /** fix-178: the project's active hold (for the on-hold card badge), or null. */
   hold?: Pick<ProjectHold, 'reason' | 'hold_start' | 'note'> | null;
   keyDateLabel: string;
@@ -129,6 +133,7 @@ export default function AddrGroup({
   activeHold = false,
   heldPermitIds,
   permitHoldMap,
+  getHoldWindows,
   hold = null,
   keyDateLabel,
   getKeyDate,
@@ -470,6 +475,7 @@ export default function AddrGroup({
               undefined,
               activeHold || permitHeld,
               getCityTarget ? ct?.date ?? null : undefined,
+              getHoldWindows?.(p),
             );
             const ownHold = permitHoldMap?.get(p.id) ?? null;
             return (
@@ -540,6 +546,7 @@ export default function AddrGroup({
               keyDateLabel={keyDateLabel}
               cityTarget={getCityTarget ? getCityTarget(p) : undefined}
               activeHold={activeHold}
+              holdWindows={getHoldWindows?.(p)}
             />
           ))}
         </div>
@@ -585,6 +592,7 @@ function ExpandedRow({
   keyDateLabel,
   cityTarget,
   activeHold = false,
+  holdWindows,
 }: {
   permit: Permit;
   projectId: string;
@@ -595,6 +603,8 @@ function ExpandedRow({
   /** ★ fix-651: undefined = not the Under Review column. */
   cityTarget?: OpenRoundCityTarget | null;
   activeHold?: boolean;
+  /** ★ fix-668: see AddrGroup's `getHoldWindows`. */
+  holdWindows?: ReadonlyArray<HoldWindowLike>;
 }) {
   const urgency = permitUrgency(
     permit,
@@ -603,6 +613,7 @@ function ExpandedRow({
     undefined,
     activeHold,
     cityTarget === undefined ? undefined : cityTarget?.date ?? null,
+    holdWindows,
   );
   // fix-notes-2: the "what's this waiting on?" summary. One shared tenant-wide
   // query (deduped across every ExpandedRow); an absent permit → Nothing pending.

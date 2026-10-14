@@ -4,6 +4,8 @@ import { usePermits } from './usePermits';
 import { useProjects } from './useProjects';
 import { usePermitTypeDefaults } from './usePermitTypeDefaults';
 import { useAllProjectHolds, holdsByProjectId } from './useProjectHolds';
+import { holdsForPermit } from '../lib/holdOverlap';
+import { useAllPermitHolds } from './usePermitHolds';
 import {
   computeLearnedSchedule,
   filterHeldLearningSamples,
@@ -63,12 +65,17 @@ export function useProjectedApprovalFor(
   const typeDefaultsQ = usePermitTypeDefaults();
   const { signalFor: correctionSignalFor } = useCorrectionOdds();
   const holdsQ = useAllProjectHolds();
+  // ★ fix-668: the permit-scoped holds, so a permit's own hold stops its clocks too.
+  const permitHoldsQ = useAllPermitHolds();
 
   const projectsById = useMemo(
     () => new Map((projectsQ.data ?? []).map((p) => [p.id, p])),
     [projectsQ.data],
   );
-  const holdsMap = useMemo(() => holdsByProjectId(holdsQ.data), [holdsQ.data]);
+  const holdsMap = useMemo(
+    () => holdsByProjectId(holdsQ.data, permitHoldsQ.data),
+    [holdsQ.data, permitHoldsQ.data],
+  );
   // fix-170 effect E: a held permit is a parked turnaround, so it is dropped
   // from the learner's training set rather than skewing the averages.
   const learningPermits = useMemo(
@@ -125,7 +132,8 @@ export function useProjectedApprovalFor(
     return computeProjectedApproval({
       permit,
       // fix-262 (fix-170 effect C): hold-aware projection.
-      holds: holdsMap.get(permit.project_id),
+      // ★ fix-668: the project's holds AND this permit's own.
+      holds: holdsForPermit(holdsMap, permit),
       cycles: (permit.permit_cycles ?? [])
         .filter((c) => c.cycle_index !== 0)
         .sort((a, b) => a.cycle_index - b.cycle_index),

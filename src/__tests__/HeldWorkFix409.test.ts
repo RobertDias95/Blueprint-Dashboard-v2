@@ -333,8 +333,13 @@ describe('fix-409 §2: the board', () => {
         showHeldWork: true,
       }),
     );
-    const row = shown.past_due.items.find((i) => i.taskId === t.id);
+    // ★★★ fix-668: NOT `past_due` any more. Bobby ruled "hold time never
+    //   counts", and an OPEN hold keeps pushing a held task's date out day by
+    //   day — so a task paused before it fell due is due TODAY, not late. The
+    //   switch still brings it back, wearing its chip; it just stops ageing.
+    const row = [...shown.past_due.all, ...shown.today.all].find((i) => i.taskId === t.id);
     expect(row).toBeTruthy();
+    expect(shown.past_due.all.some((i) => i.taskId === t.id)).toBe(false);
     expect(row!.isHeld).toBe(true);
     // ★ The chip travels ON the row, so the component that draws it does not
     //   re-derive the answer three levels down.
@@ -389,7 +394,13 @@ describe('fix-409 §2: the board', () => {
         showHeldWork: true,
       }),
     );
-    const milestones = shown.past_due.items.filter((i) => i.source === 'milestone');
+    // ★★★ fix-668: target_submit (08-01) fell due the day the hold began, so
+    //   the held days since then do not count: it reads as due TODAY, not 25
+    //   days late. Still un-silenced, still chipped.
+    const milestones = [...shown.past_due.all, ...shown.today.all].filter(
+      (i) => i.source === 'milestone',
+    );
+    expect(shown.past_due.all.filter((i) => i.source === 'milestone')).toHaveLength(0);
     expect(milestones.length).toBeGreaterThan(0);
     expect(milestones.every((m) => m.isHeld)).toBe(true);
     expect(milestones[0].hold?.reason).toBe('Waiting on builder');

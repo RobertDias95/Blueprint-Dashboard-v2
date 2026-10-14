@@ -40,6 +40,16 @@ vi.mock('../hooks/useProjectHolds', async (importActual) => {
   };
 });
 
+// ★ fix-668: the report reads permit holds too (hold time never counts toward
+//   the age). Inert here — these cases are about project holds and cancels.
+vi.mock('../hooks/usePermitHolds', async (importActual) => {
+  const actual = await importActual<typeof import('../hooks/usePermitHolds')>();
+  return {
+    ...actual,
+    useAllPermitHolds: () => ({ data: [], isLoading: false, error: null, refetch: vi.fn() }),
+  };
+});
+
 import ApprovedAwaitingIssuanceReport from '../pages/ApprovedAwaitingIssuanceReport';
 
 /** An OPEN project_holds row of either kind. */

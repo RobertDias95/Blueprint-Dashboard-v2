@@ -8,6 +8,8 @@ import {
   useAllProjectHolds,
   holdsByProjectId,
 } from '../../hooks/useProjectHolds';
+import { holdsForPermit } from '../../lib/holdOverlap';
+import { useAllPermitHolds } from '../../hooks/usePermitHolds';
 import {
   computeLearnedSchedule,
   filterHeldLearningSamples,
@@ -65,9 +67,11 @@ export default function ScheduleEstimator({ permit }: Props) {
   // parked turnaround never skews the per-(type,juris) averages. No holds → the
   // same array back (common case unchanged).
   const holdsQ = useAllProjectHolds();
+  // ★ fix-668: the permit-scoped holds, so a permit's own hold stops its clocks too.
+  const permitHoldsQ = useAllPermitHolds();
   const learningPermits = useMemo(
-    () => filterHeldLearningSamples(allPermits, holdsByProjectId(holdsQ.data)),
-    [allPermits, holdsQ.data],
+    () => filterHeldLearningSamples(allPermits, holdsByProjectId(holdsQ.data, permitHoldsQ.data)),
+    [allPermits, holdsQ.data, permitHoldsQ.data],
   );
 
   const siblings = useMemo(
@@ -118,8 +122,8 @@ export default function ScheduleEstimator({ permit }: Props) {
   // applied as a display shift afterwards, so this widget, the draw-schedule
   // block and Schedule Health all read the same hold-aware date.
   const permitHolds = useMemo(
-    () => holdsByProjectId(holdsQ.data).get(permit.project_id),
-    [holdsQ.data, permit.project_id],
+    () => holdsForPermit(holdsByProjectId(holdsQ.data, permitHoldsQ.data), permit),
+    [holdsQ.data, permitHoldsQ.data, permit],
   );
 
   // ★ fix-614 (P-300): the last round's correction count, and this city's

@@ -62,6 +62,8 @@ import {
   cancelledProjectIds,
 } from '../hooks/useProjectHolds';
 import { excludeCancelled } from '../lib/projectViewHelpers';
+import { holdsForPermit, pauseHoldIndex } from '../lib/holdOverlap';
+import type { HoldWindowLike } from '../lib/permitHoldWindows';
 import { useAllPermitHolds } from '../hooks/usePermitHolds';
 import {
   excludeHeldWork,
@@ -150,6 +152,10 @@ type Task = MyTaskNode & {
    *  answer. Null on live work. Follows `bucket`'s precedent — a render-time
    *  field on the node, not a column. */
   hold?: HoldChipRow | null;
+  /** ★★★ fix-668: the hold windows over this task's permit/project, attached
+   *  once in `MineTasks` beside `hold`. Overdue reads them so a held stretch
+   *  never counts against the task. Absent when nothing was ever held. */
+  holdWindows?: ReadonlyArray<HoldWindowLike>;
 };
 
 type DiagBucket = 'de' | 'pm';
@@ -456,7 +462,8 @@ function isOverdue(t: Task, today: string): boolean {
   // ★ fix-326 moved the rule itself into lib/taskStatus so the collapsed My
   // Tasks bar on /board can ask the same question without mounting this panel.
   // This stays as the local name the file already reads well with.
-  return isTaskOverdue(t, today);
+  // ★ fix-668: and a held stretch never counts against it.
+  return isTaskOverdue(t, today, t.holdWindows);
 }
 
 // ===========================================================================
@@ -546,11 +553,18 @@ function MineTasksBody() {
     const sets = heldSetsFrom(holdsQ.data, permitHoldsQ.data);
     const chips = holdRowIndex(holdsQ.data, permitHoldsQ.data);
     const shown = excludeHeldWork(notCancelled, sets, showHeldWork);
-    // ★ Only the SHOWN rows are decorated, and only when held work is on —
-    //   with the switch off there is nothing held left to label, so the map is
-    //   a no-op and the array passes through untouched.
-    if (!showHeldWork) return shown as Task[];
-    return shown.map((t) => ({ ...t, hold: holdRowFor(t, chips) }));
+    // ★★★ fix-668: every row whose permit/project was EVER held carries its
+    //   windows, so overdue can leave the held days out. Rows never held pass
+    //   through as the same object.
+    const pause = pauseHoldIndex(holdsQ.data, permitHoldsQ.data);
+    const withWindows = (t: Task): Task => {
+      const w = holdsForPermit(pause, { id: t.permit_id, project_id: t.project_id });
+      return w.length === 0 ? t : { ...t, holdWindows: w };
+    };
+    // ★ Only the SHOWN rows are decorated with the chip, and only when held
+    //   work is on — with the switch off there is nothing held left to label.
+    if (!showHeldWork) return (shown as Task[]).map(withWindows);
+    return shown.map((t) => withWindows({ ...t, hold: holdRowFor(t, chips) }));
   }, [tasksQ.data, cancelledIds, holdsQ.data, permitHoldsQ.data, showHeldWork]);
 
   // ★★★ fix-434 — THE LAST STEP BEFORE ANYTHING IS COUNTED OR GROUPED.

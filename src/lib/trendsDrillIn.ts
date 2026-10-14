@@ -9,7 +9,7 @@ import type {
   MetricDrillInRow,
 } from './metricDrillIn';
 import { cityCourtTimeDays, responseCourtTimeDays } from './reportMetrics';
-import { accountableDays } from './holdOverlap';
+import { accountableDays, holdsForPermit } from './holdOverlap';
 import { isNotSubPermit } from './subPermit';
 import { TRENDS_KPI_METRICS } from './metricDefinitions';
 
@@ -155,7 +155,7 @@ export function buildTrendsDrillIn(
   // re-apply so the drill-in can never drift from the metric.
   const permits = cohort.filter(isNotSubPermit);
   const label = TRENDS_KPI_METRICS[key]?.label ?? key;
-  const holdsFor = (p: PermitWithCycles) => holdsByProjectId?.get(p.project_id);
+  const holdsFor = (p: PermitWithCycles) => holdsForPermit(holdsByProjectId, p);
 
   // ── Count tiles ──────────────────────────────────────────────
   if (key === 'totalProjects') {

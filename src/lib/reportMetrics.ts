@@ -8,7 +8,7 @@ import type {
 import { multiMatchAddress } from './drawScheduleHelpers';
 import { effectiveStage, isPermitInCorrections } from './permitStage';
 import { isEffectivelyIssued } from './effectiveIssued';
-import { accountableDays } from './holdOverlap';
+import { accountableDays, holdsForPermit } from './holdOverlap';
 import { isNotSubPermit } from './subPermit';
 import { buildProjectDdStartMap } from './projectDdStart';
 import { tokensMatchWithPermitNumbers } from './permitNumberSearch';
@@ -18,7 +18,7 @@ import { tokensMatchWithPermitNumbers } from './permitNumberSearch';
 // swaps daysBetween(a, b) → accountableDays(holds, a, b), where `holds` is the
 // permit's project's holds. accountableDays === daysBetween when there are no
 // holds, so no-hold projects (the common case) are byte-identical.
-type Holds = ProjectHold[] | undefined;
+type Holds = ReadonlyArray<Pick<ProjectHold, 'hold_start' | 'hold_end'>> | undefined;
 function accDays(holds: Holds, a: string | null, b: string | null): number | null {
   return accountableDays(holds, a, b);
 }
@@ -317,7 +317,7 @@ export function computeTimelineComposition(
     .map((e) =>
       decomposePermitTimeline(
         e.permit,
-        holdsByProjectId?.get(e.permit.project_id),
+        holdsForPermit(holdsByProjectId, e.permit),
       ),
     )
     .filter((p): p is TimelineParts => p !== null);
@@ -357,7 +357,7 @@ export function enrichPermits(
   return permits.filter(isNotSubPermit).map<EnrichedPermit>((permit) => {
     const project = projectsById.get(permit.project_id);
     const projectGoDate = project?.go_date ?? null;
-    const holds = holdsByProjectId?.get(permit.project_id);
+    const holds = holdsForPermit(holdsByProjectId, permit);
 
     const firstSub = pickFirstSubmittedCycle(permit.permit_cycles ?? []);
     const firstSubmitted = firstSub?.submitted ?? null;
@@ -994,11 +994,11 @@ export function computeMetrics(
   const goToSubmit = enriched.map((e) => e.goToSubmit);
   const goToDDStart = enriched.map((e) => e.goToDDStart);
   const cityReview = enriched.map((e) =>
-    cityCourtTimeDays(e.permit, holdsByProjectId?.get(e.permit.project_id)),
+    cityCourtTimeDays(e.permit, holdsForPermit(holdsByProjectId, e.permit)),
   );
   const permitTimeline = enriched.map((e) => e.permitTimelineDays);
   const responseTime = enriched.map((e) =>
-    responseCourtTimeDays(e.permit, holdsByProjectId?.get(e.permit.project_id)),
+    responseCourtTimeDays(e.permit, holdsForPermit(holdsByProjectId, e.permit)),
   );
   const submitToIntake = enriched.map((e) => e.submitToIntake);
   const approvalToIssue = enriched.map((e) => e.approvalToIssue);

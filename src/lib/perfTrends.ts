@@ -6,7 +6,7 @@ import type {
 } from './database.types';
 import { formatCompareNumber } from './comparisonCohort';
 import { cityCourtTimeDays, responseCourtTimeDays } from './reportMetrics';
-import { accountableDays } from './holdOverlap';
+import { accountableDays, holdsForPermit } from './holdOverlap';
 import { isNotSubPermit } from './subPermit';
 import { buildProjectDdStartMap } from './projectDdStart';
 
@@ -124,7 +124,7 @@ export function avgIntakeToApproval(
     const intake = cycle0(p)?.intake_accepted ?? null;
     const approval = p.approval_date ?? p.actual_issue ?? null;
     if (!intake || !approval) continue;
-    const d = accountableDays(holdsByProjectId?.get(p.project_id), intake, approval);
+    const d = accountableDays(holdsForPermit(holdsByProjectId, p), intake, approval);
     if (d !== null && d >= 0) deltas.push(d);
   }
   return deltas.length === 0 ? null : Math.round(avg(deltas));
@@ -145,7 +145,7 @@ export function avgCityCourtTime(
 ): number | null {
   const vals: number[] = [];
   for (const p of filtered) {
-    const d = cityCourtTimeDays(p, holdsByProjectId?.get(p.project_id));
+    const d = cityCourtTimeDays(p, holdsForPermit(holdsByProjectId, p));
     if (d !== null) vals.push(d);
   }
   return vals.length === 0 ? null : Math.round(avg(vals));
@@ -160,7 +160,7 @@ export function avgResponseCourtTime(
 ): number | null {
   const vals: number[] = [];
   for (const p of filtered) {
-    const d = responseCourtTimeDays(p, holdsByProjectId?.get(p.project_id));
+    const d = responseCourtTimeDays(p, holdsForPermit(holdsByProjectId, p));
     if (d !== null) vals.push(d);
   }
   return vals.length === 0 ? null : Math.round(avg(vals));
@@ -295,7 +295,7 @@ export function breakdownByTypeAndJuris(
       const cityReviews: number[] = [];
       const teamTurns: number[] = [];
       for (const p of group) {
-        const holds = holdsByProjectId?.get(p.project_id);
+        const holds = holdsForPermit(holdsByProjectId, p);
         for (const c of (p.permit_cycles ?? []) as PermitCycle[]) {
           if (c.cycle_index < 1) continue;
           const cr = accountableDays(holds, c.submitted, c.corr_issued);
@@ -377,7 +377,7 @@ interface PerCycleDisplaySample {
 
 function extractPerCycleDisplayDays(
   permit: PermitWithCycles,
-  holds?: ProjectHold[],
+  holds?: ReadonlyArray<Pick<ProjectHold, 'hold_start' | 'hold_end'>>,
 ): PerCycleDisplaySample | null {
   // Same cohort gate as the learner's extractSample so the bars average over
   // the identical set of permits (reached approval + has an intake anchor).
@@ -439,7 +439,7 @@ function computeByCycle(
   for (const p of permits) {
     const sample = extractPerCycleDisplayDays(
       p,
-      holdsByProjectId?.get(p.project_id),
+      holdsForPermit(holdsByProjectId, p),
     );
     if (!sample) continue;
     const days = pick(sample);

@@ -18,6 +18,7 @@ import {
   useAllProjectHolds,
   holdsByProjectId,
 } from '../hooks/useProjectHolds';
+import { useAllPermitHolds } from '../hooks/usePermitHolds';
 import { usePermitTypes } from '../hooks/usePermitTypes';
 import { SkeletonRows } from '../components/Skeleton';
 import QueryError from '../components/QueryError';
@@ -179,6 +180,8 @@ function TrendsBody({ permits, projects, catalogTypes }: BodyProps) {
   const [searchParams, setSearchParams] = useSearchParams();
   // fix-171 (effect E for target_submit): drop held samples from the learner.
   const holdsQ = useAllProjectHolds();
+  // ★ fix-668: the permit-scoped holds, so a permit's own hold stops its clocks too.
+  const permitHoldsQ = useAllPermitHolds();
   // ★ fix-615 §B.3: the Settings formulas — Trends reads them as the server does.
   const formulasQ = useTargetSubmitFormulas();
   const today = useMemo(() => new Date(), []);
@@ -306,7 +309,10 @@ function TrendsBody({ permits, projects, catalogTypes }: BodyProps) {
 
   // fix-171 (effect B): subtract held days from the Trends turnaround KPIs +
   // breakdown. One indexed map reused across current + comparison cohorts.
-  const holdsMap = useMemo(() => holdsByProjectId(holdsQ.data), [holdsQ.data]);
+  const holdsMap = useMemo(
+    () => holdsByProjectId(holdsQ.data, permitHoldsQ.data),
+    [holdsQ.data, permitHoldsQ.data],
+  );
 
   const kpiTotal = totalPermitsInWindow(filteredCurrent);
   // fix-200 / fix-204: Total Projects — distinct projects that started drawing
@@ -782,10 +788,10 @@ function TrendsBody({ permits, projects, catalogTypes }: BodyProps) {
         jurisOptions,
         filters,
         today,
-        holdsByProjectId(holdsQ.data),
+        holdsMap,
         formulasQ.byScope,
       ),
-    [permits, projectsById, catalogTypes, jurisOptions, filters, today, holdsQ.data, formulasQ.byScope],
+    [permits, projectsById, catalogTypes, jurisOptions, filters, today, holdsMap, formulasQ.byScope],
   );
 
   type SortKey =
