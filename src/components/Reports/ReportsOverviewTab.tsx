@@ -5,6 +5,7 @@ import {
   useAllProjectHolds,
   holdsByProjectId,
 } from '../../hooks/useProjectHolds';
+import { useAllPermitHolds } from '../../hooks/usePermitHolds';
 import {
   computeMetrics,
   computeTimelineComposition,
@@ -141,7 +142,12 @@ function Body({
   // fix-171 (effect B): subtract held days from the turnaround tiles. One fetch,
   // indexed by project; threaded into enrich + both computeMetrics cohorts.
   const holdsQ = useAllProjectHolds();
-  const holdsMap = useMemo(() => holdsByProjectId(holdsQ.data), [holdsQ.data]);
+  // ★ fix-668: the permit-scoped holds, so a permit's own hold stops its clocks too.
+  const permitHoldsQ = useAllPermitHolds();
+  const holdsMap = useMemo(
+    () => holdsByProjectId(holdsQ.data, permitHoldsQ.data),
+    [holdsQ.data, permitHoldsQ.data],
+  );
 
   // fix-214: reviewer rows feed the unified hybrid "In Corrections" test so the
   // Overview count + drill-in agree with the Dashboard bucket and the weekly

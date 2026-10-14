@@ -32,7 +32,8 @@ import {
 } from './boardOwnership';
 import { isTaskLive } from './taskStatus';
 import { isCancelledProject } from './projectViewHelpers';
-import { isPermitHeld } from './permitHoldWindows';
+import { isPermitHeld, type HoldWindowLike } from './permitHoldWindows';
+import { holdAdjustedDue, holdsForPermit, pauseHoldIndex } from './holdOverlap';
 import {
   holdRowFor,
   holdRowIndex,
@@ -458,6 +459,34 @@ function daysBetween(fromIso: string, toIso: string): number {
   return Math.round((b - a) / 86_400_000);
 }
 
+/**
+ * ★★★ fix-668 (P-024): how late a dated milestone is, with held days left out.
+ *
+ * The date moves out by the held days after it (`holdAdjustedDue` with no
+ * anchor), so lateness stops growing while the permit or its project is held
+ * and resumes where it left off when the hold lifts. Only OUR dates come
+ * through here — the city's intake appointment is the city's clock and is
+ * measured raw.
+ */
+function heldDate(
+  holds: ReadonlyArray<HoldWindowLike> | null | undefined,
+  date: string,
+  today: string,
+): string {
+  return holdAdjustedDue(holds, null, date, today);
+}
+
+function heldLate(
+  holds: ReadonlyArray<HoldWindowLike> | null | undefined,
+  date: string,
+  today: string,
+): number {
+  return daysBetween(heldDate(holds, date, today), today);
+}
+
+/** ★ fix-668: the milestone kinds that run on the CITY's clock — never shifted. */
+const CITY_CLOCK_KINDS: ReadonlySet<MilestoneKind> = new Set<MilestoneKind>(['intake']);
+
 function latestCycle(cycles: ReadonlyArray<PermitCycle>): PermitCycle | null {
   if (cycles.length === 0) return null;
   return [...cycles].sort((a, b) => b.cycle_index - a.cycle_index)[0]!;
@@ -826,6 +855,10 @@ export function permitMilestones(
   // answers false, so this returns []. That is the "silenced row" the ticket
   // asks for, and it needs no special case here.
   isHeld = false,
+  // ★★★ fix-668: the hold windows over this permit (`holdsForPermit`). A held
+  // stretch never counts toward "how late" — see `heldLate` below. Defaults to
+  // none, so every existing caller is unchanged.
+  holds: ReadonlyArray<HoldWindowLike> | null = null,
 ): MilestoneOccurrence[] {
   const out: MilestoneOccurrence[] = [];
   const cycles = permit.permit_cycles ?? [];
@@ -850,7 +883,7 @@ export function permitMilestones(
   // only issuance check in the whole function), and the shape the other five
   // now follow.
   if (milestoneApplies('fees', permit, cycles, isBackfill, isHeld) && permit.approval_date) {
-    const late = daysBetween(permit.approval_date, today);
+    const late = heldLate(holds, permit.approval_date, today);
     if (late >= thresholds.approvedNotIssuedDays) {
       out.push({
         kind: 'fees',
@@ -923,7 +956,7 @@ export function permitMilestones(
   // ★ fix-337: "has not gone in" now means NO cycle has been submitted, not
   // "the newest cycle has not" — a permit on cycle 3 has plainly submitted.
   if (milestoneApplies('target_submit', permit, cycles, isBackfill, isHeld) && permit.target_submit) {
-    const late = daysBetween(permit.target_submit, today);
+    const late = heldLate(holds, permit.target_submit, today);
     out.push({
       kind: 'target_submit',
       date: permit.target_submit,
@@ -938,7 +971,7 @@ export function permitMilestones(
   // ★ fix-337: same correction as target_submit — the DD window is a
   // pre-submission prompt, and any submission at all closes the question.
   if (milestoneApplies('draw', permit, cycles, isBackfill, isHeld) && permit.dd_end) {
-    const late = daysBetween(permit.dd_end, today);
+    const late = heldLate(holds, permit.dd_end, today);
     out.push({
       kind: 'draw',
       date: permit.dd_end,
@@ -1419,6 +1452,10 @@ interface Prepared {
    * reads this instead; nothing else changed.
    */
   quiet: boolean;
+  /** ★★★ fix-668: every hold window over this permit (project `hold` rows +
+   *  its own), open or released — what the lateness clocks subtract. Distinct
+   *  from `isHeld`, which only asks about an OPEN hold. */
+  holdWindows: ReadonlyArray<HoldWindowLike>;
   shape: LegShape;
   design: DesignLegStatus;
   legs: BoardLeg[];
@@ -1468,6 +1505,8 @@ function prepare(input: BoardInput): Prepared[] {
   const { heldProjects, heldPermits } = heldSets(input);
   const chips = holdChipIndex(input);
   const byProject = new Map(projects.map((p) => [p.id, p]));
+  // ★ fix-668: every hold window, open or released, for the lateness clocks.
+  const pause = pauseHoldIndex(input.holdRows, input.permitHoldRows);
   const tasksByPermit = new Map<number, BoardTask[]>();
   for (const t of tasks) {
     // ★ fix-460: a TEAM TASK belongs to no permit, so it belongs in no
@@ -1534,6 +1573,8 @@ function prepare(input: BoardInput): Prepared[] {
         : null,
       // ★ fix-409: the fact above, the consequence here. See Prepared.quiet.
       quiet: isHeld && !input.showHeldWork,
+      // ★ fix-668: open OR released — a lifted hold still paused the clock.
+      holdWindows: holdsForPermit(pause, permit),
       shape: legShape(permit, tasksByPermit.get(permit.id) ?? []),
       design: designLegStatus(
         tasksByPermit.get(permit.id) ?? [],
@@ -1630,14 +1671,18 @@ export function buildForecast(input: BoardInput): Forecast {
       p.project?.is_backfill ?? null,
       // ★ fix-409: the hold silences the chip only while held work is hidden.
       p.quiet,
+      p.holdWindows,
     )) {
       if (m.date === null) continue; // ← the rule, enforced in one place
+      // ★★★ fix-668: the date the row is judged by — our dates move out by the
+      //   held days after them; the city's intake appointment never moves.
+      const mDate = CITY_CLOCK_KINDS.has(m.kind) ? m.date : heldDate(p.holdWindows, m.date, today);
       for (const leg of p.legs) {
         const state = relayStateFor(m.kind, leg, p.shape, p.design);
         if (state === 'absent') continue;
         const verb = milestoneVerb(m.kind, leg);
         if (!verb) continue;
-        const daysLate = daysBetween(m.date, today);
+        const daysLate = daysBetween(mDate, today);
         // The design half finishing a two-leg milestone IS the handoff.
         const isHandoff =
           leg === 'design' &&
@@ -1668,7 +1713,7 @@ export function buildForecast(input: BoardInput): Forecast {
           // now the only place the question is answered.
           why: m.why,
           where: p.where,
-          date: m.date,
+          date: mDate,
           daysLate,
           bucket: bucketFor(daysLate),
           actionable: state === 'mine',
@@ -1742,6 +1787,7 @@ export function buildForecast(input: BoardInput): Forecast {
   const { heldProjects: taskHeldProjects, heldPermits: taskHeldPermits } =
     heldSets(input);
   const taskChips = holdChipIndex(input);
+  const taskPause = pauseHoldIndex(input.holdRows, input.permitHoldRows);
   for (const t of input.tasks) {
     // ★ target_date, then due_date. Not the other way round: target_date is what
     // the team sets and what every other overdue count on this screen reads.
@@ -1776,7 +1822,16 @@ export function buildForecast(input: BoardInput): Forecast {
     const taskHold = taskHeld
       ? holdRowFor({ permit_id: t.permit_id, project_id: t.project_id }, taskChips)
       : null;
-    const daysLate = daysBetween(date, today);
+    // ★★★ fix-668: the task's date moves out by the held days since it was
+    //   created — the same rule as My Tasks' overdue (isTaskOverdue). Display
+    //   only; target_date itself is never rewritten.
+    const taskDate = holdAdjustedDue(
+      holdsForPermit(taskPause, { id: t.permit_id, project_id: t.project_id }),
+      t.created_at ?? null,
+      date,
+      today,
+    );
+    const daysLate = daysBetween(taskDate, today);
     items.push({
       key: `t-${t.id}`,
       source: 'task',
@@ -1788,7 +1843,7 @@ export function buildForecast(input: BoardInput): Forecast {
       // ★ Was ''. The blended sort tie-breaks on `where`, and an empty one put
       // every task ahead of every milestone due the same day.
       where: `${t.project_address ?? 'Unknown address'} · ${t.permit_type ?? 'Permit'}`,
-      date,
+      date: taskDate,
       daysLate,
       bucket: bucketFor(daysLate),
       actionable: true,
@@ -2086,6 +2141,13 @@ export function buildQueue(input: BoardInput): ProjectQueue {
     // daQueueAllowsRowKind for why the ruling outlived its vocabulary.
     if (usesDaQueueShape(p.legs) && !daQueueAllowsRowKind(hit.kind)) continue;
 
+    // ★★★ fix-668: OUR submittal date moves out by the held days after it, as
+    //   on the forecast; the city's own review target (city_review) never does.
+    const due =
+      hit.kind === 'submittal' && hit.due
+        ? heldDate(p.holdWindows, hit.due, input.today)
+        : hit.due;
+
     const detail = queuePermitDetail(p.permit, input.today);
     // ★ The existing state sentence, reused verbatim rather than rewritten:
     // "6d submitted, awaiting intake".
@@ -2104,10 +2166,10 @@ export function buildQueue(input: BoardInput): ProjectQueue {
       type: detail.type,
       cycleIndex: detail.cycleIndex,
       kind: hit.kind,
-      due: hit.due,
-      band: bandFor(hit.due, input.today),
-      dueWords: dueWordsFor(hit.due, input.today),
-      daysPastDue: daysPastDueFor(hit.due, input.today),
+      due,
+      band: bandFor(due, input.today),
+      dueWords: dueWordsFor(due, input.today),
+      daysPastDue: daysPastDueFor(due, input.today),
       stateLine,
       // ★ fix-365 composes for free: the row carries whose it is, so a DM
       // scoped to their associates can group WITHIN a band by this without any

@@ -1,3 +1,5 @@
+import { holdAdjustedDue } from './holdOverlap';
+import type { HoldWindowLike } from './permitHoldWindows';
 import type { ProjectMessage } from './database.types';
 import { todayIso } from './dateUtils';
 
@@ -59,6 +61,11 @@ export function chatTaskStatus(
     'task_id' | 'task_status' | 'task_done' | 'task_done_at' | 'task_assigned_to' | 'task_due_date'
   >,
   now: Date = new Date(),
+  /** ★★★ fix-668 (P-024, "hold time never counts"): the hold windows over the
+   *  task's project/permit. The due date moves out by the held days after it,
+   *  so a task that fell due inside a hold is not "overdue" for the pause.
+   *  Display only. Omitted ⇒ unchanged. */
+  holds?: ReadonlyArray<HoldWindowLike> | null,
 ): ChatTaskStatusView | null {
   if (!m.task_id || !hasTaskStatusFields(m)) return null;
 
@@ -75,7 +82,9 @@ export function chatTaskStatus(
 
   const assigned = (m.task_assigned_to ?? '').trim();
   const due = m.task_due_date ?? null;
-  const overdueDue = !done && due && due < todayIso(now) ? monthDay(due) : null;
+  const today = todayIso(now);
+  const overdueDue =
+    !done && due && holdAdjustedDue(holds, null, due, today) < today ? monthDay(due) : null;
 
   return {
     word,

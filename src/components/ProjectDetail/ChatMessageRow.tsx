@@ -23,6 +23,10 @@ import ChatAttachments from './ChatAttachments';
 import ChatTaskComposer from './ChatTaskComposer';
 import ChatTaskStatus from './ChatTaskStatus';
 import { chatTaskStatus } from '../../lib/chatTaskStatus';
+import { useProjectHolds } from '../../hooks/useProjectHolds';
+import { usePermitHolds } from '../../hooks/usePermitHolds';
+import { holdWindowsForPermit } from '../../lib/permitHoldWindows';
+import { holdKind } from '../../lib/database.types';
 import MentionTextarea from './MentionTextarea';
 import type {
   MentionablePerson,
@@ -110,7 +114,20 @@ export default function ChatMessageRow({
   const bySystem = isSystemPost(message);
   const made = !!message.task_id;
   // ★ fix-603: null until the migration is applied → the row is unchanged.
-  const taskStatus = made ? chatTaskStatus(message) : null;
+  // ★ fix-668: the task's project + permit holds, so "overdue" leaves held days
+  //   out. Both queries are the ones the project page already holds in cache.
+  const projectHoldsQ = useProjectHolds(made ? projectId : null);
+  const taskPermitHoldsQ = usePermitHolds(made ? message.task_permit_id : null);
+  const taskStatus = made
+    ? chatTaskStatus(
+        message,
+        undefined,
+        holdWindowsForPermit(
+          (projectHoldsQ.data ?? []).filter((h) => holdKind(h) === 'hold'),
+          taskPermitHoldsQ.data,
+        ),
+      )
+    : null;
 
   const [composing, setComposing] = useState(false);
   const [editing, setEditing] = useState(false);

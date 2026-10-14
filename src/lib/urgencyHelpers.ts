@@ -1,5 +1,7 @@
 import type { Permit, PermitCycle, Stage } from './database.types';
 import { openRoundCityTarget } from './openRoundCityTarget';
+import { holdAdjustedDue } from './holdOverlap';
+import type { HoldWindowLike } from './permitHoldWindows';
 
 // Q9.5.c: per-permit urgency predicate ported verbatim from v1
 // (Blueprint-Dashboard-/index.html:2520-2577). The dashboard, my-tasks,
@@ -46,6 +48,13 @@ export function businessDaysSince(
   return countBusinessDays(startDate, now);
 }
 
+/** Local calendar date of `now` as YYYY-MM-DD (the urgency clocks are local). */
+function isoOf(now: Date): string {
+  return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(
+    now.getDate(),
+  ).padStart(2, '0')}`;
+}
+
 /** Per-permit urgency for a given stage. `cycles` defaults to the
  * permit's own cycles when not supplied — accepting it as a separate
  * arg makes it cheap to call this from a memoized parent that already
@@ -60,14 +69,27 @@ export function permitUrgency(
    *  the open round's reviewers and estimates. Omitted → the open round's own
    *  city_target only (rule 1). Never a closed round's. */
   pmTarget?: string | null,
+  /** ★★★ fix-668 (P-024, "hold time never counts"): every hold window over
+   *  this permit (`holdsForPermit`), open or released. OUR three clocks — the
+   *  target submit, the corrections turnaround and the approved-not-issued age
+   *  — leave the held days out, so a lifted hold resumes where it left off
+   *  instead of painting the card red for the whole pause. The 'pm' date is
+   *  the CITY's and is never moved. Omitted ⇒ unchanged. */
+  holds?: ReadonlyArray<HoldWindowLike> | null,
 ): UrgencyLevel {
+  const today = isoOf(now);
+  // A span's start, moved forward by the held days since it (= accountable age).
+  const heldSince = (d: string) => holdAdjustedDue(holds, d, d, today);
   // fix-170 (On-Hold Phase 2, effect D): a project with an ACTIVE hold is
   // parked — it isn't flagged overdue/late while held. A closed/past hold does
   // NOT suppress current urgency (its days are credited via the turnaround
   // math, not by hiding today's lateness).
   if (activeHold) return 'ok';
   if (stage === 'de') {
-    const bd = businessDaysUntil(permit.target_submit, now);
+    const target = permit.target_submit
+      ? holdAdjustedDue(holds, null, permit.target_submit, today)
+      : permit.target_submit;
+    const bd = businessDaysUntil(target, now);
     if (bd === null) return 'ok';
     if (bd < 0) return 'red';
     if (bd <= 5) return 'yellow';
@@ -104,7 +126,7 @@ export function permitUrgency(
     const anyCorrCycle = sortedDesc.find((c) => c.corr_issued);
     const issued = (openCycle ?? anyCorrCycle)?.corr_issued;
     if (!issued) return 'ok';
-    const bdAgo = businessDaysSince(issued, now);
+    const bdAgo = businessDaysSince(heldSince(issued), now);
     if (bdAgo === null) return 'ok';
     if (bdAgo >= 10) return 'red';
     if (bdAgo >= 5) return 'yellow';
@@ -112,7 +134,10 @@ export function permitUrgency(
   }
 
   if (stage === 'ap') {
-    const bdAgo = businessDaysSince(permit.approval_date, now);
+    const bdAgo = businessDaysSince(
+      permit.approval_date ? heldSince(permit.approval_date) : permit.approval_date,
+      now,
+    );
     if (bdAgo === null) return 'ok';
     if (bdAgo >= 20) return 'yellow';
     return 'ok';
@@ -126,7 +151,13 @@ export function permitUrgency(
  * single border + bg tint at the address-group level even when only
  * one permit at that address is urgent. */
 export function cardUrgency(
-  permits: Array<{ permit: Permit; cycles: PermitCycle[]; pmTarget?: string | null }>,
+  permits: Array<{
+    permit: Permit;
+    cycles: PermitCycle[];
+    pmTarget?: string | null;
+    /** ★ fix-668: see permitUrgency's `holds`. */
+    holds?: ReadonlyArray<HoldWindowLike> | null;
+  }>,
   stage: Stage,
   now: Date = new Date(),
   activeHold = false,
@@ -135,8 +166,8 @@ export function cardUrgency(
   if (activeHold) return 'ok';
   const levels: UrgencyLevel[] = ['red', 'yellow', 'ok'];
   let worst = 2; // index into levels
-  for (const { permit, cycles, pmTarget } of permits) {
-    const u = permitUrgency(permit, cycles, stage, now, false, pmTarget);
+  for (const { permit, cycles, pmTarget, holds } of permits) {
+    const u = permitUrgency(permit, cycles, stage, now, false, pmTarget, holds);
     const idx = levels.indexOf(u);
     if (idx < worst) worst = idx;
   }

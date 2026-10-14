@@ -4,11 +4,14 @@ import type {
   TeamMember,
 } from './database.types';
 import { formatCompareNumber } from './comparisonCohort';
-import {
-  daysBetween,
-  fieldFor,
-  type TeamRoleSelection,
-} from './teamPerformance';
+import { fieldFor, type TeamRoleSelection } from './teamPerformance';
+import { accountableDays, holdsForPermit } from './holdOverlap';
+import type { ProjectHold } from './database.types';
+
+/** ★★★ fix-668 (P-024): the same hold map teamPerformance's snapshot takes.
+ *  The trend was the one team surface fix-172 left on raw daysBetween, so the
+ *  snapshot and the chart beneath it disagreed for any held permit. */
+type HoldsMap = ReadonlyMap<string, ReadonlyArray<Pick<ProjectHold, 'hold_start' | 'hold_end'>>>;
 
 // fix-132: monthly phase trends for the per-associate drill-down. The
 // snapshot (fix-131-c) tells you who's slow today; the trend tells you
@@ -89,7 +92,7 @@ function monthOf(iso: string | null | undefined): string | null {
  *  series without drift. */
 type PhaseAccessor = {
   anchor: (p: PermitWithCycles) => string | null;
-  value: (p: PermitWithCycles) => number | null;
+  value: (p: PermitWithCycles, holds?: HoldsMap) => number | null;
 };
 
 const PHASE_ACCESSORS: Record<keyof TeamTrendsResult, PhaseAccessor> = {
@@ -98,8 +101,8 @@ const PHASE_ACCESSORS: Record<keyof TeamTrendsResult, PhaseAccessor> = {
     // before that) measures dd_start → dd_end. Permits without both
     // endpoints skip. The series key stays ddPhase — identifier, not label.
     anchor: (p) => monthOf(p.dd_end),
-    value: (p) => {
-      const d = daysBetween(p.dd_start, p.dd_end);
+    value: (p, holds) => {
+      const d = accountableDays(holdsForPermit(holds, p), p.dd_start, p.dd_end);
       return d !== null && d >= 0 ? d : null;
     },
   },
@@ -108,9 +111,13 @@ const PHASE_ACCESSORS: Record<keyof TeamTrendsResult, PhaseAccessor> = {
     // lands. Metric is approval_date − c0.intake_accepted (matches
     // teamPerformance.ts's snapshot accessor).
     anchor: (p) => monthOf(p.approval_date),
-    value: (p) => {
+    value: (p, holds) => {
       const c0 = (p.permit_cycles ?? []).find((c) => c.cycle_index === 0);
-      const d = daysBetween(c0?.intake_accepted, p.approval_date);
+      const d = accountableDays(
+        holdsForPermit(holds, p),
+        c0?.intake_accepted ?? null,
+        p.approval_date,
+      );
       return d !== null && d >= 0 ? d : null;
     },
   },
@@ -126,8 +133,8 @@ const PHASE_ACCESSORS: Record<keyof TeamTrendsResult, PhaseAccessor> = {
   issuance: {
     // Anchor on actual_issue. Metric is actual_issue − approval_date.
     anchor: (p) => monthOf(p.actual_issue),
-    value: (p) => {
-      const d = daysBetween(p.approval_date, p.actual_issue);
+    value: (p, holds) => {
+      const d = accountableDays(holdsForPermit(holds, p), p.approval_date, p.actual_issue);
       return d !== null && d >= 0 ? d : null;
     },
   },
@@ -149,6 +156,8 @@ export function computeTeamTrends(
   projects: Project[],
   teamMembers: TeamMember[],
   filters: TeamTrendsFilters,
+  /** ★ fix-668: held days leave every phase, as in the snapshot. */
+  holdsByProjectId?: HoldsMap,
 ): TeamTrendsResult {
   void projects; // currently unused; kept in signature for future
   // juris-narrowing extensions without a downstream API churn.
@@ -206,7 +215,7 @@ export function computeTeamTrends(
       if (!month) continue;
       const bucket = phaseBuckets[phase].get(month);
       if (!bucket) continue; // month outside window
-      const v = acc.value(permit);
+      const v = acc.value(permit, holdsByProjectId);
       if (v === null) continue;
       bucket.teamSum += v;
       bucket.teamN += 1;

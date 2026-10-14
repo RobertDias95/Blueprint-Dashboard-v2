@@ -6,7 +6,7 @@ import {
   recencyWeight,
   type RecencyTier,
 } from './scheduleBenchmarks';
-import { intervalOverlapsHold } from './holdOverlap';
+import { intervalOverlapsHold, holdsForPermit } from './holdOverlap';
 
 // fix-25-feat-AA: target_submit learner. Replaces fix-25-feat-J's
 // hardcoded offsets (BP=+21d, Demo=+37d, ECA=+10d, etc.) with an
@@ -171,7 +171,7 @@ export function extractTargetSubmitSample(
   // anchor→submit span overlapped a hold is dropped so a parked clock doesn't
   // skew the learned offset (mirrors filterHeldLearningSamples). Omitted / no
   // holds → kept, so the common case is unchanged.
-  holds?: ProjectHold[],
+  holds?: ReadonlyArray<Pick<ProjectHold, 'hold_start' | 'hold_end'>>,
 ): TargetSubmitSample | null {
   if (!permit.type) return null;
   const anchor = anchorFor(permit.type);
@@ -233,7 +233,7 @@ function collectSamples(
       p,
       project,
       bp,
-      holdsByProjectId?.get(p.project_id),
+      holdsForPermit(holdsByProjectId, p),
     );
     if (sample) out.push(sample);
   }

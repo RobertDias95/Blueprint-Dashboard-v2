@@ -1,3 +1,5 @@
+import { holdAdjustedDue } from './holdOverlap';
+import type { HoldWindowLike } from './permitHoldWindows';
 // fix-235: single source of truth for task status transitions, shared by the
 // two controls that write permit_tasks.completion_status — the click-to-advance
 // CHECKBOX on each task row (permit bar in PermitDetailV2 + the My Tasks rows)
@@ -51,12 +53,21 @@ export function isTaskLive(status: string | null | undefined): boolean {
  *  ★ isTaskLive, not `!== 'Resolved'` — a task parked by a project cancel is not
  *  overdue, it is not in play at all (fix-262). */
 export function isTaskOverdue(
-  task: { status: string | null | undefined; target_date: string | null | undefined },
+  task: {
+    status: string | null | undefined;
+    target_date: string | null | undefined;
+    created_at?: string | null;
+  },
   todayIso: string,
+  /** ★★★ fix-668 (P-024, "hold time never counts"): the hold windows over this
+   *  task's permit/project (`holdsForPermit`). The target date moves out by the
+   *  held days since the task was created — display only, the stored date is
+   *  untouched. Omitted ⇒ the stored date, exactly as before. */
+  holds?: ReadonlyArray<HoldWindowLike> | null,
 ): boolean {
-  return (
-    isTaskLive(task.status) && !!task.target_date && task.target_date < todayIso
-  );
+  if (!isTaskLive(task.status) || !task.target_date) return false;
+  const due = holdAdjustedDue(holds, task.created_at ?? null, task.target_date, todayIso);
+  return due < todayIso;
 }
 
 /** fix-262: true when a project cancel parked this task. */

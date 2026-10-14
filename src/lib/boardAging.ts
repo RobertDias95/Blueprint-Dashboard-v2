@@ -1,4 +1,5 @@
-import type { PermitCycle, PermitWithCycles } from './database.types';
+import type { PermitCycle, PermitWithCycles, ProjectHold } from './database.types';
+import { accountableDays, holdsForPermit } from './holdOverlap';
 import type { BoardLeg } from './myBoard';
 
 // fix-305 (register #24) — did the thing actually happen?
@@ -271,6 +272,12 @@ export interface AgingInput {
   viewerName?: string | null;
   isOversight?: boolean;
   cancelledIds?: ReadonlySet<string>;
+  /** ★★★ fix-668 (P-024, "hold time never counts"): every hold window, open
+   *  or released (`pauseHoldIndex`). Time-in-state leaves the held days out, so
+   *  a permit parked by a hold is not "stale" for the stretch it was parked.
+   *  The city-target ladder (`cityTargetLevel`) is the CITY's clock and is not
+   *  touched. Omitted ⇒ unchanged. */
+  holdIndex?: ReadonlyMap<string, ReadonlyArray<Pick<ProjectHold, 'hold_start' | 'hold_end'>>>;
 }
 
 export interface AgingResult {
@@ -321,7 +328,9 @@ export function buildAging(input: AgingInput): AgingResult {
       continue;
     }
 
-    const days = daysBetween(read.anchor, input.today);
+    const days =
+      accountableDays(holdsForPermit(input.holdIndex, p), read.anchor, input.today, input.today) ??
+      daysBetween(read.anchor, input.today);
     const level = agingLevel(days);
     if (level === 'none') continue;
 

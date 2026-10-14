@@ -1,3 +1,5 @@
+import { holdsForPermit, pauseHoldIndex } from '../lib/holdOverlap';
+import type { HoldWindowLike } from '../lib/permitHoldWindows';
 import { useCallback, useMemo, useRef, useState } from 'react';
 import { useProjects } from '../hooks/useProjects';
 import { usePermits } from '../hooks/usePermits';
@@ -137,6 +139,9 @@ interface DashContext {
   /** ★★ fix-390: permit ids on an open hold, and their rows for the badge. */
   heldPermitIds: ReadonlySet<number>;
   permitHoldMap: Map<number, PermitHold>;
+  /** ★★★ fix-668: every hold window over a permit (project `hold` rows + its
+   *  own, open or released), so the urgency colours leave held days out. */
+  holdWindowsFor: (p: Permit) => ReadonlyArray<HoldWindowLike>;
   setHighlight: (addr: string | null) => void;
   /** fix-178: project_id → active hold, for the on-hold card badge. */
   activeHoldMap: Map<string, ProjectHold>;
@@ -225,6 +230,12 @@ export default function Dashboard() {
     () => activeHoldByPermitId(permitHoldsQ.data),
     [permitHoldsQ.data],
   );
+  // ★★★ fix-668 (P-024): "hold time never counts" — the windows every urgency
+  // clock below subtracts. Cancel rows are not holds and are left out.
+  const holdWindowsFor = useMemo(() => {
+    const pause = pauseHoldIndex(holdsQ.data, permitHoldsQ.data);
+    return (p: Permit) => holdsForPermit(pause, p);
+  }, [holdsQ.data, permitHoldsQ.data]);
   // fix-155: fire the numberless-permit sweep once/day (self-guarded).
   useNumberEntrySweep();
   // fix-395: and the 7-day city-chase sweep, the same way. Both self-guard
@@ -777,6 +788,7 @@ export default function Dashboard() {
       distributionByAddress,
       heldPermitIds,
       permitHoldMap,
+      holdWindowsFor,
       setHighlight: setHighlightedAddress,
       activeHoldMap,
       cancelMap,
@@ -790,6 +802,7 @@ export default function Dashboard() {
       distributionByAddress,
       heldPermitIds,
       permitHoldMap,
+      holdWindowsFor,
       activeHoldMap,
       cancelMap,
     ],
@@ -1527,6 +1540,9 @@ function SubBucketGroups({
   getCityTarget,
   ctx,
 }: SubBucketGroupsProps) {
+  // ★ fix-668: the urgency reads the hold windows too — pulled off ctx so the
+  //   memo depends on the one function, not the whole context object.
+  const holdWindowsFor = ctx.holdWindowsFor;
   const groups = useMemo(() => {
     const byAddr = new Map<string, Permit[]>();
     for (const p of permits) {
@@ -1549,6 +1565,7 @@ function SubBucketGroups({
         permit: p,
         cycles: cyclesByPermit.get(p.id) ?? [],
         pmTarget: getCityTarget ? getCityTarget(p)?.date ?? null : undefined,
+        holds: holdWindowsFor(p),
       }));
       const first = ps[0];
       // fix-170: a held project's card is never urgency-colored.
@@ -1609,7 +1626,7 @@ function SubBucketGroups({
       return a.address.localeCompare(b.address);
     });
     return entries;
-  }, [permits, projectById, cyclesByPermit, stage, activeHeld, getCityTarget]);
+  }, [permits, projectById, cyclesByPermit, stage, activeHeld, getCityTarget, holdWindowsFor]);
 
   return (
     <>
@@ -1627,6 +1644,7 @@ function SubBucketGroups({
           activeHold={activeHeld.has(g.projectId)}
           heldPermitIds={ctx.heldPermitIds}
           permitHoldMap={ctx.permitHoldMap}
+          getHoldWindows={ctx.holdWindowsFor}
           hold={
             ctx.cancelMap.get(g.projectId) ??
             ctx.activeHoldMap.get(g.projectId) ??

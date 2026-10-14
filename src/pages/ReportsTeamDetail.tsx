@@ -17,6 +17,7 @@ import {
   holdsByProjectId,
   cancelledProjectIds,
 } from '../hooks/useProjectHolds';
+import { useAllPermitHolds } from '../hooks/usePermitHolds';
 import { useDaCoCreditMap } from '../hooks/useProjectDaHandoffs';
 import { useTeamMembers } from '../hooks/useTeamMembers';
 import { SkeletonRows } from '../components/Skeleton';
@@ -45,6 +46,7 @@ import { STAGE_LABEL } from '../lib/stageLabel';
 import type {
   PermitWithCycles,
   Project,
+  ProjectHold,
   Stage,
   TeamMember,
 } from '../lib/database.types';
@@ -130,7 +132,12 @@ function Body({
   // fix-172 (effect B): subtract held days from the per-associate phase tiles +
   // their vs-team-avg baseline (same map as the Team tab).
   const holdsQ = useAllProjectHolds();
-  const holdsMap = useMemo(() => holdsByProjectId(holdsQ.data), [holdsQ.data]);
+  // ★ fix-668: the permit-scoped holds, so a permit's own hold stops its clocks too.
+  const permitHoldsQ = useAllPermitHolds();
+  const holdsMap = useMemo(
+    () => holdsByProjectId(holdsQ.data, permitHoldsQ.data),
+    [holdsQ.data, permitHoldsQ.data],
+  );
   const cancelledIds = useMemo(() => cancelledProjectIds(holdsQ.data), [holdsQ.data]);
   // fix-226: DA co-credit — a handed-off project shows in both DAs' metrics +
   // its drill-in project list carries the ✳ shared marker.
@@ -312,6 +319,7 @@ function Body({
             permits={permits}
             projects={projects}
             teamMembers={teamMembers}
+            holdsMap={holdsMap}
           />
         </>
       )}
@@ -941,12 +949,15 @@ function PhaseTrends({
   permits,
   projects,
   teamMembers,
+  holdsMap,
 }: {
   associateName: string;
   role: TeamRoleSelection;
   permits: PermitWithCycles[];
   projects: Project[];
   teamMembers: TeamMember[];
+  /** ★ fix-668: the snapshot's own hold map, so the trend agrees with it. */
+  holdsMap: Map<string, ProjectHold[]>;
 }) {
   const [range, setRange] = useState<TrendRange>(6);
   // Stable "now" anchor for the lifetime of this mount — re-mounts on
@@ -965,8 +976,8 @@ function PhaseTrends({
         associateName,
         monthFrom,
         monthTo,
-      }),
-    [permits, projects, teamMembers, role, associateName, monthFrom, monthTo],
+      }, holdsMap),
+    [permits, projects, teamMembers, role, associateName, monthFrom, monthTo, holdsMap],
   );
 
   return (

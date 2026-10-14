@@ -7,6 +7,7 @@ import type {
 } from './database.types';
 import { asExternalTeamBlob, resolveExternalFirm } from './externalTeam';
 import { isTaskLive } from './taskStatus';
+import { holdAdjustedDue } from './holdOverlap';
 import { isCancelledProject, isPermitDone } from './projectViewHelpers';
 import type { ConsultantCurrent } from './consultants';
 
@@ -541,6 +542,12 @@ export interface BuildVendorScheduleInput {
   cancelledIds?: ReadonlySet<string>;
   /** Open HOLD rows by project (activeHoldByProjectId) — labelled, not hidden. */
   holdsByProject?: ReadonlyMap<string, ProjectHold>;
+  /** ★★★ fix-668 (P-024): EVERY hold window by project (open or released —
+   *  `pauseHoldIndex`). "Overdue" leaves the held days after the target send
+   *  out, so a block whose send date fell inside a hold is not overdue the day
+   *  the hold lifts. Project-scoped only: a vendor row is a whole project, and
+   *  a permit hold never reaches up (fix-390). Omitted ⇒ unchanged. */
+  holdWindowsByProject?: ReadonlyMap<string, ReadonlyArray<Pick<ProjectHold, 'hold_start' | 'hold_end'>>>;
   /** fix-268: projects whose permits have ALL issued — finished, whatever the
    *  draw block still says. From {@link allPermitsDoneProjectIds}. */
   allPermitsDoneIds?: ReadonlySet<string>;
@@ -564,6 +571,7 @@ export function buildVendorScheduleRows(
     ledger,
     cancelledIds,
     holdsByProject,
+    holdWindowsByProject,
     allPermitsDoneIds,
     consultants,
     todayIso,
@@ -662,7 +670,13 @@ export function buildVendorScheduleRows(
       expectedBack: norm(round.est_recd),
       firmName: norm(round.firm_name),
       holdReason: norm(holdsByProject?.get(p.id)?.reason ?? null),
-      overdue: vendorRowIsOverdue(targetSend, roundStatus, todayIso),
+      overdue: vendorRowIsOverdue(
+        targetSend
+          ? holdAdjustedDue(holdWindowsByProject?.get(p.id), null, targetSend, todayIso)
+          : targetSend,
+        roundStatus,
+        todayIso,
+      ),
       // ★ fix-367 §2. `units` is read as a NUMBER and only a number: an empty
       // string or a non-numeric value is "not stated", not 0.
       units:

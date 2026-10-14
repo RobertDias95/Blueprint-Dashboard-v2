@@ -1,11 +1,11 @@
 import type { PermitCycle, ProjectHold } from './database.types';
 import { extractReviewCycles, type EnrichedPermit } from './reportMetrics';
-import { accountableDays } from './holdOverlap';
+import { accountableDays, holdsForPermit } from './holdOverlap';
 
 // fix-171 (effect B): per-cycle buckets subtract held days too (they mirror
 // reportMetrics' court-time math). accountableDays === daysBetween when there
 // are no holds → no-hold cohorts byte-identical.
-type Holds = ProjectHold[] | undefined;
+type Holds = ReadonlyArray<Pick<ProjectHold, 'hold_start' | 'hold_end'>> | undefined;
 
 // fix-142: per-cycle breakdown for the Reports Overview drawer. Surfaces
 // Bobby's mental model — "cycle 1, cycle 2, cycle 3 averages feed the total."
@@ -93,7 +93,7 @@ export function computePerCycleBuckets(
       const cycles = extractReviewCycles(e.permit);
       if (cycles.length <= pos) continue; // permit never reached this cycle
       reached += 1;
-      const holds = holdsByProjectId?.get(e.permit.project_id);
+      const holds = holdsForPermit(holdsByProjectId, e.permit);
       const city = cityAt(cycles, pos, e.permit.approval_date ?? null, holds);
       if (city !== null) cityVals.push(city);
       const resp = responseAt(cycles, pos, holds);
@@ -119,7 +119,7 @@ export function computePerCycleBuckets(
     if (cycles.length < 4) continue;
     reached4 += 1;
     const approval = e.permit.approval_date ?? null;
-    const holds = holdsByProjectId?.get(e.permit.project_id);
+    const holds = holdsForPermit(holdsByProjectId, e.permit);
     let citySum = 0;
     let cityHits = 0;
     let respSum = 0;

@@ -3,6 +3,8 @@ import { Link } from 'react-router-dom';
 import OriginLink from '../OriginLink';
 import { usePermits } from '../../hooks/usePermits';
 import { useProjects } from '../../hooks/useProjects';
+import { useAllProjectHolds, holdsByProjectId } from '../../hooks/useProjectHolds';
+import { useAllPermitHolds } from '../../hooks/usePermitHolds';
 import { SkeletonRows } from '../Skeleton';
 import QueryError from '../QueryError';
 import MetricCard from './MetricCard';
@@ -109,9 +111,16 @@ function Body({
   // fix-136-b: redesign vs original cycle-time comparison — same
   // filters as the rest of the page so a date / juris narrow trims
   // both cohorts symmetrically.
+  // ★ fix-668: held days leave the phase times, as on the team snapshot.
+  const holdsQ = useAllProjectHolds();
+  const permitHoldsQ = useAllPermitHolds();
+  const holdsMap = useMemo(
+    () => holdsByProjectId(holdsQ.data, permitHoldsQ.data),
+    [holdsQ.data, permitHoldsQ.data],
+  );
   const cycleTime = useMemo(
-    () => computeRedesignCycleTimeComparison(permits, projects, filters),
-    [permits, projects, filters],
+    () => computeRedesignCycleTimeComparison(permits, projects, filters, holdsMap),
+    [permits, projects, filters, holdsMap],
   );
 
   const triggerChartData = result.triggerBreakdown.map((t) => ({

@@ -1,3 +1,4 @@
+import { pauseHoldIndex } from '../lib/holdOverlap';
 import BoardLensControl from '../components/BoardLensControl';
 import { useBoardLens } from '../hooks/useBoardLens';
 import { focusItems, groupItems, type AssociateGroup } from '../lib/boardByAssociate';
@@ -962,8 +963,18 @@ export default function MyBoard() {
       viewerName: viewer.name,
       isOversight: viewer.isOversight,
       cancelledIds: input.cancelledIds,
+      // ★ fix-668: the hold rows the forecast already reads.
+      holdIndex: pauseHoldIndex(input.holdRows, input.permitHoldRows),
     });
-  }, [permitsQ.data, projectsQ.data, input.today, input.cancelledIds, viewer]);
+  }, [
+    permitsQ.data,
+    projectsQ.data,
+    input.today,
+    input.cancelledIds,
+    input.holdRows,
+    input.permitHoldRows,
+    viewer,
+  ]);
 
   const forecast = useMemo(() => buildForecast(input), [input]);
 

@@ -4,6 +4,7 @@ import { queryKeys } from '../lib/queryKeys';
 import { pushToast } from '../stores/toastStore';
 import { useAuthStore } from '../stores/authStore';
 import { holdKind, type ProjectHold } from '../lib/database.types';
+import { attachPermitHolds } from '../lib/holdOverlap';
 
 // fix-167: project On-Hold — Phase 1 (data + display only; NO calculation
 // effects). A project may have many holds over time; the ACTIVE hold is the
@@ -79,15 +80,32 @@ export function useAllProjectHolds() {
   });
 }
 
-/** Index holds by project_id (all holds, active + closed). */
+/** Index holds by project_id (all holds, active + closed).
+ *
+ *  ★★ fix-668: pass the tenant's PERMIT holds too and every clock that reads
+ *  this map through `holdsForPermit` (lib/holdOverlap) also stops for a permit's
+ *  own hold — before this, permit holds paused the board but no clock. Omit it
+ *  and the map means exactly what it meant before. */
 export function holdsByProjectId(
   holds: ProjectHold[] | undefined,
+  permitHolds?: ReadonlyArray<
+    { permit_id: number } & Pick<ProjectHold, 'hold_start' | 'hold_end'>
+  > | null,
 ): Map<string, ProjectHold[]> {
   const m = new Map<string, ProjectHold[]>();
   for (const h of holds ?? []) {
     const list = m.get(h.project_id) ?? [];
     list.push(h);
     m.set(h.project_id, list);
+  }
+  if (permitHolds && permitHolds.length > 0) {
+    const byPermit = new Map<number, Pick<ProjectHold, 'hold_start' | 'hold_end'>[]>();
+    for (const h of permitHolds) {
+      const list = byPermit.get(h.permit_id) ?? [];
+      list.push(h);
+      byPermit.set(h.permit_id, list);
+    }
+    attachPermitHolds(m, byPermit);
   }
   return m;
 }

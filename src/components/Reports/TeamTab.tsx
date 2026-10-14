@@ -7,6 +7,7 @@ import {
   holdsByProjectId,
   cancelledProjectIds,
 } from '../../hooks/useProjectHolds';
+import { useAllPermitHolds } from '../../hooks/usePermitHolds';
 import { useDaCoCreditMap } from '../../hooks/useProjectDaHandoffs';
 import { SkeletonRows } from '../Skeleton';
 import QueryError from '../QueryError';
@@ -84,7 +85,12 @@ function Body({
 }) {
   // fix-172 (effect B): subtract held days from the per-associate phase tiles.
   const holdsQ = useAllProjectHolds();
-  const holdsMap = useMemo(() => holdsByProjectId(holdsQ.data), [holdsQ.data]);
+  // ★ fix-668: the permit-scoped holds, so a permit's own hold stops its clocks too.
+  const permitHoldsQ = useAllPermitHolds();
+  const holdsMap = useMemo(
+    () => holdsByProjectId(holdsQ.data, permitHoldsQ.data),
+    [holdsQ.data, permitHoldsQ.data],
+  );
   const cancelledIds = useMemo(() => cancelledProjectIds(holdsQ.data), [holdsQ.data]);
   // fix-226: DA co-credit — a handed-off project counts for BOTH DAs.
   const { coCreditMap } = useDaCoCreditMap();
