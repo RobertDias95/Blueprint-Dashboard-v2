@@ -119,7 +119,10 @@ export default function ReviewerRollupChip({
   const popover = useViewportAwarePopover({
     triggerRef: chipRef,
     open,
-    width: 260,
+    // ★ fix-667 (P-349): 300, not 260 — rows now WRAP instead of truncating,
+    //   and 300 keeps the common case ("row — Casandra Courtillet") on one
+    //   line. The hook still flips/caps it near any viewport edge.
+    width: 300,
     maxHeight: 320,
   });
 
@@ -393,34 +396,40 @@ function ReviewerPopover({
           const bucket = bucketStatus(r.current_status);
           const accent = STATUS_ACCENT[bucket];
           return (
+            // ★★★ fix-667 (P-349): TWO LINES, NOTHING TRUNCATED. Bobby: "the
+            //     discipline, reviewer and status are not all fully visible."
+            //     One line put the name beside a right column holding status +
+            //     date + fix-640's due line, and the name truncated to "Cas…".
+            //     Line 1: dot · discipline — name (wraps) · STATUS.
+            //     Line 2, under the name: the date and the due line (wraps).
             <li
               key={r.id}
-              className="px-2 py-1 border-b flex items-center gap-2"
+              className="px-2 py-1 border-b"
               style={{ borderBottomColor: 'var(--color-border)' }}
               data-testid={`reviewer-row-${r.id}`}
             >
-              <span
-                className="inline-block flex-shrink-0 rounded-full"
-                style={{
-                  width: 7,
-                  height: 7,
-                  background: accent.dot,
-                }}
-              />
-              <div className="flex-1 min-w-0">
-                {/* fix-44: a reviewer row is now a discipline SLOT carrying
-                    its current assignee. Surface the discipline as an inline
-                    prefix — "Energy — Stephen Rudolph" — with the slot label
-                    dimmed and the assignee emphasized. Current data has
-                    discipline NULL everywhere, so this renders exactly as
-                    before (bare name) until PR2's slot data flows. */}
+              <div
+                className="flex items-start gap-2"
+                data-testid={`reviewer-line1-${r.id}`}
+              >
+                <span
+                  className="inline-block flex-shrink-0 rounded-full mt-[5px]"
+                  style={{
+                    width: 7,
+                    height: 7,
+                    background: accent.dot,
+                  }}
+                />
+                {/* fix-44: a reviewer row is a discipline SLOT carrying its
+                    current assignee — "Energy — Stephen Rudolph", the slot
+                    label dimmed and the assignee emphasized. */}
                 {/* fix-251: an unnamed slot still shows its discipline —
-                    "Drainage — Unassigned" — and renders italic/dimmed so it
-                    reads as a slot awaiting an assignee rather than as a
-                    person. It is NOT hidden: the city has opened this review
-                    and it counts as outstanding. */}
+                    "Drainage — Unassigned" — italic/dimmed so it reads as a
+                    slot awaiting an assignee rather than as a person. It is
+                    NOT hidden: the city has opened this review and it counts
+                    as outstanding. */}
                 <div
-                  className="text-[11px] font-bold text-text truncate"
+                  className="flex-1 min-w-0 text-[11px] font-bold text-text break-words leading-snug"
                   title={
                     r.discipline
                       ? `${r.discipline} — ${reviewerDisplayName(r)}`
@@ -444,50 +453,59 @@ function ReviewerPopover({
                     reviewerDisplayName(r)
                   )}
                 </div>
-              </div>
-              <div className="flex flex-col items-end flex-shrink-0">
                 <span
-                  className="text-[9px] font-bold uppercase tracking-wide"
+                  className="flex-shrink-0 text-[9px] font-bold uppercase tracking-wide whitespace-nowrap leading-snug pt-px"
                   style={{ color: accent.fg }}
+                  data-testid={`reviewer-status-${r.id}`}
                 >
                   {statusLabel(r.current_status)}
                 </span>
-                {r.last_event_date && (
-                  <span
-                    className="text-[8px] font-mono"
-                    style={{ color: 'var(--color-dim)' }}
-                  >
-                    {r.last_event_date}
-                  </span>
-                )}
-                {(() => {
-                  if (!isOpen(r)) return null;
-                  const due = dueLine(
-                    usableCityTarget(r.target_date, r.last_event_date),
-                    estimates.data?.get(r.id) ?? null,
-                    today,
-                  );
-                  if (!due) return null;
-                  // ★ fix-640: an ESTIMATE reads muted (italic, never bold) —
-                  //   but a past-due one keeps the warning colour, because this
-                  //   is the follow-up queue. The tooltip names the basis.
-                  return (
-                    <span
-                      className={`text-[8px] font-mono${due.estimated ? ' italic' : ''}`}
-                      style={{
-                        color: due.pastDue ? 'var(--color-wa)' : 'var(--color-dim)',
-                        fontWeight: due.pastDue && !due.estimated ? 700 : undefined,
-                      }}
-                      title={due.title ?? undefined}
-                      data-testid={`reviewer-due-${r.id}`}
-                      data-past-due={due.pastDue ? 'true' : 'false'}
-                      data-estimated={due.estimated ? 'true' : 'false'}
-                    >
-                      {due.text}
-                    </span>
-                  );
-                })()}
               </div>
+              {(() => {
+                const due = isOpen(r)
+                  ? dueLine(
+                      usableCityTarget(r.target_date, r.last_event_date),
+                      estimates.data?.get(r.id) ?? null,
+                      today,
+                    )
+                  : null;
+                if (!r.last_event_date && !due) return null;
+                return (
+                  // ★ Indented to sit under the name (dot 7px + gap 8px).
+                  <div
+                    className="flex flex-wrap items-baseline gap-x-2 gap-y-0 pl-[15px]"
+                    data-testid={`reviewer-line2-${r.id}`}
+                  >
+                    {r.last_event_date && (
+                      <span
+                        className="text-[8px] font-mono"
+                        style={{ color: 'var(--color-dim)' }}
+                        data-testid={`reviewer-date-${r.id}`}
+                      >
+                        {r.last_event_date}
+                      </span>
+                    )}
+                    {due && (
+                      // ★ fix-640: an ESTIMATE reads muted (italic, never bold) —
+                      //   but a past-due one keeps the warning colour, because
+                      //   this is the follow-up queue. The tooltip names the basis.
+                      <span
+                        className={`text-[8px] font-mono${due.estimated ? ' italic' : ''}`}
+                        style={{
+                          color: due.pastDue ? 'var(--color-wa)' : 'var(--color-dim)',
+                          fontWeight: due.pastDue && !due.estimated ? 700 : undefined,
+                        }}
+                        title={due.title ?? undefined}
+                        data-testid={`reviewer-due-${r.id}`}
+                        data-past-due={due.pastDue ? 'true' : 'false'}
+                        data-estimated={due.estimated ? 'true' : 'false'}
+                      >
+                        {due.text}
+                      </span>
+                    )}
+                  </div>
+                );
+              })()}
             </li>
           );
         })}

@@ -651,8 +651,9 @@ describe('ReviewerRollupChip', () => {
       expect(pop.style.overflowY).toBe('auto');
       // Inline maxHeight must be a finite pixel value (number → px).
       expect(pop.style.maxHeight).toMatch(/^\d+px$/);
-      // width too — pinned at 260 in the chip's hook call.
-      expect(pop.style.width).toBe('260px');
+      // width too — pinned at 300 in the chip's hook call (fix-667 widened
+      // it from 260 when rows began to wrap instead of truncate).
+      expect(pop.style.width).toBe('300px');
     } finally {
       restore.mockRestore();
     }
