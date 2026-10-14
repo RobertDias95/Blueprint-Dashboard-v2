@@ -327,7 +327,7 @@ export default function ReportTable({
           type="text"
           value={search}
           onChange={(e) => setSearch(e.target.value)}
-          placeholder="Search address, DA, ENT, juris… (space or comma = AND)"
+          placeholder="Search address, permit #, DA, ENT, juris… (space or comma = AND)"
           className="bg-bg border border-border rounded px-2 py-1 text-[11px] text-text placeholder:text-dim focus:outline-none focus:border-de min-w-[260px] flex-1"
           data-testid="ledger-search"
         />

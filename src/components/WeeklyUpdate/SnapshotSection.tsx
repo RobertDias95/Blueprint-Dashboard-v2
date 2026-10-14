@@ -131,7 +131,7 @@ export default function SnapshotSection({
         <span className="flex-1" />
         <input
           value={query}
-          placeholder="Search…"
+          placeholder="Search address, permit #…"
           onChange={(e) => onSearch(e.target.value)}
           className="text-[11.5px] border rounded px-2 py-1"
           style={{

@@ -13,6 +13,7 @@ import type {
   UnitType,
 } from '../../lib/database.types';
 import { excludeDeleted } from '../../lib/activeProject';
+import { permitNumbersOf, tokensMatchWithPermitNumbers } from '../../lib/permitNumberSearch';
 
 // fix-216: pure helpers for the REUSE source picker. Kept in their own module
 // (not the component file) so ReuseSourcePicker.tsx only exports a component —
@@ -41,6 +42,8 @@ export interface ReuseSource {
    *  address is still findable as a reuse source. Optional so older fixtures
    *  without it behave exactly as before. */
   structAddressHay?: string;
+  /** fix-665: every permit number on the project. Searchable only. */
+  permitNums?: string[];
 }
 
 /** Build the reuse candidate list from the projects + permits caches. Excludes
@@ -62,6 +65,7 @@ export function buildReuseSources(
       unit_types: parseUnitTypes(p.unit_types),
       primaryDa: holisticOwner('da', p, permitsByProject.get(p.id) ?? []),
       structAddressHay: structAddressHaystack(permitsByProject.get(p.id)),
+      permitNums: permitNumbersOf(permitsByProject.get(p.id)),
     }));
 }
 
@@ -92,7 +96,8 @@ export function filterReuseSources(
     const hay = `${s.address} ${s.structAddressHay ?? ''} ${s.juris ?? ''} ${
       s.primaryDa ?? ''
     } ${s.zone ?? ''} ${s.product_types.join(' ')}`.toLowerCase();
-    return tokens.every((t) => hay.includes(t));
+    // ★ fix-665 (P-348): or a permit number on the plan's project.
+    return tokensMatchWithPermitNumbers(query, tokens, hay, s.permitNums ?? []);
   });
 }
 

@@ -1,5 +1,5 @@
 import type { IntakeRecord, PermitWithCycles } from './database.types';
-import { multiMatchAddress } from './drawScheduleHelpers';
+import { multiMatchAddressOrPermit } from './permitNumberSearch';
 
 // Q6.3.b: pure helpers for the Seattle Intakes tracker. Mirrors v1's
 // renderIntakeTracker (index.html lines 9080-9241): past/future split with
@@ -216,8 +216,9 @@ export function searchIntakes(
   query: string,
 ): IntakeRecord[] {
   if (!query.trim()) return records;
-  return records.filter((r) => {
-    if (!r.address) return false;
-    return multiMatchAddress(query, r.address);
-  });
+  // ★ fix-665 (P-348): the intake's permit number finds it too — and so a
+  //   record with a number but no address is now findable by that number.
+  return records.filter((r) =>
+    multiMatchAddressOrPermit(query, r.address ?? '', [r.permit_num]),
+  );
 }

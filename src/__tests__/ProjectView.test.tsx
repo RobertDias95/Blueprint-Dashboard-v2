@@ -456,6 +456,26 @@ describe('<ProjectView /> (fix-90)', () => {
     expect(visibleProjectIds()).toEqual(['p-c']);
   });
 
+  // ★★★ fix-665 (P-348): a permit number finds the PROJECT — any of its
+  //     permits' numbers, with case, spaces and dashes ignored.
+  it('fix-665: free-text search finds a project by any of its permit numbers', () => {
+    renderIt();
+    const search = screen.getByTestId('project-view-search');
+    const cases: [string, string[]][] = [
+      ['BP-200', ['p-b']],
+      ['bp200', ['p-b']],
+      ['200', ['p-b']],
+      ['DEMO-300', ['p-c']], // the project's SECOND permit counts too
+      ['demo 300', ['p-c']],
+      ['bp-1', ['p-a']],
+    ];
+    for (const [typed, ids] of cases) {
+      fireEvent.change(search, { target: { value: typed } });
+      expect(visibleProjectIds(), typed).toEqual(ids);
+    }
+    expect(search.getAttribute('placeholder')).toContain('permit #');
+  });
+
   it("clicking a row's caret expands it; expansion shows each permit with stage badge + reviewer text", () => {
     renderIt();
     // p-c has two permits (BP issued + Demolition approved).

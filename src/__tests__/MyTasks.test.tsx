@@ -1379,6 +1379,39 @@ describe('MyTasks (fix-80 v1 three-pane kanban)', () => {
     expect(screen.queryByTestId('mytask-card-de-inprog')).toBeNull();
   });
 
+  // ★★★ fix-665 (P-348): Bobby — "miles noticed that the search queue doesnt
+  // work for permit numbers". A task carries its permit's number (from the
+  // permits cache by permit_id); typed full, digits only, partial, any case,
+  // with or without the dash.
+  it('fix-665: search finds a task by its permit number, typed any of the ways', () => {
+    tasksRef.current = varied();
+    permitsRef.current = [
+      { id: 1, project_id: 'p1', num: '7110427-CN', da: 'Trevor', dm: null, ent_lead: 'Bobby', struct_address: null },
+      { id: 2, project_id: 'p2', num: 'LSM26-01495', da: 'Ainsley', dm: null, ent_lead: 'Edmund', struct_address: null },
+    ];
+    renderIt();
+    const search = screen.getByTestId('mytasks-filter-search');
+    for (const typed of ['7110427-CN', '7110427', '71104', '7110427cn', '7110427 CN']) {
+      fireEvent.change(search, { target: { value: typed } });
+      expect(screen.getByTestId('mytask-card-de-inprog'), typed).toBeInTheDocument();
+      expect(screen.queryByTestId('mytask-card-pm-open'), typed).toBeNull();
+    }
+    // The other city: dash in the middle, letters in front.
+    for (const typed of ['LSM26-01495', '2601495', '26014', 'lsm2601495']) {
+      fireEvent.change(search, { target: { value: typed } });
+      expect(screen.getByTestId('mytask-card-pm-open'), typed).toBeInTheDocument();
+      expect(screen.queryByTestId('mytask-card-de-inprog'), typed).toBeNull();
+    }
+    // A number nobody has finds nothing; the address search is unchanged.
+    fireEvent.change(search, { target: { value: '9999999' } });
+    expect(screen.queryByTestId('mytask-card-de-inprog')).toBeNull();
+    expect(screen.queryByTestId('mytask-card-pm-open')).toBeNull();
+    fireEvent.change(search, { target: { value: 'pike' } });
+    expect(screen.getByTestId('mytask-card-pm-open')).toBeInTheDocument();
+    expect(screen.queryByTestId('mytask-card-de-inprog')).toBeNull();
+    expect(search.getAttribute('placeholder')).toContain('permit #');
+  });
+
   it('filters persist across unmount + remount via localStorage (key mytasks.filters.v2)', () => {
     tasksRef.current = varied();
     const { unmount } = renderIt();

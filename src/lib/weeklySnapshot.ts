@@ -1,3 +1,5 @@
+import { matchesPermitNumber } from './permitNumberSearch';
+
 // ===========================================================================
 // ★★★ fix-463 §A (P-108) — THE FIVE SECTIONS, AND HOW A READER SORTS THEM
 // ===========================================================================
@@ -258,9 +260,12 @@ export function filterRows(
 ): SnapshotRow[] {
   const q = query.trim().toLowerCase();
   if (q === '') return [...rows];
-  return rows.filter((r) =>
-    [r.address, r.num, r.type, r.ent_lead, r.da, r.status, r.on_date]
-      .some((v) => (v ?? '').toLowerCase().includes(q)),
+  return rows.filter(
+    (r) =>
+      [r.address, r.num, r.type, r.ent_lead, r.da, r.status, r.on_date]
+        .some((v) => (v ?? '').toLowerCase().includes(q)) ||
+      // ★ fix-665 (P-348): the permit number with case/space/dash ignored.
+      matchesPermitNumber(q, [r.num]),
   );
 }
 
