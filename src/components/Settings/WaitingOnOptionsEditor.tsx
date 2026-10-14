@@ -5,8 +5,11 @@ import { useSetAppConfigKey } from '../../hooks/useSetAppConfigKey';
 import { useAllTasks } from '../../hooks/useTaskTree';
 import {
   DEFAULT_WAITING_ON_OPTIONS,
+  WAITING_ON_ALWAYS_NON_FIRM,
   WAITING_ON_CITY,
   WAITING_ON_CONFIG_KEY,
+  WAITING_ON_NON_FIRM_CONFIG_KEY,
+  nonFirmWaitingOn,
   waitingOnOptions,
 } from '../../lib/waitingOn';
 
@@ -70,12 +73,47 @@ export default function WaitingOnOptionsEditor({
     [inUse, options],
   );
 
+  // ★★★ fix-669 (P-350): WHICH CHOICES ARE NOT CONSULTANTS, per row. The
+  // effective set (stored, else City + Other; Other always) — the same helper
+  // the firm pickers filter by, so the switch shows what they actually do.
+  const nonFirm = useMemo(() => nonFirmWaitingOn(cfg.map), [cfg.map]);
+
+  function setNonFirm(name: string, on: boolean) {
+    const next = on
+      ? [...nonFirm.filter((v) => v !== name), name]
+      : nonFirm.filter((v) => v !== name);
+    setKey.mutate({ key: WAITING_ON_NON_FIRM_CONFIG_KEY, value: next });
+  }
+
   const items = [
-    ...options.map((o) => ({
-      key: o,
-      label: o,
-      badge: inUse.get(o) ? `${inUse.get(o)} in use` : undefined,
-    })),
+    ...options.map((o) => {
+      // ★ Other is the escape hatch and is never a firm: shown locked on.
+      const locked = o === WAITING_ON_ALWAYS_NON_FIRM;
+      return {
+        key: o,
+        label: o,
+        badge: inUse.get(o) ? `${inUse.get(o)} in use` : undefined,
+        extra: (
+          <label
+            className="inline-flex items-center gap-1 text-[10px] text-muted"
+            title={
+              locked
+                ? 'Other is never a consultant'
+                : 'Not a consultant: kept out of the firm lists'
+            }
+          >
+            <input
+              type="checkbox"
+              checked={nonFirm.includes(o)}
+              disabled={readOnly || locked}
+              onChange={(e) => setNonFirm(o, e.target.checked)}
+              data-testid={`waiting-on-nonfirm-${o}`}
+            />
+            Not a consultant
+          </label>
+        ),
+      };
+    }),
     ...retired.map((o) => ({
       key: o,
       label: o,
@@ -125,17 +163,32 @@ export default function WaitingOnOptionsEditor({
             ),
           });
         }}
-        onRemove={(name) =>
+        onRemove={(name) => {
           setKey.mutate({
             key: WAITING_ON_CONFIG_KEY,
             value: options.filter((o) => o !== name),
-          })
-        }
+          });
+          // ★ fix-669: a deleted choice leaves the non-firm list too, so a
+          // later re-add starts as a consultant, as any new option does.
+          if (name !== WAITING_ON_ALWAYS_NON_FIRM && nonFirm.includes(name)) {
+            setKey.mutate({
+              key: WAITING_ON_NON_FIRM_CONFIG_KEY,
+              value: nonFirm.filter((v) => v !== name),
+            });
+          }
+        }}
         placeholder="Add a discipline…"
         emptyState="No options — tasks cannot record what they are waiting on."
         readOnly={readOnly}
         testIdPrefix="waiting-on-options"
       />
+      <p
+        className="text-[11px] text-muted mt-2"
+        data-testid="waiting-on-nonfirm-note"
+      >
+        Choices marked <em>Not a consultant</em> don&apos;t appear when adding a
+        firm.
+      </p>
       {options.length === 0 && (
         // ★ Deleting the last option is recoverable and says how. The list
         // falls back to the built-in set when the stored array is EMPTY, so

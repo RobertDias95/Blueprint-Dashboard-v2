@@ -80,6 +80,8 @@ describe('fix-606 §A.2 — a firm discipline is not every answer', () => {
     expect(list).toEqual(
       DEFAULT_WAITING_ON_OPTIONS.filter((o) => !NON_FIRM_WAITING_ON.includes(o)),
     );
+    // ★ fix-669: this is the DEFAULT (no `waitingOnNonFirm` row), not the only
+    //   answer — Settings can now mark more choices as not a consultant.
     expect(NON_FIRM_WAITING_ON).toEqual([WAITING_ON_CITY, 'Other']);
   });
 
@@ -103,11 +105,11 @@ describe('fix-606 §A.2 — a firm discipline is not every answer', () => {
   });
 
   it('★ isNonFirmWaitingOn asks the question instead of re-listing the values', () => {
-    expect(isNonFirmWaitingOn(WAITING_ON_CITY)).toBe(true);
-    expect(isNonFirmWaitingOn('Other')).toBe(true);
-    expect(isNonFirmWaitingOn('  City  ')).toBe(true);
-    expect(isNonFirmWaitingOn('Structural')).toBe(false);
-    expect(isNonFirmWaitingOn(null)).toBe(false);
+    expect(isNonFirmWaitingOn(EMPTY, WAITING_ON_CITY)).toBe(true);
+    expect(isNonFirmWaitingOn(EMPTY, 'Other')).toBe(true);
+    expect(isNonFirmWaitingOn(EMPTY, '  City  ')).toBe(true);
+    expect(isNonFirmWaitingOn(EMPTY, 'Structural')).toBe(false);
+    expect(isNonFirmWaitingOn(EMPTY, null)).toBe(false);
   });
 
   it('★★ an admin-added discipline reaches the firm list', () => {
