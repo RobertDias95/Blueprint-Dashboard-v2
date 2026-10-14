@@ -151,6 +151,37 @@ function effectiveWaitingOn(configMap: Map<string, unknown>): string[] {
 //    instead of being enforced by a second hard-coded array.
 export const NON_FIRM_WAITING_ON: readonly string[] = [WAITING_ON_CITY, 'Other'];
 
+// ===========================================================================
+// ★★★ fix-669 (P-350) — WHICH ANSWERS ARE NOT FIRMS IS NOW A SETTING
+// ===========================================================================
+//
+// Bobby, 2026-10-14, approving Builder / MHA Payment / OH Approval on the list
+// AND a per-option "Not a consultant" switch, so the next one needs no
+// developer. Once those three were added to Settings they showed up as
+// consultant disciplines in every firm picker: the constant above could only
+// ever exclude City and Other.
+//
+// ★★ `NON_FIRM_WAITING_ON` is now only the DEFAULT, used while the
+//    `waitingOnNonFirm` key has never been saved. Once it is saved, the stored
+//    array is the answer, plus `Other`.
+// ★★★ `Other` IS ALWAYS NON-FIRM, whatever is stored. It is the escape hatch,
+//     and a firm directory with an "Other" discipline would be nonsense.
+export const WAITING_ON_NON_FIRM_CONFIG_KEY = 'waitingOnNonFirm';
+
+/** The answer that is non-firm no matter what Settings says. */
+export const WAITING_ON_ALWAYS_NON_FIRM = 'Other';
+
+/** The effective non-firm set: the stored array if the key exists, else the
+ *  default, and always including `Other`. */
+export function nonFirmWaitingOn(configMap: Map<string, unknown>): string[] {
+  const stored = configMap.has(WAITING_ON_NON_FIRM_CONFIG_KEY)
+    ? readAppConfigStringArray(configMap, WAITING_ON_NON_FIRM_CONFIG_KEY)
+    : [...NON_FIRM_WAITING_ON];
+  const set = stored.map((v) => v.trim()).filter(Boolean);
+  if (!set.includes(WAITING_ON_ALWAYS_NON_FIRM)) set.push(WAITING_ON_ALWAYS_NON_FIRM);
+  return set.filter((v, i, a) => a.indexOf(v) === i);
+}
+
 /**
  * The disciplines a FIRM picker offers: the Settings list, minus the answers
  * that are not firms.
@@ -169,20 +200,23 @@ export function firmDisciplineOptions(
   configMap: Map<string, unknown>,
   current?: string | null,
 ): string[] {
-  const base = effectiveWaitingOn(configMap).filter(
-    (o) => !NON_FIRM_WAITING_ON.includes(o),
-  );
+  const nonFirm = nonFirmWaitingOn(configMap);
+  const base = effectiveWaitingOn(configMap).filter((o) => !nonFirm.includes(o));
   const value = (current ?? '').trim();
-  if (value && !base.includes(value) && !NON_FIRM_WAITING_ON.includes(value)) {
+  if (value && !base.includes(value) && !nonFirm.includes(value)) {
     return [...base, value];
   }
   return base;
 }
 
-/** ★ Is this a non-firm answer — the jurisdiction, or the escape hatch? Named
- *  so a caller asks the question rather than re-listing the two values. */
-export function isNonFirmWaitingOn(value: string | null | undefined): boolean {
-  return NON_FIRM_WAITING_ON.includes((value ?? '').trim());
+/** ★ Is this a non-firm answer (the jurisdiction, the escape hatch, or one an
+ *  admin marked "Not a consultant")? Named so a caller asks the question rather
+ *  than re-listing the values. fix-669: reads Settings, so it takes the map. */
+export function isNonFirmWaitingOn(
+  configMap: Map<string, unknown>,
+  value: string | null | undefined,
+): boolean {
+  return nonFirmWaitingOn(configMap).includes((value ?? '').trim());
 }
 
 /** ★★ fix-606: the marker a retired waiting-on value wears. fix-605's rule, its

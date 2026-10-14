@@ -79,6 +79,8 @@ export const APP_CONFIG_KEY_LABELS: Readonly<Record<string, string>> = {
   scrapeSilenceAlertRecipients: 'Scraper-down alert recipients',
   permitTypeDescriptions: 'permit type descriptions',
   waitingOnOptions: 'Waiting On list',
+  // fix-669 (P-350)
+  waitingOnNonFirm: 'Waiting On "Not a consultant" choices',
   vendorReportRecipients: 'vendor report recipients',
 };
 
