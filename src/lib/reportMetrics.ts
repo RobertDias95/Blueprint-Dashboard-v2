@@ -11,6 +11,7 @@ import { isEffectivelyIssued } from './effectiveIssued';
 import { accountableDays } from './holdOverlap';
 import { isNotSubPermit } from './subPermit';
 import { buildProjectDdStartMap } from './projectDdStart';
+import { tokensMatchWithPermitNumbers } from './permitNumberSearch';
 
 // fix-171 (On-Hold Phase 2, effect B): the displayed turnaround tiles subtract
 // held days so a parked project doesn't inflate "our time". Each measurement
@@ -730,7 +731,14 @@ export function matchesLedgerSearch(row: ProjectRow, query: string): boolean {
     .filter((p): p is string => Boolean(p))
     .join(' ')
     .toLowerCase();
-  return tokens.every((t) => haystack.includes(t));
+  // ★ fix-665 (P-348): a token may also be part of a permit number with
+  //   case/space/dash ignored (`2601495` finds `LSM26-01495`).
+  return tokensMatchWithPermitNumbers(
+    query,
+    tokens,
+    haystack,
+    row.permits.map((e) => e.permit.num),
+  );
 }
 
 /** Project-level "fully issued" check: every permit at the address has

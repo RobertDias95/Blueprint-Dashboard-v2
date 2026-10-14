@@ -233,7 +233,7 @@ function renderedAddresses(): string[] {
 }
 
 function searchBox(): HTMLElement {
-  return screen.getByPlaceholderText(/Search address, DA, ENT, juris, num/);
+  return screen.getByPlaceholderText(/Search address, permit #, DA, ENT, juris/);
 }
 
 beforeEach(() => {

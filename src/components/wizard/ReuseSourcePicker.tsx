@@ -53,7 +53,7 @@ export default function ReuseSourcePicker({
         type="text"
         value={query}
         onChange={(e) => setQuery(e.target.value)}
-        placeholder="Search a plan by address, DA, juris…"
+        placeholder="Search a plan by address, permit #, DA, juris…"
         className="w-full text-[12px] px-2 py-1.5 border rounded outline-none"
         style={{
           borderColor: 'var(--color-border)',

@@ -76,6 +76,7 @@ import {
 } from '../lib/drawScheduleHelpers';
 import { computeProjectedApproval } from '../lib/projectedApproval';
 import { structAddressHaystack } from '../lib/structAddressSearch';
+import { multiMatchAddressOrPermit, permitNumbersOf } from '../lib/permitNumberSearch';
 import { displayAddress } from '../lib/displayAddress';
 import {
   useAllProjectHolds,
@@ -398,6 +399,26 @@ function DrawScheduleBody({
       return extra ? `${project.address} ${extra}` : project.address;
     },
     [structHayByProjectId],
+  );
+  // ★ fix-665 (P-348): every permit number on the project, and the ONE place
+  //   this grid asks "does this project match the search?" — address,
+  //   struct_address (above) or a permit number.
+  const permitNumsByProjectId = useMemo(() => {
+    const m = new Map<string, string[]>();
+    for (const [pid, list] of permitsByProjectId) {
+      const nums = permitNumbersOf(list);
+      if (nums.length > 0) m.set(pid, nums);
+    }
+    return m;
+  }, [permitsByProjectId]);
+  const projectMatchesSearch = useCallback(
+    (query: string, project: Project) =>
+      multiMatchAddressOrPermit(
+        query,
+        projectSearchHay(project),
+        permitNumsByProjectId.get(project.id) ?? [],
+      ),
+    [projectSearchHay, permitNumsByProjectId],
   );
   const projectsById = useMemo(
     () => new Map(projects.map((pr) => [pr.id, pr])),
@@ -1298,7 +1319,7 @@ function DrawScheduleBody({
       if (!row.start_week) continue;
       const project = projectById.get(row.project_id);
       if (!project) continue;
-      if (!multiMatchAddress(trimmed, projectSearchHay(project))) continue;
+      if (!projectMatchesSearch(trimmed, project)) continue;
       matched.push({
         startWeek: row.start_week,
         retired: isRetiredProject(project.id, retiredSets),
@@ -1312,7 +1333,7 @@ function DrawScheduleBody({
     search,
     draw,
     projectById,
-    projectSearchHay,
+    projectMatchesSearch,
     setQuarterOffset,
     retiredSets,
   ]);
@@ -1575,7 +1596,7 @@ function DrawScheduleBody({
       if (!overlapsQ) continue;
       const project = projectById.get(row.project_id);
       if (!project) continue;
-      if (search.trim() && !multiMatchAddress(search, projectSearchHay(project)))
+      if (search.trim() && !projectMatchesSearch(search, project))
         continue;
       map.get(da)!.push({ row, project });
     }
@@ -1586,7 +1607,7 @@ function DrawScheduleBody({
       );
     }
     return map;
-  }, [draw, projectById, visibleDaNames, weeks, search, projectSearchHay]);
+  }, [draw, projectById, visibleDaNames, weeks, search, projectMatchesSearch]);
 
   // Q6.2.c: NP blocks grouped by DA, filtered to current quarter. Same
   // overlap predicate as project blocks; render-only (no drag, no drop).
@@ -1618,7 +1639,7 @@ function DrawScheduleBody({
         // structure address is findable by that address as well.
         const linked = b.project_id ? projectsById.get(b.project_id) : undefined;
         const projectMatch =
-          linked != null && multiMatchAddress(trimmed, projectSearchHay(linked));
+          linked != null && projectMatchesSearch(trimmed, linked);
         if (!labelMatch && !typeMatch && !projectMatch) continue;
       }
       const list = map.get(b.da_name) ?? [];
@@ -1626,7 +1647,7 @@ function DrawScheduleBody({
       map.set(b.da_name, list);
     }
     return map;
-  }, [npBlocks, weeks, search, projectsById, projectSearchHay]);
+  }, [npBlocks, weeks, search, projectsById, projectMatchesSearch]);
 
 
   // ═════════════════════════════════════════════════════════════════════════
@@ -1686,10 +1707,10 @@ function DrawScheduleBody({
       )
       .filter(
         ({ project }) =>
-          !search.trim() || multiMatchAddress(search, projectSearchHay(project)),
+          !search.trim() || projectMatchesSearch(search, project),
       )
       .sort((a, b) => a.project.address.localeCompare(b.project.address));
-  }, [draw, projects, retiredSets, search, projectSearchHay]);
+  }, [draw, projects, retiredSets, search, projectMatchesSearch]);
 
   // ★★★ fix-484 §A2 — THE RESOLVED DA COLUMN WIDTH, DERIVED THE WAY CSS
   //     RESOLVES IT: equal `1fr` tracks over what is left after the label
@@ -3528,7 +3549,7 @@ function Toolbar({
           type="text"
           value={search}
           onChange={(e) => setSearch(e.target.value)}
-          placeholder="Search projects…"
+          placeholder="Search projects, permit #…"
           className={`bg-bg border border-border rounded-md py-1 text-xs font-display text-text placeholder:text-dim focus:outline-none focus:border-de min-w-[220px] ${
             search ? 'pl-3 pr-7' : 'px-3'
           }`}

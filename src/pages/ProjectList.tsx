@@ -469,7 +469,7 @@ function FilterRow({
         type="text"
         value={filters.search}
         onChange={(e) => onPatch({ search: e.target.value })}
-        placeholder="Search address, tags…"
+        placeholder="Search address, tags, permit #…"
         title="Project notes now live in each project’s General channel; notes on a task live on the task."
         className="text-[12px] px-2 py-1 border rounded outline-none min-w-[200px]"
         style={inputStyle()}

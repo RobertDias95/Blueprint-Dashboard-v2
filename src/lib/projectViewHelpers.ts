@@ -6,8 +6,8 @@ import type {
   Stage,
 } from './database.types';
 import { effectiveStage } from './permitStage';
-import { multiMatchAddress } from './drawScheduleHelpers';
 import { structAddressHaystack } from './structAddressSearch';
+import { multiMatchAddressOrPermit, permitNumbersOf } from './permitNumberSearch';
 // ★★★ fix-556 §D: the ONE union — the same module the Pipeline and the
 //     Overview ask. Three surfaces, one definition of "this project's permits".
 import { effectivePermits } from './effectivePermits';
@@ -101,6 +101,10 @@ export interface ProjectRow {
    *  Searchable only, never displayed. Optional so older fixtures without it
    *  behave exactly as before. */
   structAddressHay?: string;
+  /** ★ fix-665 (P-348): every permit number on the project (subs included,
+   *  like structAddressHay), so typing a permit number finds the project.
+   *  Searchable only. Optional so older fixtures behave exactly as before. */
+  permitNums?: string[];
   /** ★★★ fix-556 §D (P-263) — the live redesign that supersedes this project,
    *  or `null`. A row with this set is an ORIGINAL: it does not sort, filter or
    *  count as a peer — it folds under its successor's caret.
@@ -328,6 +332,7 @@ export function buildProjectRows(
       structAddressHay: structAddressHaystack(
         allPermitsByProject.get(project.id),
       ),
+      permitNums: permitNumbersOf(allPermitsByProject.get(project.id)),
       supersededBy: successorOf.get(project.id) ?? null,
     });
   }
@@ -471,7 +476,7 @@ export function filterProjectRows(
       // fix-380: the permits' struct_address joins the haystack — a structure
       // address finds the PROJECT's row.
       const haystack = `${r.project.address} ${tagHay} ${r.project.notes ?? ''} ${noteHay} ${r.structAddressHay ?? ''}`;
-      if (!multiMatchAddress(searchQ, haystack)) return false;
+      if (!multiMatchAddressOrPermit(searchQ, haystack, r.permitNums ?? [])) return false;
     }
     return true;
   });

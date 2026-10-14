@@ -28,6 +28,7 @@ import { useNavigate, useSearchParams } from 'react-router-dom';
 //   must bring the reader back to My Tasks.
 import { useOriginState } from '../hooks/useOriginState';
 import { PARAM_TASK } from '../lib/notificationTargets';
+import { tokensMatchWithPermitNumbers } from '../lib/permitNumberSearch';
 import BotBadge from '../components/shared/BotBadge';
 import AutoClosedBadge from '../components/shared/AutoClosedBadge';
 import { UNOWNED_LABEL, taskNeedsOwner } from '../lib/boardOwnership';
@@ -368,6 +369,13 @@ function milestoneLane(m: MilestoneRow): DiagBucket {
 //   rule lib/taskStatusOverlay documents. Covered through the rendered tests,
 //   which is the honest level for it anyway: what matters is that switching on
 //   🤖 BOT leaves the milestone rows alone on screen.
+/** ★ fix-665: permit numbers by permit, and every number on a project. */
+interface PermitNumIndex {
+  byPermit: ReadonlyMap<number, string>;
+  byProject: ReadonlyMap<string, readonly string[]>;
+}
+const EMPTY_PERMIT_NUMS: PermitNumIndex = { byPermit: new Map(), byProject: new Map() };
+
 function filterMilestones(
   rows: MilestoneRow[],
   filters: FilterState,
@@ -375,8 +383,12 @@ function filterMilestones(
   // ★ fix-660: a department is a PEOPLE filter, so ruling 3 applies it to a
   //   milestone through the permit's own people, like the dropdowns above.
   departmentPeople: readonly string[] | null,
+  // ★ fix-665: a milestone carries its permit's number.
+  permitNums: PermitNumIndex = EMPTY_PERMIT_NUMS,
 ): MilestoneRow[] {
   const q = filters.search.trim().toLowerCase();
+  // ★ This box matches the whole phrase (no AND tokens) — kept as is.
+  const qTokens = q === '' ? [] : [q];
   const roleNames = [
     ...filters.roles.ent,
     ...filters.roles.da,
@@ -386,7 +398,8 @@ function filterMilestones(
   return rows.filter((m) => {
     if (q !== '') {
       const hay = `${m.item.verb} ${m.item.where} ${m.item.why} ${m.item.permitLabel ?? ''}`;
-      if (!hay.toLowerCase().includes(q)) return false;
+      const num = m.item.permitId !== null ? permitNums.byPermit.get(m.item.permitId) : undefined;
+      if (!tokensMatchWithPermitNumbers(q, qTokens, hay.toLowerCase(), num ? [num] : [])) return false;
     }
     // ★ The people filters read the permit's OWN roles — a milestone has no
     //   assignee, but the permit it belongs to has a DA and an ENT lead, and
@@ -658,6 +671,22 @@ function Body({
     }
     return m;
   }, [permitsQ.data]);
+  // ★ fix-665 (P-348): permit numbers, so the search finds a task by its
+  //   permit's number (Miles). A task carries its own permit's number; a
+  //   project-level task carries every number on its project.
+  const permitNums = useMemo(() => {
+    const byPermit = new Map<number, string>();
+    const byProject = new Map<string, string[]>();
+    for (const p of permitsQ.data ?? []) {
+      const n = (p.num ?? '').trim();
+      if (n === '') continue;
+      byPermit.set(p.id, n);
+      const list = byProject.get(p.project_id) ?? [];
+      list.push(n);
+      byProject.set(p.project_id, list);
+    }
+    return { byPermit, byProject };
+  }, [permitsQ.data]);
 
   useEffect(() => {
     try {
@@ -851,8 +880,9 @@ function Body({
         taskMatches,
         structByPermitId,
         departmentPeople,
+        permitNums,
       ),
-    [visibleTasks, filters, rolesByName, taskMatches, structByPermitId, departmentPeople],
+    [visibleTasks, filters, rolesByName, taskMatches, structByPermitId, departmentPeople, permitNums],
   );
   const today = useMemo(() => todayIso(), []);
 
@@ -939,8 +969,8 @@ function Body({
   //    and leave them visible; "Active only" is always true of a milestone,
   //    because an acked one has already left the forecast.
   const visibleMilestones = useMemo(
-    () => filterMilestones(milestoneRows, filters, rolesByName, departmentPeople),
-    [milestoneRows, filters, rolesByName, departmentPeople],
+    () => filterMilestones(milestoneRows, filters, rolesByName, departmentPeople, permitNums),
+    [milestoneRows, filters, rolesByName, departmentPeople, permitNums],
   );
   const counters = useMemo(() => {
     let open = 0;
@@ -1387,7 +1417,7 @@ function FilterRow({
           type="text"
           value={filters.search}
           onChange={(e) => onPatch({ search: e.target.value })}
-          placeholder="Search tasks, addresses, assignees…"
+          placeholder="Search tasks, addresses, permit #, assignees…"
           className="text-[12px] px-2 py-1 border rounded outline-none"
           style={inputStyle()}
           data-testid="mytasks-filter-search"
@@ -2729,6 +2759,9 @@ function filterTasks(
   //   through `taskMatches`, so a department means exactly the union of
   //   those people's My Work — role-assigned tasks included.
   departmentPeople: readonly string[] | null = null,
+  // ★ fix-665 (P-348): permit numbers — the task's own permit's, or every
+  //   number on its project for a project-level task.
+  permitNums: PermitNumIndex = EMPTY_PERMIT_NUMS,
 ): Task[] {
   const q = filters.search.trim().toLowerCase();
   const wantTypes =
@@ -2777,7 +2810,14 @@ function filterTasks(
     if (q) {
       const hay =
         `${t.text} ${t.project_address ?? ''} ${t.permit_id !== null ? (structAddressByPermitId.get(t.permit_id) ?? '') : ''} ${t.primary_assignee ?? ''} ${t.co_assignees.join(' ')}`.toLowerCase();
-      if (!hay.includes(q)) return false;
+      const own = t.permit_id !== null ? permitNums.byPermit.get(t.permit_id) : undefined;
+      const nums = own
+        ? [own]
+        : t.permit_id === null && t.project_id
+          ? (permitNums.byProject.get(t.project_id) ?? [])
+          : [];
+      // ★ Whole-phrase match, as before — the phrase is the one token.
+      if (!tokensMatchWithPermitNumbers(q, [q], hay, nums)) return false;
     }
     return true;
   });

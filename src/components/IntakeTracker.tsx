@@ -170,7 +170,7 @@ function Body({
         type="text"
         value={search}
         onChange={(e) => setSearch(e.target.value)}
-        placeholder="Search intakes by address (space/comma separated)…"
+        placeholder="Search intakes by address or permit # (space/comma separated)…"
         className="w-full bg-bg border border-border rounded-md px-3 py-1.5 text-xs font-display text-text placeholder:text-dim focus:outline-none focus:border-de"
         data-testid="intake-search"
       />

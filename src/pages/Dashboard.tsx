@@ -96,6 +96,7 @@ import {
   STAGE_GROUP,
   type StageCount,
 } from '../lib/pipelineDistribution';
+import { tokensMatchWithPermitNumbers } from '../lib/permitNumberSearch';
 
 // Q9.5.e2: cross-bucket interactivity. `DashContext` lifts `highlightedAddress`
 // + `openAddresses` to the Dashboard root so toggling open/highlight on one
@@ -484,7 +485,14 @@ export default function Dashboard() {
       ]
         .join(' ')
         .toLowerCase();
-      return tokens.every((t) => haystack.includes(t));
+      // ★ fix-665 (P-348): a permit number also matches with case, spaces and
+      //   dashes ignored (`2601495` finds `LSM26-01495`).
+      return tokensMatchWithPermitNumbers(
+        search,
+        tokens,
+        haystack,
+        projectPermits.map((p) => p.num),
+      );
     };
 
     const permitsByProjectId = new Map<string, BucketInput[]>();
@@ -847,7 +855,7 @@ export default function Dashboard() {
             setSearch(e.target.value);
             persistFilters({ search: e.target.value });
           }}
-          placeholder="Search address, DA, ENT, juris, num... (space or comma = AND)"
+          placeholder="Search address, permit #, DA, ENT, juris… (space or comma = AND)"
           className="flex-1 min-w-[220px] max-w-[360px] bg-bg border border-border rounded-md px-3 py-1.5 text-xs font-display text-text placeholder:text-dim focus:outline-none focus:border-de"
         />
         {/* Q9.5.f Item 2: filter dropdowns inline with search bar */}

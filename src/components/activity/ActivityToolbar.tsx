@@ -64,7 +64,7 @@ export default function ActivityToolbar({
         type="text"
         value={search}
         onChange={(e) => onSearchChange(e.target.value)}
-        placeholder="Search address, permit, juris, summary… (space = AND)"
+        placeholder="Search address, permit #, juris, summary… (space = AND)"
         className="bg-bg border border-border rounded px-2 py-1 text-[11px] text-text placeholder:text-dim focus:outline-none focus:border-de min-w-[260px] flex-1"
         data-testid="activity-search"
       />

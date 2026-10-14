@@ -3,6 +3,7 @@ import type {
   ScraperActivityChanges,
   ScraperActivityRow,
 } from './database.types';
+import { tokensMatchWithPermitNumbers } from './permitNumberSearch';
 
 // fix-27: pure helper functions for the notification center. Each
 // summarize* call is action-specific and renders a one-line caption
@@ -328,7 +329,8 @@ export function matchesSearch(
     .join(' ')
     .toLowerCase();
   const tokens = q.split(/[\s,]+/).filter(Boolean);
-  return tokens.every((t) => haystack.includes(t));
+  // ★ fix-665 (P-348): the permit number with case/space/dash ignored.
+  return tokensMatchWithPermitNumbers(q, tokens, haystack, [row.permit_num]);
 }
 
 /** Multi-select ent filter. A null `selectedEnts` (or one matching
