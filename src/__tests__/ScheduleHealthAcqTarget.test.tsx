@@ -230,48 +230,136 @@ describe('fix-63 ACQ date inline edit — moved AGAIN by fix-514 §G, now per pe
     expect((screen.getByTestId('psm-permit-acq-501') as HTMLInputElement).value).toBe('');
   });
 
-  it('★★★ typing in it makes the MODAL dirty — the §B contract, not a per-field save', () => {
-    const p = permitFixture({ id: 501, expected_issue: '2026-08-01' });
-    renderTable([p]);
-    const btn = screen.getByTestId('project-data-done');
-    expect(btn.getAttribute('data-dirty')).toBe('false');
-    expect(btn.textContent).toContain('Exit');
-    fireEvent.change(screen.getByTestId('psm-permit-acq-501'), {
-      target: { value: '2026-09-15' },
+  // ═════════════════════════════════════════════════════════════════════
+  // ★★★ fix-666 §C (P-303) — SUPERSEDES fix-514 §B's "typing makes the MODAL
+  //     dirty" and its two Save tests. The ACQ date on a SAVED row commits on
+  //     leaving the box, like every other date field; the footer Save no
+  //     longer carries it. A NEW row still sends it with the Save that
+  //     creates the permit, because until then there is no permit to save to.
+  // ═════════════════════════════════════════════════════════════════════
+  const FRESH = '2026-05-16T00:00:00Z';
+  type Call = {
+    projectPatch: Record<string, unknown>;
+    permitUpserts: Record<string, unknown>[];
+    permitDeletes: number[];
+  };
+  const callArg = (i: number) => mutateAsync.mock.calls[i][0] as Call;
+
+  it('★★★ fix-666: typing a date and leaving the box saves ONCE, through the same RPC, with the row token', async () => {
+    mutateAsync.mockResolvedValue({ conflict: false, permits: [{ id: 501, updated_at: FRESH }] });
+    renderTable([permitFixture({ id: 501, expected_issue: '2026-08-01' })]);
+    const box = screen.getByTestId('psm-permit-acq-501');
+    fireEvent.change(box, { target: { value: '2026-09-15' } });
+    // ★ Nothing on the keystroke.
+    expect(mutateAsync).not.toHaveBeenCalled();
+    fireEvent.blur(box);
+    await waitFor(() => expect(mutateAsync).toHaveBeenCalledTimes(1));
+    expect(callArg(0)).toEqual({
+      projectId: 'p-sh-1',
+      projectExpectedUpdatedAt: '2026-05-15T12:00:00Z',
+      projectPatch: {},
+      permitUpserts: [
+        { id: 501, expected_updated_at: '2026-05-14T09:00:00Z', expected_issue: '2026-09-15' },
+      ],
+      permitDeletes: [],
     });
-    expect(screen.getByTestId('project-data-done').getAttribute('data-dirty')).toBe('true');
-    expect(screen.getByTestId('project-data-done').textContent).toContain('Save');
-    // ★ And NOTHING was written on change — the per-field model is gone.
+    // ★ Leaving again with nothing new typed fires nothing.
+    fireEvent.focus(box);
+    fireEvent.blur(box);
+    // ★★ And the modal is NOT dirty: an ACQ-only edit leaves the footer on Exit,
+    //    exactly as an address edit does.
+    await waitFor(() =>
+      expect(screen.getByTestId('project-data-done').getAttribute('data-dirty')).toBe('false'),
+    );
+    expect(screen.getByTestId('project-data-done').textContent).toContain('Exit');
+    expect(mutateAsync).toHaveBeenCalledTimes(1);
+    // ★ The "saves now" mark says so on the row.
+    expect(screen.getByTestId('saves-now-acq-501')).toBeInTheDocument();
+  });
+
+  it('★★ fix-666: clearing the box and leaving it sends null — Target Approval falls back to its other two candidates', async () => {
+    mutateAsync.mockResolvedValue({ conflict: false, permits: [{ id: 501, updated_at: FRESH }] });
+    renderTable([permitFixture({ id: 501, expected_issue: '2026-08-01' })]);
+    const box = screen.getByTestId('psm-permit-acq-501');
+    fireEvent.change(box, { target: { value: '' } });
+    fireEvent.blur(box);
+    await waitFor(() => expect(mutateAsync).toHaveBeenCalledTimes(1));
+    expect(callArg(0).permitUpserts).toEqual([
+      { id: 501, expected_updated_at: '2026-05-14T09:00:00Z', expected_issue: null },
+    ]);
+  });
+
+  it('★★★ fix-666: an impossible year is refused on leaving the box — nothing is sent (fix-602 kept)', async () => {
+    renderTable([permitFixture({ id: 501, expected_issue: '2026-08-01' })]);
+    const box = screen.getByTestId('psm-permit-acq-501');
+    fireEvent.change(box, { target: { value: '20266-09-15' } });
+    fireEvent.blur(box);
+    expect(await screen.findByTestId('psm-permit-acq-501-rejection')).toBeInTheDocument();
     expect(mutateAsync).not.toHaveBeenCalled();
   });
 
-  it('★★★ Save sends expected_issue on the row that changed, through the same RPC', async () => {
-    mutateAsync.mockResolvedValue({ conflict: false });
-    const p = permitFixture({ id: 501, expected_issue: '2026-08-01' });
-    renderTable([p]);
-    fireEvent.change(screen.getByTestId('psm-permit-acq-501'), {
-      target: { value: '2026-09-15' },
-    });
+  it('★★★ fix-666: the footer Save no longer sends the ACQ date on a saved row', async () => {
+    mutateAsync.mockResolvedValue({ conflict: false, permits: [] });
+    renderTable([permitFixture({ id: 501, expected_issue: '2026-08-01' })]);
+    // Make the tab dirty with a batch-saved edit (a new row), then Save.
+    fireEvent.click(screen.getByTestId('psm-add-permit'));
     fireEvent.click(screen.getByTestId('project-data-done'));
-    await waitFor(() => expect(mutateAsync).toHaveBeenCalled());
-    const arg = mutateAsync.mock.calls[0][0] as {
-      permitUpserts: { id?: number; expected_issue?: string | null }[];
-    };
-    const row = arg.permitUpserts.find((u) => u.id === 501);
-    expect(row?.expected_issue).toBe('2026-09-15');
+    await waitFor(() => expect(mutateAsync).toHaveBeenCalledTimes(1));
+    const row = callArg(0).permitUpserts.find((u) => u.id === 501);
+    expect(row).toBeDefined();
+    expect('expected_issue' in (row as object)).toBe(false);
   });
 
-  it('★★ clearing the box sends null — Target Approval falls back to its other two candidates', async () => {
-    mutateAsync.mockResolvedValue({ conflict: false });
-    const p = permitFixture({ id: 501, expected_issue: '2026-08-01' });
-    renderTable([p]);
-    fireEvent.change(screen.getByTestId('psm-permit-acq-501'), { target: { value: '' } });
+  it('★★★ fix-666: type a date, then click Save — the Save carries the token the commit produced, not the stale one', async () => {
+    // The click blurs the box first, so the commit is in flight when Save
+    // builds its rows. Without the wait, the permit's own stale-edit check
+    // would refuse the Save over the user's own write.
+    mutateAsync
+      .mockResolvedValueOnce({ conflict: false, permits: [{ id: 501, updated_at: FRESH }] })
+      .mockResolvedValueOnce({ conflict: false, permits: [] });
+    renderTable([permitFixture({ id: 501, expected_issue: '2026-08-01' })]);
+    fireEvent.click(screen.getByTestId('psm-add-permit'));
+    const box = screen.getByTestId('psm-permit-acq-501');
+    fireEvent.change(box, { target: { value: '2026-09-15' } });
+    fireEvent.blur(box);
     fireEvent.click(screen.getByTestId('project-data-done'));
-    await waitFor(() => expect(mutateAsync).toHaveBeenCalled());
-    const arg = mutateAsync.mock.calls[0][0] as {
-      permitUpserts: { id?: number; expected_issue?: string | null }[];
-    };
-    expect(arg.permitUpserts.find((u) => u.id === 501)?.expected_issue).toBeNull();
+    await waitFor(() => expect(mutateAsync).toHaveBeenCalledTimes(2));
+    const saved = callArg(1).permitUpserts.find((u) => u.id === 501);
+    expect(saved?.expected_updated_at).toBe(FRESH);
+    expect('expected_issue' in (saved as object)).toBe(false);
+  });
+
+  it('★★ fix-666: a stale commit says so and the box goes back to the stored date', async () => {
+    mutateAsync.mockResolvedValue({ conflict: true, conflictKind: 'permit', permits: [] });
+    renderTable([permitFixture({ id: 501, expected_issue: '2026-08-01' })]);
+    const box = screen.getByTestId('psm-permit-acq-501');
+    fireEvent.change(box, { target: { value: '2026-09-15' } });
+    fireEvent.blur(box);
+    await waitFor(() =>
+      expect(pushToastMock).toHaveBeenCalledWith(
+        'A permit on this project was changed elsewhere — reload and retry.',
+        'warn',
+      ),
+    );
+    await waitFor(() =>
+      expect((screen.getByTestId('psm-permit-acq-501') as HTMLInputElement).value).toBe('2026-08-01'),
+    );
+  });
+
+  it('★★ fix-666: on a NEW row the date stays in the form and rides the Save that creates the permit', async () => {
+    mutateAsync.mockResolvedValue({ conflict: false, permits: [] });
+    renderTable([permitFixture({ id: 501, expected_issue: '2026-08-01' })]);
+    fireEvent.click(screen.getByTestId('psm-add-permit'));
+    const box = screen.getByTestId('psm-permit-acq-new');
+    fireEvent.change(box, { target: { value: '2026-10-01' } });
+    fireEvent.blur(box);
+    // ★ No permit to save to yet — nothing is sent on blur.
+    expect(mutateAsync).not.toHaveBeenCalled();
+    expect(screen.queryByTestId('saves-now-acq-new')).toBeNull();
+    fireEvent.click(screen.getByTestId('project-data-done'));
+    await waitFor(() => expect(mutateAsync).toHaveBeenCalledTimes(1));
+    const created = callArg(0).permitUpserts.find((u) => u.id === undefined);
+    expect(created?.expected_issue).toBe('2026-10-01');
   });
 
   it('★★★ SUPERSEDED: column 7 is a DERIVED Target Approval, and it does not edit', () => {

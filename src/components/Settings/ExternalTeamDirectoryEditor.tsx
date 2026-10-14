@@ -307,8 +307,9 @@ function DisciplineGroup({
   function addFirm() {
     const name = addInput.trim();
     if (!name) return;
-    // Guard against an obvious in-list dupe (the DB unique index is the real
-    // gate; this just avoids a needless failing round-trip).
+    // Guard against an obvious in-list dupe (★ fix-666: bp_upsert_external_firm
+    // is the real gate, ignoring case AND spaces; this just avoids a needless
+    // failing round-trip).
     if (firms.some((f) => f.name.toLowerCase() === name.toLowerCase())) {
       setAddInput('');
       return;
@@ -325,7 +326,12 @@ function DisciplineGroup({
   function commitRename(f: ExternalTeamDirectoryFirm) {
     const trimmed = renameDraft.trim();
     if (trimmed && trimmed !== f.name) {
-      upsert.mutate({ id: f.id, discipline: f.discipline, name: trimmed });
+      upsert.mutate({
+        id: f.id,
+        discipline: f.discipline,
+        name: trimmed,
+        expectedUpdatedAt: f.updated_at ?? null,
+      });
     }
     setRenamingId(null);
     setRenameDraft('');
@@ -419,6 +425,7 @@ function DisciplineGroup({
                       discipline: f.discipline,
                       name: f.name,
                       active: !f.active,
+                      expectedUpdatedAt: f.updated_at ?? null,
                     })
                   }
                   className="text-dim hover:text-text text-[10px] leading-none pl-0.5"
@@ -448,6 +455,7 @@ function DisciplineGroup({
                 discipline: f.discipline,
                 name: f.name,
                 ...patch,
+                expectedUpdatedAt: f.updated_at ?? null,
               })
             }
           />

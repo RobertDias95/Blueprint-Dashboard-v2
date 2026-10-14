@@ -5,7 +5,7 @@ import type { ReactNode } from 'react';
 // used. The Permits tab is the one exception and says so on screen.
 import { useProjectFieldCommit } from '../../hooks/useProjectFieldCommit';
 // ★ fix-602 §B.3: the SAME rule BufferedDateInput enforces on blur.
-import { dateInputRejection } from '../../lib/dateUtils';
+import BufferedDateInput from '../BufferedDateInput';
 import SavesNowMark from '../shared/SavesNowMark';
 import { useUpdatePermit } from '../../hooks/useUpdatePermit';
 import type { PermitWithCycles, Project } from '../../lib/database.types';
@@ -222,14 +222,27 @@ function SelectInput({
   );
 }
 
-function TinyField({ label, children }: { label: string; children: ReactNode }) {
+function TinyField({
+  label,
+  children,
+  savesNow = false,
+  savesNowTestid,
+}: {
+  label: string;
+  children: ReactNode;
+  /** ★ fix-666 §C: fix-575 §C's mark, for the one field on a permit row that
+   *  writes immediately. */
+  savesNow?: boolean;
+  savesNowTestid?: string;
+}) {
   return (
     <div className="flex flex-col gap-0.5 min-w-0">
       <span
-        className="text-[8px] font-bold uppercase tracking-wide truncate"
+        className="text-[8px] font-bold uppercase tracking-wide truncate flex items-center gap-1"
         style={{ color: 'var(--color-dim)' }}
       >
         {label}
+        {savesNow && <SavesNowMark testid={savesNowTestid} />}
       </span>
       {children}
     </div>
@@ -840,6 +853,7 @@ function PermitRowCard({
   typeOptions,
   parentOptions,
   onChange,
+  onCommitAcq,
   onRemove,
   owner,
 }: {
@@ -850,6 +864,9 @@ function PermitRowCard({
   /** ★ fix-517 §E: this project's other saved, non-sub permits. */
   parentOptions: { value: string; label: string }[];
   onChange: (patch: Partial<PermitRow>) => void;
+  /** ★ fix-666 §C: saves a SAVED row's ACQ date now. Absent on a new row,
+   *  whose date stays in the form until the Save that creates the permit. */
+  onCommitAcq?: (next: string | null) => Promise<boolean>;
   onRemove: () => void;
   /**
    * ★★★ fix-591 §2a (P-290) — SET ONLY WHEN THIS ROW BELONGS TO ANOTHER
@@ -869,6 +886,12 @@ function PermitRowCard({
   owner?: { address: string; href: string } | null;
 }) {
   const readOnly = !!owner;
+  // ★ fix-666 §C: a refused ACQ commit (stale token, server error) remounts the
+  //   box so it shows the stored date again rather than the value that did not
+  //   land. BufferedDateInput only re-reads its prop when the prop CHANGES, and
+  //   a refusal leaves the prop exactly where it was.
+  const [acqResetKey, setAcqResetKey] = useState(0);
+  const savesAcqNow = !readOnly && !!onCommitAcq;
   const parentLabels = useMemo(() => {
     const m: Record<string, string> = {};
     for (const o of parentOptions) m[o.value] = o.label;
@@ -995,34 +1018,46 @@ function PermitRowCard({
           `bp_acq + 120` days — and they had exactly one editor in the app.
           Now they have this, and `PermitDetailV2`'s box is gone. */}
       <div className="grid gap-2 items-end" style={{ gridTemplateColumns: '1fr 2fr' }}>
-        <TinyField label="ACQ target date">
+        <TinyField
+          label="ACQ target date"
+          savesNow={savesAcqNow}
+          savesNowTestid={`saves-now-acq-${row.id ?? 'new'}`}
+        >
           {/* ══════════════════════════════════════════════════════════
-              ★★★ fix-602 §B.3 (P-301) — THE FIELD THAT WROTE THE THREE BAD ROWS
+              ★★★ fix-666 §C (P-303) — IT IS A `BufferedDateInput` NOW
               ══════════════════════════════════════════════════════════
 
-              Three permits hold an ACQ target with a 5- or 6-digit year, and
-              **two of them share one `updated_at`** (2026-09-22 12:20:29 PT) on
-              one project — i.e. one press of this tab's Save wrote both.
+              fix-602 §B.3 kept this a plain date box that waited for the
+              footer's Save, because converting it "would change when an ACQ
+              date reaches the server" and fix-601 §A's dirty tracking depends
+              on this tab. That is this ticket: it now saves on leaving the box
+              like every other date field, and `commitPermitAcq` keeps the
+              dirty tracking honest (see the hook).
 
-              ★★★ IT IS NOT A `BufferedDateInput`, AND IT SHOULD NOT BECOME ONE.
-                  That component commits on BLUR; this tab is a batch form whose
-                  footer Save writes every row at once, and fix-601 §A has just
-                  been through what its dirty tracking depends on. Converting it
-                  would change when an ACQ date reaches the server, which is a
-                  different ticket and a riskier one.
+              ★★ fix-602's YEAR RULE IS NOT LOST — it moved home. It was
+                 `BufferedDateInput`'s rule all along (`dateInputRejection` on
+                 commit), borrowed here per keystroke. An impossible year still
+                 saves nothing, keeps the old value, and says why under the box.
 
-              ★★ SO THE *RULE* IS SHARED AND THE *MOMENT* IS NOT. `dateInputRejection`
-                 is the same predicate `BufferedDateInput` enforces on blur; here
-                 it runs on the keystroke and simply declines to put an
-                 impossible year into the form state. The previous value stays,
-                 the box says why, and Save has nothing bad to write. */}
-          <Input
-            type="date"
+              ★ A NEW ROW has no permit to save to yet, so its date goes into
+                the form and rides the Save that creates the permit — the same
+                box, committing to the form instead of the server. */}
+          <BufferedDateInput
+            key={acqResetKey}
             value={row.expected_issue}
-            onChange={(v) => onChange({ expected_issue: v })}
-            testid={`psm-permit-acq-${row.id ?? 'new'}`}
+            onCommit={(next) => {
+              if (onCommitAcq) {
+                void onCommitAcq(next).then((ok) => {
+                  if (!ok) setAcqResetKey((k) => k + 1);
+                });
+              } else {
+                onChange({ expected_issue: next ?? '' });
+              }
+            }}
+            testId={`psm-permit-acq-${row.id ?? 'new'}`}
             disabled={readOnly}
-            rejectValue={dateInputRejection}
+            className={inputCls}
+            style={readOnly ? { ...inputStyle, ...disabledInputStyle } : inputStyle}
           />
         </TinyField>
         <div className="text-[9.5px] text-dim self-center">
@@ -1205,6 +1240,11 @@ export function PermitsFormSection({
               typeOptions={ctl.permitTypeNames}
               parentOptions={parentOptionsFor(row)}
               onChange={(patch) => ctl.setPermitField(idx, patch)}
+              onCommitAcq={
+                row.id != null && !row.isNew
+                  ? (next) => ctl.commitPermitAcq(row.id as number, next)
+                  : undefined
+              }
               onRemove={() => ctl.removePermit(idx)}
               owner={ownerFor(row)}
             />
