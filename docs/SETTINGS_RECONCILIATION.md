@@ -278,3 +278,13 @@ The five small gaps, closed (frontend only, no migration, no data change):
 **39:** ruled out by Bobby ("Skip it, project level is enough") — no per-permit CA picker; `permits.ca` stays as a read-only column and its comments now say it has no writer.
 
 Still open: 7, 8, 29, 30, 32, 42.
+
+## fix-666 status (2026-10-13)
+
+- **30:** closed. Directory edits go through `bp_upsert_external_firm` (migration `fix_666_external_firm_upsert`):
+  - admin of the tenant, with the tenant set server-side;
+  - a stale-edit token on update, from a new `updated_at` column;
+  - a trimmed name, and a duplicate in the discipline (ignoring case and spaces) refused with a sentence;
+  - audited by the `bp_audit_row` trigger.
+
+  Prod had 25 firms and 0 duplicates. `ExternalFirmSelect` (item 31) still calls the same hook and is still unimported.

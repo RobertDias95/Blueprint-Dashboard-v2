@@ -330,11 +330,20 @@ describe('fix-513 §E → fix-514 §G — expected_issue has exactly ONE writer'
     // …and the form loops over every row instead.
     expect(detailsFormSrc).toContain('for (const row of form.permits)');
     expect(detailsFormSrc).toContain('for (const row of form.permits)');
-    expect(detailsFormSrc).toContain('expected_issue: row.expected_issue.trim() || null');
+    // ★★★ fix-666 §C (P-303): the ACQ date on a SAVED row commits on leaving
+    //     the box, one permit per call — still row by row, still this hook,
+    //     still the atomic RPC. The footer Save no longer restates it.
+    expect(detailsFormSrc).toContain(
+      '{ id: permitId, expected_updated_at: expected, expected_issue: next }',
+    );
+    expect(detailsFormSrc).not.toContain('expected_issue: row.expected_issue.trim() || null');
   });
 
   it('★★ the per-permit control exists and is reachable', () => {
     expect(detailsFormComponentSrc).toContain('ACQ target date');
-    expect(detailsFormComponentSrc).toContain('onChange({ expected_issue: v })');
+    // ★ fix-666 §C: a saved row commits through `commitPermitAcq`; a new row
+    //   still puts the date in the form for the Save that creates it.
+    expect(detailsFormComponentSrc).toContain('ctl.commitPermitAcq(row.id as number, next)');
+    expect(detailsFormComponentSrc).toContain("onChange({ expected_issue: next ?? '' })");
   });
 });

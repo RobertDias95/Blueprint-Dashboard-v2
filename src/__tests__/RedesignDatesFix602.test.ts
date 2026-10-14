@@ -200,9 +200,17 @@ describe('fix-602 §B — an impossible year saves nothing', () => {
     expect(buffered).toContain('dateInputRejection(draftRef.current)');
     expect(buffered).toContain('setRejection(rejection)');
 
+    // ★★★ fix-666 §C (P-303) — ONE WRITER NOW, and it is the buffered input.
+    //     The Permits tab's ACQ date became a `BufferedDateInput` that commits
+    //     on leaving the box, so the rule is enforced where it always lived;
+    //     the per-keystroke copy (`rejectValue={dateInputRejection}`) went
+    //     with the batch path it protected. The impossible year is still
+    //     refused on that box — ScheduleHealthAcqTarget proves it rendered.
     const form = code(read('components/ProjectDetail/ProjectDetailsForm.tsx'));
-    expect(form).toContain('rejectValue={dateInputRejection}');
-    expect(form).toContain('if (why) return;');
+    const acq = form.slice(form.indexOf('label="ACQ target date"'));
+    expect(acq.indexOf('<BufferedDateInput')).toBeGreaterThan(-1);
+    expect(acq.indexOf('<BufferedDateInput')).toBeLessThan(acq.indexOf('</TinyField>'));
+    expect(form).not.toContain('onChange={(v) => onChange({ expected_issue: v })}');
   });
 
   it('★★★ a refused value never reaches onCommit / onChange', () => {

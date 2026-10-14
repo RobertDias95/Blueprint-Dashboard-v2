@@ -93,6 +93,10 @@ export function isBlockOverlapRefusal(e: unknown): boolean {
  *  mapped to the sentence a person reads. */
 export const EXPECTED_UNIQUE_REFUSALS: Readonly<Record<string, string>> = {
   projects_address_unique_non_redesign: 'Another project already has this address.',
+  // ★ fix-666: bp_upsert_external_firm raises its duplicate refusal with this
+  //   index's name in DETAIL, and the index itself fires on a race.
+  uq_external_team_directory_tenant_disc_name:
+    'That firm is already in the directory for this discipline.',
 };
 
 /** The sentence for an expected unique refusal, or null when `e` is not one.

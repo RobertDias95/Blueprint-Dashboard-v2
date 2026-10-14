@@ -42,8 +42,18 @@ function renderEditor(readOnly = false) {
 }
 
 
+// ★ fix-666: every firm carries its stale-edit token, and every UPDATE below
+//   asserts the editor sends it back.
+const TOKEN = '2026-10-13T20:00:00+00:00';
 function firm(discipline: string, name: string, active = true) {
-  return { id: `${discipline}-${name}`, discipline, name, active, created_at: '2026-01-01' };
+  return {
+    id: `${discipline}-${name}`,
+    discipline,
+    name,
+    active,
+    created_at: '2026-01-01',
+    updated_at: TOKEN,
+  };
 }
 
 beforeEach(() => {
@@ -87,6 +97,7 @@ describe('ExternalTeamDirectoryEditor (fix-227)', () => {
       id: 'Civil-Facet',
       discipline: 'Civil',
       name: 'Facet Land',
+      expectedUpdatedAt: TOKEN,
     });
   });
 
@@ -99,6 +110,7 @@ describe('ExternalTeamDirectoryEditor (fix-227)', () => {
       discipline: 'Civil',
       name: 'Facet',
       active: false,
+      expectedUpdatedAt: TOKEN,
     });
   });
 
@@ -114,6 +126,7 @@ describe('ExternalTeamDirectoryEditor (fix-227)', () => {
       discipline: 'Civil',
       name: 'Facet',
       active: true,
+      expectedUpdatedAt: TOKEN,
     });
   });
 
@@ -161,6 +174,7 @@ describe('fix-652 — an off-list discipline survives render + save', () => {
       id: 'Acoustics-SoundCo',
       discipline: 'Acoustics',
       name: 'SoundCo LLC',
+      expectedUpdatedAt: TOKEN,
     });
     fireEvent.change(screen.getByTestId('etd-add-Acoustics'), { target: { value: 'EchoCo' } });
     fireEvent.click(screen.getByTestId('etd-add-btn-Acoustics'));

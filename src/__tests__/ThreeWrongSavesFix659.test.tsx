@@ -256,7 +256,9 @@ describe('fix-659 · 29 — the lead-less list saves like Project Details', () =
     // for the field it edits, through the same mutation hook.
     const pd = readFileSync(join(SRC, 'hooks/useProjectDetailsForm.ts'), 'utf8');
     expect(pd).toMatch(/ent_lead: row\.ent_lead\.trim\(\) \|\| null/);
-    expect(pd).toMatch(/expected_updated_at: row\.updated_at/);
+    // ★ fix-666 §C: the row's token, or the one its own ACQ commit just
+    //   produced when the row has not caught up yet.
+    expect(pd).toMatch(/expected_updated_at: acqTokenFor\(row\) \?\? row\.updated_at/);
     expect(pd).toMatch(/updateProjectWithPermits\.mutateAsync/);
     const panel = readFileSync(
       join(SRC, 'components/Settings/PermitsMissingLeadPanel.tsx'),

@@ -505,6 +505,10 @@ export interface ExternalTeamDirectoryFirm {
   notes: string | null;
   active: boolean;
   created_at: string;
+  /** ★ fix-666: the stale-edit token `bp_upsert_external_firm` compares.
+   *  Optional only so older fixtures still type-check; every row read from the
+   *  database carries it. */
+  updated_at?: string;
 }
 
 /** fix-notes-1: unified notes row as returned by bp_list_project_notes

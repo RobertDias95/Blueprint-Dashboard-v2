@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useUpdateProjectWithPermits } from './useUpdateProjectWithPermits';
 import { useJurisdictions } from './useJurisdictions';
 import { usePermitTypes } from './usePermitTypes';
@@ -85,6 +85,12 @@ export interface ProjectDetailsFormController {
    *  `projectId` is compared against. Exposed so `PermitsFormSection` asks
    *  `permitRowIsOwnedBy` rather than inventing a second rule. */
   projectId: string;
+  /** ★ fix-666 §C (P-303): save ONE saved permit's ACQ target date now — on
+   *  leaving the box — through the same RPC the tab's Save uses, with that
+   *  row's stale-edit token. Resolves true when it landed. A NEW row has no
+   *  permit yet, so its date stays in the form and rides the Save that
+   *  creates it. */
+  commitPermitAcq: (permitId: number, next: string | null) => Promise<boolean>;
   /** Resolves true when the save landed (so the caller may close). */
   save: () => Promise<boolean>;
   // --- option lists, derived once ------------------------------------------
@@ -386,6 +392,102 @@ export function useProjectDetailsForm(
     } }));
   }, []);
 
+  // ═══════════════════════════════════════════════════════════════════════
+  // ★★★ fix-666 §C (P-303) — THE ACQ DATE SAVES ON LEAVING THE BOX
+  // ═══════════════════════════════════════════════════════════════════════
+  //
+  // It was the one date on the Permits tab that waited for the footer's Save;
+  // every other date in the app is a `BufferedDateInput` that commits on blur.
+  // fix-602 §B.3 declined to convert it because the timing change touched
+  // fix-601 §A's dirty tracking. That tracking is kept correct here, by two
+  // facts:
+  //
+  //   · A COMMIT WRITES THE BASELINE AND THE FORM TOGETHER, so the row compares
+  //     equal on `expected_issue` and nothing reads dirty because of it — the
+  //     footer stays on Exit for an ACQ-only edit, as it does for an address.
+  //   · THE NEW TOKEN GOES ON THE ROW, so the footer Save that follows sends
+  //     the stamp this commit produced, not the one the form loaded with.
+  //
+  // ★★★ AND THE ORDER THAT WOULD BREAK IT IS THE COMMON ONE: type a date, then
+  //     click Save. The click blurs the box first, so the commit is IN FLIGHT
+  //     when `save()` builds its upserts from a render that still holds the old
+  //     token — the permit's own stale-edit check would refuse the Save as
+  //     "changed elsewhere" over the user's own write. So `save()` waits for
+  //     pending commits and takes each row's token through `acqTokenFor`.
+  //
+  // `acqTokens` maps permit id → { the token the commit started from, the one
+  // it produced }. The override applies only while the row still carries the
+  // first: once a rebuild or the commit's own setState lands, the row's token
+  // is the newer one and wins. Refs are read only inside callbacks, never in
+  // render.
+  const acqTokens = useRef(new Map<number, { from: string; to: string }>());
+  const acqPending = useRef(new Set<Promise<boolean>>());
+  const acqTokenFor = useCallback((row: PermitRow): string | null => {
+    if (row.id == null) return row.updated_at ?? null;
+    const o = acqTokens.current.get(row.id);
+    if (o && o.from === row.updated_at) return o.to;
+    return row.updated_at ?? null;
+  }, []);
+
+  const commitPermitAcq = useCallback(
+    (permitId: number, next: string | null): Promise<boolean> => {
+      const row = form.permits.find((p) => p.id === permitId);
+      if (!row || row.isNew || !permitRowIsOwnedBy(row, project.id)) {
+        return Promise.resolve(false);
+      }
+      const expected = acqTokenFor(row);
+      const projectToken = project.updated_at;
+      if (!expected || !row.updated_at || !projectToken) return Promise.resolve(false);
+      const startedFrom = row.updated_at;
+      const value = next ?? '';
+      const run = (async (): Promise<boolean> => {
+        try {
+          const result = await updateProjectWithPermits.mutateAsync({
+            projectId: project.id,
+            // ★ An empty project patch: the RPC compares the project token only
+            //   when it writes the project (`IF v_patch <> '{}'`), and this
+            //   writes one permit column and nothing else.
+            projectExpectedUpdatedAt: projectToken,
+            projectPatch: {},
+            permitUpserts: [
+              { id: permitId, expected_updated_at: expected, expected_issue: next },
+            ],
+            permitDeletes: [],
+          });
+          if (result.conflict) {
+            pushRecoveredToast(
+              'A permit on this project was changed elsewhere — reload and retry.',
+              'warn',
+            );
+            return false;
+          }
+          const fresh = (result.permits ?? []).find((p) => p.id === permitId)?.updated_at;
+          if (fresh) acqTokens.current.set(permitId, { from: startedFrom, to: fresh });
+          const patchRow = (rows: PermitRow[]) =>
+            rows.map((p) =>
+              p.id === permitId
+                ? { ...p, expected_issue: value, ...(fresh ? { updated_at: fresh } : {}) }
+                : p,
+            );
+          setState((s) => ({
+            ...s,
+            form: { ...s.form, permits: patchRow(s.form.permits) },
+            baseline: { ...s.baseline, permits: patchRow(s.baseline.permits) },
+          }));
+          pushToast('Saved ACQ target date', 'success');
+          return true;
+        } catch {
+          // useUpdateProjectWithPermits already toasted a real error.
+          return false;
+        }
+      })();
+      acqPending.current.add(run);
+      void run.finally(() => acqPending.current.delete(run));
+      return run;
+    },
+    [form.permits, project.id, project.updated_at, acqTokenFor, updateProjectWithPermits],
+  );
+
   // --- the atomic save, unchanged from fix-36 ------------------------------
   const bpPermit = useMemo(
     () => permits.find((p) => p.type === 'Building Permit') ?? permits[0] ?? null,
@@ -408,6 +510,11 @@ export function useProjectDetailsForm(
     if (!project.updated_at) return false;
     setSaving(true);
     try {
+      // ★★★ fix-666 §C: an ACQ commit started by THIS click's blur finishes
+      //     first, so the rows below carry the token it produced.
+      if (acqPending.current.size > 0) {
+        await Promise.all([...acqPending.current]);
+      }
       // ★★★ fix-520 §A (P-227) — THE PROJECT PATCH IS EMPTY, AND THAT IS THE
       //     WHOLE POINT OF THE TICKET.
       //
@@ -537,13 +644,16 @@ export function useProjectDetailsForm(
         } else if (row.id != null && row.updated_at) {
           permitUpserts.push({
             id: row.id,
-            expected_updated_at: row.updated_at,
+            // ★ fix-666 §C: the token an ACQ commit produced, when the row has
+            //   not caught up with it yet.
+            expected_updated_at: acqTokenFor(row) ?? row.updated_at,
             ...fields,
-            // ★★★ fix-514 §G (P-221): the per-permit ACQ date, sent on every
-            //     existing row. An emptied box CLEARS the column, which is how
-            //     Target Approval falls back to the closing date or GO + 6
-            //     months — the point of it being a `max` over three candidates.
-            expected_issue: row.expected_issue.trim() || null,
+            // ★★★ fix-666 §C (P-303): NO `expected_issue` ON A SAVED ROW. It
+            //     commits on leaving the box (`commitPermitAcq`), and the RPC
+            //     leaves a column alone when its key is absent — so this Save
+            //     can never restate an older ACQ date over the one just saved.
+            //     (fix-514 §G's clear-to-null still holds: an emptied box
+            //     commits `null` on blur.)
             // ★★★ fix-517 §E: sent on every EXISTING row, so clearing the
             //     select clears the column. Not sent on a NEW row — an unsaved
             //     permit has no id for a sibling to point at and no id of its
@@ -665,7 +775,7 @@ export function useProjectDetailsForm(
     } finally {
       setSaving(false);
     }
-  }, [form, draft, project, bpPermit, updateProjectWithPermits, markPermitsAdded]);
+  }, [form, draft, project, bpPermit, updateProjectWithPermits, markPermitsAdded, acqTokenFor]);
 
   return {
     form,
@@ -682,6 +792,7 @@ export function useProjectDetailsForm(
     addPermit,
     removePermit,
     projectId: project.id,
+    commitPermitAcq,
     save,
     jurisdictionNames: (jurisdictionsQ.data ?? []).map((j) => j.name),
     permitTypeNames: (permitTypesQ.data ?? []).map((t) => t.name),
