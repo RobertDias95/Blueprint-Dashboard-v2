@@ -584,7 +584,6 @@ function ProjectDetailBody({
       {deleteOpen && (
         <DeleteProjectDialog
           project={project}
-          permitCount={permits.length}
           onClose={() => setDeleteOpen(false)}
         />
       )}
