@@ -6,7 +6,8 @@ import errorsSrc from '../lib/loginErrors.ts?raw';
 import welcomeLinkSrc from '../lib/welcomeLink.ts?raw';
 import {
   PASSWORD_MIN_LENGTH,
-  RESET_CODE_LENGTH,
+  CODE_MAX_DIGITS,
+  CODE_MIN_DIGITS,
   classifyResetError,
   classifyResetRequestError,
   isWellFormedResetCode,
@@ -101,14 +102,15 @@ describe('fix-426 §A: every failure gets a human sentence', () => {
   });
 
   it('★★ a mistyped code is caught BEFORE anything is sent', () => {
-    // The one case that IS separable: a code that is not six digits is
+    // The one case that IS separable: a code outside 6–10 digits is
     // definitely mistyped, and costs no round trip to say so.
+    // ★ fix-678 SUPERSEDES "six exactly": Supabase's OTP length is a setting.
     expect(isWellFormedResetCode('123456')).toBe(true);
     expect(isWellFormedResetCode('  123456 ')).toBe(true); // people paste
     expect(isWellFormedResetCode('12345')).toBe(false);
-    expect(isWellFormedResetCode('1234567')).toBe(false);
+    expect(isWellFormedResetCode('1234567')).toBe(true);
     expect(isWellFormedResetCode('12345a')).toBe(false);
-    expect(RESET_CODE_LENGTH).toBe(6);
+    expect([CODE_MIN_DIGITS, CODE_MAX_DIGITS]).toEqual([6, 10]);
   });
 
   it('★ rate-limited says how long to wait, in its own words', () => {

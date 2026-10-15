@@ -1,4 +1,9 @@
 import { isAuthRetryableFetchError } from '@supabase/supabase-js';
+import {
+  CODE_MAX_DIGITS,
+  CODE_MIN_DIGITS,
+  codeLifetimeWords,
+} from '../../supabase/functions/admin-create-user/codeLifetime';
 
 // ===========================================================================
 // fix-357 — the front door tells a locked-out person nothing
@@ -141,7 +146,7 @@ const CREDENTIALS: LoginFailure = {
   //     placeholder, ever).
   guidance:
     'Check for caps lock or a stray space. If you have forgotten it, use ' +
-    '"Forgot password?" below — we will email you a six-digit code and you ' +
+    '"Forgot password?" below — we will email you a code and you ' +
     'can set a new one yourself.',
   technical: null,
 };
@@ -229,8 +234,21 @@ export function classifyLoginError(err: unknown): LoginFailure {
 // ★ So there is no deep-link route here, no ConfirmationURL parsing, and
 //   nothing in this flow can be consumed by a machine reading the mailbox.
 
-/** ★ Six digits, because that is what `{{ .Token }}` emits. */
-export const RESET_CODE_LENGTH = 6;
+/**
+ * ★★★ fix-678 (P-357): NOT ONE LENGTH. fix-426 wrote "six digits, because that
+ *     is what `{{ .Token }}` emits" — but the length is a Supabase project
+ *     setting (Auth → Email OTP Length, 6–10). The project was emitting EIGHT,
+ *     so every welcome and reset code was refused here as "not a code" and 7
+ *     new people could not sign in. The screen now accepts the setting's whole
+ *     range, so no setting can lock anyone out again.
+ */
+export { CODE_MIN_DIGITS, CODE_MAX_DIGITS };
+
+/** The range in words — "6 to 10". */
+export const CODE_LENGTH_WORDS = `${CODE_MIN_DIGITS} to ${CODE_MAX_DIGITS}`;
+
+/** ★ Room for the longest code plus the separators people paste in. */
+export const CODE_INPUT_MAX_LENGTH = CODE_MAX_DIGITS + 6;
 
 /**
  * ★★ The minimum, stated to the person BEFORE they type rather than after
@@ -255,15 +273,15 @@ export const PASSWORD_RULE = `At least ${PASSWORD_MIN_LENGTH} characters.`;
  * or password was wrong, applied to a box anybody can type into.
  */
 export const RESET_CODE_SENT_NOTICE =
-  'If that address has an account, a six-digit code is on its way. It can ' +
+  'If that address has an account, a code is on its way. It can ' +
   'take a minute, and it may land in spam. Enter it below with the new ' +
   'password you want.';
 
 const CODE_FORMAT: LoginFailure = {
   kind: 'code_format',
-  headline: `That doesn't look like a ${RESET_CODE_LENGTH}-digit code`,
+  headline: "That doesn't look like a code from the email",
   guidance:
-    `The code in the email is ${RESET_CODE_LENGTH} digits and nothing else. ` +
+    `The code in the email is ${CODE_LENGTH_WORDS} digits and nothing else. ` +
     'Check for a stray space or a missing digit and try again — you do not ' +
     'need a new code.',
   technical: null,
@@ -284,14 +302,14 @@ const CODE_FORMAT: LoginFailure = {
  * buttons make the distinction unnecessary.
  *
  * ★ The one case that IS separable is caught before the request ever leaves —
- *   see CODE_FORMAT. A code that is not six digits is definitely mistyped.
+ *   see CODE_FORMAT. A code outside 6–10 digits is definitely mistyped.
  */
 const CODE_REJECTED: LoginFailure = {
   kind: 'code_rejected',
   headline: "That code didn't work",
   guidance:
     'It may have a digit wrong, or it may have expired — codes are good for ' +
-    'about an hour. Check it against the email and try again, or send ' +
+    `${codeLifetimeWords()}. Check it against the email and try again, or send ` +
     'yourself a new one.',
   technical: null,
 };
@@ -307,13 +325,17 @@ export function validateNewPassword(password: string): LoginFailure | null {
   };
 }
 
-/** ★ Six digits exactly. Whitespace is forgiven because people paste. */
+/** ★ Spaces and dashes are forgiven because people paste ("0367 2175",
+ *  "0367-2175"). Leading zeros are kept — it is a string, never a number. */
 export function normaliseResetCode(raw: string): string {
-  return raw.replace(/\s+/g, '');
+  return raw.replace(/[\s\-\u2010-\u2015]+/g, '');
 }
 
+/** ★★ fix-678: 6 to 10 digits — every length Supabase can be set to emit. */
 export function isWellFormedResetCode(raw: string): boolean {
-  return new RegExp(`^[0-9]{${RESET_CODE_LENGTH}}$`).test(normaliseResetCode(raw));
+  return new RegExp(`^[0-9]{${CODE_MIN_DIGITS},${CODE_MAX_DIGITS}}$`).test(
+    normaliseResetCode(raw),
+  );
 }
 
 export function codeFormatFailure(): LoginFailure {
