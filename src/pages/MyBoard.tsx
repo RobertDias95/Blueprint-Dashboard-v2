@@ -38,6 +38,7 @@ import { useAutoClosures } from '../hooks/useAutoClosures';
 import { usePermitConditions } from '../hooks/usePermitConditions';
 import { useAuthStore } from '../stores/authStore';
 import DepartmentFilter from '../components/shared/DepartmentFilter';
+import { useDepartments } from '../hooks/useDepartments';
 import {
   loadBoardDepartments,
   namesInDepartments,
@@ -751,6 +752,8 @@ export default function MyBoard() {
   const projectsQ = useProjects();
   const tasksQ = useAllTasks();
   const team = useTeamMembers();
+  // ★ fix-670: the department list is a table now.
+  const departmentsQ = useDepartments();
   const holdsQ = useAllProjectHolds();
   // ★ fix-390: the permit-scoped siblings, one bulk fetch like its sibling.
   // ★ fix-409: shared with My Tasks — see hooks/useShowHeldWork.
@@ -1094,7 +1097,12 @@ export default function MyBoard() {
     () => loadBoardDepartments(viewerUserId),
     [viewerUserId],
   );
-  const departments = deptOverride ?? storedDepartments;
+  // ★ fix-670: narrowed to departments that exist (fix-660's no-invisible-
+  //   filter rule) — the stored list is parsed before the table loads.
+  const departments = useMemo(
+    () => (deptOverride ?? storedDepartments).filter((d) => departmentsQ.labels.has(d)),
+    [deptOverride, storedDepartments, departmentsQ.labels],
+  );
   function setDepartments(next: Department[]) {
     setDeptOverride(next);
     saveBoardDepartments(viewerUserId, next);
@@ -1486,6 +1494,7 @@ export default function MyBoard() {
                   onChange={setDepartments}
                   testid="board-filter-department"
                   size="xs"
+                  departments={departmentsQ.list}
                 />
                 {departments.length > 0 && queueScope.mode === 'mine' && (
                   <span

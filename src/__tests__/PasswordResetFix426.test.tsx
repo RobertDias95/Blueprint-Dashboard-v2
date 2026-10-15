@@ -3,6 +3,7 @@ import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import { MemoryRouter, Route, Routes, useLocation } from 'react-router-dom';
 import loginSrc from '../pages/Login.tsx?raw';
 import errorsSrc from '../lib/loginErrors.ts?raw';
+import welcomeLinkSrc from '../lib/welcomeLink.ts?raw';
 import {
   PASSWORD_MIN_LENGTH,
   RESET_CODE_LENGTH,
@@ -447,6 +448,12 @@ describe('fix-426 §F: a code, never a link', () => {
     //   redirectTo, because there is nothing to redirect to.
     expect(code).toMatch(/resetPasswordForEmail\(\s*resetEmail\.trim\(\)\s*\)/);
     expect(code).not.toMatch(/redirectTo/);
+    // ★ fix-670 §C: the welcome email's button opens `/login#welcome=<email>`.
+    //   That fragment carries an ADDRESS, never a token — the code still
+    //   arrives in the email and is typed — and it is read in lib/welcomeLink,
+    //   which this pins as token-free too.
+    const link = welcomeLinkSrc.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '');
+    expect(link).not.toMatch(/access_token|refresh_token|token_hash|ConfirmationURL/);
   });
 
   it('★★ the "no self-service password reset" copy is gone', () => {

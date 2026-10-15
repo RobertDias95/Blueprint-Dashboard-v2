@@ -33,6 +33,13 @@
 // read-only tier, so "Bridge access" is a two-way switch and this file refuses
 // anything else rather than letting the constraint refuse it later.
 
+import {
+  WELCOME_AREA_KEYS,
+  renderWelcomeEmail,
+  type WelcomeAreaKey,
+  type WelcomeEmail,
+} from './welcome.ts';
+
 // ---------------------------------------------------------------------------
 // Vocabulary — kept in step with src/lib/database.types.ts TeamRole by a test
 // ---------------------------------------------------------------------------
@@ -74,7 +81,26 @@ export interface AddPersonRequest {
   /** Printed verbatim as the job title when `role` is `viewer` (fix-343). */
   notes: string | null;
   bridge_role: BridgeRole;
+  /** ★ fix-670 §B: a `departments.key`. Required for a `viewer` — their
+   *  department IS their label — optional for everyone else. */
+  department?: string | null;
+  /** ★ fix-670 §C: send the welcome email instead of handing over a password.
+   *  When true, `password` is ignored and a random one nobody sees is set. */
+  send_welcome?: boolean;
+  /** What the welcome email needs from the client: the name plate it previewed
+   *  and the areas `lib/ribbonNav` says this person can open. */
+  welcome?: WelcomeRequest | null;
 }
+
+export interface WelcomeRequest {
+  plate: string;
+  areas: WelcomeAreaKey[];
+}
+
+/** ★ fix-670 §C: the outcome of the welcome email, reported beside the login.
+ *  A failed send never undoes the login — it is reported, with a reason, so the
+ *  screen can offer Resend. `null` when no email was asked for. */
+export type WelcomeOutcome = { sent: true } | { sent: false; error: string };
 
 export type AddPersonErrorCode =
   | 'unauthenticated'
@@ -111,6 +137,7 @@ export interface AddPersonSuccess {
   };
   profile: { role: BridgeRole; created_by: 'trigger' };
   membership: { role: BridgeRole; source: 'trigger' | 'function' };
+  welcome: WelcomeOutcome | null;
 }
 
 export type AddPersonResult = AddPersonSuccess | AddPersonFailure;
@@ -171,6 +198,31 @@ export interface Deps {
    *  which is exactly the non-@blueprintcap.com case the trigger skips. */
   ensureMembership(userId: string, tenantId: string, role: BridgeRole): Promise<boolean>;
   setProfileRole(userId: string, role: BridgeRole): Promise<void>;
+
+  // ★ fix-670 ---------------------------------------------------------------
+  /** Is `key` a row in `departments` for this tenant? */
+  departmentExists(tenantId: string, key: string): Promise<boolean>;
+  /** The caller's roster first name — "Bobby has set you up". profiles.name is
+   *  NULL for every login (fix-330), so this reads team_members by email. */
+  callerFirstName(userId: string, tenantId: string): Promise<string | null>;
+  /** A strong random password nobody will ever see (welcome path). */
+  randomPassword(): string;
+  /** A recovery code for an existing login, via admin `generateLink` — which
+   *  does NOT send Supabase's own email. */
+  recoveryCode(email: string): Promise<{ code: string } | { error: string }>;
+  /** Send through bridge@ (fix-628). Never throws for a send failure. */
+  sendWelcome(
+    to: string,
+    email: WelcomeEmail,
+  ): Promise<{ ok: true } | { ok: false; error: string }>;
+  /** One `email_outbox` row per attempt. Must not throw. */
+  recordOutbox(row: {
+    kind: string;
+    to_email: string;
+    subject: string;
+    status: 'sent' | 'failed';
+    error: string | null;
+  }): Promise<void>;
 }
 
 export interface RosterPatch {
@@ -178,6 +230,9 @@ export interface RosterPatch {
   first_name: string;
   last_name: string;
   notes: string | null;
+  /** ★ fix-670: only sent when the dialog picked one, so a reused row's
+   *  existing department is never blanked. */
+  department?: string;
 }
 
 export interface RosterInsert extends RosterPatch {
@@ -219,8 +274,11 @@ export function validateAddPerson(
   const email = (raw.email ?? '').trim();
   if (!EMAIL_RE.test(email)) return bad('That is not a valid email address.', 'email');
 
-  const password = raw.password ?? '';
-  if (password.length < MIN_PASSWORD_LENGTH) {
+  // ★ fix-670 §C: with the welcome email the person sets their own password,
+  //   so none is asked for here (a random one is set server-side).
+  const send_welcome = raw.send_welcome === true;
+  const password = send_welcome ? '' : raw.password ?? '';
+  if (!send_welcome && password.length < MIN_PASSWORD_LENGTH) {
     return bad(
       `The password needs at least ${MIN_PASSWORD_LENGTH} characters.`,
       'password',
@@ -245,6 +303,19 @@ export function validateAddPerson(
     return bad('Bridge access must be Editor or Admin.', 'bridge_role');
   }
 
+  // ★★ fix-670 §B: a viewer's department IS their label (fix-652: it wins on
+  //    the name plate), so a viewer must have one. Everyone else may leave it.
+  const department = (raw.department ?? '').trim() || null;
+  if (department !== null && !DEPARTMENT_KEY_RE.test(department)) {
+    return bad('That department is not on the list.', 'department');
+  }
+  if (role === 'viewer' && department === null) {
+    return bad(
+      "Pick a department — for someone who views, it's the label people see.",
+      'department',
+    );
+  }
+
   const notesRaw = (raw.notes ?? '').trim();
   return {
     ok: true,
@@ -257,8 +328,94 @@ export function validateAddPerson(
       role,
       notes: notesRaw === '' ? null : notesRaw,
       bridge_role,
+      department,
+      send_welcome,
+      welcome: send_welcome ? cleanWelcome(raw.welcome, first_name) : null,
     },
   };
+}
+
+/** The shape `departments.key` is constrained to (the migration's CHECK). */
+export const DEPARTMENT_KEY_RE = /^[a-z0-9]+(_[a-z0-9]+)*$/;
+
+/** ★ The plate is the client's preview; it is escaped when rendered, and
+ *  capped so a pasted essay cannot become an email. Areas are kept only when
+ *  they are keys this function has words for. */
+export function cleanWelcome(
+  raw: Partial<WelcomeRequest> | null | undefined,
+  firstName: string,
+): WelcomeRequest {
+  const plate = (raw?.plate ?? '').trim().slice(0, 120) || firstName;
+  const given: unknown[] = Array.isArray(raw?.areas) ? (raw?.areas as unknown[]) : [];
+  const areas = WELCOME_AREA_KEYS.filter((k) => given.includes(k));
+  return { plate, areas };
+}
+
+/** Mask a run of digits, exactly as graphMail.redactSubject does, so the
+ *  outbox CHECK (no 6-digit run) can never refuse a welcome row. */
+function redact(subject: string): string {
+  return subject.replace(/\d{4,}/g, (m) => '•'.repeat(m.length));
+}
+
+/**
+ * ★★★ fix-670 §C — SEND THE WELCOME EMAIL FOR A LOGIN THAT EXISTS.
+ *
+ * Shared by the create path and Resend. It NEVER throws: every failure becomes
+ * `{ sent: false, error }`, because by the time this runs the login exists and
+ * must stay existing — the screen offers Resend instead.
+ */
+export async function sendWelcomeFor(
+  deps: Deps,
+  args: {
+    callerId: string;
+    tenantId: string;
+    email: string;
+    first_name: string;
+    role: TeamRoleName;
+    welcome: WelcomeRequest;
+  },
+): Promise<WelcomeOutcome> {
+  let subject = `Welcome to the Bridge, ${args.first_name}`;
+  const record = (status: 'sent' | 'failed', error: string | null) =>
+    deps
+      .recordOutbox({
+        kind: 'welcome',
+        to_email: args.email,
+        subject: redact(subject),
+        status,
+        error,
+      })
+      .catch(() => {});
+  try {
+    const code = await deps.recoveryCode(args.email);
+    if ('error' in code) {
+      const error = `Could not make a sign-in code — ${code.error}`;
+      await record('failed', error);
+      return { sent: false, error };
+    }
+    const adder = await deps.callerFirstName(args.callerId, args.tenantId).catch(() => null);
+    const email = renderWelcomeEmail({
+      audience: args.role === 'viewer' ? 'viewer' : 'works',
+      firstName: args.first_name,
+      adderFirstName: adder,
+      plate: args.welcome.plate,
+      email: args.email,
+      code: code.code,
+      areas: args.welcome.areas,
+    });
+    subject = email.subject;
+    const res = await deps.sendWelcome(args.email, email);
+    if (res.ok) {
+      await record('sent', null);
+      return { sent: true };
+    }
+    await record('failed', res.error);
+    return { sent: false, error: res.error };
+  } catch (e) {
+    const error = e instanceof Error ? e.message : String(e);
+    await record('failed', error);
+    return { sent: false, error };
+  }
 }
 
 export type RosterAction =
@@ -377,6 +534,20 @@ export async function createPerson(
 
   // ★ Checked BEFORE the auth user exists, so the common "this name is already
   //   somebody else's" mistake never needs a rollback at all.
+  // ★ fix-670 §B: checked BEFORE the login exists, so a stale picker cannot
+  //   create a login and then have its roster row refused by the FK.
+  if (
+    input.department &&
+    !(await deps.departmentExists(tenantId, input.department))
+  ) {
+    return {
+      ok: false,
+      code: 'invalid',
+      field: 'department',
+      message: 'That department is no longer on the list. Pick another.',
+    };
+  }
+
   const existing = await deps.findRosterRows(input.name, input.email, tenantId);
   const action = resolveRosterAction(existing, input);
   if (action.kind === 'conflict') {
@@ -388,7 +559,10 @@ export async function createPerson(
     };
   }
 
-  const created = await deps.createAuthUser(input.email, input.password);
+  const created = await deps.createAuthUser(
+    input.email,
+    input.send_welcome ? deps.randomPassword() : input.password,
+  );
   if ('error' in created) {
     return {
       ok: false,
@@ -407,6 +581,7 @@ export async function createPerson(
       first_name: input.first_name,
       last_name: input.last_name,
       notes: input.notes,
+      ...(input.department ? { department: input.department } : {}),
     };
     let roster: AddPersonSuccess['roster'];
     if (action.kind === 'reuse') {
@@ -456,6 +631,20 @@ export async function createPerson(
       await deps.setProfileRole(userId, 'admin');
     }
 
+    // ★★ fix-670 §C: AFTER everything else succeeded, and outside the
+    //    rollback — a mail failure must never delete a good login.
+    const welcome =
+      input.send_welcome && input.welcome
+        ? await sendWelcomeFor(deps, {
+            callerId,
+            tenantId,
+            email: input.email,
+            first_name: input.first_name,
+            role: input.role,
+            welcome: input.welcome,
+          })
+        : null;
+
     return {
       ok: true,
       user_id: userId,
@@ -466,6 +655,7 @@ export async function createPerson(
         role: input.bridge_role,
         source: inserted ? 'function' : 'trigger',
       },
+      welcome,
     };
   } catch (e) {
     // ★★★ ROLLBACK. The login must not outlive the failure that stopped its
@@ -479,4 +669,92 @@ export async function createPerson(
       }`,
     };
   }
+}
+
+// ===========================================================================
+// ★★ fix-670 §C — RESEND, for a login that already exists
+// ===========================================================================
+//
+// The Add Person screen offers it when the first send failed. Same admin gate
+// as creating; and the address must belong to a roster row in the CALLER's
+// organization, so an admin cannot mail a sign-in code to another org's login.
+
+export interface ResendWelcomeRequest {
+  action: 'resend_welcome';
+  email: string;
+  first_name: string;
+  role: TeamRoleName;
+  welcome: WelcomeRequest;
+}
+
+export type ResendWelcomeResult = { ok: true; welcome: WelcomeOutcome } | AddPersonFailure;
+
+export async function resendWelcome(
+  deps: Deps,
+  jwt: string | null,
+  raw: Partial<ResendWelcomeRequest> | null,
+): Promise<ResendWelcomeResult> {
+  const signIn: AddPersonFailure = {
+    ok: false,
+    code: 'unauthenticated',
+    message: 'Please sign in again.',
+  };
+  if (!jwt) return signIn;
+  const callerId = await deps.callerId(jwt);
+  if (!callerId) return signIn;
+  const tenantId = await deps.callerTenantId(callerId);
+  if (!tenantId) {
+    return {
+      ok: false,
+      code: 'no_tenant',
+      message: 'Your own account is not attached to an organization.',
+    };
+  }
+  if ((await deps.membershipRole(callerId, tenantId)) !== 'admin') {
+    return {
+      ok: false,
+      code: 'not_admin',
+      message: 'You are not an admin, so you cannot send this.',
+    };
+  }
+  const email = (raw?.email ?? '').trim();
+  if (!EMAIL_RE.test(email)) {
+    return {
+      ok: false,
+      code: 'invalid',
+      field: 'email',
+      message: 'That is not a valid email address.',
+    };
+  }
+  const first_name = (raw?.first_name ?? '').trim();
+  if (first_name === '') {
+    return {
+      ok: false,
+      code: 'invalid',
+      field: 'first_name',
+      message: 'First name is required.',
+    };
+  }
+  const role = raw?.role as TeamRoleName;
+  if (!TEAM_ROLES.includes(role)) {
+    return { ok: false, code: 'invalid', field: 'role', message: 'Pick a roster role.' };
+  }
+  const rows = await deps.findRosterRows(first_name, email, tenantId);
+  if (!rows.some((r) => norm(r.email) === norm(email))) {
+    return {
+      ok: false,
+      code: 'invalid',
+      field: 'email',
+      message: 'Nobody on your roster has that sign-in email.',
+    };
+  }
+  const welcome = await sendWelcomeFor(deps, {
+    callerId,
+    tenantId,
+    email,
+    first_name,
+    role,
+    welcome: cleanWelcome(raw?.welcome, first_name),
+  });
+  return { ok: true, welcome };
 }

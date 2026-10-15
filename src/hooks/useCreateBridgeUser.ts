@@ -2,10 +2,14 @@ import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '../lib/supabase';
 import { queryKeys } from '../lib/queryKeys';
 import { addPersonNetworkMessage } from '../lib/addPerson';
+import { logError } from '../lib/errorLogger';
 import type {
   AddPersonRequest,
   AddPersonResult,
   AddPersonSuccess,
+  ResendWelcomeRequest,
+  ResendWelcomeResult,
+  WelcomeOutcome,
 } from '../../supabase/functions/admin-create-user/handler';
 
 // ===========================================================================
@@ -87,5 +91,47 @@ export function useCreateBridgeUser() {
       //   Bare prefix, the same key the realtime channel uses for this table.
       void queryClient.invalidateQueries({ queryKey: queryKeys.teamMembersAll });
     },
+  });
+}
+
+/**
+ * ★★ fix-670 §C — Resend the welcome email for a login that already exists.
+ *
+ * Same function, `action: 'resend_welcome'`. A send that fails comes back as
+ * `{ ok: true, welcome: { sent: false, error } }` — the call worked, the mail
+ * did not — so the screen can say which.
+ */
+export function useResendWelcome() {
+  return useMutation<
+    { ok: true; welcome: WelcomeOutcome },
+    Error,
+    Omit<ResendWelcomeRequest, 'action'>
+  >({
+    meta: { write: 'admin-create-user' },
+    mutationFn: async (input) => {
+      const { data, error } = await supabase.functions.invoke<ResendWelcomeResult>(
+        ADD_PERSON_FUNCTION,
+        { body: { action: 'resend_welcome', ...input } },
+      );
+      if (error) {
+        const parsed = await readFailureBody(error);
+        if (parsed) throw parsed;
+        throw new AddPersonError(addPersonNetworkMessage(error), 'unreachable');
+      }
+      if (!data) throw new AddPersonError(addPersonNetworkMessage(null), 'unreachable');
+      if (!data.ok) throw new AddPersonError(data.message, data.code, data.field);
+      return data;
+    },
+  });
+}
+
+/** ★ fix-604's rule for a failed send: it reaches Error Triage, named. The
+ *  login was created, so no mutation rejected — this files it explicitly. */
+export function reportWelcomeFailure(error: string): void {
+  void logError({
+    source: 'backend_rpc',
+    level: 'error',
+    message: `Welcome email did not send — ${error}`,
+    context: { write: 'admin-create-user', action: 'welcome_email' },
   });
 }

@@ -50,7 +50,7 @@ database queued".
 
 It is bundled into whatever imports it and is never deployed on its own. A fix
 there reaches production only when **every importing function is redeployed** —
-today `auth-send-email` and `notify-send`. See `_shared/README.md`.
+today `auth-send-email`, `notify-send` and (fix-670) `admin-create-user`. See `_shared/README.md`.
 
 ## How to re-read this page's facts
 

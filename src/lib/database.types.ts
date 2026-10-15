@@ -1485,7 +1485,7 @@ export interface TargetSubmitFormula {
  *  constraint, and — the one fix-464's STEP 0 turned up — the value list inside
  *  `bp_set_team_department`. Widening four of the five ships a picker that
  *  offers an option the writer rejects. */
-export type Department =
+export type KnownDepartment =
   | 'policy'
   | 'design_entitlements'
   | 'acquisitions'
@@ -1501,6 +1501,16 @@ export type Department =
   //   TITLE. "Construction" may read better. If he renames it, only
   //   DEPARTMENT_LABEL changes — this key is stable and holds the data.
   | 'construction_admin';
+
+/** ★★★ fix-670 (P-351): A DEPARTMENT IS NOW ANY ROW OF `public.departments`.
+ *  Bobby: *"i need to be able to add their departments, so their labels are
+ *  accurate to their roles in the company."* The list lives in the database
+ *  (Settings → Teams → Departments adds, renames and reorders it), and a
+ *  composite FK replaced the CHECK — so a key the app has never heard of is a
+ *  legitimate value and this type is a string. `KnownDepartment` above is the
+ *  seven that were seeded, kept for the offline/test fallback list
+ *  (`DEPARTMENTS` / `DEPARTMENT_LABEL`). No code branches on a specific one. */
+export type Department = string;
 
 export type TeamRole =
   | 'da'

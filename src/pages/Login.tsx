@@ -17,6 +17,7 @@ import {
   type LoginFailure,
 } from '../lib/loginErrors';
 import BridgeMark from '../components/BridgeMark';
+import { WELCOME_CODE_NOTICE, welcomeEmailFromLocation } from '../lib/welcomeLink';
 
 /** ★ The lockup on the card, in px of HEIGHT.
  *
@@ -106,12 +107,21 @@ export default function Login() {
 
   // ★ fix-426: the reset flow lives on this card rather than on a route of its
   //   own — there is no link to land on, so there is nothing to route to.
-  const [mode, setMode] = useState<'signin' | 'reset'>('signin');
-  const [resetStep, setResetStep] = useState<'request' | 'code'>('request');
-  const [resetEmail, setResetEmail] = useState('');
+  //
+  // ★★ fix-670 §C: the welcome email's button lands on `#welcome=<email>`, and
+  //    the email already carries the code — so the card opens straight at the
+  //    code step, address filled in. Read once, in the initialisers.
+  const [welcomeEmail] = useState(welcomeEmailFromLocation);
+  const [mode, setMode] = useState<'signin' | 'reset'>(welcomeEmail ? 'reset' : 'signin');
+  const [resetStep, setResetStep] = useState<'request' | 'code'>(
+    welcomeEmail ? 'code' : 'request',
+  );
+  const [resetEmail, setResetEmail] = useState(welcomeEmail ?? '');
   const [code, setCode] = useState('');
   const [newPassword, setNewPassword] = useState('');
-  const [notice, setNotice] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(
+    welcomeEmail ? WELCOME_CODE_NOTICE : null,
+  );
 
   // ★★★ THE TRAP THIS FLAG EXISTS FOR, and it is not obvious.
   //

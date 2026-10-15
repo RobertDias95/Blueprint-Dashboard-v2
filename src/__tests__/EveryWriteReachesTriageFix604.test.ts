@@ -380,7 +380,7 @@ describe('fix-604 §1 — every write mutation names what it writes', () => {
     }
   });
 
-  it('★★ the census covers the whole app: 124 mutations, 123 named, 1 listed', () => {
+  it('★★ the census covers the whole app: 128 mutations, 127 named, 1 listed', () => {
     // ★ Re-derived at d35ec2d, and pinned so a NEW hook cannot slip in without
     //   this number moving and someone noticing.
     // ★ fix-609: +1, `useAddTemplateTasks` (bp_add_template_tasks_to_permit) —
@@ -402,8 +402,11 @@ describe('fix-604 §1 — every write mutation names what it writes', () => {
     //    (`admin-change-sign-in-email`) — named. 119 → 120.
     // ⬆️ fix-670 ADDED the training guide's four writes — save, reorder,
     //    delete, media upload — all named. 120 → 124.
-    expect(all.length).toBe(124);
-    expect(named.length).toBe(123);
+    // ⬆️ fix-670 (P-351, a second ticket under the same number) ADDED
+    //    `useUpsertDepartment`, `useReorderDepartments`, `useDeleteDepartment`
+    //    and `useResendWelcome` (`admin-create-user`) — all named. 124 → 128.
+    expect(all.length).toBe(128);
+    expect(named.length).toBe(127);
     expect(listed.length).toBe(1);
     expect(named.length + listed.length).toBe(all.length);
   });

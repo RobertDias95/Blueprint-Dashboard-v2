@@ -121,6 +121,7 @@ import {
 } from '../lib/coAssignedContext';
 import ScopeToggle from '../components/shared/ScopeToggle';
 import DepartmentFilter from '../components/shared/DepartmentFilter';
+import { useDepartments } from '../hooks/useDepartments';
 import { parseDepartments, peopleInDepartments } from '../lib/departmentFilter';
 import type { Department } from '../lib/database.types';
 import { SkeletonRows } from '../components/Skeleton';
@@ -289,7 +290,7 @@ function loadFilters(): FilterState {
         : [],
       // ★ fix-660: whitelisted against the Settings list, so a stored key that
       //   is no longer a department cannot become an invisible filter.
-      departments: parseDepartments(parsed.departments),
+      departments: parseDepartments(parsed.departments, 'any-key'),
     };
   } catch {
     return DEFAULT_FILTERS;
@@ -881,9 +882,18 @@ function Body({
   //   this one value, so the switch reaches all of them without a second filter.
   // ★ fix-660: the people in the chosen departments, folded per person
   //   (lib/departmentFilter). null = no department filter.
+  // ★ fix-670: the saved filter is read before the department list loads, so
+  //   it is parsed permissively and narrowed HERE to departments that exist —
+  //   fix-660's rule (an unknown key is dropped, never an invisible filter)
+  //   holds, and a department added in Settings survives a reload.
+  const departmentLabels = useDepartments().labels;
+  const activeDepartments = useMemo(
+    () => filters.departments.filter((d) => departmentLabels.has(d)),
+    [filters.departments, departmentLabels],
+  );
   const departmentPeople = useMemo(
-    () => peopleInDepartments(members, filters.departments),
-    [members, filters.departments],
+    () => peopleInDepartments(members, activeDepartments),
+    [members, activeDepartments],
   );
   const filtered = useMemo(
     () =>
@@ -1372,6 +1382,8 @@ function FilterRow({
   /** ★ fix-460 §B5: roster for the team-task composer's owner picker. */
   composerMembers: readonly TeamMember[];
 }) {
+  // ★ fix-670: the department list is a table now.
+  const departmentsQ = useDepartments();
   // ★★★ fix-445 §B2 — HOW MANY PEOPLE FILTERS ARE HIDDEN BEHIND THE BUTTON.
   //
   // The four role dropdowns move inside a panel, so without this the row could
@@ -1454,9 +1466,10 @@ function FilterRow({
       {/* ★ fix-660 (census 23): beside People, not inside it — it is always
           visible, so it needs no badge to stay honest. */}
       <DepartmentFilter
-        selected={filters.departments}
+        selected={filters.departments.filter((d) => departmentsQ.labels.has(d))}
         onChange={(departments) => onPatch({ departments })}
         testid="mytasks-filter-department"
+        departments={departmentsQ.list}
       />
       {/* ★★★ fix-451 §B1 (P-099) — THE QUICK-ROLE CHIPS MOVED INTO "People".
           Bobby, 2026-08-30: *"vs 4 buttons floating that all are categorically

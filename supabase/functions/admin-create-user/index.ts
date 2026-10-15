@@ -2,11 +2,16 @@ import { createClient } from 'jsr:@supabase/supabase-js@2';
 import {
   ERROR_STATUS,
   createPerson,
+  resendWelcome,
   type AddPersonRequest,
   type BridgeRole,
   type Deps,
+  type ResendWelcomeRequest,
   type RosterRow,
 } from './handler.ts';
+// ★ fix-670 §C: the welcome email goes out through fix-628's sender, as bridge@.
+import { sendGraphMail, type GraphDeps } from '../_shared/graphMail.ts';
+import { ENV_CLIENT_SECRET } from '../_shared/msGraphConfig.ts';
 
 // ===========================================================================
 // ★★★ fix-436 — the FIRST Edge Function in this project
@@ -54,6 +59,23 @@ const SERVICE_ROLE_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? '';
 const admin = createClient(SUPABASE_URL, SERVICE_ROLE_KEY, {
   auth: { autoRefreshToken: false, persistSession: false },
 });
+
+const graphDeps: GraphDeps = {
+  fetch: (...args) => fetch(...args),
+  now: () => Date.now(),
+  clientSecret: Deno.env.get(ENV_CLIENT_SECRET) ?? undefined,
+};
+
+/** ★ 24 random bytes as base64url — a password nobody sees or types. The
+ *  person sets their own through the welcome code. */
+function randomPassword(): string {
+  const bytes = new Uint8Array(24);
+  crypto.getRandomValues(bytes);
+  return btoa(String.fromCharCode(...bytes))
+    .replace(/\+/g, '-')
+    .replace(/\//g, '_')
+    .replace(/=+$/, '');
+}
 
 const deps: Deps = {
   async callerId(jwt) {
@@ -182,6 +204,78 @@ const deps: Deps = {
     const { error } = await admin.from('profiles').update({ role }).eq('id', userId);
     if (error) throw new Error(error.message);
   },
+
+  // ★ fix-670 ---------------------------------------------------------------
+  async departmentExists(tenantId, key) {
+    const { data, error } = await admin
+      .from('departments')
+      .select('key')
+      .eq('tenant_id', tenantId)
+      .eq('key', key)
+      .maybeSingle();
+    if (error) throw new Error(error.message);
+    return !!data;
+  },
+
+  async callerFirstName(userId, tenantId) {
+    const { data: u } = await admin.auth.admin.getUserById(userId);
+    const email = u?.user?.email;
+    if (!email) return null;
+    const { data } = await admin
+      .from('team_members')
+      .select('first_name,name')
+      .eq('tenant_id', tenantId)
+      .ilike('email', email)
+      .limit(1);
+    const row = data?.[0] as { first_name: string | null; name: string } | undefined;
+    return (row?.first_name ?? '').trim() || (row?.name ?? '').trim() || null;
+  },
+
+  randomPassword,
+
+  async recoveryCode(email) {
+    // ★★ generateLink RETURNS the code and sends nothing — Supabase's own
+    //    recovery email (and the Send Email hook) is not involved.
+    const { data, error } = await admin.auth.admin.generateLink({
+      type: 'recovery',
+      email,
+    });
+    if (error) return { error: error.message };
+    const code = data?.properties?.email_otp;
+    if (!code) return { error: 'the auth server returned no code' };
+    return { code };
+  },
+
+  async sendWelcome(to, email) {
+    const res = await sendGraphMail(
+      graphDeps,
+      {
+        to,
+        subject: email.subject,
+        html: email.html,
+        text: email.text,
+        inlineImages: email.inlineImages,
+      },
+      crypto.randomUUID().slice(0, 12),
+    );
+    return res.ok ? { ok: true } : { ok: false, error: res.error };
+  },
+
+  async recordOutbox(row) {
+    // ★ Never fails the request: the email has already gone (or not) by now.
+    try {
+      const { error } = await admin.from('email_outbox').insert(row);
+      if (error) {
+        console.error(
+          `[admin-create-user] could not record ${row.kind} (${row.status}) in email_outbox: ${error.message}`,
+        );
+      }
+    } catch (e) {
+      console.error(
+        `[admin-create-user] could not record ${row.kind} (${row.status}) in email_outbox: ${(e as Error).message}`,
+      );
+    }
+  },
 };
 
 Deno.serve(async (req: Request) => {
@@ -202,7 +296,12 @@ Deno.serve(async (req: Request) => {
   }
 
   try {
-    const result = await createPerson(deps, jwt || null, body);
+    // ★ fix-670 §C: one function, two actions — creating, and resending the
+    //   welcome email for a login that already exists.
+    const result =
+      (body as { action?: string } | null)?.action === 'resend_welcome'
+        ? await resendWelcome(deps, jwt || null, body as Partial<ResendWelcomeRequest>)
+        : await createPerson(deps, jwt || null, body);
     return json(result, result.ok ? 200 : ERROR_STATUS[result.code]);
   } catch (e) {
     // ★ A thrown error before the auth user exists (a bad profiles read, say)

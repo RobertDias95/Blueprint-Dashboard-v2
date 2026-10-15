@@ -1,4 +1,4 @@
-import type { TeamRole, Department } from './database.types';
+import type { TeamRole, Department, KnownDepartment } from './database.types';
 
 // ===========================================================================
 // fix-343 — job titles, not database keys
@@ -217,11 +217,12 @@ export function rosterRoleTitle(
   roles: readonly TeamRole[] | null | undefined,
   notes?: string | null,
   department?: Department | null,
+  labels?: DepartmentLabels,
 ): string | null {
   const held = primaryRoles(roles ?? []);
   if (held.length === 0) return null;
   if (held.length === 1 && held[0] === 'viewer') {
-    const dept = department ? DEPARTMENT_LABEL[department] : undefined;
+    const dept = department ? lookupDepartmentLabel(department, labels) : undefined;
     if (dept) return dept;
     const fn = (notes ?? '').trim();
     return fn === '' ? null : fn;
@@ -260,7 +261,7 @@ export function rosterRoleTitle(
 // say "director" and it can say "schematic", but it cannot say "director of
 // Policy". This can.
 
-export const DEPARTMENT_LABEL: Record<Department, string> = {
+export const DEPARTMENT_LABEL: Record<KnownDepartment, string> = {
   policy: 'Policy',
   // ★★★ fix-535: was "Design & Entitlements". **The KEY is untouched** —
   //     `design_entitlements` is on 29 of 51 roster rows (measured 2026-09-12)
@@ -283,7 +284,7 @@ export const DEPARTMENT_LABEL: Record<Department, string> = {
 /** The four, in the order Bobby listed them — which is the order the picker
  *  offers and the panel groups by. Not alphabetical: his order is the one he
  *  will scan for. */
-export const DEPARTMENTS: readonly Department[] = [
+export const DEPARTMENTS: readonly KnownDepartment[] = [
   'policy',
   'design_entitlements',
   'acquisitions',
@@ -307,6 +308,24 @@ export const DEPARTMENTS: readonly Department[] = [
  *  as the work it is. */
 export const NO_DEPARTMENT_LABEL = 'No department';
 
-export function departmentLabel(d: Department | null | undefined): string {
-  return d ? DEPARTMENT_LABEL[d] : NO_DEPARTMENT_LABEL;
+/** ★ fix-670: a department's words. `labels` is the live list from
+ *  `useDepartments` (the `departments` table); the built-in seven are the
+ *  fallback, and an unknown key prints as itself rather than as nothing. */
+export type DepartmentLabels = ReadonlyMap<string, string> | Readonly<Record<string, string>>;
+
+export function lookupDepartmentLabel(
+  d: Department,
+  labels?: DepartmentLabels,
+): string | undefined {
+  const live =
+    labels instanceof Map ? labels.get(d) : (labels as Record<string, string> | undefined)?.[d];
+  return live ?? (DEPARTMENT_LABEL as Record<string, string>)[d];
+}
+
+export function departmentLabel(
+  d: Department | null | undefined,
+  labels?: DepartmentLabels,
+): string {
+  if (!d) return NO_DEPARTMENT_LABEL;
+  return lookupDepartmentLabel(d, labels) ?? d;
 }

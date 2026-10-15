@@ -5,6 +5,7 @@ import { useAgendaMemberNames } from '../../hooks/useAgendaMember';
 import PersonDetailsDialog from './PersonDetailsDialog';
 import { ROLE_TITLE } from '../../lib/roleLabels';
 import { departmentLabel } from '../../lib/roleLabels';
+import { useDepartments } from '../../hooks/useDepartments';
 import {
   PEOPLE_ROLE_FILTERS,
   activePeople,
@@ -59,6 +60,8 @@ import type { TeamRole } from '../../lib/database.types';
 
 export default function PeopleTable({ readOnly }: { readOnly: boolean }) {
   const teamQ = useTeamMembers();
+  // ★ fix-670: department words come from the table.
+  const departmentLabels = useDepartments().labels;
   const upsert = useUpsertTeamMember();
   // ★ The agenda flag lives on the roster rows, but the panel that writes it
   //   reads this list — sharing it keeps the ✓ column and that panel agreeing.
@@ -225,7 +228,7 @@ export default function PeopleTable({ readOnly }: { readOnly: boolean }) {
                   )}
                 </td>
                 <td className="py-1.5 pr-3 text-muted" data-testid={`people-dept-${p.name}`}>
-                  {departmentLabel(p.department)}
+                  {departmentLabel(p.department, departmentLabels)}
                 </td>
                 <td className="py-1.5 text-center" data-testid={`people-agenda-${p.name}`}>
                   {agendaSet.has(p.name) || p.agenda ? (

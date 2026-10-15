@@ -14,6 +14,7 @@ import IntakeWarningModal from './IntakeWarning/IntakeWarningModal';
 import SaveFailureBanner from './SaveFailureBanner';
 import MissedScrapeBanner from './MissedScrapeBanner';
 import { rosterRoleTitle } from '../lib/roleLabels';
+import { useDepartments } from '../hooks/useDepartments';
 import { Avatar } from './ProjectDetail/ChatMessageBody';
 import {
   BRAND_LOCKUP_DROP,
@@ -67,6 +68,8 @@ import { restoreScrollFrom } from '../lib/previousOrigin';
 export default function Chrome() {
   const [wizardOpen, setWizardOpen] = useState(false);
   const { identity, userId } = useSelfScope();
+  // ★ fix-670: a viewer's plate is their department's words, from the table.
+  const departmentLabels = useDepartments().labels;
 
   // ★★ fix-369: MOUNTED ONCE, HERE. The shell is the only component that is
   // always present and never remounts on navigation, which is exactly what a
@@ -310,7 +313,7 @@ export default function Chrome() {
                   function — and the neutral line that was already the fallback
                   here covers that case rather than a placeholder. */}
               <div className="text-dim" style={{ fontSize: 10.5 }} data-testid="chrome-user-role">
-                {rosterRoleTitle(identity.roles, identity.notes, identity.department) ??
+                {rosterRoleTitle(identity.roles, identity.notes, identity.department, departmentLabels) ??
                   'Blueprint Services'}
               </div>
             </div>
