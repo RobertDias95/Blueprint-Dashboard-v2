@@ -203,7 +203,8 @@ describe('fix-642: the "Weekly Update" switch', () => {
   it('★★ ON by default: absence means on, and only enabled=false turns it off', () => {
     expect(preferencesFromRows([]).weekly).toBe(true);
     expect(preferencesFromRows([{ category: 'weekly', enabled: false }]))
-      .toEqual({ mention: true, assignment: true, weekly: false, resubmit: true });
+      // ★ fix-648: mention + assignment are opt-in now (off with no row).
+      .toEqual({ mention: false, assignment: false, weekly: false, resubmit: true });
   });
 
   it('★ Settings → My account → Email notifications shows a third switch, "Weekly Update", on', () => {

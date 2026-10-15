@@ -3,6 +3,7 @@ import {
   useSetNotificationPreference,
 } from '../../hooks/useNotificationPreferences';
 import {
+  DEFAULT_PREFERENCES,
   NOTIFICATION_CATEGORIES,
   NOTIFICATION_CATEGORY_COPY,
 } from '../../lib/notificationPreferences';
@@ -12,7 +13,9 @@ import {
 // ===========================================================================
 //
 // Four toggles (fix-642 added the Weekly Update, fix-646 the Resubmit-by
-// warnings), on by default. Emails come from bridge@ (not monitored).
+// warnings). ★ fix-648: Mentions and Task assignments are OFF unless the
+// person ticks them; the Weekly Update and Resubmit-by stay on by default.
+// Emails come from bridge@ (not monitored).
 
 export default function EmailNotificationsPanel() {
   const prefs = useNotificationPreferences();
@@ -29,7 +32,7 @@ export default function EmailNotificationsPanel() {
     );
   }
 
-  const current = prefs.data ?? { mention: true, assignment: true, weekly: true, resubmit: true };
+  const current = prefs.data ?? DEFAULT_PREFERENCES;
 
   return (
     <div className="space-y-3" data-testid="email-notifications">
