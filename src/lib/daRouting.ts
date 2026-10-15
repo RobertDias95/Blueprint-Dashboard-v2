@@ -266,7 +266,7 @@ export function removeRuleConsequence(
       ? `outside their ${remaining} jurisdiction rule${remaining === 1 ? '' : 's'}`
       : 'anywhere';
   return (
-    `${da} will have no routed entitlement lead ${scope}. ` +
+    `${da} will have no routed permitting lead ${scope}. ` +
     'The ENT cascade will leave their permits’ lead unset, and ' +
     `${da} cannot be picked as lead DA on a new project until a rule exists.`
   );

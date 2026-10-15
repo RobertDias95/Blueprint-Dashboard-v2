@@ -158,7 +158,7 @@ export interface MilestoneCounterparty {
   /** The person's name, or null when the permit has nobody in that seat. */
   name: string | null;
   /** What that seat is called — used when there is no name to print. */
-  role: 'design associate' | 'entitlement lead';
+  role: 'design associate' | 'permitting lead';
   /** ★ "Cam", or "the design associate" when the seat is empty. Never blank,
    *  and a name and a role can never disagree, because it is ONE string. */
   label: string;
@@ -171,7 +171,7 @@ export function milestoneCounterparty(
   leg: 'design' | 'entitlement',
   permit: { da?: string | null; ent_lead?: string | null },
 ): MilestoneCounterparty {
-  const role = leg === 'entitlement' ? 'design associate' : 'entitlement lead';
+  const role = leg === 'entitlement' ? 'design associate' : 'permitting lead';
   const raw = leg === 'entitlement' ? permit.da : permit.ent_lead;
   const name = (raw ?? '').trim() || null;
   return { name, role, label: name ?? `the ${role}` };
@@ -199,7 +199,7 @@ export function milestoneStateLabel(daysLate: number): MilestoneStateLabel {
 /**
  * Why is this row on YOUR list?
  *
- * ★ The answer is a role, not a sentence. "You are the entitlement lead" is
+ * ★ The answer is a role, not a sentence. "You are the permitting lead" is
  * what a person needs to know when a row they have never seen appears; a
  * paragraph is what fix-306 #22 removed.
  */

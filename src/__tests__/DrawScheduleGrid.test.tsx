@@ -1544,7 +1544,7 @@ describe('<DrawScheduleGrid /> fix-72 DA->DM cascade', () => {
       gapExists: false,
       gapDownstreamCount: 0,
     };
-    // p-now's BP currently has Entitlement Lead (ent_lead) = Miles.
+    // p-now's BP currently has Permitting Lead (ent_lead) = Miles.
     permitsData.current = [pnowBp('Miles')];
   });
 
@@ -1566,7 +1566,7 @@ describe('<DrawScheduleGrid /> fix-72 DA->DM cascade', () => {
     expect(cascadeEntLeadMutate).not.toHaveBeenCalled();
   });
 
-  it('"Update Entitlement Lead" moves AND cascades ent_lead for the project', async () => {
+  it('"Update Permitting Lead" moves AND cascades ent_lead for the project', async () => {
     projectedEntLead.current = 'Bri';
     renderGrid();
     dragPnowToFrancesca();
@@ -1578,7 +1578,7 @@ describe('<DrawScheduleGrid /> fix-72 DA->DM cascade', () => {
     });
   });
 
-  it('"Keep current Entitlement Lead" moves WITHOUT cascading', async () => {
+  it('"Keep current Permitting Lead" moves WITHOUT cascading', async () => {
     projectedEntLead.current = 'Bri';
     renderGrid();
     dragPnowToFrancesca();
@@ -1615,24 +1615,24 @@ describe('<DrawScheduleGrid /> fix-72 DA->DM cascade', () => {
     expect(cascadeEntLeadMutate).not.toHaveBeenCalled();
   });
 
-  it('fix-102: every visible string in the cascade modal labels the role as "Entitlement Lead" — never "DM"', async () => {
+  it('fix-102: every visible string in the cascade modal labels the role as "Permitting Lead" — never "DM"', async () => {
     // Regression for the fix-72 mislabel that surfaced in prod. The
     // cascade reads projects.entitlement_lead and runs through
     // da_team_routing — both ENT (Miles/Briana), not DM (Brittani/
     // Derry/Jade/Lindsay). Title + body + buttons must all say
-    // "Entitlement Lead"; no \bDM\b anywhere inside the modal.
+    // "Permitting Lead"; no \bDM\b anywhere inside the modal.
     projectedEntLead.current = 'Bri';
     renderGrid();
     dragPnowToFrancesca();
     const modal = await screen.findByTestId('ent-cascade-prompt');
     // Title + body + buttons all present + worded correctly.
-    expect(modal.textContent).toContain('Update Entitlement Lead as well?');
+    expect(modal.textContent).toContain('Update Permitting Lead as well?');
     expect(modal.textContent).toContain(
-      'would also change the Entitlement Lead from',
+      'would also change the Permitting Lead from',
     );
-    expect(modal.textContent).toContain('Apply the Entitlement Lead change?');
-    expect(modal.textContent).toContain('Keep current Entitlement Lead');
-    expect(modal.textContent).toContain('Update Entitlement Lead');
+    expect(modal.textContent).toContain('Apply the Permitting Lead change?');
+    expect(modal.textContent).toContain('Keep current Permitting Lead');
+    expect(modal.textContent).toContain('Update Permitting Lead');
     // No DM anywhere. \bDM\b matches the whole word "DM" but not e.g.
     // "DMA"; we're checking that the legacy role label is fully gone.
     expect(modal.textContent ?? '').not.toMatch(/\bDM\b/);

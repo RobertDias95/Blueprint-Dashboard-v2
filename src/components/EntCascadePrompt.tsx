@@ -19,9 +19,9 @@ interface Props {
   movedAddress: string;
   /** The DA the project is being moved to. */
   newDa: string;
-  /** Current Entitlement Lead (ent_lead) on the project's BP, or null. */
+  /** Current Permitting Lead (ent_lead) on the project's BP, or null. */
   fromLead: string | null;
-  /** Routed Entitlement Lead the move would imply. */
+  /** Routed Permitting Lead the move would imply. */
   toLead: string;
   pending: boolean;
   onUpdateEntLead: () => void;
@@ -53,7 +53,7 @@ export default function EntCascadePrompt({
       >
         <div className="space-y-1">
           <div className="text-sm font-display font-bold text-text">
-            Update Entitlement Lead as well?
+            Update Permitting Lead as well?
           </div>
           <div
             className="text-[11px] text-muted"
@@ -62,12 +62,12 @@ export default function EntCascadePrompt({
             Moving{' '}
             <span className="font-semibold text-text">{movedAddress}</span> to{' '}
             <span className="font-semibold text-text">{newDa}</span> would also
-            change the Entitlement Lead from{' '}
+            change the Permitting Lead from{' '}
             <span className="font-semibold text-text">
               {fromLead ?? '—'}
             </span>{' '}
             to <span className="font-semibold text-text">{toLead}</span> based
-            on the team routing. Apply the Entitlement Lead change?
+            on the team routing. Apply the Permitting Lead change?
           </div>
         </div>
 
@@ -88,7 +88,7 @@ export default function EntCascadePrompt({
             className="text-xs px-3 py-1.5 rounded-md border border-border bg-bg hover:bg-s2 transition font-display disabled:opacity-50 disabled:cursor-not-allowed"
             data-testid="ent-cascade-prompt-keep"
           >
-            Keep current Entitlement Lead
+            Keep current Permitting Lead
           </button>
           <button
             type="button"
@@ -97,7 +97,7 @@ export default function EntCascadePrompt({
             className="text-xs px-3 py-1.5 rounded-md bg-de text-white font-display font-bold hover:opacity-90 transition disabled:opacity-50 disabled:cursor-not-allowed"
             data-testid="ent-cascade-prompt-update"
           >
-            Update Entitlement Lead
+            Update Permitting Lead
           </button>
         </div>
       </div>

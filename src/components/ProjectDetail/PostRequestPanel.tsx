@@ -53,7 +53,7 @@ export function RequestPostForm({
       </div>
       <p className="text-[10.5px] text-dim leading-relaxed">
         Posts are opened by admins. This asks the oversight team and this
-        project&apos;s entitlement lead to open one — whoever gets to it first.
+        project&apos;s permitting lead to open one — whoever gets to it first.
       </p>
       <input
         type="text"

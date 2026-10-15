@@ -147,7 +147,7 @@ describe('fix-457 §A4 — the confirm names the TRUE consequence', () => {
   it('★★★ removing a DEFAULT never claims a fallback to Miles', () => {
     const msg = removeRuleConsequence('Ainsley', null, ainsley);
     expect(msg).not.toMatch(/Miles/);
-    expect(msg).toMatch(/no routed entitlement lead/);
+    expect(msg).toMatch(/no routed permitting lead/);
     expect(msg).toMatch(/anywhere/);
     // The two things that actually happen, both verified against prod SQL.
     expect(msg).toMatch(/cascade will leave/i);
@@ -273,7 +273,7 @@ describe('fix-457 §A1/A3 — the panel', () => {
     fireEvent.click(screen.getByTestId('da-routing-remove-1'));
 
     const confirm = screen.getByTestId('da-routing-confirm-1');
-    expect(confirm.textContent).toMatch(/no routed entitlement lead/);
+    expect(confirm.textContent).toMatch(/no routed permitting lead/);
     expect(confirm.textContent).not.toMatch(/Miles/); // ★ no invented fallback
     expect(state.del).not.toHaveBeenCalled();
 
