@@ -64,6 +64,11 @@ import {
 //     Tabs read Guide · Latest · Browse; the Guide tab exists only when a
 //     section does. The one search box searches both (guide hits first).
 //
+// ★★★ fix-673 (P-355): the Guide got its OWN search box (guide only, inside
+//     its role filter), so on the Guide tab the top box is not drawn — one box
+//     per view, never two doing the same job. On Latest and Browse it is
+//     exactly as fix-670 left it, "In the guide" group included.
+//
 // ★★ fix-350's rules still bind: no modal on arrival, no tour, no banner. The
 //    detail panel opens only because the reader clicked a card.
 //
@@ -196,9 +201,10 @@ export default function WhatsNew() {
   // ★★ fix-670 §D.8: opening the GUIDE does not mark What's New read. The
   //    clear-on-leave above is for the cards you were shown; if you never left
   //    the Guide, you were shown none.
+  //    (fix-673: the Guide's own search finds chapters, never cards.)
   useEffect(() => {
-    if (tab !== 'guide' || query.trim().length >= 2) sawCards.current = true;
-  }, [tab, query]);
+    if (tab !== 'guide') sawCards.current = true;
+  }, [tab]);
 
   const byId = useMemo(() => new Map(entries.map((e) => [e.id, e])), [entries]);
   // ★ Search results, in rank order, filtered by kind and (in Browse, inside an
@@ -237,7 +243,9 @@ export default function WhatsNew() {
     onEdit: () => setEditing(e),
   });
 
-  const searching = hits !== null;
+  // ★★ fix-673: the top box does not exist on the Guide tab, so whatever it
+  //    held on another tab does not search here.
+  const searching = hits !== null && tab !== 'guide';
   // ★★ fix-670 §E: the guide half of the one search box. Its own failure
   //    hides only its own group — the cards still render.
   const guideHits = searching && !guideSearch.isError ? guideSearch.data ?? [] : [];
@@ -269,26 +277,29 @@ export default function WhatsNew() {
       </div>
 
       {/* ★★ fix-657: the search box on top — "if someone wants to know how to do
-          something … they can search for it in here". */}
-      <div className="relative mb-2 flex-none">
-        <input
-          type="search"
-          value={query}
-          onChange={(e) => setQuery(e.target.value)}
-          placeholder="Search — e.g. “email a plan”, “resubmittal deadline”, “drone video”"
-          className="w-full px-3 py-1.5 text-[12px] border border-border rounded-md bg-surface text-text outline-none focus:border-de"
-          data-testid="whats-new-search"
-          aria-label="Search What's New"
-        />
-        {search.active && search.pending && (
-          <span
-            className="absolute right-3 top-1/2 -translate-y-1/2 text-[10px] text-dim"
-            data-testid="whats-new-searching"
-          >
-            searching…
-          </span>
-        )}
-      </div>
+          something … they can search for it in here". ★★ fix-673: not on the
+          Guide tab, which has its own. */}
+      {tab !== 'guide' && (
+        <div className="relative mb-2 flex-none">
+          <input
+            type="search"
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            placeholder="Search — e.g. “email a plan”, “resubmittal deadline”, “drone video”"
+            className="w-full px-3 py-1.5 text-[12px] border border-border rounded-md bg-surface text-text outline-none focus:border-de"
+            data-testid="whats-new-search"
+            aria-label="Search What's New"
+          />
+          {search.active && search.pending && (
+            <span
+              className="absolute right-3 top-1/2 -translate-y-1/2 text-[10px] text-dim"
+              data-testid="whats-new-searching"
+            >
+              searching…
+            </span>
+          )}
+        </div>
+      )}
 
       {/* ★ fix-485: the ONE tab strip — Latest and Browse are tabs, the kinds
           are chips. */}
@@ -309,7 +320,7 @@ export default function WhatsNew() {
       />
 
       {/* ★ fix-670: the kind chips filter CARDS — the Guide has none. */}
-      {(tab !== 'guide' || searching) && (
+      {tab !== 'guide' && (
         <div className="flex items-center gap-3 mb-2 flex-none flex-wrap">
           {/* ★ Chips rather than tabs, so the whole vocabulary is visible. */}
           <div className="flex items-center gap-1.5" data-testid="whats-new-filters">
@@ -422,7 +433,6 @@ export default function WhatsNew() {
             isAdmin={isAdmin}
             entries={entries}
             focusSlug={focusSlug}
-            onFocusSlug={(slug) => selectTab('guide', slug)}
             onOpenCard={openCard}
           />
         ) : showTiles ? (
