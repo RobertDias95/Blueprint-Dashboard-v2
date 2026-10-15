@@ -1,0 +1,1231 @@
+{
+ "parts": {
+  "1": "Start here",
+  "2": "How a project moves",
+  "3": "Your role",
+  "4": "The screens",
+  "5": "Words we use"
+ },
+ "sections": [
+  {
+   "part": 1,
+   "slug": "welcome",
+   "title": "Welcome to the Bridge",
+   "summary": "What the Bridge is, how this guide works, and which chapter is yours.",
+   "audience": [
+    "everyone"
+   ],
+   "show_me": null,
+   "blocks": [
+    {
+     "t": "p",
+     "text": "The Bridge is where every Blueprint project lives from the day Acquisitions commits to it until its last permit is issued. It keeps the project's dates, permits, team, drawings, tasks and conversation together. It also **watches the city portals for you**, so nobody has to refresh one to find out what changed."
+    },
+    {
+     "t": "p",
+     "text": "Read this guide from top to bottom once. After that, use it like a manual: the search box at the top of this page searches the guide and every tip in What's New at the same time."
+    },
+    {
+     "t": "callout",
+     "tone": "note",
+     "title": "How the guide is laid out",
+     "text": "**Part 1** is for everyone. **Part 2** follows one project from start to finish. **Part 3** has a chapter for each department: what you own and the order you do it in. **Part 4** points to each screen's tips. **Part 5** explains the words we use."
+    },
+    {
+     "t": "table",
+     "head": [
+      "If your job is…",
+      "Read this chapter"
+     ],
+     "rows": [
+      [
+       "Permitting Manager or Permitting (Bobby, Miles, Briana)",
+       "Permitting"
+      ],
+      [
+       "Director, Design Manager, Schematic Design or Design Associate",
+       "Design"
+      ],
+      [
+       "Acquisitions or Acquisitions Lead",
+       "Acquisitions"
+      ],
+      [
+       "Construction Admin",
+       "Construction Admin"
+      ],
+      [
+       "Executive, Underwriting, Policy, Investor Relations or anyone who mainly reads",
+       "Leadership & viewers"
+      ]
+     ]
+    },
+    {
+     "t": "p",
+     "text": "Your chapter is marked **Your chapter** in the contents. The Bridge works it out from your role in Settings → People."
+    },
+    {
+     "t": "callout",
+     "tone": "rule",
+     "title": "The one idea behind everything",
+     "text": "Every step in this guide is tagged **THE BRIDGE** or **YOU**. THE BRIDGE means it happens by itself: the city publishes it, or the Bridge works it out from something already entered. YOU means it only happens because a person decided it. Learn which half of the job is already done for you and the rest of the tool makes sense."
+    }
+   ],
+   "sort_order": 10
+  },
+  {
+   "part": 1,
+   "slug": "two-rules",
+   "title": "The two rules",
+   "summary": "Almost every question in your first month is answered by one of these.",
+   "audience": [
+    "everyone"
+   ],
+   "show_me": null,
+   "blocks": [
+    {
+     "t": "callout",
+     "tone": "rule",
+     "title": "Rule one — what the city publishes, the Bridge keeps; what you type, the Bridge respects",
+     "text": "A permit's **status, reviewers, approval date and issue date** come from the city, and the Bridge updates them every time it checks the portal. Don't type over them. If one looks wrong, click the permit number to open the city's page. If the city agrees, the Bridge is right. For dates a person owns, like intake, target dates and the ACQ date, the Bridge **only ever fills a blank**. It never overwrites something a person typed."
+    },
+    {
+     "t": "callout",
+     "tone": "rule",
+     "title": "Rule two — a blank means the Bridge is waiting on a person",
+     "text": "Empty fields are on purpose. The Bridge could guess a date, and it refuses, because a plausible wrong date does more damage than an obvious missing one. When you see a gap, don't ask \"is this broken?\" Ask \"whose answer is missing?\""
+    },
+    {
+     "t": "p",
+     "text": "The exception: permits marked **Not tracked — update manually** belong to cities the Bridge can't read. You enter their dates yourself."
+    },
+    {
+     "t": "cards",
+     "titles": [
+      "Permit numbers link to the city portal"
+     ]
+    }
+   ],
+   "sort_order": 20
+  },
+  {
+   "part": 1,
+   "slug": "getting-around",
+   "title": "Getting around",
+   "summary": "The ribbon, search, the back button, notifications — the habits that save time everywhere.",
+   "audience": [
+    "everyone"
+   ],
+   "show_me": null,
+   "blocks": [
+    {
+     "t": "p",
+     "text": "The **ribbon** down the left is how you move around. Click its edge to shrink it to icons; it remembers. What you see in it depends on your access:"
+    },
+    {
+     "t": "table",
+     "head": [
+      "Ribbon entry",
+      "What it's for",
+      "Who sees it"
+     ],
+     "rows": [
+      [
+       "＋ Add a Project",
+       "Starts the new-project wizard",
+       "Everyone (Permitting runs it)"
+      ],
+      [
+       "Projects",
+       "Every project as a board in four columns: Design & Engineering, Permitting, Approved, Issued",
+       "Everyone"
+      ],
+      [
+       "Draw Schedule",
+       "Design's calendar: who is drawing what, week by week",
+       "Everyone (moving blocks needs Draw Schedule access)"
+      ],
+      [
+       "My Board",
+       "Your work: My Board, My Tasks and Notifications tabs",
+       "Everyone"
+      ],
+      [
+       "Library",
+       "Every project's site and unit facts, side by side, with filters",
+       "Everyone"
+      ],
+      [
+       "Reports",
+       "Project View for everyone; Overview, Saved reports for admins; Agenda for the weekly meeting",
+       "Varies"
+      ],
+      [
+       "D&E Studio and city folders",
+       "Links out to SharePoint and the city folders",
+       "Everyone"
+      ],
+      [
+       "What's New",
+       "This guide, plus every tip and change",
+       "Everyone"
+      ],
+      [
+       "Settings",
+       "My account for everyone; the rest is for admins",
+       "Everyone / admins"
+      ],
+      [
+       "Error triage",
+       "What broke and whether notifications arrived",
+       "Admins"
+      ]
+     ]
+    },
+    {
+     "t": "step",
+     "who": "you",
+     "title": "Search by anything you know",
+     "text": "Every search box finds a project by its address, by a permit's structure address, or by a permit number. A whole number (7110427-CN), the digits alone (7110427) or the first few digits (71104) all work.",
+     "show_me": "/dashboard",
+     "media": null
+    },
+    {
+     "t": "step",
+     "who": "tool",
+     "title": "The back button knows where you came from",
+     "text": "Open a project and the top-left button reads \"← Projects\", \"← My Board\" or \"← Library\". It takes you back with your tab and filters exactly as you left them. Filters on Projects and the Library stay set until you close the browser tab.",
+     "show_me": null,
+     "media": null
+    },
+    {
+     "t": "step",
+     "who": "tool",
+     "title": "The bell counts what's new, not what's undone",
+     "text": "The bell counts notifications you haven't seen. Reading one never ticks off a task, and clearing the bell doesn't clear your list. Your work lives in My Tasks.",
+     "show_me": "/notifications",
+     "media": null
+    },
+    {
+     "t": "step",
+     "who": "you",
+     "title": "Install the Bridge as an app",
+     "text": "In Chrome, click the small monitor icon at the right of the address bar and choose Install. You get a window of its own, banners, sounds and a count on the taskbar.",
+     "show_me": null,
+     "media": null
+    },
+    {
+     "t": "step",
+     "who": "tool",
+     "title": "If a save fails, it tells you",
+     "text": "A banner appears with **Check what saved**. Click it before you type anything again. If a message says someone else changed the record since you opened it, they really did: refresh first. A field you can't edit is greyed out, and the message names who to ask.",
+     "show_me": null,
+     "media": null
+    },
+    {
+     "t": "step",
+     "who": "tool",
+     "title": "It keeps itself up to date",
+     "text": "After 30 minutes or more away, the Bridge switches to its newest version when you come back. It never does this while you're typing.",
+     "show_me": null,
+     "media": null
+    },
+    {
+     "t": "step",
+     "who": "you",
+     "title": "If you can't sign in",
+     "text": "The login screen lists what to try, in order: a hard refresh (Ctrl+Shift+R), then an incognito window, then your phone's mobile data. A quick background refresh of your session doesn't sign you out, and when you do sign in again you land back where you were.",
+     "show_me": null,
+     "media": null
+    },
+    {
+     "t": "cards",
+     "titles": [
+      "The Bridge is now an app you can install",
+      "Search by permit number anywhere",
+      "A save that fails now tells you",
+      "The Bridge keeps itself up to date"
+     ]
+    }
+   ],
+   "sort_order": 30
+  },
+  {
+   "part": 2,
+   "slug": "lifecycle-overview",
+   "title": "The journey at a glance",
+   "summary": "Six stages from GO to issued, and who moves each one.",
+   "audience": [
+    "everyone"
+   ],
+   "show_me": "/dashboard",
+   "blocks": [
+    {
+     "t": "p",
+     "text": "A project takes months to get from start to finish, so nobody sees the whole journey in one sitting. That's why it's worth reading laid out once. The **Projects** board shows the same journey as columns. A project sits in the column of the permit that is furthest behind."
+    },
+    {
+     "t": "table",
+     "head": [
+      "Stage",
+      "Projects board column",
+      "Who moves it"
+     ],
+     "rows": [
+      [
+       "1 · Created",
+       "Design & Engineering",
+       "Permitting runs the new-project wizard"
+      ],
+      [
+       "2 · Design & Engineering",
+       "Design & Engineering",
+       "Design draws; Permitting lines up consultants and forms"
+      ],
+      [
+       "3 · Intake & submittal",
+       "Permitting",
+       "Permitting submits; the city accepts"
+      ],
+      [
+       "4 · Review & corrections",
+       "Permitting",
+       "The city reviews; Permitting and Design answer"
+      ],
+      [
+       "5 · Approved",
+       "Approved",
+       "The city approves; Permitting pays and clears what's left"
+      ],
+      [
+       "6 · Issued",
+       "Issued",
+       "The city issues; the Bridge closes it out"
+      ]
+     ]
+    },
+    {
+     "t": "p",
+     "text": "Each project card on the board shows small count chips for where its other permits are, like **Perm 1** or **Iss 3**. Click a chip to jump to those permits: the Bridge opens that column (even a folded one) and highlights the project."
+    },
+    {
+     "t": "cards",
+     "titles": [
+      "New names: Projects, Design and Permitting",
+      "Finished projects are back on the Projects board"
+     ]
+    }
+   ],
+   "sort_order": 40
+  },
+  {
+   "part": 2,
+   "slug": "stage-created",
+   "title": "1 · The project is created",
+   "summary": "The new-project wizard: what you enter on day one, and what the Bridge fills in.",
+   "audience": [
+    "everyone",
+    "permitting",
+    "acquisitions"
+   ],
+   "show_me": "/projects",
+   "blocks": [
+    {
+     "t": "p",
+     "text": "A project enters the Bridge once Acquisitions has committed to it. Permitting clicks **＋ Add a Project** at the top of the ribbon. The wizard has four steps: **Project Info → Questionnaire → Permits → Task Review**."
+    },
+    {
+     "t": "step",
+     "who": "you",
+     "title": "Project Info",
+     "text": "Address, city, builder and owner, GO date, closing date, zone, units and the team. Pick the builder from the list; typing a new name creates a new builder. If the address looks like an existing project, the wizard warns you and links to it.",
+     "show_me": null,
+     "media": null
+    },
+    {
+     "t": "step",
+     "who": "you",
+     "title": "Questionnaire",
+     "text": "Tick the permits this project needs. A small percentage beside each one shows how often that permit was needed in this city, as a nudge, not a rule.",
+     "show_me": null,
+     "media": null
+    },
+    {
+     "t": "step",
+     "who": "you",
+     "title": "Permits and Task Review",
+     "text": "Check each permit's dates and owners, then review the tasks the Bridge is about to create. Untick any that don't apply.",
+     "show_me": null,
+     "media": null
+    },
+    {
+     "t": "step",
+     "who": "tool",
+     "title": "The opening chat posts",
+     "text": "Every new project's chat starts with **ACQ Questions, Preliminary Assessment, Design Phase and CR 1**, so each conversation has a place to go.",
+     "show_me": null,
+     "media": null
+    },
+    {
+     "t": "step",
+     "who": "tool",
+     "title": "The design manager",
+     "text": "A permit's Design Manager comes from its Design Associate. Set the DA and the DM fills in, so the two can never disagree.",
+     "show_me": null,
+     "media": null
+    },
+    {
+     "t": "step",
+     "who": "tool",
+     "title": "Default owners",
+     "text": "Permitting owns a permit's work unless it has design tasks. Construction Admin defaults to Steve on every new project.",
+     "show_me": null,
+     "media": null
+    },
+    {
+     "t": "step",
+     "who": "tool",
+     "title": "Target dates",
+     "text": "Target submit and the ACQ date are seeded from the GO date and the permit type, using the numbers in **Settings → Dates & targets**. **Target Approval** is the latest of the ACQ date, the closing date and GO + 6 months.",
+     "show_me": null,
+     "media": null
+    },
+    {
+     "t": "callout",
+     "tone": "warn",
+     "title": "Why this stage deserves patience",
+     "text": "Everything after this reads from what's entered here. The Library filters on the zone, reports group by builder, and the Draw Schedule places the project by its dates. A rushed wizard shows up for months in places nobody traces back to it."
+    },
+    {
+     "t": "callout",
+     "tone": "note",
+     "title": "Clicking outside the wizard does nothing",
+     "text": "That's on purpose, so a stray click never throws your typing away. Use the wizard's own buttons to leave."
+    },
+    {
+     "t": "cards",
+     "titles": [
+      "Builders link properly in the new-project wizard",
+      "Template tasks for permits added later"
+     ]
+    }
+   ],
+   "sort_order": 50
+  },
+  {
+   "part": 2,
+   "slug": "stage-design",
+   "title": "2 · Design & Engineering",
+   "summary": "The project is drawn. The Draw Schedule is the plan everything else hangs from.",
+   "audience": [
+    "everyone",
+    "design",
+    "permitting"
+   ],
+   "show_me": "/draw-schedule",
+   "blocks": [
+    {
+     "t": "p",
+     "text": "The Design team draws the project. Its block on the **Draw Schedule** shows which Design Associate has it and what phase it's in. The block's dates set the commitment the rest of the schedule depends on."
+    },
+    {
+     "t": "step",
+     "who": "you",
+     "title": "The block and its phase",
+     "text": "Admins and people with Draw Schedule access place the block and set its phase: **Scheduled, Schematic, DD / Permit Set or Pending Consultants**. Those four are the only phases a person chooses.",
+     "show_me": null,
+     "media": null
+    },
+    {
+     "t": "step",
+     "who": "tool",
+     "title": "Dates follow the block",
+     "text": "Move a block and the open permits' dates move with it, including the Building Permit's target submit. That's why a schedule change is made by moving the block, not by editing dates one by one. Approved and issued permits keep their dates.",
+     "show_me": null,
+     "media": null
+    },
+    {
+     "t": "step",
+     "who": "you",
+     "title": "Design tasks",
+     "text": "Schematic Design draws the schematic. The Design Associate works through the set: DD Progress Set, Builder Approval, Transmit to Consultants, Permit Progress Set, Building Intake Set, Marketing Package.",
+     "show_me": null,
+     "media": null
+    },
+    {
+     "t": "step",
+     "who": "you",
+     "title": "Consultants and forms",
+     "text": "Permitting lines up civil, surveyor, arborist, geotech and the city's forms, and records them on the project's Consultants tab as each one is engaged.",
+     "show_me": null,
+     "media": null
+    },
+    {
+     "t": "step",
+     "who": "tool",
+     "title": "The Plan of Record",
+     "text": "The Bridge reads the project's server folder and shows the current drawing in the Plan of Record box, with **Site Plan** and **Marketing** buttons to switch between them. Name and file sets to the Design housekeeping standard and the right drawing shows up by itself.",
+     "show_me": null,
+     "media": null
+    },
+    {
+     "t": "cards",
+     "titles": [
+      "The Draw Schedule protects finished work",
+      "Plan of Record buttons switch the drawing"
+     ]
+    }
+   ],
+   "sort_order": 60
+  },
+  {
+   "part": 2,
+   "slug": "stage-intake",
+   "title": "3 · Intake and submittal",
+   "summary": "The set goes to the city — the last moment we control the clock.",
+   "audience": [
+    "everyone",
+    "permitting"
+   ],
+   "show_me": null,
+   "blocks": [
+    {
+     "t": "step",
+     "who": "you",
+     "title": "Book and submit",
+     "text": "Permitting books the intake (Seattle intakes are slots booked months ahead), reviews the intake plans and submits. Where the city issues the permit number after submittal, add it to the permit in Project Details.",
+     "show_me": null,
+     "media": null
+    },
+    {
+     "t": "step",
+     "who": "tool",
+     "title": "Intake accepted",
+     "text": "The Bridge reads the intake-accepted date from the city wherever the portal publishes it: Seattle, Kirkland, Bellevue, Edmonds, Bothell and Redmond. It fills only a blank and never overwrites a date someone typed. For Phoenix and Scottsdale, which the Bridge doesn't track, type it yourself.",
+     "show_me": null,
+     "media": null
+    },
+    {
+     "t": "step",
+     "who": "tool",
+     "title": "Target intake becomes Accepted intake",
+     "text": "On the project's Dates, **Target intake** is the date booked or expected. It changes to **Accepted intake** only once the city has actually accepted it.",
+     "show_me": null,
+     "media": null
+    },
+    {
+     "t": "step",
+     "who": "tool",
+     "title": "Seattle intake warning",
+     "text": "Each business day, the people set in Settings → Teams get a pop-up and a 7 AM email listing Seattle intakes within 7 business days.",
+     "show_me": null,
+     "media": null
+    },
+    {
+     "t": "cards",
+     "titles": [
+      "Seattle intake warning"
+     ]
+    }
+   ],
+   "sort_order": 70
+  },
+  {
+   "part": 2,
+   "slug": "stage-review",
+   "title": "4 · Review and the corrections loop",
+   "summary": "Where a project spends most of its life, and where the Bridge does most of the watching.",
+   "audience": [
+    "everyone",
+    "permitting",
+    "design"
+   ],
+   "show_me": null,
+   "blocks": [
+    {
+     "t": "step",
+     "who": "tool",
+     "title": "Status and reviewers",
+     "text": "Under review, corrections required, reviews complete: all read from the city. Each reviewer chip shows the discipline, the reviewer and a due date. **(est.)** means the city gave no date, so the Bridge estimated one from typical review times. Hover it to see the basis.",
+     "show_me": null,
+     "media": null
+    },
+    {
+     "t": "step",
+     "who": "tool",
+     "title": "Correction rounds",
+     "text": "Rounds are counted as they happen, so \"how many times has this come back?\" never depends on anyone's memory. When the city issues corrections, the Bridge posts in that round's **CR** chat post and tags **@Corrections**, which reaches the corrections team plus the project's Permitting, DM and DA.",
+     "show_me": null,
+     "media": null
+    },
+    {
+     "t": "step",
+     "who": "tool",
+     "title": "Resubmit by",
+     "text": "Every open correction round shows the date we should resubmit by. Past dates turn red, a 7 AM email goes to the permit's Permitting lead and DM, and the Weekly Update lists them.",
+     "show_me": null,
+     "media": null
+    },
+    {
+     "t": "step",
+     "who": "tool",
+     "title": "A late city becomes a task",
+     "text": "When the city misses its own review date, the Bridge allows one working day of grace. The permit then shows on the board at 3 days, becomes a chase task with an owner at 7, and goes top priority at 21. Nobody has to notice.",
+     "show_me": null,
+     "media": null
+    },
+    {
+     "t": "step",
+     "who": "you",
+     "title": "The correction response",
+     "text": "Read what came back, decide who clears each item, get the drawings and documents revised, and resubmit. This is the real work of the stage, and only people can do it.",
+     "show_me": null,
+     "media": null
+    },
+    {
+     "t": "step",
+     "who": "tool",
+     "title": "Estimated approval",
+     "text": "The project's **Est. approval** walks every review round, reading the latest correction letter. Hover it to see what it assumed.",
+     "show_me": null,
+     "media": null
+    },
+    {
+     "t": "callout",
+     "tone": "warn",
+     "title": "Don't retype what the city publishes",
+     "text": "If a date looks wrong, open the portal link on the permit and check. Either the city changed it, and the Bridge will follow, or there's a real problem worth reporting. Typing over it hides both."
+    },
+    {
+     "t": "cards",
+     "titles": [
+      "Resubmit-by date on every correction round",
+      "@Corrections reaches the right people",
+      "Due dates on every open reviewer",
+      "Est. approval counts every review round",
+      "Corrections: see what keeps coming back"
+     ]
+    }
+   ],
+   "sort_order": 80
+  },
+  {
+   "part": 2,
+   "slug": "stage-approved-issued",
+   "title": "5 · Approved, then 6 · Issued",
+   "summary": "Approval and issuance are different events, and the gap between them is real work.",
+   "audience": [
+    "everyone",
+    "permitting",
+    "construction_admin"
+   ],
+   "show_me": null,
+   "blocks": [
+    {
+     "t": "step",
+     "who": "tool",
+     "title": "The approval date",
+     "text": "Read from the city. For Seattle, the approval date is the day **all reviews finished**. It can come well before the issue date and won't match every date on the portal. That's deliberate, not a bug.",
+     "show_me": null,
+     "media": null
+    },
+    {
+     "t": "step",
+     "who": "tool",
+     "title": "Approved — Not Issued",
+     "text": "A permit can sit approved and not yet issued while fees and final items clear. A Seattle permit reading **Awaiting Information** after approval is usually being prepared for issue, not the city asking us for something.",
+     "show_me": null,
+     "media": null
+    },
+    {
+     "t": "step",
+     "who": "you",
+     "title": "Fees and final items",
+     "text": "Permitting pays the issuance fee and clears whatever the city asks for before it releases the permit. Construction Admin picks up permits that are construction-side after issue, such as a PPR.",
+     "show_me": null,
+     "media": null
+    },
+    {
+     "t": "step",
+     "who": "tool",
+     "title": "The issue date",
+     "text": "Read from the city. Once a permit is issued, the Bridge stops checking it, because there's nothing left to learn. The project moves to **Issued** on the Projects board when all its permits are issued.",
+     "show_me": null,
+     "media": null
+    },
+    {
+     "t": "cards",
+     "titles": [
+      "Finished projects are back on the Projects board"
+     ]
+    }
+   ],
+   "sort_order": 90
+  },
+  {
+   "part": 2,
+   "slug": "redesigns-holds-cancellations",
+   "title": "Beside all of it: redesigns, holds and cancellations",
+   "summary": "Three things that bend the journey, and how the Bridge keeps the record straight.",
+   "audience": [
+    "everyone",
+    "permitting",
+    "design"
+   ],
+   "show_me": null,
+   "blocks": [
+    {
+     "t": "step",
+     "who": "tool",
+     "title": "A redesign becomes the project you see",
+     "text": "A redesign isn't a new project and isn't a note on the old one. It becomes the current version. The original sits underneath, greyed out, with a link forward. Permit rows that still live on the original are shaded and link back to it. The original's Draw Schedule block stays on the board, hatched purple.",
+     "show_me": null,
+     "media": null
+    },
+    {
+     "t": "step",
+     "who": "you",
+     "title": "Putting work on hold",
+     "text": "When a project or permit is paused, put it on hold and give the reason. Held work is hidden from boards by default so it doesn't age into red. **Show held work** brings it back, and hovering the On hold chip shows why. Time on hold never counts as late on any clock.",
+     "show_me": null,
+     "media": null
+    },
+    {
+     "t": "step",
+     "who": "tool",
+     "title": "Cancelled projects",
+     "text": "A cancelled project keeps its history and its whole Draw Schedule block, hatched grey. Tasks that stop applying close themselves and are marked **⏱ SYSTEM**.",
+     "show_me": null,
+     "media": null
+    },
+    {
+     "t": "step",
+     "who": "tool",
+     "title": "Deleted isn't gone",
+     "text": "Only admins can delete a project (Project Details → Actions). Deleting hides it. An admin can restore everything by unticking **Archived**.",
+     "show_me": null,
+     "media": null
+    },
+    {
+     "t": "cards",
+     "titles": [
+      "Redesigns show as the current project",
+      "Work that no longer applies clears itself",
+      "Deleted projects can be restored",
+      "Draw Schedule blocks are easier to read"
+     ]
+    }
+   ],
+   "sort_order": 100
+  },
+  {
+   "part": 3,
+   "slug": "role-permitting",
+   "title": "Permitting",
+   "summary": "You drive the Bridge. Design draws; Permitting runs nearly everything the Bridge was built to manage.",
+   "audience": [
+    "permitting"
+   ],
+   "show_me": "/board",
+   "blocks": [
+    {
+     "t": "callout",
+     "tone": "rule",
+     "title": "The short version",
+     "text": "Permitting owns a permit from submittal to issue, and owns any work nobody else has claimed. If a permit has no design tasks, its work is yours by default. That's a design decision, not an accident."
+    },
+    {
+     "t": "p",
+     "text": "**Who:** Bobby (Permitting Manager), Miles and Briana (Permitting). Most Bridge management is Permitting's job: ownership, routing, holds, chasing the city and keeping the record honest."
+    },
+    {
+     "t": "step",
+     "who": "you",
+     "title": "1 · Start at My Board, not at a project",
+     "text": "My Board's **Projects** queue shows the permits that need you. The **My Tasks** tab lists every task, and each one says where it came from: a person, a template or the city. Opening projects to look around is the slow way, and it's how things get missed.",
+     "show_me": "/board",
+     "media": null
+    },
+    {
+     "t": "step",
+     "who": "you",
+     "title": "2 · Create projects well",
+     "text": "You run the new-project wizard (Part 2, stage 1). Take the time: everything downstream reads from it.",
+     "show_me": null,
+     "media": null
+    },
+    {
+     "t": "step",
+     "who": "you",
+     "title": "3 · Answer corrections — the actual job",
+     "text": "When a round comes back, the CR post is already open and tagged. Decide who clears each item, keep the Resubmit-by date in view, and resubmit. **Reports → Corrections** shows the comments we get again and again, so a fix can be written once and reused.",
+     "show_me": null,
+     "media": null
+    },
+    {
+     "t": "step",
+     "who": "you",
+     "title": "4 · Chase what has gone quiet",
+     "text": "The Bridge raises city-late tasks on its own. Consultants are yours to chase. **Waiting On** (Reports → Saved reports → Waiting On) groups everything we're waiting on by firm, with a CSV per firm, so one call can clear a list.",
+     "show_me": "/reports/waiting-on",
+     "media": null
+    },
+    {
+     "t": "step",
+     "who": "you",
+     "title": "5 · Keep ownership honest",
+     "text": "Changing a project's Permitting lead in Project Details moves their permits and open tasks too, except permits deliberately assigned to someone else. Admins and Permitting leads also see **⚠ Unclaimed (N)** in My Tasks when work reaches nobody. Click it and give each item an owner.",
+     "show_me": null,
+     "media": null
+    },
+    {
+     "t": "step",
+     "who": "you",
+     "title": "6 · Look at the whole book every week",
+     "text": "The Projects board shows where everything sits. The Weekly Update (Wednesdays, by email and in the Bridge) lists what's late. Reports compares any measure against the previous period or year with **+ Add comparison**.",
+     "show_me": null,
+     "media": null
+    },
+    {
+     "t": "callout",
+     "tone": "note",
+     "title": "Calls only you make",
+     "text": "Whether a date someone typed is right · what a correction actually requires · whether a permit is stuck or just slow (Approved — Not Issued is a real place a permit sits) · who should own a permit. The Bridge will make none of these for you."
+    },
+    {
+     "t": "callout",
+     "tone": "note",
+     "title": "Not yours, so don't go looking for the control",
+     "text": "Permit status, reviewers and correction counts come from the city. Target submit comes from the Draw Schedule. The DM comes from the DA. The Draw Schedule and the drawings belong to Design."
+    },
+    {
+     "t": "p",
+     "text": "**Settings** is also mostly Permitting's. Admins keep it there: **People**, **Teams & routing** (including who gets each email), **Project lists**, **Permits & tasks** (permit types, task templates), **Dates & targets** (per-type schedule numbers) and **Health & tools**. Every change keeps **History** with **Restore**."
+    },
+    {
+     "t": "cards",
+     "titles": [
+      "Reassigning a project now moves the work",
+      "Filter by department",
+      "Resubmit-by warning email",
+      "Renaming a permit type moves it everywhere",
+      "Settings, reorganized"
+     ]
+    }
+   ],
+   "sort_order": 110
+  },
+  {
+   "part": 3,
+   "slug": "role-design",
+   "title": "Design",
+   "summary": "Directors, Design Managers, Schematic Design and Design Associates share one flow: own your tasks, keep your block honest, get the set out the door.",
+   "audience": [
+    "design"
+   ],
+   "show_me": "/board?tab=tasks",
+   "blocks": [
+    {
+     "t": "callout",
+     "tone": "rule",
+     "title": "The short version",
+     "text": "Design owns the drawings and the Draw Schedule. The Bridge gives you your tasks, your submittals and your corrections, and keeps the dates in step with your block. Permitting handles the city. Your job is the set."
+    },
+    {
+     "t": "p",
+     "text": "**Who:** Dave (Director, over Design and Permitting). Design Managers: Brittani, Derry, Gena, Jade and Lindsay. Schematic Design: Ana, Dave, Derry, Jade and Lindsay. And the Design Associates. Some people hold more than one of these roles, and the Bridge shows both titles."
+    },
+    {
+     "t": "step",
+     "who": "you",
+     "title": "1 · Start at My Board",
+     "text": "As a Design Associate, your **Projects** queue shows your **submittals and corrections**. Permits that are just sitting with the city stay off your list; that's Permitting's job. The **My Tasks** tab has everything assigned to you. The **Co-assigned** switch hides tasks you only share, so you see the ones you own.",
+     "show_me": "/board",
+     "media": null
+    },
+    {
+     "t": "step",
+     "who": "you",
+     "title": "2 · Work your tasks in order",
+     "text": "Schematic Design opens with **Schematic Design** and **Schematic Plans**. The Design Associate then takes the set through **DD Progress Set → Builder Approval → Transmit to Consultants → Permit Progress Set → Building Intake Set → Marketing Package**. Each task can carry its own note. Mark tasks done as you go, because your board reads from them.",
+     "show_me": null,
+     "media": null
+    },
+    {
+     "t": "step",
+     "who": "you",
+     "title": "3 · Keep your block honest",
+     "text": "Your Draw Schedule block is the plan everyone else is reading. If the phase is wrong or the dates have slipped, tell your Design Manager. Moving the block moves the permit dates with it.",
+     "show_me": "/draw-schedule",
+     "media": null
+    },
+    {
+     "t": "step",
+     "who": "you",
+     "title": "4 · File the set where the Bridge can find it",
+     "text": "Save sets in the project's server folder, named to the Design housekeeping standard. The Bridge reads the folder and shows the current drawing in the **Plan of Record** box. \"**Archived — nothing current on file**\" means the only drawing it found is out of date, so don't send that one to a builder.",
+     "show_me": null,
+     "media": null
+    },
+    {
+     "t": "step",
+     "who": "you",
+     "title": "5 · Answer corrections on the sheet",
+     "text": "When the city sends corrections, you're tagged through **@Corrections** in that round's CR post. Clear your items on the drawings, keep the **Resubmit by** date in view, and tell Permitting when the set is ready.",
+     "show_me": null,
+     "media": null
+    },
+    {
+     "t": "step",
+     "who": "you",
+     "title": "6 · Talk in the project's chat",
+     "text": "Use the project's posts, not email. Paste a screenshot with Ctrl+V. **@project** reaches the project's Permitting lead, DM and DA as assigned today. On your own message, **Create task** turns it into a task on a permit.",
+     "show_me": null,
+     "media": null
+    },
+    {
+     "t": "callout",
+     "tone": "note",
+     "title": "Where a Design Manager's job is different",
+     "text": "Design Managers (and anyone with Draw Schedule access) **move blocks** and **set the phase**. Only the four design phases can be chosen; Under Review, Corrections and Approved follow the Building Permit. **Dragging a block to another DA's row reassigns the project**, and the DM follows. If team routing says the Permitting lead should change too, the Bridge asks first. Add time off and training as **non-project blocks** so a lane shows when someone is out. The **Unscheduled** list under the grid holds every active project with no block. **Today** jumps back to the current quarter."
+    },
+    {
+     "t": "callout",
+     "tone": "note",
+     "title": "Not yours",
+     "text": "City status, reviewers and dates come from the portal. The DM on a permit comes from the DA, so set the DA and the DM follows. Submitting to the city and paying fees belong to Permitting."
+    },
+    {
+     "t": "cards",
+     "titles": [
+      "Jump to today on the Draw Schedule",
+      "The Draw Schedule protects finished work",
+      "Notes now live on tasks",
+      "Email a plan as a PDF",
+      "Open the project's folder in one click"
+     ]
+    }
+   ],
+   "sort_order": 120
+  },
+  {
+   "part": 3,
+   "slug": "role-acquisitions",
+   "title": "Acquisitions",
+   "summary": "You bring the project in and set the dates it is measured against.",
+   "audience": [
+    "acquisitions"
+   ],
+   "show_me": "/dashboard",
+   "blocks": [
+    {
+     "t": "p",
+     "text": "**Who:** Dom, Jake, Jason, Jeremy and Scott (Acquisitions Leads), Jessie and Keelie (Acquisitions). Acquisitions doesn't run the Bridge day to day, but the dates you set are what the whole project is measured against."
+    },
+    {
+     "t": "step",
+     "who": "you",
+     "title": "Your dates",
+     "text": "The **GO date** starts the project. The **closing date** and the **ACQ date** on each permit (the date we expect it issued) set the targets. Edit the ACQ date in Project Details (⚙) → Permits; it saves when you click away. **Target Approval** is worked out from these three for you.",
+     "show_me": null,
+     "media": null
+    },
+    {
+     "t": "step",
+     "who": "you",
+     "title": "Your conversation",
+     "text": "Every project opens with an **ACQ Questions** post. Use it, and the answer stays with the project instead of in someone's inbox.",
+     "show_me": null,
+     "media": null
+    },
+    {
+     "t": "step",
+     "who": "tool",
+     "title": "What you can watch",
+     "text": "The **Projects** board shows where every deal sits. The **Library** compares site and unit facts across projects, and the **Plan of Record** box shows the current Site Plan and Marketing set, with a share button to email it as a PDF.",
+     "show_me": null,
+     "media": null
+    },
+    {
+     "t": "callout",
+     "tone": "note",
+     "title": "Good to know",
+     "text": "A project's chat @project tag doesn't include Acquisitions. If you need someone, @mention them by name."
+    },
+    {
+     "t": "cards",
+     "titles": [
+      "ACQ date saves when you leave the box",
+      "Email a plan as a PDF",
+      "Library unit view, tidied up"
+     ]
+    }
+   ],
+   "sort_order": 130
+  },
+  {
+   "part": 3,
+   "slug": "role-construction-admin",
+   "title": "Construction Admin",
+   "summary": "You pick the project up on the construction side, once the permits are in hand.",
+   "audience": [
+    "construction_admin"
+   ],
+   "show_me": "/board",
+   "blocks": [
+    {
+     "t": "p",
+     "text": "**Who:** Steve (the default on every new project) and Rice. Steve hands work to Rice as needed."
+    },
+    {
+     "t": "step",
+     "who": "tool",
+     "title": "You're on every project",
+     "text": "Construction Admin is filled in automatically as Steve on every new project and shows on the project's Team box.",
+     "show_me": null,
+     "media": null
+    },
+    {
+     "t": "step",
+     "who": "you",
+     "title": "Permits assigned to you",
+     "text": "Some permits are construction-side after issue, such as a PPR. Those are assigned to Construction Admin by Steve or by Permitting, and they show up on your My Board.",
+     "show_me": null,
+     "media": null
+    },
+    {
+     "t": "step",
+     "who": "you",
+     "title": "What to look at",
+     "text": "On a project: the **Permits** table for what's issued and when, **Site Data** for the map, drone footage and the **Project folder ↗**, and the **Plan of Record** for the current set.",
+     "show_me": null,
+     "media": null
+    },
+    {
+     "t": "cards",
+     "titles": [
+      "Open the project's folder in one click",
+      "Map and drone footage links in Site Data"
+     ]
+    }
+   ],
+   "sort_order": 140
+  },
+  {
+   "part": 3,
+   "slug": "role-leadership",
+   "title": "Leadership & viewers",
+   "summary": "For executives, underwriting, policy and anyone who mainly reads.",
+   "audience": [
+    "leadership"
+   ],
+   "show_me": "/dashboard",
+   "blocks": [
+    {
+     "t": "p",
+     "text": "**Who:** Executives, Underwriting, Policy, Investor Relations and others who need to see the book without working in it. On the roster you are a **Viewer**: you can see the whole book, and no project work is assigned to you."
+    },
+    {
+     "t": "step",
+     "who": "you",
+     "title": "Where to look",
+     "text": "The **Projects** board for where every project sits. **Reports → Project View** to find any project. The **Library** to compare projects. A project's **Overview** for its permits, dates, team and current drawing.",
+     "show_me": null,
+     "media": null
+    },
+    {
+     "t": "step",
+     "who": "tool",
+     "title": "The Weekly Update",
+     "text": "If you're in the weekly meeting, **Agenda** appears under Reports and the Weekly Update arrives every Wednesday morning by email.",
+     "show_me": null,
+     "media": null
+    },
+    {
+     "t": "step",
+     "who": "you",
+     "title": "Asking a question",
+     "text": "Ask in the project's chat with an @mention, so the answer stays with the project.",
+     "show_me": null,
+     "media": null
+    },
+    {
+     "t": "cards",
+     "titles": [
+      "Weekly Update by email",
+      "Search by permit number anywhere"
+     ]
+    }
+   ],
+   "sort_order": 150
+  },
+  {
+   "part": 4,
+   "slug": "screens",
+   "title": "The screens, one by one",
+   "summary": "Each screen's tips live in What's New → Browse. This page tells you where to go.",
+   "audience": [
+    "everyone"
+   ],
+   "show_me": null,
+   "blocks": [
+    {
+     "t": "p",
+     "text": "Each screen is described once, in **Browse**. That way, when a screen changes, there's only one place to update. Pick an area below to see its tips, each with steps and a **Show me →** button."
+    },
+    {
+     "t": "table",
+     "head": [
+      "Area",
+      "What you'll find"
+     ],
+     "rows": [
+      [
+       "Projects",
+       "The board, search, the wizard, redesigns, restoring a deleted project"
+      ],
+      [
+       "Project Overview",
+       "The three boxes, Project Details (⚙), Site Data, the Plan of Record"
+      ],
+      [
+       "Permits & Reviews",
+       "Reviewer chips, due dates, Est. approval, the city portal link"
+      ],
+      [
+       "Corrections",
+       "Resubmit by, correction letters, what keeps coming back"
+      ],
+      [
+       "Chat & Notifications",
+       "Posts, @mentions, @Corrections, reactions, the bell"
+      ],
+      [
+       "Draw Schedule",
+       "Blocks, phases, hatches, Today"
+      ],
+      [
+       "My Tasks & Board",
+       "Your queue, tasks, notes, held work, department filter"
+      ],
+      [
+       "Reports",
+       "Project View, comparisons, Saved reports"
+      ],
+      [
+       "Library",
+       "Site and unit facts, filters"
+      ],
+      [
+       "Settings",
+       "My account, People, lists, permit types, history"
+      ],
+      [
+       "Email",
+       "Weekly Update, intake warning, resubmit-by warning"
+      ]
+     ]
+    }
+   ],
+   "sort_order": 160
+  },
+  {
+   "part": 5,
+   "slug": "glossary",
+   "title": "Words we use",
+   "summary": "The vocabulary of the Bridge, in one place.",
+   "audience": [
+    "everyone"
+   ],
+   "show_me": null,
+   "blocks": [
+    {
+     "t": "table",
+     "head": [
+      "Word",
+      "What it means"
+     ],
+     "rows": [
+      [
+       "GO date",
+       "The day the project starts. Targets are counted from it."
+      ],
+      [
+       "ACQ date",
+       "Per permit: the date Acquisitions expects it issued. Typed by a person."
+      ],
+      [
+       "Target Approval",
+       "The latest of the ACQ date, the closing date and GO + 6 months. Worked out by the Bridge."
+      ],
+      [
+       "Target submit",
+       "When a permit should go to the city. Follows the Draw Schedule block."
+      ],
+      [
+       "DD",
+       "Design development: the design phase. Reports say DD; \"Draw\" only means the Draw Schedule."
+      ],
+      [
+       "Draw Schedule block",
+       "A project's design window on one DA's row. Moving it moves the open permit dates."
+      ],
+      [
+       "Intake",
+       "Handing the set to the city. Target intake = booked or expected; Accepted intake = the city took it."
+      ],
+      [
+       "Round / cycle",
+       "One pass of city review. Corrections start the next round."
+      ],
+      [
+       "CR post",
+       "The chat post for a correction round: CR 1, CR 2…"
+      ],
+      [
+       "Resubmit by",
+       "The date we should resubmit an open correction round."
+      ],
+      [
+       "City Target",
+       "The city's own due date for the current review round. (est.) = estimated."
+      ],
+      [
+       "Approved — Not Issued",
+       "Reviews are done and the permit hasn't been released yet. A real state, not a stall."
+      ],
+      [
+       "Plan of Record",
+       "The current drawing the Bridge found in the project folder."
+      ],
+      [
+       "PERM",
+       "Short for Permitting (formerly Entitlements, ENT)."
+      ],
+      [
+       "DA / DM",
+       "Design Associate / Design Manager. The DM follows the DA."
+      ],
+      [
+       "On hold",
+       "Paused on purpose. Held time never counts as late."
+      ],
+      [
+       "⏱ SYSTEM",
+       "The Bridge closed this task because it stopped applying."
+      ],
+      [
+       "Not tracked",
+       "A permit in a city the Bridge can't read. Enter its dates by hand."
+      ],
+      [
+       "Viewer",
+       "On the roster but not assigned project work. Sees the whole book."
+      ]
+     ]
+    }
+   ],
+   "sort_order": 170
+  }
+ ]
+}

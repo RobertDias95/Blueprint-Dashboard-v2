@@ -65,6 +65,8 @@ export const PUBLICATION_MEMBERS_2026_09_09 = [
   'draw_schedule_quarter_layout',
   'error_reports',
   'external_team_directory',
+  // fix-670: published by migrations/fix_670_guide_sections.sql (after the snapshot).
+  'guide_sections',
   'intake_records',
   'jurisdictions',
   'legacy_app_config',
@@ -164,7 +166,8 @@ const published: readonly string[] = PUBLICATION_MEMBERS_2026_09_09;
 describe('fix-512 §C — REALTIME_TABLES and supabase_realtime reconcile', () => {
   it('the two sets were actually read (neither is empty or a stub)', () => {
     expect(subscribed.length).toBeGreaterThan(20);
-    expect(published.length).toBe(42);
+    // 42 in the 2026-09-09 snapshot + guide_sections (fix-670).
+    expect(published.length).toBe(43);
     expect(new Set(published).size).toBe(published.length);
   });
 

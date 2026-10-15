@@ -74,6 +74,9 @@ export const queryKeys = {
   permitConditionsAll: ['permit_conditions'] as const,
   whatsNewEntriesAll: ['whats_new_entries'] as const,
   whatsNewReadsAll: ['whats_new_reads'] as const,
+  // fix-670: the training guide (What's New → Guide). Bare prefix — the search
+  // is keyed under it so an admin's edit refreshes the results too.
+  guideSectionsAll: ['guide_sections'] as const,
   // fix-31: per-reviewer status table (replaces the placeholder "tasks" column
   // on Project Overview with a real rollup of city-side review state).
   permitCycleReviewersAll: ['permit_cycle_reviewers'] as const,
@@ -573,6 +576,9 @@ export const REALTIME_TABLES = {
   permit_task_auto_closures: [queryKeys.autoClosuresAll],
   whats_new_entries: [queryKeys.whatsNewEntriesAll],
   whats_new_reads: [queryKeys.whatsNewReadsAll],
+  // ★ fix-670: an admin's guide edit reaches every open guide. Published by
+  // migrations/fix_670_guide_sections.sql — both halves (fix-393/fix-401).
+  guide_sections: [queryKeys.guideSectionsAll],
   // ★★★ fix-401 — THE ROSTER TABLES, AND WHY THEIR ABSENCE WAS THE BUG.
   //
   // Bobby: *"I don't know if our UI is updating when we're making these updates
