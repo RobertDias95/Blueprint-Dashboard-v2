@@ -340,10 +340,11 @@ describe('fix-670 §D.4: your chapter', () => {
     state.sections = seedSections();
     state.roles = ['da', 'dm', 'schematic'];
     renderPage('/whats-new?tab=guide');
-    expect(screen.getByTestId('guide-toc-mine-role-design')).toBeInTheDocument();
-    expect(screen.getByTestId('guide-toc-mine-stage-design')).toBeInTheDocument();
-    expect(screen.queryByTestId('guide-toc-mine-role-permitting')).toBeNull();
-    expect(screen.queryByTestId('guide-toc-mine-welcome')).toBeNull();
+    // ★ fix-673 removed the contents column; the badge sits on the chapter.
+    expect(screen.getByTestId('guide-mine-role-design')).toBeInTheDocument();
+    expect(screen.getByTestId('guide-mine-stage-design')).toBeInTheDocument();
+    expect(screen.queryByTestId('guide-mine-role-permitting')).toBeNull();
+    expect(screen.queryByTestId('guide-mine-welcome')).toBeNull();
     expect(screen.getByTestId('guide-section-role-design').dataset.mine).toBe('true');
     const order = [...screen.getByTestId('guide-reading').querySelectorAll('section')].map((s) =>
       s.getAttribute('data-testid'),
@@ -354,7 +355,7 @@ describe('fix-670 §D.4: your chapter', () => {
   it('★ no roster row → nothing marked', () => {
     state.sections = seedSections();
     renderPage('/whats-new?tab=guide');
-    expect(screen.queryAllByTestId(/^guide-toc-mine-/)).toHaveLength(0);
+    expect(screen.queryAllByTestId(/^guide-mine-/)).toHaveLength(0);
     expect(screen.getByTestId('guide-section-role-design').dataset.mine).toBe('false');
   });
 });
@@ -422,15 +423,16 @@ describe('fix-670 §D: the Guide tab', () => {
     expect(screen.getByTestId('guide-reviewed-welcome').textContent).toBe('Last checked 14 Oct 2026');
   });
 
-  it('★ step media: a bucket path is signed, alt = the step title', () => {
+  it('★ step media: a bucket path is signed, named for the step title', () => {
+    // ★ fix-673: a card shows a STILL (a canvas), never the animating <img>;
+    //   the still is a button named for its step. See ClipsFix673.
     state.sections = [
       section({ blocks: [{ t: 'step', who: 'you', title: 'Upload the plans', text: '', media: `${TENANT}/a.gif` }] }),
     ];
     renderPage(guideHref());
-    const img = screen.getByTestId('guide-media-img') as HTMLImageElement;
-    expect(img.alt).toBe('Upload the plans');
-    expect(img.src).toBe(`https://signed.example/${TENANT}/a.gif`);
-    expect(img.getAttribute('loading')).toBe('lazy');
+    const still = screen.getByRole('button', { name: 'Play: Upload the plans' });
+    expect(still.querySelector('canvas')).not.toBeNull();
+    expect(still.querySelector('img')).toBeNull();
   });
 });
 

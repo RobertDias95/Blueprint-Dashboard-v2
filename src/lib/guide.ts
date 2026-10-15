@@ -462,3 +462,146 @@ export function guideHref(slug?: string | null): string {
 export function hasReviewDate(d: string | null | undefined): d is string {
   return !!d && /^\d{4}-\d{2}-\d{2}$/.test(d);
 }
+
+// ===========================================================================
+// ★★★ fix-673 (P-355) — the role filter, the counts, the clips, the highlight
+// ===========================================================================
+//
+// Bobby, 2026-10-14, on his first read of the live Guide: "maybe there's, like,
+// different categories of, like, everyone, design, permitting … and maybe you
+// can filter the view a little bit … Think of, like, Apple and how they've done
+// their tips."
+
+/** The pills above Part 1: All, then the audiences in their CHECK order. */
+export type GuideFilter = 'all' | GuideAudience;
+export const GUIDE_FILTERS: readonly GuideFilter[] = ['all', ...GUIDE_AUDIENCES];
+
+/** ★ The pill's word. The editor's checkboxes keep "Leadership & viewers";
+ *  a pill row reads in single words (the mockup). */
+export const GUIDE_FILTER_LABEL: Record<GuideFilter, string> = {
+  all: 'All',
+  ...AUDIENCE_LABEL,
+  leadership: 'Leadership',
+};
+
+/** ★★ Bobby's ruling: the filter opens on All. */
+export const GUIDE_FILTER_DEFAULT: GuideFilter = 'all';
+
+export function isGuideFilter(v: unknown): v is GuideFilter {
+  return v === 'all' || isGuideAudience(v);
+}
+
+/**
+ * ★★★ THE FILTER RULE.
+ *   · All      → every section.
+ *   · Everyone → only sections written for everybody (role chapters hidden).
+ *   · A role   → that role's sections AND everybody's, so the story still runs
+ *                start to finish with the role's chapter in its place.
+ */
+export function inGuideFilter(section: Pick<GuideSection, 'audience'>, filter: GuideFilter): boolean {
+  if (filter === 'all') return true;
+  if (filter === 'everyone') return section.audience.includes('everyone');
+  return section.audience.includes(filter) || section.audience.includes('everyone');
+}
+
+/** One step that carries a clip, flattened in guide order for the viewer. */
+export interface GuideClip {
+  /** `<slug>:<block index>` — stable across renders, unique in the guide. */
+  key: string;
+  slug: string;
+  chapter: string;
+  title: string;
+  text: string;
+  media: string;
+}
+
+export function clipKey(slug: string, blockIndex: number): string {
+  return `${slug}:${blockIndex}`;
+}
+
+/** ★★ Every clip in these sections, in reading order. The viewer's Previous /
+ *  Next walk THIS list, so they stay inside the current filter and search. */
+export function guideClips(sections: ReadonlyArray<GuideSection>): GuideClip[] {
+  const out: GuideClip[] = [];
+  for (const s of sortSections(sections)) {
+    parseBlocks(s.blocks).forEach((b, i) => {
+      if (b.t === 'step' && b.media) {
+        out.push({
+          key: clipKey(s.slug, i),
+          slug: s.slug,
+          chapter: s.title,
+          title: b.title,
+          text: b.text,
+          media: b.media,
+        });
+      }
+    });
+  }
+  return out;
+}
+
+/** Chapters, steps and clips in these sections — the line under the pills. */
+export function guideStats(sections: ReadonlyArray<GuideSection>): { chapters: number; steps: number; clips: number } {
+  let steps = 0;
+  let clips = 0;
+  for (const s of sections) {
+    for (const b of parseBlocks(s.blocks)) {
+      if (b.t !== 'step') continue;
+      steps += 1;
+      if (b.media) clips += 1;
+    }
+  }
+  return { chapters: sections.length, steps, clips };
+}
+
+function plural(n: number, one: string, many: string): string {
+  return `${n} ${n === 1 ? one : many}`;
+}
+
+/** "13 chapters · 44 steps · 10 clips", or while searching
+ *  "4 chapters match “resubmit”". */
+export function guideCountLine(stats: { chapters: number; steps: number; clips: number }, query = ''): string {
+  const q = query.trim();
+  if (q) return `${plural(stats.chapters, 'chapter matches', 'chapters match')} “${q}”`;
+  return [
+    plural(stats.chapters, 'chapter', 'chapters'),
+    plural(stats.steps, 'step', 'steps'),
+    plural(stats.clips, 'clip', 'clips'),
+  ].join(' · ');
+}
+
+/**
+ * ★★ The words to highlight: what bp_search_guide marked with « » (the REAL
+ * words — "corectons" finds "corrections", and it is "corrections" that must
+ * light up), plus the typed words themselves. Lower-cased, 2+ letters, unique.
+ */
+export function highlightWords(snippets: ReadonlyArray<string>, query: string): string[] {
+  const out = new Set<string>();
+  for (const s of snippets) {
+    for (const m of s.matchAll(/«([^»]*)»/g)) {
+      for (const w of m[1]!.split(/\s+/)) if (w.length >= 2) out.add(w.toLowerCase());
+    }
+  }
+  for (const w of query.trim().split(/\s+/)) if (w.length >= 2) out.add(w.toLowerCase());
+  return [...out];
+}
+
+/** ★★ Split text into plain and marked runs — a <mark> is rendered by React
+ *  from these, never by building HTML (fix-387). Longest word first, so
+ *  "resubmittal" wins over "resubmit". */
+export function highlightRuns(text: string, words: ReadonlyArray<string>): { text: string; mark: boolean }[] {
+  const ws = words.filter((w) => w.length >= 2);
+  if (ws.length === 0 || !text) return [{ text, mark: false }];
+  const esc = [...ws].sort((a, z) => z.length - a.length).map((w) => w.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'));
+  const re = new RegExp(`(${esc.join('|')})`, 'gi');
+  const out: { text: string; mark: boolean }[] = [];
+  let last = 0;
+  for (const m of text.matchAll(re)) {
+    const at = m.index ?? 0;
+    if (at > last) out.push({ text: text.slice(last, at), mark: false });
+    out.push({ text: m[0], mark: true });
+    last = at + m[0].length;
+  }
+  if (last < text.length) out.push({ text: text.slice(last), mark: false });
+  return out.length > 0 ? out : [{ text, mark: false }];
+}

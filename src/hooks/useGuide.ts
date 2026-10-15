@@ -77,6 +77,10 @@ export function useGuideSearch(rawQuery: string) {
     queryKey: [...queryKeys.guideSectionsAll, 'search', tenantId ?? '', q],
     enabled,
     retry: false,
+    // ★ fix-673: the Guide's own search shows whole chapters, so the previous
+    //   results stay up while the next word is being looked up — no flash of
+    //   an empty guide on every keystroke.
+    placeholderData: (prev) => prev,
     queryFn: async () => {
       const { data, error } = await supabase.rpc('bp_search_guide', { q });
       if (error) throw error;
