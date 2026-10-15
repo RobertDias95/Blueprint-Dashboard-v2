@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, fireEvent, within } from '@testing-library/react';
-import { readFileSync, readdirSync } from 'node:fs';
+import { readFileSync, readdirSync } from './helpers/sourceTree';
 import { resolve } from 'node:path';
 import {
   ATTACHMENT_KIND_LABEL,

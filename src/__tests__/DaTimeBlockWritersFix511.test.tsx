@@ -102,11 +102,7 @@ const DA_TIME_BLOCK_WRITE_RPCS = [
   'bp_replace_da_time_blocks',
 ] as const;
 
-const hookSources = import.meta.glob('../hooks/*.ts', {
-  query: '?raw',
-  import: 'default',
-  eager: true,
-}) as Record<string, string>;
+const hookSources = rawSources(import.meta.glob('../hooks/*.ts'));
 
 /** Strip comments — these files discuss the RPCs by name at length in prose. */
 function code(src: string): string {
@@ -186,6 +182,7 @@ const mocks = vi.hoisted(() => {
 vi.mock('../lib/supabase', () => ({ supabase: mocks.supabase }));
 
 import { useRealtimeInvalidation, allRealtimeKeys } from '../hooks/useRealtimeInvalidation';
+import { rawSources } from './helpers/sourceTree';
 
 const T = 'test-tenant-uuid';
 
@@ -304,11 +301,7 @@ describe('fix-511 §B1 — superseded: the rename path is gone', () => {
     expect(existsSync(resolve(ROOT, 'src/hooks/useRenameDA.ts'))).toBe(false);
     expect(existsSync(resolve(ROOT, 'src/hooks/useRenameDM.ts'))).toBe(false);
     // ★ and nothing in src/ calls the RPCs any more
-    const hooks = import.meta.glob('../hooks/*.ts', {
-      query: '?raw',
-      import: 'default',
-      eager: true,
-    }) as Record<string, string>;
+    const hooks = rawSources(import.meta.glob('../hooks/*.ts'));
     const all = Object.values(hooks).join(NEWLINE);
     expect(all).not.toContain("rpc('bp_rename_da'");
     expect(all).not.toContain("rpc('bp_rename_dm'");

@@ -54,6 +54,7 @@ import {
   retiredHiddenFrom,
   retiredHiddenLabel,
 } from '../lib/retiredState';
+import { rawSources } from './helpers/sourceTree';
 
 const T = 'test-tenant-uuid';
 const NOW = '2026-09-28T12:00:00Z';
@@ -421,11 +422,7 @@ describe('fix-593 §3 — no data moves, and no other surface changes', () => {
     // The hide is consulted in exactly one place. A second caller asking
     // `retiredHiddenFrom('library', …)` from another screen would be this
     // ticket's ⛔ arriving sideways.
-    const files = import.meta.glob('../**/*.{ts,tsx}', {
-      query: '?raw',
-      import: 'default',
-      eager: true,
-    }) as Record<string, string>;
+    const files = rawSources(import.meta.glob('../**/*.{ts,tsx}'));
     const callers = Object.entries(files)
       .filter(
         ([path, src]) =>
@@ -469,11 +466,7 @@ describe('fix-593 §2 — the three that lose their data, and the fallback that 
     // §2: *"do not invent a fallback."* Asserted against the source, because the
     // temptation is a one-liner in `buildLibraryRows` and it would be invisible
     // in behaviour until somebody checked these three addresses.
-    const files = import.meta.glob('../{lib,components}/**/*.{ts,tsx}', {
-      query: '?raw',
-      import: 'default',
-      eager: true,
-    }) as Record<string, string>;
+    const files = rawSources(import.meta.glob('../{lib,components}/**/*.{ts,tsx}'));
     const src = Object.entries(files)
       .filter(([p]) => /libraryHelpers|libraryUnitRows|LibraryMatrix/.test(p))
       .map(([, s]) => s)

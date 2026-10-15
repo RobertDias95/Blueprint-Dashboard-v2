@@ -72,6 +72,7 @@ vi.mock('../stores/toastStore', () => {
 });
 
 import PlanOfRecordCard from '../components/ProjectDetail/PlanOfRecordCard';
+import { rawSources } from './helpers/sourceTree';
 
 function wrap(node: ReactNode) {
   const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
@@ -258,11 +259,7 @@ describe('fix-358 §1: the sentence is READ, never rebuilt', () => {
     // The vocabulary lives in one Python file on purpose (fix-356 §4).
     // Rebuilding the sentence here would be one rule in two languages, drifting
     // from the day it shipped.
-    const files = import.meta.glob('../**/*.{ts,tsx}', {
-      query: '?raw',
-      import: 'default',
-      eager: true,
-    }) as Record<string, string>;
+    const files = rawSources(import.meta.glob('../**/*.{ts,tsx}'));
 
     // ★★ The real vocabulary, read off prod rather than taken from the brief:
     //   select s->>'reason' … from verdict, jsonb_array_elements(verdict->'stages') s

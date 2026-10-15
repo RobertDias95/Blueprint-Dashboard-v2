@@ -20,6 +20,7 @@ import {
   PREVIOUS_ORIGINS,
 } from '../lib/previousOrigin';
 import { allRibbonRoutes, ribbonExemptPaths } from '../lib/ribbonNav';
+import { rawSources } from './helpers/sourceTree';
 
 // ★★★ fix-475 (P-116) — THE CONSULTANTS CARD IS INERT HERE.
 //
@@ -378,11 +379,7 @@ const WIRED_BY_HOOK = [
   'pages/WhatsNew',
 ] as const;
 
-const sources = import.meta.glob('../{components,pages}/**/*.tsx', {
-  query: '?raw',
-  import: 'default',
-  eager: true,
-}) as Record<string, string>;
+const sources = rawSources(import.meta.glob('../{components,pages}/**/*.tsx'));
 
 describe('fix-408 §3b: the wiring is where the audit says it is', () => {
   // ★★★ fix-454 §B3 — THE LIST'S LENGTH IS ITSELF A PIN.

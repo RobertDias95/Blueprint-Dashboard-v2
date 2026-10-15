@@ -15,6 +15,7 @@ import modalSrc from '../hooks/useProjectDetailsForm.ts?raw';
 import wizardSrc from '../components/NewProjectWizard.tsx?raw';
 import appSrc from '../App.tsx?raw';
 import updateProjectSrc from '../hooks/useUpdateProject.ts?raw';
+import { rawSources } from './helpers/sourceTree';
 
 // ===========================================================================
 // fix-511 §C (P-198) — A NUMBER FIELD STOPS OVERFLOWING AN INTEGER COLUMN
@@ -272,11 +273,7 @@ describe('fix-511 §C2 — a reported mutation error names what it was writing',
       //     something cascades all 11 columns. A census that still demanded a
       //     hook for it would be asserting the existence of the bug.
     ];
-    const hooks = import.meta.glob('../hooks/*.ts', {
-      query: '?raw',
-      import: 'default',
-      eager: true,
-    }) as Record<string, string>;
+    const hooks = rawSources(import.meta.glob('../hooks/*.ts'));
     const all = Object.values(hooks).map(code).join('\n');
     for (const rpc of declared) {
       expect(all, rpc).toContain(`meta: { write: '${rpc}' }`);

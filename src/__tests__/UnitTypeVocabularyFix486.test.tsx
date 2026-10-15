@@ -1,6 +1,6 @@
 import { describe, it, expect, vi } from 'vitest';
 import { render, screen } from '@testing-library/react';
-import { readFileSync, readdirSync, statSync } from 'node:fs';
+import { readFileSync, readdirSync, statSync } from './helpers/sourceTree';
 import { resolve, join } from 'node:path';
 import migrationSql from '../../migrations/fix_486_unit_type_vocabulary.sql?raw';
 import UnitTypesEditor from '../components/wizard/UnitTypesEditor';

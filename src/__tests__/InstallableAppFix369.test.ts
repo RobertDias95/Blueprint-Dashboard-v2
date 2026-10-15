@@ -32,6 +32,7 @@ import {
 } from '../lib/desktopAlerts';
 import { DING_TONES, playDing, __setDingContextForTest } from '../lib/alertSound';
 import type { NewItem, NewItemSource } from '../lib/boardReads';
+import { rawSourceLoaders } from './helpers/sourceTree';
 
 // ===========================================================================
 // fix-369 — it installs, but it isn't an app
@@ -68,10 +69,7 @@ const manifest = JSON.parse(manifestRaw) as Manifest;
 // budgets 60s for it). Lazy, awaited once, cached.
 // ---------------------------------------------------------------------------
 
-const SOURCE_GLOB = import.meta.glob('../**/*.{ts,tsx}', {
-  query: '?raw',
-  import: 'default',
-});
+const SOURCE_GLOB = rawSourceLoaders(import.meta.glob('../**/*.{ts,tsx}'));
 
 let sourceCache: Record<string, string> | null = null;
 

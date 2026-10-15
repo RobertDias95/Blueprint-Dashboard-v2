@@ -324,6 +324,7 @@ vi.mock('../hooks/useChatAttachments', async (orig) => {
 
 import ProjectChatCard from '../components/ProjectDetail/ProjectChatSection';
 import ProjectChatModal from '../components/ProjectDetail/ProjectChatModal';
+import { rawSources } from './helpers/sourceTree';
 
 function message(over: Partial<ProjectMessage> = {}): ProjectMessage {
   return {
@@ -1013,11 +1014,7 @@ describe('fix-330: no placeholder survives', () => {
   // ★★ The literal string this ticket exists to remove, hunted across the whole
   // source tree rather than in the one file it was last seen in.
   it('★ nothing in src/ renders "coming later"', async () => {
-    const modules = import.meta.glob('../**/*.{ts,tsx}', {
-      query: '?raw',
-      import: 'default',
-      eager: true,
-    }) as Record<string, string>;
+    const modules = rawSources(import.meta.glob('../**/*.{ts,tsx}'));
     const offenders = Object.entries(modules)
       // The tests themselves may NAME the string they are hunting.
       .filter(([path]) => !/\.test\.tsx?$/.test(path))

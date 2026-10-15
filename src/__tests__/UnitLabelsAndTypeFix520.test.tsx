@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { readFileSync, readdirSync, statSync } from 'node:fs';
+import { readFileSync, readdirSync, statSync } from './helpers/sourceTree';
 import { resolve, join } from 'node:path';
 import type { UnitType } from '../lib/database.types';
 import { unitLabelParts, unitLabelAt, UNLABELLED_UNIT } from '../lib/unitLabels';

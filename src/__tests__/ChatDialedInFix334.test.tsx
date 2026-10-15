@@ -158,6 +158,7 @@ vi.mock('../hooks/useChatAttachments', async (orig) => {
 
 import ProjectChatModal from '../components/ProjectDetail/ProjectChatModal';
 import type { Permit } from '../lib/database.types';
+import { rawSources } from './helpers/sourceTree';
 
 const PERMITS = [
   { id: 12, project_id: 'p-1', type: 'Building Permit', num: '7133442-CN', da: 'Cam', ent_lead: 'Miles' },
@@ -713,11 +714,7 @@ describe('fix-334: what must not have moved', () => {
   });
 
   it('★ nothing renders "coming soon" or "coming later"', () => {
-    const modules = import.meta.glob('../**/*.{ts,tsx}', {
-      query: '?raw',
-      import: 'default',
-      eager: true,
-    }) as Record<string, string>;
+    const modules = rawSources(import.meta.glob('../**/*.{ts,tsx}'));
     const offenders = Object.entries(modules)
       .filter(([path]) => !/\.test\.tsx?$/.test(path))
       .filter(([, src]) => /coming soon|coming later/i.test(src))
