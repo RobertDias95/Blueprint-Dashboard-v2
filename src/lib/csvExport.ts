@@ -104,7 +104,7 @@ export function exportEnrichedPermitsToCSV(
   const csv = lines.join('\n');
   const bytes = new Blob([csv]).size;
   const stamp = new Date().toISOString().slice(0, 10);
-  const finalFilename = filename ?? `blueprint_entitlements_${stamp}.csv`;
+  const finalFilename = filename ?? `blueprint_permitting_${stamp}.csv`;
 
   const blob = new Blob([csv], { type: 'text/csv;charset=utf-8' });
   const url = URL.createObjectURL(blob);

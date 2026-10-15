@@ -130,12 +130,16 @@ describe('fix-595 §2.3 — the caret test', () => {
     return document.body.firstElementChild as HTMLElement;
   };
 
-  it('★★★ an input, a textarea, a select and a contenteditable all count', () => {
+  // ★★★ fix-673 §3 — SUPERSEDES "a select counts" and "an EMPTY field counts".
+  //     A field counts only when it HOLDS typed text: an autofocused, empty
+  //     search box held the app on its old build for as long as it stayed
+  //     focused. A select holds nothing typed. AutoReloadEdgesFix673 has the
+  //     component-level cases.
+  it('★★★ an input, a textarea and a contenteditable count — when they hold text', () => {
     for (const html of [
-      '<input />',
-      '<textarea></textarea>',
-      '<select><option>a</option></select>',
-      '<div contenteditable="true"></div>',
+      '<input value="typed" />',
+      '<textarea>typed</textarea>',
+      '<div contenteditable="true">typed</div>',
       // ★★ A CHILD of an editable region counts too — that is where the caret
       //    actually sits in a rich-text composer.
       '<div contenteditable="true"><span tabindex="0">typed</span></div>',
@@ -144,6 +148,22 @@ describe('fix-595 §2.3 — the caret test', () => {
       const el = (root.querySelector('[tabindex]') as HTMLElement | null) ?? root;
       el.focus();
       expect(activeElementIsInput(document), html).toBe(true);
+      document.body.innerHTML = '';
+    }
+  });
+
+  it('★★★ fix-673: EMPTY ones, whitespace-only ones and a select do NOT', () => {
+    for (const html of [
+      '<input />',
+      '<input type="search" value="   " />',
+      '<textarea></textarea>',
+      '<select><option>a</option></select>',
+      '<div contenteditable="true"></div>',
+      '<input type="checkbox" checked />',
+    ]) {
+      const root = mount(html);
+      root.focus();
+      expect(activeElementIsInput(document), html).toBe(false);
       document.body.innerHTML = '';
     }
   });
@@ -167,7 +187,7 @@ describe('fix-595 §2.3 — the caret test', () => {
   it('★★ a readOnly or disabled field does not count', () => {
     // Treating them as unsaved work would block the reload on a screen that is
     // purely being read.
-    for (const html of ['<input readonly />', '<input disabled />']) {
+    for (const html of ['<input readonly value="x" />', '<input disabled value="x" />']) {
       const el = mount(html);
       el.focus();
       expect(activeElementIsInput(document), html).toBe(false);

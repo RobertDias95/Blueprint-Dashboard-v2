@@ -17,7 +17,12 @@ import {
   noticeStep,
   recordClientBuild,
 } from '../lib/clientBuild';
-import { activeElementIsInput, shouldAutoReload } from '../lib/autoReload';
+import {
+  AUTO_RELOAD_AWAY_MS,
+  activeElementIsInput,
+  autoReloadBlocker,
+  shouldAutoReload,
+} from '../lib/autoReload';
 import { appIsMutating } from '../lib/appQueryClient';
 import { isAnythingDirty } from '../lib/dirtyRegistry';
 
@@ -129,6 +134,15 @@ export default function NewBuildNotice() {
   // ★ The floor between checks. A ref, not state: it must not re-render
   //   anything, and it must be read at call time rather than closed over.
   const lastCheckAt = useRef(0);
+  // ★★★ fix-673 §0.1 — the check in flight, so a second caller WAITS FOR IT
+  //     instead of being turned away by the floor. See `check`.
+  const inFlight = useRef<Promise<void> | null>(null);
+  // ★★★ fix-673 §0.2 — when the interval last ran. A gap far longer than the
+  //     interval means the timers were paused: the machine slept.
+  const lastTickAt = useRef(0);
+  // ★ fix-673 §4 — the last blocker recorded for this build, so a person
+  //   alt-tabbing twenty times sends one row update, not twenty.
+  const lastBlockerSent = useRef<string | null>(null);
 
   // ★★ Recorded once per document, not once per render. Without this, the
   //    `shown` count would measure React re-renders rather than appearances —
@@ -160,14 +174,8 @@ export default function NewBuildNotice() {
    *      that same host still latches. */
   const autoTriedForBuild = useRef<string | null>(null);
 
-  const check = useCallback(async () => {
-    // ★★ THE THREE TRIGGERS SHARE ONE FLOOR. Alt-tabbing between two windows
-    //    fires `focus` and `visibilitychange` in quick succession; without this
-    //    every pass would cost a fetch. Same reason as fix-371 §1's
-    //    REALTIME_VISIBILITY_MIN_GAP_MS.
-    const now = Date.now();
-    if (now - lastCheckAt.current < BUILD_CHECK_MIN_GAP_MS) return;
-    lastCheckAt.current = now;
+  /** One fetch-and-compare. Only ever called through `check`. */
+  const runCheck = useCallback(async (now: number) => {
     // ★★★ fix-589 §A — THE HEARTBEAT. Same moment, same floor, no new timer.
     //     Fire-and-forget: the migration ships unapplied, so this is a 404 in
     //     production today and must be exactly as harmless then as after.
@@ -190,6 +198,31 @@ export default function NewBuildNotice() {
     }
   }, []);
 
+  const check = useCallback((): Promise<void> => {
+    // ★★★ fix-673 §0.1 — A CHECK ALREADY RUNNING IS THE CHECK. Before this,
+    //     `onReturn` started a check and `maybeAutoReload` then asked for one
+    //     too; the floor below turned the second into an instant return, so the
+    //     decision read `newBuildIsLive()` ~100 ms before the fetch that would
+    //     have set it. The deploy made while you were away was found, the ribbon
+    //     went up — and nothing reloaded. Bobby's `afca5fb` row, 10-15 02:02:30:
+    //     ribbon shown, Reload pressed by hand 7 s later. Sharing the promise
+    //     makes the check that DECIDES the check that FETCHED.
+    if (inFlight.current) return inFlight.current;
+    // ★★ THE THREE TRIGGERS SHARE ONE FLOOR. Alt-tabbing between two windows
+    //    fires `focus` and `visibilitychange` in quick succession; without this
+    //    every pass would cost a fetch. Same reason as fix-371 §1's
+    //    REALTIME_VISIBILITY_MIN_GAP_MS. A check that FINISHED inside the floor
+    //    has already set the flag, so returning here loses nothing.
+    const now = Date.now();
+    if (now - lastCheckAt.current < BUILD_CHECK_MIN_GAP_MS) return Promise.resolve();
+    lastCheckAt.current = now;
+    const run = runCheck(now).finally(() => {
+      inFlight.current = null;
+    });
+    inFlight.current = run;
+    return run;
+  }, [runCheck]);
+
   // ═══════════════════════════════════════════════════════════════════════
   // ★★★ fix-595 §2 — THE DECISION, IN ONE PLACE
   // ═══════════════════════════════════════════════════════════════════════
@@ -201,8 +234,9 @@ export default function NewBuildNotice() {
   //     the check would decline every single time, for exactly the population
   //     the ticket exists to reach.
   //
-  // ★ `check()` has its own 10-second floor, so the await is usually a no-op and
-  //   never a second fetch.
+  // ★★★ fix-673: and it is awaited FOR REAL. `check()` hands back the fetch
+  //     already in flight rather than a throttled no-op, so a return never
+  //     costs a second fetch and never decides before the first one lands.
   const maybeAutoReload = useCallback(
     async (awayMs: number) => {
       await check();
@@ -223,10 +257,23 @@ export default function NewBuildNotice() {
       };
       if (!shouldAutoReload(decision)) {
         // ★★★ §2: *"If 1 + 2 hold but 3 fails: do nothing new; the ribbon is
-        //     already there. Log nothing."* A person who has just walked back to
-        //     their desk does not need a message about a reload that did not
-        //     happen, and a log line per alt-tab would drown the one signal
-        //     fix-589 built.
+        //     already there."* Still true ON SCREEN — a person who has just
+        //     walked back does not need a message about a reload that did not
+        //     happen.
+        // ★★★ fix-673 §4 — BUT THE REASON IS RECORDED. "It no longer does
+        //     that. Why?" had no answer: `client_build_seen` could say the
+        //     ribbon showed and nobody reloaded, never what held it. Only with a
+        //     new build live (no build is not a miss), and only when the reason
+        //     CHANGES for this build — one row per person per build, so the
+        //     column holds the latest reason and its time.
+        const blocker = autoReloadBlocker(decision);
+        if (blocker && blocker !== 'no-new-build') {
+          const key = `${buildKey()}|${blocker}`;
+          if (lastBlockerSent.current !== key) {
+            lastBlockerSent.current = key;
+            void recordClientBuild('auto_reload_blocked', Date.now(), blocker);
+          }
+        }
         return;
       }
       autoTriedForBuild.current = buildKey();
@@ -259,7 +306,34 @@ export default function NewBuildNotice() {
     // synchronous setState inside an effect - which the React Compiler rejects,
     // the same family of rule that cost fix-350 two attempts.
     const first = window.setTimeout(() => void check(), BUILD_CHECK_FIRST_MS);
-    const id = window.setInterval(() => void check(), BUILD_CHECK_INTERVAL_MS);
+    // ═══════════════════════════════════════════════════════════════════════
+    // ★★★ fix-673 §0.2 — A WAKE IS A RETURN
+    // ═══════════════════════════════════════════════════════════════════════
+    //
+    // The away clock below starts on `blur` or `hidden`. A window that is in
+    // FRONT and FOCUSED when the PC sleeps or locks fires neither, so waking
+    // it was never a return and nothing decided — the ribbon just appeared on
+    // the next tick and waited for a click.
+    //
+    // ★★ The tick already exists, and timers do not run while the machine
+    //    sleeps. So a tick that lands far later than the interval says the
+    //    machine was away for the difference. That gap is handed to the SAME
+    //    decision a return uses, with every fix-595 gate intact.
+    // ★ Only when the window was NOT marked away: a blurred or hidden window
+    //   is measured by its own return, and `onReturn` resets this stamp so the
+    //   two can never decide the same stretch twice.
+    lastTickAt.current = Date.now();
+    const tick = () => {
+      const now = Date.now();
+      const gap = now - lastTickAt.current - BUILD_CHECK_INTERVAL_MS;
+      lastTickAt.current = now;
+      if (gap >= AUTO_RELOAD_AWAY_MS && awaySince.current === 0) {
+        void maybeAutoReload(gap);
+        return;
+      }
+      void check();
+    };
+    const id = window.setInterval(tick, BUILD_CHECK_INTERVAL_MS);
     // ★ …and when the window comes back, because that is when somebody is
     // there to read it. Same event fix-371 §1 uses for the same reason: a
     // backgrounded app's timers are frozen — in a backgrounded INSTALLED app
@@ -280,6 +354,7 @@ export default function NewBuildNotice() {
     const onReturn = () => {
       const leftAt = awaySince.current;
       awaySince.current = 0;
+      lastTickAt.current = Date.now();
       void check();
       if (leftAt === 0) return;
       void maybeAutoReload(Date.now() - leftAt);

@@ -181,6 +181,8 @@ describe('fix-595 §2 — and what stops it', () => {
     const input = document.createElement('input');
     document.body.appendChild(input);
     input.focus();
+    // ★ fix-673 §3: only a field HOLDING text blocks — an empty one does not.
+    input.value = 'half a sentence';
     await awayAndBack(AUTO_RELOAD_AWAY_MS);
     expect(reloadOntoNewBuild).not.toHaveBeenCalled();
   });

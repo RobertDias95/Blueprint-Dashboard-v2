@@ -134,6 +134,25 @@ export type AutoReloadBlocker =
   | 'already-tried'
   | null;
 
+/**
+ * ★★ fix-673 §4 — what Settings → client builds prints for a recorded blocker.
+ *    Plain words, because the person reading it is asking "why didn't it catch
+ *    up?", not reading a code. `no-new-build` is never recorded, so it has no
+ *    label.
+ */
+export const AUTO_RELOAD_BLOCKER_LABEL: Readonly<Record<string, string>> = {
+  'not-away-long-enough': 'back too soon (under 30 min)',
+  dirty: 'unsaved changes',
+  mutating: 'a save was in flight',
+  'active-is-input': 'text in a focused field',
+  'already-tried': 'already tried this build',
+};
+
+/** The label for a stored reason; an unknown one prints as stored. */
+export function autoReloadBlockerLabel(reason: string): string {
+  return AUTO_RELOAD_BLOCKER_LABEL[reason] ?? reason;
+}
+
 export function autoReloadBlocker(input: AutoReloadInput): AutoReloadBlocker {
   if (!input.newBuild) return 'no-new-build';
   if (input.awayMs < AUTO_RELOAD_AWAY_MS) return 'not-away-long-enough';
@@ -167,15 +186,43 @@ export function autoReloadBlocker(input: AutoReloadInput): AutoReloadBlocker {
  * ★ A `readOnly` or `disabled` field does not count — nothing can be typed into
  *   one, so treating it as unsaved work would block the reload on a screen that
  *   is purely being read.
+ *
+ * ★★★ fix-673 §3 — AND NEITHER DOES AN EMPTY ONE. A window keeps its
+ *     `activeElement` while it is in the background, so an autofocused search
+ *     box — never typed in — held the app on its old build for as long as it
+ *     stayed focused. The question is "would a reload lose what somebody
+ *     typed?", so a field counts only when it HOLDS text (whitespace is empty).
+ *     A focused `<select>`, checkbox or button holds nothing typed and never
+ *     counts. Unsaved forms are still protected by `dirty`, which does not
+ *     depend on where the caret is.
  */
 export function activeElementIsInput(doc: Document = document): boolean {
   const el = doc.activeElement as HTMLElement | null;
   if (!el) return false;
-  if (el.isContentEditable === true) return true;
-  if (el.closest?.('[contenteditable]:not([contenteditable="false"])')) return true;
+  const region = el.closest?.('[contenteditable]:not([contenteditable="false"])');
+  if (el.isContentEditable === true || region) {
+    return ((region ?? el).textContent ?? '').trim() !== '';
+  }
   const tag = el.tagName;
-  if (tag !== 'INPUT' && tag !== 'TEXTAREA' && tag !== 'SELECT') return false;
+  if (tag !== 'INPUT' && tag !== 'TEXTAREA') return false;
   const field = el as HTMLInputElement;
   if (field.readOnly === true || field.disabled === true) return false;
-  return true;
+  if (tag === 'INPUT' && NOT_TYPED_INTO.has((field.type || 'text').toLowerCase())) {
+    return false;
+  }
+  return (field.value ?? '').trim() !== '';
 }
+
+/** ★ fix-673: input types whose value is not something a person typed. */
+const NOT_TYPED_INTO = new Set([
+  'checkbox',
+  'radio',
+  'button',
+  'submit',
+  'reset',
+  'range',
+  'color',
+  'file',
+  'image',
+  'hidden',
+]);
