@@ -38,6 +38,7 @@ import { supabase } from './supabase';
 import { BUILD_SHA, BUILT_AT, buildAgeDays } from './buildInfo';
 import { BUILD_CHECK_MIN_GAP_MS } from './appVersion';
 import { useAuthStore } from '../stores/authStore';
+import type { AutoReloadBlocker } from './autoReload';
 
 // ---------------------------------------------------------------------------
 // WHICH SURFACE
@@ -208,7 +209,14 @@ export function noticeCopy(step: NoticeStep, ageDays: number | null): NoticeCopy
  *    today this value is REJECTED — and `recordClientBuild` swallows that, which
  *    is why the reload still happens. Asserted in `AutoReloadOnReturnFix595`.
  */
-export type NoticeEvent = 'shown' | 'dismissed' | 'reloaded' | 'auto_reloaded';
+export type NoticeEvent =
+  | 'shown'
+  | 'dismissed'
+  | 'reloaded'
+  | 'auto_reloaded'
+  // ★★ fix-673 §4: a decision ran with a new build live and did NOT reload.
+  //    Carries the blocker; see `recordClientBuild`'s third argument.
+  | 'auto_reload_blocked';
 
 /**
  * Is somebody signed in?
@@ -254,6 +262,9 @@ export function __resetClientBuildHeartbeat(): void {
 export function recordClientBuild(
   event?: NoticeEvent,
   now: number = Date.now(),
+  /** ★ fix-673 §4: `autoReloadBlocker()`'s answer, with `'auto_reload_blocked'`
+   *  only. */
+  blockedReason?: AutoReloadBlocker,
 ): Promise<void> {
   // ★★★ SIGNED OUT WRITES NOTHING, AND THAT IS NOT ONLY AN OPTIMISATION.
   //     `bp_record_client_build` returns quietly when `auth.uid()` is null, so
@@ -282,6 +293,13 @@ export function recordClientBuild(
           p_user_agent:
             typeof navigator === 'undefined' ? null : navigator.userAgent.slice(0, 400),
           p_notice_event: event ?? null,
+          // ★★★ fix-673: SENT ONLY WITH THE BLOCKED EVENT. PostgREST matches a
+          //     function by its argument NAMES, so a plain heartbeat must not
+          //     carry this key — before the migration is applied it would
+          //     match no function and every heartbeat would 404.
+          ...(event === 'auto_reload_blocked' && blockedReason
+            ? { p_blocked_reason: blockedReason }
+            : {}),
         }),
       );
     }
@@ -328,6 +346,14 @@ export interface ClientBuildRow {
    *   day one, and that is the baseline P-292's success measure is read against.
    */
   notice_auto_reloaded_at: string | null;
+  /**
+   * ★★★ fix-673 §4: why the app last DIDN'T reload itself onto a newer build —
+   *     `autoReloadBlocker()`'s answer, and when. The LATEST reason, not the
+   *     first: it answers "why is this person still on this build?".
+   *     `null` when no decision was ever blocked (or before the migration).
+   */
+  auto_reload_blocked_reason: string | null;
+  auto_reload_blocked_at: string | null;
 }
 
 /**

@@ -51,6 +51,9 @@ interface RpcRow {
    *  server's row simply does not carry it, and the mapper must not invent a
    *  value or throw. `undefined ?? null` is the whole handling. */
   out_notice_auto_reloaded_at?: string | null;
+  /** ★ fix-673 §4 — optional for the same reason as the line above. */
+  out_auto_reload_blocked_reason?: string | null;
+  out_auto_reload_blocked_at?: string | null;
 }
 
 /** PostgREST's code for "no function matches" — the migration-unapplied case. */
@@ -75,6 +78,8 @@ export function mapClientBuildRow(row: RpcRow): ClientBuildRow {
     notice_dismissed_at: row.out_notice_dismissed_at,
     notice_reloaded_at: row.out_notice_reloaded_at,
     notice_auto_reloaded_at: row.out_notice_auto_reloaded_at ?? null,
+    auto_reload_blocked_reason: row.out_auto_reload_blocked_reason ?? null,
+    auto_reload_blocked_at: row.out_auto_reload_blocked_at ?? null,
   };
 }
 

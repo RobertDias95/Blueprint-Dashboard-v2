@@ -244,7 +244,7 @@ describe('fix-424 §D: the poll is the latency for a window nobody touches', () 
     expect(strip(noticeSource)).toContain('BUILD_CHECK_MIN_GAP_MS');
   });
 
-  it('★★★ two triggers in quick succession cost ONE fetch, not two', () => {
+  it('★★★ two triggers in quick succession cost ONE fetch, not two', async () => {
     // The floor, exercised rather than read: fire the two events back to back
     // and count the requests that actually leave.
     const fetchSpy = vi.fn(async () => new Response('', { status: 500 }));
@@ -270,6 +270,13 @@ describe('fix-424 §D: the poll is the latency for a window nobody touches', () 
       expect(afterFirst).toBe(1);
       // Both extra triggers landed inside the floor ⇒ still one request.
       expect(fetchSpy.mock.calls.length).toBe(1);
+      // ★ fix-673 §0.1: a trigger while a check is still IN FLIGHT joins it
+      //   rather than starting another, so the first fetch must have SETTLED
+      //   before "past the floor" means anything. A synchronous `act` never
+      //   lets its promise resolve; this one does.
+      await act(async () => {
+        for (let i = 0; i < 6; i++) await Promise.resolve();
+      });
       // …and past the floor, a trigger is honoured again.
       act(() => {
         vi.advanceTimersByTime(BUILD_CHECK_MIN_GAP_MS + 1);

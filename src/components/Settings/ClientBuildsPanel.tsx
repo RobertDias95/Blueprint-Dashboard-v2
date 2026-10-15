@@ -2,6 +2,7 @@ import { useMemo } from 'react';
 import { useClientBuilds } from '../../hooks/useClientBuilds';
 import { daysBehind, rowStep, type ClientBuildRow } from '../../lib/clientBuild';
 import { BUILD_SHA, buildStamp } from '../../lib/buildInfo';
+import { autoReloadBlockerLabel } from '../../lib/autoReload';
 import { SkeletonRows } from '../Skeleton';
 
 // ===========================================================================
@@ -146,6 +147,8 @@ export default function ClientBuildsPanel() {
                 {/* ★ fix-595: its own column — see the cell for why it is not
                     folded into "Notice". */}
                 <th className="font-semibold py-1">Caught up by itself</th>
+                {/* ★★★ fix-673 §4 — and when it didn't, why. */}
+                <th className="font-semibold py-1">Why it didn&apos;t</th>
               </tr>
             </thead>
             <tbody>
@@ -208,6 +211,22 @@ export default function ClientBuildsPanel() {
                     >
                       {row.notice_auto_reloaded_at
                         ? new Date(row.notice_auto_reloaded_at).toLocaleString()
+                        : '—'}
+                    </td>
+                    {/* ★★★ fix-673 §4 — THE ANSWER TO "WHY?". The latest reason
+                        the app declined to reload itself onto a newer build,
+                        and when. Blank on a row that caught up, or where no
+                        decision was ever held back. */}
+                    <td
+                      className="py-1 text-muted"
+                      data-testid={`client-build-blocked-${row.user_id}`}
+                    >
+                      {row.auto_reload_blocked_reason
+                        ? `${autoReloadBlockerLabel(row.auto_reload_blocked_reason)}${
+                            row.auto_reload_blocked_at
+                              ? ` · ${new Date(row.auto_reload_blocked_at).toLocaleString()}`
+                              : ''
+                          }`
                         : '—'}
                     </td>
                   </tr>
