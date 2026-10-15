@@ -255,7 +255,11 @@ describe('fix-387 → fix-657: read state', () => {
     const code = stripComments(pageSource);
     expect(code.match(/markRef\.current\(/g) ?? []).toHaveLength(1);
     expect(code.match(/markRead\.mutate\(/g) ?? []).toHaveLength(1);
-    expect(code).toContain('if (toClear.current.length > 0) markRef.current(toClear.current);');
+    // ★ fix-670: the sweep only runs if you were SHOWN cards — opening the
+    //   Guide tab and leaving marks nothing read (brief §D.8).
+    expect(code).toContain(
+      'if (sawCards.current && toClear.current.length > 0) markRef.current(toClear.current);',
+    );
   });
 
   it('★★ the click-through still leaves the page, which runs the sweep', () => {

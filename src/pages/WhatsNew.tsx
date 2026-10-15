@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type { KeyboardEvent as ReactKeyboardEvent } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import { useIsTenantAdmin } from '../hooks/useIsTenantAdmin';
 import {
   useDeleteWhatsNewEntry,
@@ -12,6 +12,10 @@ import {
 } from '../hooks/useWhatsNew';
 import { useWhatsNewAreas, useWhatsNewSearch } from '../hooks/useWhatsNewGuide';
 import { useOriginState } from '../hooks/useOriginState';
+import { useGuideSearch, useGuideSections } from '../hooks/useGuide';
+import { useSelfScope } from '../hooks/useSelfScope';
+import GuideTab from '../components/whatsNew/GuideTab';
+import { audiencesForRoles, isGuideSlug } from '../lib/guide';
 import { allRibbonRoutes } from '../lib/ribbonNav';
 import TabStrip from '../components/shared/TabStrip';
 import {
@@ -55,6 +59,11 @@ import {
 //   A card is a title, ONE line, its kind and area. Clicking it opens the
 //   detail: summary, details, "How to use it", "Show me →", media, related.
 //
+// ★★★ fix-670 (P-056) adds the GUIDE as the first tab — the training guide,
+//     start to finish, one chapter per role (components/whatsNew/GuideTab).
+//     Tabs read Guide · Latest · Browse; the Guide tab exists only when a
+//     section does. The one search box searches both (guide hits first).
+//
 // ★★ fix-350's rules still bind: no modal on arrival, no tour, no banner. The
 //    detail panel opens only because the reader clicked a card.
 //
@@ -78,7 +87,12 @@ const KIND_CLASS: Record<WhatsNewKind, string> = {
 
 const UNSORTED_LABEL = 'Not yet sorted';
 
-type Tab = 'latest' | 'browse';
+// ★★★ fix-670: the Guide is the first tab — Guide · Latest · Browse.
+type Tab = 'guide' | 'latest' | 'browse';
+
+function isTab(v: string | null): v is Tab {
+  return v === 'guide' || v === 'latest' || v === 'browse';
+}
 
 /** Is this entry on screen, given the kind chip, the tab and the area? */
 function visible(
@@ -100,12 +114,28 @@ export default function WhatsNew() {
   const areas = useWhatsNewAreas();
   const [editing, setEditing] = useState<WhatsNewEntry | 'new' | null>(null);
   const [kindFilter, setKindFilter] = useState<WhatsNewKind | 'all'>('all');
-  const [tab, setTab] = useState<Tab>('latest');
+  // ★★ fix-670: null = "not chosen yet" — the default is decided ONCE, when
+  //    the data is in (see below), and a deep link's `?tab=` is a choice.
+  const [params, setParams] = useSearchParams();
+  const [tabChoice, setTabChoice] = useState<Tab | null>(() => {
+    const t = params.get('tab');
+    return isTab(t) ? t : null;
+  });
+  const [focusSlug, setFocusSlug] = useState<string | null>(() => {
+    const s = params.get('s');
+    return s && isGuideSlug(s) ? s : null;
+  });
   // undefined = the tile grid; null = "Not yet sorted"; a string = that area.
   const [area, setArea] = useState<string | null | undefined>(undefined);
   const [query, setQuery] = useState('');
   const [openId, setOpenId] = useState<string | null>(null);
   const search = useWhatsNewSearch(query);
+  const guideSearch = useGuideSearch(query);
+  const sectionsQ = useGuideSections();
+  const sections = useMemo(() => sectionsQ.data ?? [], [sectionsQ.data]);
+  const hasGuide = sections.length > 0;
+  const { identity } = useSelfScope();
+  const myChapters = useMemo(() => audiencesForRoles(identity.roles), [identity.roles]);
 
   const entries = useMemo(() => entriesQ.data ?? [], [entriesQ.data]);
   const readIds = useMemo(() => new Set(readsQ.data ?? []), [readsQ.data]);
@@ -118,6 +148,7 @@ export default function WhatsNew() {
   //    read straight away (the brief: "Opening it marks the entry read"). Its
   //    dot clears; every other card keeps its tint until you leave.
   const toClear = useRef<string[]>([]);
+  const sawCards = useRef(false);
   const loading = entriesQ.isLoading || readsQ.isLoading;
   useEffect(() => {
     toClear.current = loading
@@ -131,7 +162,7 @@ export default function WhatsNew() {
   });
   useEffect(
     () => () => {
-      if (toClear.current.length > 0) markRef.current(toClear.current);
+      if (sawCards.current && toClear.current.length > 0) markRef.current(toClear.current);
     },
     [],
   );
@@ -140,6 +171,34 @@ export default function WhatsNew() {
     () => new Set(entries.filter((e) => !readIds.has(e.id)).map((e) => e.id)),
     [entries, readIds],
   );
+
+  // ★★★ fix-670 — THE DEFAULT TAB: Latest if you have something unread,
+  //     otherwise the Guide. Decided ONCE, when entries, reads and sections are
+  //     all in — opening a card marks it read, and a default that re-derived
+  //     would yank you onto the Guide the moment your last unread card cleared.
+  //     (React's "adjust state while rendering" pattern, not an effect.)
+  const settled = !loading && !sectionsQ.isLoading;
+  if (tabChoice === null && settled) {
+    setTabChoice(unreadOnArrival.size > 0 || !hasGuide ? 'latest' : 'guide');
+  }
+  // ★ The Guide tab only exists when a section does — never an empty placeholder.
+  const tab: Tab =
+    tabChoice === null ? 'latest' : tabChoice === 'guide' && !hasGuide ? 'latest' : tabChoice;
+  const selectTab = (t: Tab, slug: string | null = null) => {
+    setTabChoice(t);
+    setFocusSlug(slug);
+    const next = new URLSearchParams();
+    next.set('tab', t);
+    if (slug) next.set('s', slug);
+    setParams(next, { replace: true });
+  };
+
+  // ★★ fix-670 §D.8: opening the GUIDE does not mark What's New read. The
+  //    clear-on-leave above is for the cards you were shown; if you never left
+  //    the Guide, you were shown none.
+  useEffect(() => {
+    if (tab !== 'guide' || query.trim().length >= 2) sawCards.current = true;
+  }, [tab, query]);
 
   const byId = useMemo(() => new Map(entries.map((e) => [e.id, e])), [entries]);
   // ★ Search results, in rank order, filtered by kind and (in Browse, inside an
@@ -179,6 +238,9 @@ export default function WhatsNew() {
   });
 
   const searching = hits !== null;
+  // ★★ fix-670 §E: the guide half of the one search box. Its own failure
+  //    hides only its own group — the cards still render.
+  const guideHits = searching && !guideSearch.isError ? guideSearch.data ?? [] : [];
   const showTiles = tab === 'browse' && area === undefined && !searching;
 
   return (
@@ -232,12 +294,13 @@ export default function WhatsNew() {
           are chips. */}
       <TabStrip<Tab>
         tabs={[
+          ...(hasGuide ? [{ id: 'guide' as const, label: 'Guide', testid: 'whats-new-tab-guide' }] : []),
           { id: 'latest', label: 'Latest', testid: 'whats-new-tab-latest' },
           { id: 'browse', label: 'Browse', testid: 'whats-new-tab-browse' },
         ]}
         active={tab}
         onSelect={(t) => {
-          setTab(t);
+          selectTab(t);
           if (t === 'browse') setArea(undefined);
         }}
         ariaLabel="What's New view"
@@ -245,39 +308,42 @@ export default function WhatsNew() {
         className="mb-2 flex-none"
       />
 
-      <div className="flex items-center gap-3 mb-2 flex-none flex-wrap">
-        {/* ★ Chips rather than tabs, so the whole vocabulary is visible. */}
-        <div className="flex items-center gap-1.5" data-testid="whats-new-filters">
-          {(['all', ...WHATS_NEW_KINDS] as const).map((k) => (
-            <button
-              key={k}
-              type="button"
-              onClick={() => setKindFilter(k)}
-              className={`text-[10px] font-bold uppercase tracking-wide px-2 py-0.5 rounded-lg border ${
-                kindFilter === k
-                  ? 'bg-de-bg text-de border-de'
-                  : 'bg-surface text-muted border-border hover:text-text'
-              }`}
-              data-testid={`whats-new-filter-${k}`}
-              aria-pressed={kindFilter === k}
-            >
-              {k === 'all' ? 'all' : KIND_LABEL[k]}
-            </button>
-          ))}
-        </div>
+      {/* ★ fix-670: the kind chips filter CARDS — the Guide has none. */}
+      {(tab !== 'guide' || searching) && (
+        <div className="flex items-center gap-3 mb-2 flex-none flex-wrap">
+          {/* ★ Chips rather than tabs, so the whole vocabulary is visible. */}
+          <div className="flex items-center gap-1.5" data-testid="whats-new-filters">
+            {(['all', ...WHATS_NEW_KINDS] as const).map((k) => (
+              <button
+                key={k}
+                type="button"
+                onClick={() => setKindFilter(k)}
+                className={`text-[10px] font-bold uppercase tracking-wide px-2 py-0.5 rounded-lg border ${
+                  kindFilter === k
+                    ? 'bg-de-bg text-de border-de'
+                    : 'bg-surface text-muted border-border hover:text-text'
+                }`}
+                data-testid={`whats-new-filter-${k}`}
+                aria-pressed={kindFilter === k}
+              >
+                {k === 'all' ? 'all' : KIND_LABEL[k]}
+              </button>
+            ))}
+          </div>
 
-        {tab === 'browse' && area !== undefined && (
-          <button
-            type="button"
-            onClick={() => setArea(undefined)}
-            className="text-[11px] text-de hover:underline bg-transparent border-none p-0"
-            data-testid="whats-new-area-back"
-          >
-            ← All areas
-            <span className="text-text font-bold ml-1.5">· {area ?? UNSORTED_LABEL}</span>
-          </button>
-        )}
-      </div>
+          {tab === 'browse' && area !== undefined && (
+            <button
+              type="button"
+              onClick={() => setArea(undefined)}
+              className="text-[11px] text-de hover:underline bg-transparent border-none p-0"
+              data-testid="whats-new-area-back"
+            >
+              ← All areas
+              <span className="text-text font-bold ml-1.5">· {area ?? UNSORTED_LABEL}</span>
+            </button>
+          )}
+        </div>
+      )}
 
       {editing && isAdmin && (
         <EntryEditor
@@ -299,25 +365,66 @@ export default function WhatsNew() {
             Loading…
           </div>
         ) : searching ? (
-          hits.length === 0 && !search.pending ? (
+          hits.length === 0 && guideHits.length === 0 && !search.pending ? (
             <div className="p-3.5" data-testid="whats-new-no-match">
               <div className="text-[12px] text-text mb-2.5">No match — try another word.</div>
               <AreaTiles
                 tiles={tiles}
                 onPick={(a) => {
                   setQuery('');
-                  setTab('browse');
+                  selectTab('browse');
                   setArea(a);
                 }}
               />
             </div>
           ) : (
             <div className="p-2 grid gap-1.5" data-testid="whats-new-results">
+              {guideHits.length > 0 && (
+                // ★★ fix-670: the guide FIRST — it is the manual; the cards are
+                //    the tips that hang off it.
+                <div className="grid gap-1.5 mb-1" data-testid="whats-new-guide-results">
+                  <div className="text-[9px] font-extrabold uppercase tracking-[0.06em] text-muted px-1">
+                    In the guide
+                  </div>
+                  {guideHits.map((g) => (
+                    <button
+                      key={g.id}
+                      type="button"
+                      onClick={() => {
+                        setQuery('');
+                        selectTab('guide', g.slug);
+                      }}
+                      className="text-left px-3 py-2 rounded-md border border-border/70 bg-surface hover:border-de"
+                      data-testid={`whats-new-guide-hit-${g.slug}`}
+                    >
+                      <div className="text-[12px] font-bold text-text">{g.title}</div>
+                      <div className="text-[11px] text-muted mt-0.5 leading-snug line-clamp-2">
+                        <Snippet text={g.snippet} />
+                      </div>
+                    </button>
+                  ))}
+                  {hits.length > 0 && (
+                    <div className="text-[9px] font-extrabold uppercase tracking-[0.06em] text-muted px-1 mt-1">
+                      Tips
+                    </div>
+                  )}
+                </div>
+              )}
               {hits.map((h) => (
                 <EntryCard key={h.entry.id} {...cardProps(h.entry)} snippet={h.snippet} />
               ))}
             </div>
           )
+        ) : tab === 'guide' ? (
+          <GuideTab
+            sections={sections}
+            mine={myChapters}
+            isAdmin={isAdmin}
+            entries={entries}
+            focusSlug={focusSlug}
+            onFocusSlug={(slug) => selectTab('guide', slug)}
+            onOpenCard={openCard}
+          />
         ) : showTiles ? (
           <div className="p-3" data-testid="whats-new-browse">
             <AreaTiles tiles={tiles} onPick={(a) => setArea(a)} />
