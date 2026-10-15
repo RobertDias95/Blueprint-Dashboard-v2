@@ -51,7 +51,10 @@ export function useSetPersonDetails() {
         //   being read as "leave it alone".
         p_first_name: first_name,
         p_last_name: last_name,
-        p_email: email,
+        // ★ fix-674: stored lowercase. Matching already lowercases (selfScope),
+        //   but the stored value is what Settings shows and the welcome email
+        //   and sign-in change compare against.
+        p_email: email.trim().toLowerCase(),
       });
       if (error) throw error;
       return (data as number | null) ?? 0;

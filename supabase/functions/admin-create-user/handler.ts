@@ -271,7 +271,10 @@ export function validateAddPerson(
   });
   if (!raw || typeof raw !== 'object') return bad('No details were sent.');
 
-  const email = (raw.email ?? '').trim();
+  // ★ fix-674 (P-354): STORED lowercase, not only matched lowercase — the
+  //   login, the roster row and the welcome email all take this value. Jeanne
+  //   and Kerry were saved as typed ("Jeanne@…") and Cowork had to fix them.
+  const email = norm(raw.email);
   if (!EMAIL_RE.test(email)) return bad('That is not a valid email address.', 'email');
 
   // ★ fix-670 §C: with the welcome email the person sets their own password,
@@ -717,7 +720,7 @@ export async function resendWelcome(
       message: 'You are not an admin, so you cannot send this.',
     };
   }
-  const email = (raw?.email ?? '').trim();
+  const email = norm(raw?.email);
   if (!EMAIL_RE.test(email)) {
     return {
       ok: false,

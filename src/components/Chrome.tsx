@@ -70,6 +70,9 @@ export default function Chrome() {
   const { identity, userId } = useSelfScope();
   // ★ fix-670: a viewer's plate is their department's words, from the table.
   const departmentLabels = useDepartments().labels;
+  const userPlate =
+    rosterRoleTitle(identity.roles, identity.notes, identity.department, departmentLabels) ??
+    'Blueprint Services';
 
   // ★★ fix-369: MOUNTED ONCE, HERE. The shell is the only component that is
   // always present and never remounts on navigation, which is exactly what a
@@ -290,7 +293,7 @@ export default function Chrome() {
                    there is: the name is printed immediately to its right, so it
                    stays decorative and the text carries the identity. */}
             <Avatar name={identity.name} size={28} />
-            <div className="leading-tight">
+            <div className="leading-tight min-w-0">
               <div className="font-display font-semibold text-text" style={{ fontSize: 12.5 }}>
                 {identity.name ?? 'Signed in'}
               </div>
@@ -312,9 +315,17 @@ export default function Chrome() {
                   say — an unmapped login, or a viewer with no recorded
                   function — and the neutral line that was already the fallback
                   here covers that case rather than a placeholder. */}
-              <div className="text-dim" style={{ fontSize: 10.5 }} data-testid="chrome-user-role">
-                {rosterRoleTitle(identity.roles, identity.notes, identity.department, departmentLabels) ??
-                  'Blueprint Services'}
+              {/* ★ fix-674: a viewer's plate now carries their Title too
+                  ("Vice President, Loan Operations · Loans"), so a long one is
+                  cut with an ellipsis and read in full on hover — it never
+                  pushes the header. */}
+              <div
+                className="text-dim truncate"
+                style={{ fontSize: 10.5, maxWidth: 260 }}
+                title={userPlate}
+                data-testid="chrome-user-role"
+              >
+                {userPlate}
               </div>
             </div>
           </div>

@@ -352,7 +352,7 @@ export default function AddPersonDialog({ open, onClose }: Props) {
               //   type something that never appears.
               hint={
                 form.role === 'viewer'
-                  ? 'Printed on their name plate — e.g. CEO.'
+                  ? 'Printed on their name plate, before the department.'
                   : 'Optional note. Their role supplies the printed title.'
               }
             >
@@ -595,10 +595,13 @@ function Created({
           <span className="font-semibold text-text">
             {BRIDGE_ACCESS_LABEL[result.membership.role]}
           </span>{' '}
-          ({result.membership.source === 'trigger'
-            ? 'membership already existed'
-            : 'membership added for this address'}
-          )
+          {/* ★★ fix-674: 'trigger' means the signup trigger
+              (auto_grant_blueprintcap_membership_on_signup) made it in the
+              same instant this login was created — this call always creates
+              the login (an existing one is refused as email_taken), so
+              "already existed" misled. Said plainly; the parenthesis stays
+              only for a non-Blueprint address this call granted by hand. */}
+          {result.membership.source === 'function' && '(granted here — not a Blueprint address)'}
         </li>
         {result.roster.was_retired && (
           <li className="text-co">

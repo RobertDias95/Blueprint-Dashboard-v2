@@ -83,10 +83,13 @@ describe('fix-652 · 33 — a layout label select keeps an off-list value', () =
 });
 
 describe('fix-652 · 35 — a viewer’s title is their department', () => {
-  it('★★★ the department wins over the note', () => {
-    expect(rosterRoleTitle(['viewer'], 'CEO', 'executive')).toBe('Executive');
+  // ★★★ SUPERSEDED by fix-674 (Bobby, 2026-10-14): the Title is printed
+  //     BEFORE the department rather than dropped. The department still
+  //     always shows.
+  it('★★★ the department is always on the plate, after the Title (fix-674)', () => {
+    expect(rosterRoleTitle(['viewer'], 'CEO', 'executive')).toBe('CEO · Executive');
     expect(rosterRoleTitle(['viewer'], 'IT', 'it_investor_relations')).toBe(
-      'IT & Investor Relations',
+      'IT · IT & Investor Relations',
     );
   });
 
@@ -112,6 +115,6 @@ describe('fix-652 · 35 — a viewer’s title is their department', () => {
       [],
     );
     expect(id.department).toBe('executive');
-    expect(rosterRoleTitle(id.roles, id.notes, id.department)).toBe('Executive');
+    expect(rosterRoleTitle(id.roles, id.notes, id.department)).toBe('CEO · Executive');
   });
 });
