@@ -1,5 +1,5 @@
 import type { TeamRole } from './database.types';
-import { ROLE_TITLE, rosterRoleTitle } from './roleLabels';
+import { ROLE_TITLE, rosterRoleTitle, viewerPlate } from './roleLabels';
 
 // ===========================================================================
 // ★★★ fix-436 (P-086) — the client half of "add a person"
@@ -121,8 +121,9 @@ export const DEFAULT_DEPARTMENT_FOR_ROLE: Readonly<Record<TeamRole, string | nul
  * ★★ "How you'll appear" — the line the dialog previews and the welcome email
  *    prints, built once so the two cannot disagree.
  *
- *    - viewer: their department (fix-652: it wins over the Title), else the
- *      Title, else "Blueprint Services" — "Greg · Underwriting".
+ *    - viewer: Title · department (fix-674; the Title once when it IS the
+ *      department), else whichever is set, else "Blueprint Services" —
+ *      "Jeanne · Vice President, Loan Operations · Loans".
  *    - everyone else: role title · department — "Sam · Design Associate ·
  *      Design & Permitting" (the approved email's wording).
  */
@@ -135,8 +136,9 @@ export function welcomePlate(
   const shown = name.trim() || '—';
   let title: string;
   if (role === 'viewer') {
+    // ★ fix-674: the same rule Chrome prints — Title · department.
     title =
-      (departmentWords ?? '').trim() || (notes ?? '').trim() || 'Blueprint Services';
+      viewerPlate((notes ?? '').trim(), (departmentWords ?? '').trim()) ?? 'Blueprint Services';
   } else {
     title = [ROLE_TITLE[role], (departmentWords ?? '').trim()].filter(Boolean).join(' · ');
   }

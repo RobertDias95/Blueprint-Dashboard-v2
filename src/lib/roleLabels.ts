@@ -213,6 +213,28 @@ const TITLE_SEPARATOR = ' · ';
  * @param notes team_members.notes for that person — the fallback function
  * @param department team_members.department — a viewer's function when set
  */
+/** Case- and space-insensitive, so "underwriting " is the department. */
+function samePlateWords(a: string, b: string): boolean {
+  const k = (x: string) => x.replace(/\s+/g, ' ').trim().toLowerCase();
+  return k(a) === k(b);
+}
+
+/**
+ * ★★ fix-674 (P-354) — A VIEWER'S TITLE, THEN THEIR DEPARTMENT.
+ *
+ * Bobby, 2026-10-14, after adding Jeanne (Title "Vice President, Loan
+ * Operations", department Loans) and seeing only "Loans": *when a Title is
+ * typed, show the Title, then the department.* fix-652 let the department WIN
+ * over the Title; this keeps both. No Title → exactly as fix-652.
+ *
+ * ★ EJ, Greg and Taylor have Title "Underwriting" in the Underwriting
+ *   department, so a Title equal to the department label is printed ONCE.
+ */
+export function viewerPlate(title: string, dept: string): string | null {
+  if (title && dept) return samePlateWords(title, dept) ? dept : `${title}${TITLE_SEPARATOR}${dept}`;
+  return title || dept || null;
+}
+
 export function rosterRoleTitle(
   roles: readonly TeamRole[] | null | undefined,
   notes?: string | null,
@@ -223,9 +245,7 @@ export function rosterRoleTitle(
   if (held.length === 0) return null;
   if (held.length === 1 && held[0] === 'viewer') {
     const dept = department ? lookupDepartmentLabel(department, labels) : undefined;
-    if (dept) return dept;
-    const fn = (notes ?? '').trim();
-    return fn === '' ? null : fn;
+    return viewerPlate((notes ?? '').trim(), dept ?? '');
   }
   return held.map((r) => ROLE_TITLE[r] ?? r).join(TITLE_SEPARATOR);
 }

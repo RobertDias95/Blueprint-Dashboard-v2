@@ -731,6 +731,12 @@ describe('fix-436 §C — the screen', () => {
     expect(screen.getByTestId('add-person-receipt').textContent).toContain(
       'Roster row created',
     );
+    // ★★ fix-674: the trigger made the membership for the login this call
+    //    created, so it is said plainly — never "already existed".
+    const receipt = screen.getByTestId('add-person-receipt').textContent ?? '';
+    expect(receipt).toContain('Bridge access: Editor');
+    expect(receipt).not.toMatch(/already/i);
+    expect(receipt).not.toContain('(');
 
     // ★ The call carried the roster name and the role, and nothing about the
     //   caller — the function reads that from the token.
@@ -744,6 +750,31 @@ describe('fix-436 §C — the screen', () => {
     });
     expect(Object.keys(opts.body)).not.toContain('tenant_id');
     expect(Object.keys(opts.body)).not.toContain('user_id');
+  });
+
+  it('★★ fix-674 — a membership this call granted by hand says so', async () => {
+    invokeMock.mockResolvedValue({
+      data: {
+        ok: true,
+        user_id: 'user-new',
+        email: 'contractor@example.com',
+        roster: { action: 'inserted', id: 'r1', name: 'Nadia', role: 'da', was_retired: false },
+        profile: { role: 'editor', created_by: 'trigger' },
+        membership: { role: 'editor', source: 'function' },
+      },
+      error: null,
+    });
+    renderSection();
+    fireEvent.click(screen.getByTestId('add-person-open'));
+    fillForm({ email: 'contractor@example.com' });
+    fireEvent.click(screen.getByTestId('add-person-submit'));
+    await waitFor(() =>
+      expect(screen.getByTestId('add-person-success')).toBeInTheDocument(),
+    );
+    const receipt = screen.getByTestId('add-person-receipt').textContent ?? '';
+    expect(receipt).toContain('Bridge access: Editor');
+    expect(receipt).toContain('granted here');
+    expect(receipt).not.toMatch(/already/i);
   });
 
   it('★★★ C3 — the function’s own sentence is what the screen shows', async () => {

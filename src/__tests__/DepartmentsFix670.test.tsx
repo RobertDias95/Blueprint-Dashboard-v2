@@ -92,7 +92,7 @@ describe('fix-670 §A — the list is a table; the built-in seven are the fallba
     // an unknown key prints as itself, never blank
     expect(departmentLabel('retired_thing')).toBe('retired_thing');
     // ★ and a viewer's name plate follows the live label (fix-652's rule)
-    expect(rosterRoleTitle(['viewer'], 'CFO', 'accounting', live)).toBe('Accounting');
+    expect(rosterRoleTitle(['viewer'], 'CFO', 'accounting', live)).toBe('CFO · Accounting'); // fix-674: Title, then department
   });
 
   it('★ a saved filter keeps a new department key (pages pass any-key)', () => {
