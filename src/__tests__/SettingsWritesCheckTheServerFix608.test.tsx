@@ -462,6 +462,12 @@ function gateDeps(over: {
     insertRosterRow: async () => 'roster-1',
     ensureMembership: async () => false,
     setProfileRole: async () => undefined,
+    departmentExists: async () => true,
+    callerFirstName: async () => null,
+    randomPassword: () => 'x',
+    recoveryCode: async () => ({ code: '123456' }),
+    sendWelcome: async () => ({ ok: true }),
+    recordOutbox: async () => undefined,
   };
   return { deps, asked };
 }

@@ -31,12 +31,21 @@ import { foldRosterToPeople } from './department';
  *  Settings list (a typo, a retired key, a non-string) is dropped rather than
  *  kept as an invisible filter nothing can match. Order follows the stored
  *  value; duplicates are removed. */
-export function parseDepartments(raw: unknown): Department[] {
+export function parseDepartments(
+  raw: unknown,
+  // ★ fix-670: departments are a table now, and a saved filter is read before
+  //   that list has loaded — so the pages pass 'any-key' (anything shaped like
+  //   a `departments.key`). A key since deleted matches nobody and its chip
+  //   still shows, with its ×. The default stays the built-in seven.
+  allowedKeys: Iterable<string> | 'any-key' = DEPARTMENTS,
+): Department[] {
   if (!Array.isArray(raw)) return [];
-  const allowed = new Set<string>(DEPARTMENTS);
+  const allowed = allowedKeys === 'any-key' ? null : new Set<string>(allowedKeys);
+  const ok = (v: string) =>
+    allowed ? allowed.has(v) : /^[a-z0-9]+(_[a-z0-9]+)*$/.test(v);
   const out: Department[] = [];
   for (const v of raw) {
-    if (typeof v === 'string' && allowed.has(v) && !out.includes(v as Department)) {
+    if (typeof v === 'string' && ok(v) && !out.includes(v as Department)) {
       out.push(v as Department);
     }
   }
@@ -83,7 +92,7 @@ export function loadBoardDepartments(userId: string | null | undefined): Departm
   if (!userId || typeof window === 'undefined') return [];
   try {
     const raw = window.localStorage.getItem(boardDepartmentsKey(userId));
-    return raw ? parseDepartments(JSON.parse(raw)) : [];
+    return raw ? parseDepartments(JSON.parse(raw), 'any-key') : [];
   } catch {
     return [];
   }

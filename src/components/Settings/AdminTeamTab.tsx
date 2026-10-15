@@ -25,6 +25,8 @@ import AddPersonSection from './AddPersonSection';
 import ClientBuildsPanel from './ClientBuildsPanel';
 import { SkeletonRows } from '../Skeleton';
 import QueryError from '../QueryError';
+import DepartmentListEditor from './DepartmentListEditor';
+import { useDepartments } from '../../hooks/useDepartments';
 
 // ===========================================================================
 // ★★★ fix-613 §A — WHAT THIS TAB IS NOW, AND WHAT IT STOPPED BEING
@@ -56,6 +58,8 @@ import QueryError from '../QueryError';
 export default function AdminTeamTab() {
   const teamQ = useTeamMembers();
   const isAdmin = useIsTenantAdmin();
+  // ★ fix-670: the department list is a table now.
+  const departmentsQ = useDepartments();
   // ★ fix-659: the lead-less list offers each permit's ROUTED lead first.
   const routingQ = useDaTeamRouting();
   // ★ `useUpsertTeamMember` moved into PeopleTable with the roster; the three
@@ -138,6 +142,16 @@ export default function AdminTeamTab() {
           say that Jade is one person holding three of them. See PeopleTable. */}
       <SettingsBlock id="everyone">
         <PeopleTable readOnly={!isAdmin} />
+      </SettingsBlock>
+
+      {/* ★★★ fix-670 (P-351): the department LIST — add, rename, reorder,
+          delete-when-empty. Who is in each one stays in Everyone. */}
+      <SettingsBlock id="department-list">
+        <DepartmentListEditor
+          departments={departmentsQ.list}
+          members={teamQ.all}
+          readOnly={!isAdmin}
+        />
       </SettingsBlock>
 
 

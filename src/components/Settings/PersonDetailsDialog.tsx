@@ -3,7 +3,8 @@ import { useSetPersonDetails } from '../../hooks/useSetPersonDetails';
 import { useSetTeamDepartment } from '../../hooks/useSetTeamDepartment';
 import { useSetAgendaMember } from '../../hooks/useAgendaMember';
 import { useUpsertTeamMember } from '../../hooks/useUpsertTeamMember';
-import { DEPARTMENTS, departmentLabel } from '../../lib/roleLabels';
+import { departmentLabel } from '../../lib/roleLabels';
+import { useDepartments } from '../../hooks/useDepartments';
 import { PEOPLE_ROLE_FILTERS, retirePatch } from '../../lib/peopleTable';
 import { isCurrentMember } from '../../lib/roster';
 import type { Department, TeamRole } from '../../lib/database.types';
@@ -100,6 +101,8 @@ export default function PersonDetailsDialog({ person, onClose }: Props) {
   const formId = useId();
   const save = useSetPersonDetails();
   const setDept = useSetTeamDepartment();
+  // ★ fix-670: the department list is a table now.
+  const departments = useDepartments();
   const setAgenda = useSetAgendaMember();
   const upsertRow = useUpsertTeamMember();
   // ★★★ fix-505 §B: a roster row is not a login. `profiles` is read-own-only,
@@ -367,11 +370,18 @@ export default function PersonDetailsDialog({ person, onClose }: Props) {
               data-testid="person-details-department"
             >
               <option value="">{departmentLabel(null)}</option>
-              {DEPARTMENTS.map((d) => (
-                <option key={d} value={d}>
-                  {departmentLabel(d)}
+              {departments.list.map((d) => (
+                <option key={d.key} value={d.key}>
+                  {d.label}
                 </option>
               ))}
+              {/* ★ A stored key the list no longer has still renders, never blank. */}
+              {person.department &&
+                !departments.labels.has(person.department) && (
+                  <option value={person.department}>
+                    {departmentLabel(person.department, departments.labels)}
+                  </option>
+                )}
             </select>
           </PersonFieldRow>
 

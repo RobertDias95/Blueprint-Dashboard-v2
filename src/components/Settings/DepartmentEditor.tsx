@@ -7,13 +7,12 @@ import {
   type DepartmentPerson,
 } from '../../lib/department';
 import {
-  DEPARTMENTS,
-  DEPARTMENT_LABEL,
   ROLE_TITLE,
   departmentLabel,
   NO_DEPARTMENT_LABEL,
 } from '../../lib/roleLabels';
 import type { Department, TeamMember } from '../../lib/database.types';
+import { FALLBACK_DEPARTMENTS, type DepartmentRow } from '../../lib/departmentList';
 
 // ===========================================================================
 // ★★★ fix-461 §B (P-045 prereq) — THE DEPARTMENT AXIS
@@ -49,9 +48,20 @@ interface Props {
    *  the panel works in a provider-less suite (the fix-442 trap). */
   members: readonly TeamMember[];
   readOnly: boolean;
+  /** ★ fix-670: the live list (`useDepartments().list`), passed in for the same
+   *  provider-less reason as `members`. Defaults to the built-in seven. */
+  departments?: readonly DepartmentRow[];
 }
 
-export default function DepartmentEditor({ members, readOnly }: Props) {
+export default function DepartmentEditor({
+  members,
+  readOnly,
+  departments = FALLBACK_DEPARTMENTS,
+}: Props) {
+  const labels = useMemo(
+    () => new Map(departments.map((d) => [d.key, d.label])),
+    [departments],
+  );
   const setDepartment = useSetTeamDepartment();
 
   // ★★★ §B2 — FOLDED TO PEOPLE BEFORE ANYTHING IS RENDERED. The roster is one
@@ -68,17 +78,17 @@ export default function DepartmentEditor({ members, readOnly }: Props) {
   //    unclassified at the end. Built from the vocabulary rather than from the
   //    data, which is what makes an empty department render instead of vanish.
   const grouped = useMemo(() => {
-    const out = DEPARTMENTS.map((d) => ({
-      key: d as Department | null,
-      label: DEPARTMENT_LABEL[d],
-      people: active.filter((p) => p.department === d),
+    const out = departments.map((d) => ({
+      key: d.key as Department | null,
+      label: d.label,
+      people: active.filter((p) => p.department === d.key),
     }));
     const rest = active.filter((p) => p.department === null);
     if (rest.length > 0) {
       out.push({ key: null, label: NO_DEPARTMENT_LABEL, people: rest });
     }
     return out;
-  }, [active]);
+  }, [active, departments]);
 
   function set(person: DepartmentPerson, value: string) {
     // ★ By NAME. The RPC updates every row the person holds, and the database
@@ -116,7 +126,7 @@ export default function DepartmentEditor({ members, readOnly }: Props) {
           {splits.map((p) => (
             <span key={p.name} className="text-[10px] text-muted">
               <strong>{p.name}</strong> —{' '}
-              {(p.split ?? []).map((d) => DEPARTMENT_LABEL[d]).join(' and ')}. Pick
+              {(p.split ?? []).map((d) => departmentLabel(d, labels)).join(' and ')}. Pick
               one below to settle it.
             </span>
           ))}
@@ -206,7 +216,7 @@ export default function DepartmentEditor({ members, readOnly }: Props) {
                 className={p.department ? 'font-semibold text-text' : 'text-dim italic'}
                 data-testid={`department-value-${p.name}`}
               >
-                {departmentLabel(p.department)}
+                {departmentLabel(p.department, labels)}
               </span>
             ) : (
               <select
@@ -224,9 +234,9 @@ export default function DepartmentEditor({ members, readOnly }: Props) {
                 {/* ★ "No department" is an OPTION, not a placeholder: Bobby must
                     be able to un-classify somebody he classified by mistake. */}
                 <option value="">No department</option>
-                {DEPARTMENTS.map((d) => (
-                  <option key={d} value={d}>
-                    {DEPARTMENT_LABEL[d]}
+                {departments.map((d) => (
+                  <option key={d.key} value={d.key}>
+                    {d.label}
                   </option>
                 ))}
               </select>

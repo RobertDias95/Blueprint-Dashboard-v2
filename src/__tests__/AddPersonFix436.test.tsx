@@ -126,6 +126,14 @@ function fake(over: Partial<{
       state.calls.push('setProfileRole');
       state.profileRoles.set(userId, role);
     },
+    // ★ fix-670: departments + the welcome email. Inert here — the welcome
+    //   path is pinned in WelcomeEmailFix670.test.ts.
+    departmentExists: async () => true,
+    callerFirstName: async () => 'Bobby',
+    randomPassword: () => 'random-password-nobody-sees',
+    recoveryCode: async () => ({ code: '123456' }),
+    sendWelcome: async () => ({ ok: true }),
+    recordOutbox: async () => undefined,
   };
   return state;
 }
@@ -219,6 +227,8 @@ describe('fix-436 §A5 — reuse before insert', () => {
         name: 'Darin',
         role: 'viewer',
         notes: 'CEO',
+        // ★ fix-670 §B: a viewer must have a department — it is their label.
+        department: 'executive',
       }),
     );
     expect(res.ok).toBe(true);
@@ -232,6 +242,7 @@ describe('fix-436 §A5 — reuse before insert', () => {
         first_name: 'Darin',
         last_name: 'Granger',
         notes: 'CEO',
+        department: 'executive',
       },
     });
     // ★★★ name and role are NOT in the patch — the name is a join key across
@@ -563,10 +574,19 @@ function renderSection(readOnly = false) {
 function fillForm(over: Record<string, string> = {}) {
   const set = (testid: string, value: string) =>
     fireEvent.change(screen.getByTestId(testid), { target: { value } });
+  // ★ fix-670 §C: "Send welcome email" is ON by default and hides the password.
+  //   These tests are fix-436's password flow — which is exactly what the box
+  //   UNTICKED must still do — so they untick it first.
+  untickWelcome();
   set('add-person-email', over.email ?? 'nadia@blueprintcap.com');
   set('add-person-first', over.first ?? 'Nadia');
   set('add-person-last', over.last ?? 'Okafor');
   set('add-person-password', over.password ?? 'Correct-Horse-9');
+}
+
+function untickWelcome() {
+  const box = screen.getByTestId('add-person-send-welcome') as HTMLInputElement;
+  if (box.checked) fireEvent.click(box);
 }
 
 beforeEach(() => {
@@ -651,8 +671,10 @@ describe('fix-436 §C — the screen', () => {
     fireEvent.change(screen.getByTestId('add-person-first'), {
       target: { value: 'Darin' },
     });
+    // ★ fix-670 §B: the preview shows the department too, defaulted from the
+    //   role.
     expect(screen.getByTestId('add-person-plate-title').textContent).toBe(
-      'Design Associate',
+      'Design Associate · Design & Permitting',
     );
     fireEvent.change(screen.getByTestId('add-person-role'), {
       target: { value: 'viewer' },
@@ -667,6 +689,7 @@ describe('fix-436 §C — the screen', () => {
   it('★ Generate fills a password the function would accept', () => {
     renderSection();
     fireEvent.click(screen.getByTestId('add-person-open'));
+    untickWelcome();
     fireEvent.click(screen.getByTestId('add-person-generate'));
     const pw = (screen.getByTestId('add-person-password') as HTMLInputElement).value;
     expect(pw.length).toBeGreaterThanOrEqual(MIN_PASSWORD_LENGTH);
@@ -700,7 +723,7 @@ describe('fix-436 §C — the screen', () => {
     );
     expect(screen.getByTestId('add-person-plate-name').textContent).toBe('Nadia');
     expect(screen.getByTestId('add-person-plate-title').textContent).toBe(
-      'Design Associate',
+      'Design Associate · Design & Permitting', // fix-670 §B
     );
     expect(
       screen.getByTestId('add-person-password-readout').textContent,
@@ -815,7 +838,8 @@ describe('fix-436 — source contract', () => {
     // ★ `first_name` and `last_name` are fine — they are display columns. The
     //   two that may never travel on the reuse path are the JOIN KEY and the
     //   role that pairs with it in the unique index.
-    expect(fields).toEqual(['email', 'first_name', 'last_name', 'notes']);
+    // ★ fix-670 added `department` — a label column, never a key.
+    expect(fields).toEqual(['email', 'first_name', 'last_name', 'notes', 'department']);
     expect(fields).not.toContain('name');
     expect(fields).not.toContain('role');
   });

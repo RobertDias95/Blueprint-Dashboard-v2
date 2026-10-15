@@ -181,6 +181,7 @@ const ADDED_AFTER_FIX_611: ReadonlyArray<readonly [string, string]> = [
   ['resubmit-warning', 'fix-646 (P-011): the fixed people on every Resubmit-by warning'],
   ['scrape-silence-alert', 'fix-658 (P-343): who hears when the permit scrape stops running'],
   ['one-click-folders', 'fix-654 (P-149): the Bridge opener for \bpc-file folders'],
+  ['department-list', 'fix-670 (P-351): add, rename and reorder departments'],
 ];
 const ADDED_IDS = new Set(ADDED_AFTER_FIX_611.map(([id]) => id));
 
@@ -291,6 +292,7 @@ describe('fix-611 §B — every one of today’s 43 blocks has a home', () => {
     expect(blocksForCategory('people').map((b) => b.title)).toEqual([
       'Add person',
       'Everyone',
+      'Department list', // fix-670
     ]);
   });
 

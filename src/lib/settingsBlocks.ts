@@ -149,6 +149,19 @@ export const SETTINGS_BLOCKS: readonly SettingsBlock[] = [
     //    has to be right.
     merged: '11 → 1',
   },
+  {
+    // ★★★ fix-670 (P-351): the LIST of departments, not who is in them (that is
+    //     the Everyone table). Bobby: *"i need to be able to add their
+    //     departments, so their labels are accurate to their roles in the
+    //     company."* ★ Not id 'departments' — fix-613 retired that id, and a
+    //     test pins it gone.
+    id: 'department-list',
+    category: 'people',
+    title: 'Department list',
+    summary: 'Add, rename and reorder departments',
+    feeds: ['Name plates', 'Department filter', 'Add a person'],
+    keywords: 'department list add rename reorder underwriting executive policy label',
+  },
 
   // ══════════════════════════════════════════════════════ Teams & routing ══
   {

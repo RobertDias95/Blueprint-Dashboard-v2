@@ -1,5 +1,6 @@
 import type { Department } from '../../lib/database.types';
-import { DEPARTMENTS, DEPARTMENT_LABEL } from '../../lib/roleLabels';
+import { departmentLabel } from '../../lib/roleLabels';
+import { FALLBACK_DEPARTMENTS, type DepartmentRow } from '../../lib/departmentList';
 
 // fix-660 (census 23): the Department filter, shared by My Tasks and the board.
 //
@@ -15,9 +16,20 @@ interface Props {
   testid: string;
   /** Text size for the board's denser bar. */
   size?: 'sm' | 'xs';
+  /** ★ fix-670: the live list (`useDepartments().list`); the built-in seven
+   *  when absent. */
+  departments?: readonly DepartmentRow[];
 }
 
-export default function DepartmentFilter({ selected, onChange, testid, size = 'sm' }: Props) {
+export default function DepartmentFilter({
+  selected,
+  onChange,
+  testid,
+  size = 'sm',
+  departments = FALLBACK_DEPARTMENTS,
+}: Props) {
+  const labels = new Map(departments.map((d) => [d.key, d.label]));
+  const label = (d: Department) => departmentLabel(d, labels);
   const text = size === 'xs' ? 'text-[10px]' : 'text-[12px]';
   const chipText = size === 'xs' ? 'text-[9.5px]' : 'text-[11px]';
   return (
@@ -36,11 +48,13 @@ export default function DepartmentFilter({ selected, onChange, testid, size = 's
         <option value="">
           {selected.length === 0 ? 'All departments' : 'Add department…'}
         </option>
-        {DEPARTMENTS.filter((d) => !selected.includes(d)).map((d) => (
-          <option key={d} value={d}>
-            {DEPARTMENT_LABEL[d]}
-          </option>
-        ))}
+        {departments
+          .filter((d) => !selected.includes(d.key))
+          .map((d) => (
+            <option key={d.key} value={d.key}>
+              {d.label}
+            </option>
+          ))}
       </select>
       {selected.map((d) => (
         <span
@@ -48,13 +62,13 @@ export default function DepartmentFilter({ selected, onChange, testid, size = 's
           className={`inline-flex items-center gap-1 ${chipText} px-2 py-0.5 rounded-full bg-s2 text-text`}
           data-testid={`${testid}-chip-${d}`}
         >
-          {DEPARTMENT_LABEL[d]}
+          {label(d)}
           <button
             type="button"
             onClick={() => onChange(selected.filter((x) => x !== d))}
             className="text-dim hover:text-text leading-none"
-            title={`Remove ${DEPARTMENT_LABEL[d]}`}
-            aria-label={`Remove ${DEPARTMENT_LABEL[d]}`}
+            title={`Remove ${label(d)}`}
+            aria-label={`Remove ${label(d)}`}
             data-testid={`${testid}-remove-${d}`}
           >
             ×

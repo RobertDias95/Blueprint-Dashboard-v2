@@ -93,3 +93,52 @@ export function addPersonNetworkMessage(err: unknown): string {
   }
   return `Could not reach the add-person service — ${raw || 'no response'}. Nothing was created.`;
 }
+
+// ===========================================================================
+// ★★★ fix-670 §B (P-351) — THE DEPARTMENT, DEFAULTED FROM THE ROLE
+// ===========================================================================
+//
+// Blake was created on 2026-10-13 with department = NULL because the dialog had
+// no picker. Now it has one, defaulted from the role — except `viewer`, which
+// has NO default and must be picked: for somebody from another department who
+// views the Bridge, the department IS their label (fix-652: it wins on the name
+// plate). That is the whole point of the picker.
+
+export const DEFAULT_DEPARTMENT_FOR_ROLE: Readonly<Record<TeamRole, string | null>> = {
+  da: 'design_entitlements',
+  dm: 'design_entitlements',
+  ent: 'design_entitlements',
+  ent_lead: 'design_entitlements',
+  schematic: 'design_entitlements',
+  director: 'design_entitlements',
+  acq: 'acquisitions',
+  acq_lead: 'acquisitions',
+  ca: 'construction_admin',
+  viewer: null,
+};
+
+/**
+ * ★★ "How you'll appear" — the line the dialog previews and the welcome email
+ *    prints, built once so the two cannot disagree.
+ *
+ *    - viewer: their department (fix-652: it wins over the Title), else the
+ *      Title, else "Blueprint Services" — "Greg · Underwriting".
+ *    - everyone else: role title · department — "Sam · Design Associate ·
+ *      Design & Permitting" (the approved email's wording).
+ */
+export function welcomePlate(
+  name: string,
+  role: TeamRole,
+  notes: string | null,
+  departmentWords: string | null,
+): { name: string; title: string; line: string } {
+  const shown = name.trim() || '—';
+  let title: string;
+  if (role === 'viewer') {
+    title =
+      (departmentWords ?? '').trim() || (notes ?? '').trim() || 'Blueprint Services';
+  } else {
+    title = [ROLE_TITLE[role], (departmentWords ?? '').trim()].filter(Boolean).join(' · ');
+  }
+  return { name: shown, title, line: `${shown} · ${title}` };
+}

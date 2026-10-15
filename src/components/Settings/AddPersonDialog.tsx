@@ -1,16 +1,27 @@
 import { useId, useState } from 'react';
-import { useCreateBridgeUser } from '../../hooks/useCreateBridgeUser';
+import {
+  reportWelcomeFailure,
+  useCreateBridgeUser,
+  useResendWelcome,
+} from '../../hooks/useCreateBridgeUser';
 import {
   ADD_PERSON_ROLE_OPTIONS,
+  DEFAULT_DEPARTMENT_FOR_ROLE,
   generatePassword,
-  namePlatePreview,
+  welcomePlate,
 } from '../../lib/addPerson';
+import { useDepartments } from '../../hooks/useDepartments';
+import { welcomeAreas } from '../../lib/welcomeAreas';
 import { ROLE_TITLE } from '../../lib/roleLabels';
 // ★ fix-487 §B: the label + input shell moved to `personFields` so the details
 //   dialog renders the SAME three fields rather than a copy of them.
 import { PERSON_FIELD_INPUT as INPUT, PersonFieldRow as Row } from './personFields';
 import type { TeamRole } from '../../lib/database.types';
-import type { AddPersonSuccess } from '../../../supabase/functions/admin-create-user/handler';
+import type {
+  AddPersonSuccess,
+  WelcomeOutcome,
+  WelcomeRequest,
+} from '../../../supabase/functions/admin-create-user/handler';
 import { useDirtySurface } from '../../hooks/useDirtySurface';
 
 // ===========================================================================
@@ -19,6 +30,11 @@ import { useDirtySurface } from '../../hooks/useDirtySurface';
 //
 // Darin and Eric were created on 2026-08-28 by hand-writing `auth.users`,
 // because there was no screen. This is the screen.
+//
+// ★★★ fix-670 §C: SUPERSEDED BY DEFAULT — the Bridge now sends mail (fix-628),
+// so "Send welcome email" is ticked by default: no password is generated or
+// shown, and the person sets their own from a code in the email. Unticked, the
+// paragraph below still describes exactly what happens.
 //
 // ★★★ IT SETS THE PASSWORD, IT DOES NOT INVITE. Bridge mail is still Supabase's
 // demo SMTP and delivers nothing (P-092, parked to Monday), so an
@@ -47,6 +63,10 @@ interface FormState {
   notes: string;
   bridge_role: 'admin' | 'editor';
   password: string;
+  /** ★ fix-670 §B: a `departments.key`, or '' when not picked. */
+  department: string;
+  /** ★ fix-670 §C: on by default. */
+  send_welcome: boolean;
 }
 
 const EMPTY: FormState = {
@@ -58,6 +78,8 @@ const EMPTY: FormState = {
   notes: '',
   bridge_role: 'editor',
   password: '',
+  department: DEFAULT_DEPARTMENT_FOR_ROLE.da ?? '',
+  send_welcome: true,
 };
 
 export default function AddPersonDialog({ open, onClose }: Props) {
@@ -72,24 +94,49 @@ export default function AddPersonDialog({ open, onClose }: Props) {
   //   following it the moment somebody types a different one — two people
   //   called Chris need two different join keys.
   const [nameTouched, setNameTouched] = useState(false);
+  // ★ fix-670 §B: the department follows the role until somebody picks one.
+  const [deptTouched, setDeptTouched] = useState(false);
   const [done, setDone] = useState<AddPersonSuccess | null>(null);
   const create = useCreateBridgeUser();
+  const departments = useDepartments();
   const formId = useId();
 
   const rosterName = nameTouched ? form.name : form.first_name;
-  const plate = namePlatePreview(
+  const departmentWords = form.department
+    ? (departments.labels.get(form.department) ?? form.department)
+    : null;
+  const plate = welcomePlate(
     rosterName,
     form.role,
     form.notes.trim() === '' ? null : form.notes,
+    departmentWords,
   );
 
   function set<K extends keyof FormState>(key: K, value: FormState[K]) {
     setForm((f) => ({ ...f, [key]: value }));
   }
 
+  function setRole(role: TeamRole) {
+    setForm((f) => ({
+      ...f,
+      role,
+      // ★★ A viewer has NO default: their department is their label, so it is
+      //    picked on purpose — never inherited from the last role clicked.
+      department: deptTouched ? f.department : (DEFAULT_DEPARTMENT_FOR_ROLE[role] ?? ''),
+    }));
+  }
+
+  /** What the welcome email needs — the preview line and the areas this
+   *  person can open, from lib/ribbonNav. */
+  const welcome: WelcomeRequest = {
+    plate: plate.line,
+    areas: welcomeAreas(form.role, form.bridge_role === 'admin'),
+  };
+
   function close() {
     setForm(EMPTY);
     setNameTouched(false);
+    setDeptTouched(false);
     setDone(null);
     create.reset();
     onClose();
@@ -100,15 +147,23 @@ export default function AddPersonDialog({ open, onClose }: Props) {
     create.mutate(
       {
         email: form.email.trim(),
-        password: form.password,
+        password: form.send_welcome ? '' : form.password,
         first_name: form.first_name.trim(),
         last_name: form.last_name.trim(),
         name: rosterName.trim(),
         role: form.role,
         notes: form.notes.trim() === '' ? null : form.notes.trim(),
         bridge_role: form.bridge_role,
+        department: form.department || null,
+        send_welcome: form.send_welcome,
+        welcome: form.send_welcome ? welcome : null,
       },
-      { onSuccess: (res) => setDone(res) },
+      {
+        onSuccess: (res) => {
+          if (res.welcome && !res.welcome.sent) reportWelcomeFailure(res.welcome.error);
+          setDone(res);
+        },
+      },
     );
   }
 
@@ -153,7 +208,18 @@ export default function AddPersonDialog({ open, onClose }: Props) {
         </header>
 
         {done ? (
-          <Created result={done} plate={plate} password={form.password} onDone={close} />
+          <Created
+            result={done}
+            plate={plate}
+            password={form.password}
+            resend={{
+              email: done.email,
+              first_name: form.first_name.trim(),
+              role: form.role,
+              welcome,
+            }}
+            onDone={close}
+          />
         ) : (
           <form onSubmit={submit} className="px-5 py-4 space-y-3" data-testid="add-person-form">
             <Row label="Email" htmlFor={`${formId}-email`}>
@@ -214,7 +280,7 @@ export default function AddPersonDialog({ open, onClose }: Props) {
                 <select
                   id={`${formId}-role`}
                   value={form.role}
-                  onChange={(e) => set('role', e.target.value as TeamRole)}
+                  onChange={(e) => setRole(e.target.value as TeamRole)}
                   className={INPUT}
                   data-testid="add-person-role"
                 >
@@ -246,6 +312,38 @@ export default function AddPersonDialog({ open, onClose }: Props) {
             </div>
 
             <Row
+              label="Department"
+              htmlFor={`${formId}-dept`}
+              hint={
+                form.role === 'viewer'
+                  ? 'Their label on the Bridge — pick the department they work in.'
+                  : 'Filled in from their role. Change it if they sit elsewhere.'
+              }
+            >
+              <select
+                id={`${formId}-dept`}
+                // ★★ REQUIRED FOR A VIEWER: their department IS their label.
+                required={form.role === 'viewer'}
+                value={form.department}
+                onChange={(e) => {
+                  setDeptTouched(true);
+                  set('department', e.target.value);
+                }}
+                className={INPUT}
+                data-testid="add-person-department"
+              >
+                <option value="">
+                  {form.role === 'viewer' ? 'Pick a department…' : 'No department'}
+                </option>
+                {departments.list.map((d) => (
+                  <option key={d.key} value={d.key}>
+                    {d.label}
+                  </option>
+                ))}
+              </select>
+            </Row>
+
+            <Row
               label="Title"
               htmlFor={`${formId}-notes`}
               // ★ fix-343: `notes` is printed verbatim as the title ONLY for a
@@ -267,30 +365,55 @@ export default function AddPersonDialog({ open, onClose }: Props) {
               />
             </Row>
 
-            <Row
-              label="Initial password"
-              htmlFor={`${formId}-password`}
-              hint="Shown once. Hand it over — the Bridge cannot email it yet."
+            {/* ★★★ fix-670 §C — ON BY DEFAULT. The person sets their own
+                password from a code in the email, so nobody generates, sees or
+                hands over one. */}
+            <label
+              className="flex items-start gap-2 text-[12px] text-text"
+              data-testid="add-person-send-welcome-row"
             >
-              <div className="flex gap-2">
-                <input
-                  id={`${formId}-password`}
-                  required
-                  value={form.password}
-                  onChange={(e) => set('password', e.target.value)}
-                  className={`${INPUT} font-mono`}
-                  data-testid="add-person-password"
-                />
-                <button
-                  type="button"
-                  onClick={() => set('password', generatePassword())}
-                  className="text-[11px] font-bold px-2.5 rounded border border-de text-de bg-de-bg hover:opacity-90 whitespace-nowrap"
-                  data-testid="add-person-generate"
-                >
-                  Generate
-                </button>
-              </div>
-            </Row>
+              <input
+                type="checkbox"
+                checked={form.send_welcome}
+                onChange={(e) => set('send_welcome', e.target.checked)}
+                className="mt-0.5"
+                data-testid="add-person-send-welcome"
+              />
+              <span>
+                <span className="font-semibold">Send welcome email</span>
+                <span className="block text-[11px] text-dim">
+                  From bridge@blueprintcap.com. They set their own password with a
+                  code in the email — no password to hand over.
+                </span>
+              </span>
+            </label>
+
+            {!form.send_welcome && (
+              <Row
+                label="Initial password"
+                htmlFor={`${formId}-password`}
+                hint="Shown once. Hand it to them yourself, or tick Send welcome email instead."
+              >
+                <div className="flex gap-2">
+                  <input
+                    id={`${formId}-password`}
+                    required
+                    value={form.password}
+                    onChange={(e) => set('password', e.target.value)}
+                    className={`${INPUT} font-mono`}
+                    data-testid="add-person-password"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => set('password', generatePassword())}
+                    className="text-[11px] font-bold px-2.5 rounded border border-de text-de bg-de-bg hover:opacity-90 whitespace-nowrap"
+                    data-testid="add-person-generate"
+                  >
+                    Generate
+                  </button>
+                </div>
+              </Row>
+            )}
 
             <PlatePreview plate={plate} />
 
@@ -348,7 +471,7 @@ const BRIDGE_ACCESS_LABEL: Record<'admin' | 'editor', string> = {
 //    than a second copy that starts identical and drifts.
 
 /** ★★ C2 — WHAT THE PERSON WILL SEE, built the way Chrome builds it. */
-function PlatePreview({ plate }: { plate: { name: string; title: string } }) {
+function PlatePreview({ plate }: { plate: { name: string; title: string; line?: string } }) {
   return (
     <div
       className="rounded border px-2.5 py-2 flex items-center gap-2"
@@ -378,29 +501,82 @@ function Created({
   result,
   plate,
   password,
+  resend,
   onDone,
 }: {
   result: AddPersonSuccess;
   plate: { name: string; title: string };
   password: string;
+  resend: { email: string; first_name: string; role: TeamRole; welcome: WelcomeRequest };
   onDone: () => void;
 }) {
+  const resendQ = useResendWelcome();
+  // ★ fix-670 §C: the latest word on the email — the create call's, then any
+  //   Resend's.
+  const [welcome, setWelcome] = useState<WelcomeOutcome | null>(result.welcome ?? null);
   return (
     <div className="px-5 py-4 space-y-3" data-testid="add-person-success">
       <div className="text-[12px] text-text font-semibold">
-        {result.email} can sign in now.
+        {result.welcome ? `${result.email} has a login.` : `${result.email} can sign in now.`}
       </div>
       <PlatePreview plate={plate} />
-      <div
-        className="rounded border px-2.5 py-2 text-[11px]"
-        style={{ borderColor: 'var(--color-co-border)', background: 'var(--color-co-bg)' }}
-        data-testid="add-person-password-readout"
-      >
-        <div className="text-co font-bold mb-1">
-          Password — shown once, copy it now
+      {welcome?.sent === true && (
+        <div
+          className="rounded border px-2.5 py-2 text-[11px]"
+          style={{ borderColor: 'var(--color-border)', background: 'var(--color-s2)' }}
+          data-testid="add-person-welcome-sent"
+        >
+          Welcome email sent to <strong>{result.email}</strong>. They set their own
+          password from the code in it.
         </div>
-        <code className="font-mono text-[12px] text-text break-all">{password}</code>
-      </div>
+      )}
+      {welcome?.sent === false && (
+        // ★★ THE LOGIN STILL EXISTS. Say so first, then why the mail did not
+        //    go, then the way out.
+        <div
+          className="rounded border px-2.5 py-2 text-[11px] space-y-1.5"
+          style={{
+            borderColor: 'var(--color-er-border)',
+            background: 'var(--color-er-bg)',
+            color: 'var(--color-er)',
+          }}
+          role="alert"
+          data-testid="add-person-welcome-failed"
+        >
+          <div>
+            Login created — the welcome email didn&apos;t send ({welcome.error}).
+          </div>
+          <button
+            type="button"
+            disabled={resendQ.isPending}
+            onClick={() =>
+              resendQ.mutate(resend, {
+                onSuccess: (res) => {
+                  if (!res.welcome.sent) reportWelcomeFailure(res.welcome.error);
+                  setWelcome(res.welcome);
+                },
+                onError: (e) => setWelcome({ sent: false, error: e.message }),
+              })
+            }
+            className="text-[11px] font-bold px-2.5 py-1 rounded border border-de bg-de text-white disabled:opacity-50"
+            data-testid="add-person-welcome-resend"
+          >
+            {resendQ.isPending ? 'Sending…' : 'Resend'}
+          </button>
+        </div>
+      )}
+      {!result.welcome && (
+        <div
+          className="rounded border px-2.5 py-2 text-[11px]"
+          style={{ borderColor: 'var(--color-co-border)', background: 'var(--color-co-bg)' }}
+          data-testid="add-person-password-readout"
+        >
+          <div className="text-co font-bold mb-1">
+            Password — shown once, copy it now
+          </div>
+          <code className="font-mono text-[12px] text-text break-all">{password}</code>
+        </div>
+      )}
       {/* ★★★ fix-343's rule, enforced by RoleLabelsFix343's source scan and
           caught by it here: NO STORED ROLE REACHES THE SCREEN. The first draft
           of this receipt printed `da` and `editor` straight out of the

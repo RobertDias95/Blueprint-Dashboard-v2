@@ -311,7 +311,9 @@ describe('fix-613 §A — add without a login', () => {
 describe('fix-613 §B — People is three things, and the map says so', () => {
   it('★★★ the nine roster blocks are one, and it claims 11 → 1', () => {
     const people = blocksForCategory('people');
-    expect(people.map((b) => b.title)).toEqual(['Add person', 'Everyone']);
+    // ★ fix-670 added the department LIST (not a roster editor — who is in each
+    //   department stays in Everyone).
+    expect(people.map((b) => b.title)).toEqual(['Add person', 'Everyone', 'Department list']);
     const everyone = people.find((b) => b.id === 'everyone')!;
     // ★ nine roster editors + Former DAs + Inactive (other roles)
     expect(everyone.merged).toBe('11 → 1');
