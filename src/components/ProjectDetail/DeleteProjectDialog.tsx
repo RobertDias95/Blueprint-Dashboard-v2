@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useDeleteProject } from '../../hooks/useDeleteProject';
 import type { Project } from '../../lib/database.types';
+import { deleteHidesNote } from '../../lib/activeProject';
 
 // Q9.5.f-fix-16 E: confirmation dialog for destructive project delete.
 // Requires the user to type the project address verbatim — same
@@ -10,11 +11,10 @@ import type { Project } from '../../lib/database.types';
 
 interface Props {
   project: Project;
-  permitCount: number;
   onClose: () => void;
 }
 
-export default function DeleteProjectDialog({ project, permitCount, onClose }: Props) {
+export default function DeleteProjectDialog({ project, onClose }: Props) {
   const [confirmText, setConfirmText] = useState('');
   const deleteProject = useDeleteProject();
   const navigate = useNavigate();
@@ -70,15 +70,10 @@ export default function DeleteProjectDialog({ project, permitCount, onClose }: P
         </header>
 
         <div className="px-4 py-3 flex flex-col gap-3 text-[12px] text-text">
-          <p>
-            Deleting <span className="font-bold">{project.address}</span>
-            {' '}removes all {permitCount} permit{permitCount === 1 ? '' : 's'}, their cycles,
-            tasks, draw-schedule entries, and project documents.
-            Intake records survive but lose their project link.
-          </p>
-          <p style={{ color: 'var(--color-de)' }} className="font-bold">
-            This cannot be undone.
-          </p>
+          <p className="font-bold">{project.address}</p>
+          {/* ★★ fix-676: delete ARCHIVES (fix-557) — it never removed anything
+              after that, so the dialog stops saying it does. */}
+          <p data-testid="dpd-what-delete-does">{deleteHidesNote('project')}</p>
           <label className="flex flex-col gap-1">
             <span
               className="text-[9px] font-bold uppercase tracking-wide"

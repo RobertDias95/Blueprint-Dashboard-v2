@@ -100,6 +100,20 @@ export const ARCHIVE_DENIED_NOTE =
   'Only an admin can delete or restore a project.';
 
 /** ★ A deleted project keeps everything. Rendered where somebody needs telling. */
+/**
+ * ★★ fix-676 (P-354 delete-dialog): what the Delete dialogs say. They used to
+ *    promise a removal ("…removes all N permits… This cannot be undone.") that
+ *    stopped being true at fix-557 — `bp_delete_project_row` only sets
+ *    `archived`. The path is the REAL one: the `Actions` tab of Project
+ *    Details (PROJECT_DATA_TABS) and the `Deleted` box (ARCHIVE_LABEL).
+ */
+export function deleteHidesNote(what: 'project' | 'redesign'): string {
+  return (
+    `Deleting hides this ${what} and everything on it from every list. ` +
+    'An admin can bring it all back from Project Details → Actions by unticking Deleted.'
+  );
+}
+
 export const ARCHIVE_KEEPS_NOTE =
   'The project, its permits, chat and plan sets are all kept. An admin can '
   + 'restore it by unticking this.';

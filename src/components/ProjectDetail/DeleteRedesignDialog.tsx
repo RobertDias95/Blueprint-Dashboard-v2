@@ -1,5 +1,6 @@
 import { useDeleteProject } from '../../hooks/useDeleteProject';
 import type { Project } from '../../lib/database.types';
+import { deleteHidesNote } from '../../lib/activeProject';
 
 // fix-193: confirm + delete a redesign from the parent's Redesigns section.
 // A redesign is a separate projects row (redesign_of_project_id set) that OWNS
@@ -76,17 +77,12 @@ export default function DeleteRedesignDialog({ redesign, label, onClose }: Props
         </header>
 
         <div className="px-4 py-3 flex flex-col gap-3 text-[12px] text-text">
-          <p>
-            Deleting <span className="font-bold">{redesign.address}</span> removes
-            this redesign and its own permit(s), cycles, tasks, reviewers, and
-            draw-schedule lane.
-          </p>
+          <p className="font-bold">{redesign.address}</p>
+          {/* ★★ fix-676: the same archive as a project delete (fix-557). */}
+          <p data-testid="drd-what-delete-does">{deleteHidesNote('redesign')}</p>
           <p className="text-dim">
             The original project and its permits are <span className="font-bold">not</span>{' '}
             affected.
-          </p>
-          <p style={{ color: 'var(--color-de)' }} className="font-bold">
-            This cannot be undone.
           </p>
         </div>
 
