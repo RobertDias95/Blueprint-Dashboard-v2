@@ -4,8 +4,8 @@ import { supabase } from '../lib/supabase';
 import { useAuthStore } from '../stores/authStore';
 import { landingAfterSignIn } from '../lib/authEvents';
 import {
+  CODE_INPUT_MAX_LENGTH,
   PASSWORD_RULE,
-  RESET_CODE_LENGTH,
   RESET_CODE_SENT_NOTICE,
   classifyLoginError,
   classifyResetError,
@@ -18,6 +18,7 @@ import {
 } from '../lib/loginErrors';
 import BridgeMark from '../components/BridgeMark';
 import { WELCOME_CODE_NOTICE, welcomeEmailFromLocation } from '../lib/welcomeLink';
+import { codeLifetimeWords } from '../../supabase/functions/admin-create-user/codeLifetime';
 
 /** ★ The lockup on the card, in px of HEIGHT.
  *
@@ -361,9 +362,9 @@ export default function Login() {
         {mode === 'reset' && resetStep === 'request' && (
           <>
             <p className="text-[12.5px] text-muted leading-relaxed mb-4" data-testid="reset-intro">
-              Enter the address you sign in with. We will email you a{' '}
-              {RESET_CODE_LENGTH}-digit code — not a link, because mail scanners
-              open links and use them up before you can.
+              Enter the address you sign in with. We will email you a code — not
+              a link, because mail scanners open links and use them up before you
+              can. The code works for {codeLifetimeWords()}.
             </p>
             <label className={LABEL_CLASS}>Email</label>
             <input
@@ -382,9 +383,10 @@ export default function Login() {
         {/* ★★ fix-426 STEP 2 — the code and the new password, together. */}
         {mode === 'reset' && resetStep === 'code' && (
           <>
-            <label className={LABEL_CLASS}>
-              {RESET_CODE_LENGTH}-digit code
-            </label>
+            {/* ★★★ fix-678: NO NUMBER IN THE LABEL. The length is a Supabase
+                setting (6–10) — "6-digit code" over an 8-digit email is what
+                locked 7 people out. */}
+            <label className={LABEL_CLASS}>Code from the email</label>
             <input
               // ★ `text` with a numeric inputMode, not `number`: a leading zero
               //   is significant here and a number input eats it, along with
@@ -394,7 +396,7 @@ export default function Login() {
               autoComplete="one-time-code"
               autoFocus
               required
-              maxLength={RESET_CODE_LENGTH + 4}
+              maxLength={CODE_INPUT_MAX_LENGTH}
               value={code}
               onChange={(e) => setCode(e.target.value)}
               data-testid="reset-code"

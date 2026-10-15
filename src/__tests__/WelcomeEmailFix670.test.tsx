@@ -140,16 +140,18 @@ describe('fix-670 §C — the email, for a viewer and for an editor', () => {
     expect(EDITOR.text).toContain(ACCESS_LINE.works);
   });
 
-  it('★★★ the expiry sentence states the configured value, not 24 hours', () => {
-    expect(WELCOME_CODE_VALID_HOURS).toBe(1);
-    expect(codeLifetimeWords()).toBe('1 hour');
+  // ★ fix-678 moved the value to 24 h (Supabase set to 86400 s on 10-15) and
+  //   made the Login page read the same constant — see AnyCodeLengthFix678.
+  it('★★★ the expiry sentence states the configured value', () => {
+    expect(WELCOME_CODE_VALID_HOURS).toBe(24);
+    expect(codeLifetimeWords()).toBe('24 hours');
     expect(VIEWER.text).toContain(
-      "You'll sign in with greg@blueprintcap.com. The code works for 1 hour — after that, use Forgot password? on the sign-in page.",
+      "You'll sign in with greg@blueprintcap.com. The code works for 24 hours. If it has expired, open the sign-in page and choose Send a new code.",
     );
-    expect(VIEWER.html + VIEWER.text).not.toMatch(/24 hours/);
-    // ★ and it agrees with what the Login page already tells people
+    expect(VIEWER.html + VIEWER.text).not.toMatch(/Forgot password/);
+    // ★ and it agrees with what the Login page tells people
     expect(loginErrorsSrc).toContain('codes are good for');
-    expect(loginErrorsSrc).toContain('about an hour');
+    expect(loginErrorsSrc).toContain('codeLifetimeWords()');
   });
 
   it('★★ the code and the button are both in it; the button opens the code step', () => {
@@ -508,7 +510,7 @@ describe('fix-670 §C — the button lands on the code step', () => {
       </MemoryRouter>,
     );
     expect(screen.getByText(WELCOME_CODE_NOTICE)).toBeInTheDocument();
-    expect(screen.getByText(/6-digit code/)).toBeInTheDocument();
+    expect(screen.getByText('Code from the email')).toBeInTheDocument();
     window.location.hash = '';
   });
 });

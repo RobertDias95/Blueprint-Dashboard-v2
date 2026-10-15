@@ -26,18 +26,21 @@
 
 import { renderBrandedEmail } from '../_shared/emailTemplate.ts';
 import type { InlineImage } from '../_shared/graphMail.ts';
+import { WELCOME_CODE_VALID_HOURS, codeLifetimeWords } from './codeLifetime.ts';
 
 /** ★ The Bridge's address — the same constant notify-send carries. */
 export const BRIDGE_APP_ORIGIN = 'https://blueprint-dashboard-v2.onrender.com';
 
 /**
- * ★★★ HOW LONG THE CODE WORKS. Supabase Auth's "Email OTP Expiration" — the
- *     recovery code from `generateLink` is checked against it. The Login page
- *     already tells people codes are "good for about an hour" (fix-426), and
- *     Supabase's default is 3600 s. A test pins the email's sentence to this
- *     number, so changing the Auth setting means changing this one line.
+ * ★★★ HOW LONG THE CODE WORKS lives in `codeLifetime.ts` since fix-678, so the
+ *     Login page states the same number. It must equal Supabase → Auth → Email
+ *     OTP Expiration (86400 s = 24 h, set 2026-10-15).
  */
-export const WELCOME_CODE_VALID_HOURS = 1;
+export { WELCOME_CODE_VALID_HOURS, codeLifetimeWords };
+
+/** ★★ fix-678: the landing page's button says "Send a new code", so the email
+ *  names that button — not "Forgot password?", which is a different screen. */
+export const SEND_NEW_CODE_LABEL = 'Send a new code';
 
 /** The sign-in page, opened at the code step for this address. ★ The address
  *  rides in the FRAGMENT, which the browser never sends to a server — so it is
@@ -131,11 +134,6 @@ function esc(s: string): string {
     .replace(/"/g, '&quot;');
 }
 
-/** The code's lifetime as words — "1 hour", "2 hours". */
-export function codeLifetimeWords(hours = WELCOME_CODE_VALID_HOURS): string {
-  return `${hours} hour${hours === 1 ? '' : 's'}`;
-}
-
 export function renderWelcomeEmail(input: WelcomeInput): WelcomeEmail {
   const first = input.firstName.trim();
   const adder = (input.adderFirstName ?? '').trim() || 'Your Blueprint admin';
@@ -152,8 +150,8 @@ export function renderWelcomeEmail(input: WelcomeInput): WelcomeEmail {
     `${adder} has set you up on the Bridge — Blueprint's home for every project ` +
     `we're designing and permitting, from the first drawing to the issued permit.`;
   const codeLine =
-    `You'll sign in with ${input.email}. The code works for ${lifetime} — after ` +
-    `that, use Forgot password? on the sign-in page.`;
+    `You'll sign in with ${input.email}. The code works for ${lifetime}. If it ` +
+    `has expired, open the sign-in page and choose ${SEND_NEW_CODE_LABEL}.`;
   const guide =
     "New here? Open What's New in the left menu. It has a short guide to every area, " +
     'and each tip has a Show me → button that takes you straight there.';
@@ -186,8 +184,8 @@ export function renderWelcomeEmail(input: WelcomeInput): WelcomeEmail {
     '<p style="font-size:28px;font-weight:700;letter-spacing:8px;margin:4px 0 12px 0;' +
     `font-family:ui-monospace,SFMono-Regular,Menlo,monospace" data-welcome="code">${esc(input.code)}</p>` +
     `<p style="margin:0 0 22px 0;font-size:13px;color:${MUTED}" data-welcome="expiry">You'll sign in with ` +
-    `<strong style="color:#111111">${esc(input.email)}</strong>. The code works for ${esc(lifetime)} — ` +
-    'after that, use <em>Forgot password?</em> on the sign-in page.</p>' +
+    `<strong style="color:#111111">${esc(input.email)}</strong>. The code works for ${esc(lifetime)}. ` +
+    `If it has expired, open the sign-in page and choose <strong>${esc(SEND_NEW_CODE_LABEL)}</strong>.</p>` +
     '<p style="margin:0 0 10px 0;font-weight:600">Where to look first</p>' +
     '<table role="presentation" cellpadding="0" cellspacing="0" border="0" ' +
     `style="width:100%;font-size:14px;line-height:1.5" data-welcome="areas">${areaRows}</table>` +
