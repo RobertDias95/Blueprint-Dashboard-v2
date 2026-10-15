@@ -216,7 +216,7 @@ describe('fix-348 §1: the two contradictions, reproduced then made impossible',
     expect(milestoneCounterparty('entitlement', permit).role).toBe('design associate');
     // Design leg waiting → design finished → the lead holds it.
     expect(milestoneCounterparty('design', permit).name).toBe('Bobby');
-    expect(milestoneCounterparty('design', permit).role).toBe('entitlement lead');
+    expect(milestoneCounterparty('design', permit).role).toBe('permitting lead');
 
     // ★ The three consumers all read that one answer — asserted by giving them
     // the same input and requiring the same name out.
@@ -232,7 +232,7 @@ describe('fix-348 §1: the two contradictions, reproduced then made impossible',
       'the design associate',
     );
     expect(milestoneCounterparty('design', { ent_lead: '  ' }).label).toBe(
-      'the entitlement lead',
+      'the permitting lead', // fix-671 (P-352)
     );
   });
 

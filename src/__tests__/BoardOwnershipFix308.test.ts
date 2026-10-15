@@ -295,7 +295,7 @@ describe('fix-308 #45: a milestone says what to do AND why it is on your list', 
       /the design associate/i,
     );
     expect(milestoneWhyYours('design', 'waiting', { ent_lead: null })).toMatch(
-      /the entitlement lead/i,
+      /the permitting lead/i,
     );
   });
 });

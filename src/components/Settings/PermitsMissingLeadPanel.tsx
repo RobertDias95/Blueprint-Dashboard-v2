@@ -135,7 +135,7 @@ export default function PermitsMissingLeadPanel({
         style={{ borderColor: 'var(--color-border)' }}
         data-testid="missing-lead-empty"
       >
-        Every permit has an entitlement lead.
+        Every permit has a permitting lead.
       </div>
     );
   }
@@ -150,7 +150,7 @@ export default function PermitsMissingLeadPanel({
         }}
       >
         <span className="text-[11px] font-bold" style={{ color: 'var(--color-co)' }}>
-          ⚠ {rows.length} permit{rows.length === 1 ? '' : 's'} with no entitlement
+          ⚠ {rows.length} permit{rows.length === 1 ? '' : 's'} with no permitting
           lead
         </span>
         <span className="text-[10px] text-muted">

@@ -3325,10 +3325,10 @@ function DrawScheduleBody({
         />
       )}
 
-      {/* fix-72 / fix-102: DA → Entitlement Lead cascade prompt. Opens
+      {/* fix-72 / fix-102: DA → Permitting Lead (ent_lead) cascade prompt. Opens
           before a DA move when the team routing implies a different
-          ent_lead. Update Entitlement Lead = move + cascade ent_lead;
-          Keep current Entitlement Lead = move only; Cancel move = abort. */}
+          ent_lead. Update Permitting Lead = move + cascade ent_lead;
+          Keep current Permitting Lead = move only; Cancel move = abort. */}
       {pendingEntCascade && (
         <EntCascadePrompt
           movedAddress={pendingEntCascade.movedAddress}

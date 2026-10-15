@@ -87,7 +87,7 @@ export default function ErrorsPage() {
           <p className="text-[11px] text-dim m-0 mt-0.5">
             Errors the Bridge itself hit, grouped by signature. Queue the ones
             worth fixing; dismiss the noise. Permit conditions are not errors —
-            they reach the entitlement lead as a notification.
+            they reach the permitting lead as a notification.
           </p>
           {/* ★ fix-650 §D: the delivery report lives beside triage. Its gaps
               arrive here too, as "Delivery" rows. */}

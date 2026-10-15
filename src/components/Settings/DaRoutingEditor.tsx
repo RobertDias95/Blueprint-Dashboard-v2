@@ -123,7 +123,7 @@ export default function DaRoutingEditor({ activeDas, ents, readOnly }: Props) {
   return (
     <div className="flex flex-col gap-3" data-testid="da-routing-editor">
       <p className="text-[11px] text-muted leading-relaxed">
-        Which entitlement lead a Design Associate&apos;s work routes to. A{' '}
+        Which permitting lead a Design Associate&apos;s work routes to. A{' '}
         <strong>default</strong> rule applies everywhere; a{' '}
         <strong>jurisdiction</strong> rule beats it in that jurisdiction only.
       </p>
@@ -156,7 +156,7 @@ export default function DaRoutingEditor({ activeDas, ents, readOnly }: Props) {
               ★ The LIST stays: it still catches a genuine new joiner, and
                 seeing who has no default is worth a glance either way. */}
           <span className="text-[10px] text-muted">
-            Their permits&apos; entitlement lead is chosen by hand on each new
+            Their permits&apos; permitting lead is chosen by hand on each new
             project; the cascade leaves them alone.
           </span>
           <div className="flex flex-wrap gap-1.5 pt-0.5">
