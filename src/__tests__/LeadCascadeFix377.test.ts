@@ -4,6 +4,7 @@ import backfillSql // ★ fix-450 renamed this file: re-measured 2026-08-30, its
 //   selects 0 rows today, so it is SUPERSEDED rather than pending. The
 //   SQL below is unchanged — the supersession keeps the predicate.
 from '../../migrations/fix_377_backfill_SUPERSEDED.sql?raw';
+import { rawSources } from './helpers/sourceTree';
 
 /** ★ The file explains itself at length, so every "the SQL does not say X"
  *  assertion has to read the CODE and not the prose — the same trap fix-369,
@@ -524,11 +525,7 @@ describe('fix-377 §4 — it is on the ROW, not in a React handler', () => {
   });
 
   it('no React component reassigns leads by hand', async () => {
-    const sources = import.meta.glob('../**/*.{ts,tsx}', {
-      query: '?raw',
-      import: 'default',
-      eager: true,
-    }) as Record<string, string>;
+    const sources = rawSources(import.meta.glob('../**/*.{ts,tsx}'));
 
     const offenders = Object.entries(sources)
       .filter(([path]) => !path.includes('__tests__') && !path.includes('.test.'))

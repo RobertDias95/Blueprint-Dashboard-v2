@@ -136,6 +136,7 @@ vi.mock('../components/TaskDetailEditor', () => ({
 }));
 
 import PersonalBoard from '../pages/PersonalBoard';
+import { rawSourceLoaders } from './helpers/sourceTree';
 
 let seq = 0;
 function task(over: Record<string, unknown> = {}): Record<string, unknown> {
@@ -272,7 +273,7 @@ describe('fix-326 §2: NotificationBell was dead code', () => {
   // bell I see is the myboard notification bell, not the scraper bell?" The
   // stale comments in four files are what made that draft plausible.
   it('★ nothing imports it, and the file is gone', async () => {
-    const files = import.meta.glob('../**/*.{ts,tsx}', { query: '?raw', import: 'default' });
+    const files = rawSourceLoaders(import.meta.glob('../**/*.{ts,tsx}'));
     const offenders: string[] = [];
     for (const [path, load] of Object.entries(files)) {
       const src = (await load()) as string;
@@ -294,7 +295,7 @@ describe('fix-326 §2: NotificationBell was dead code', () => {
   // ★ The comments, not just the code — a file that DESCRIBES a deleted
   // component as live is how the next brief concludes it is.
   it('★ no comment claims it is mounted or linked', async () => {
-    const files = import.meta.glob('../**/*.{ts,tsx}', { query: '?raw', import: 'default' });
+    const files = rawSourceLoaders(import.meta.glob('../**/*.{ts,tsx}'));
     const claims = [
       /Mounted by the NotificationBell/i,
       /NotificationBell links here/i,

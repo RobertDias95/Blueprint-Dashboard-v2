@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { readFileSync, readdirSync, existsSync } from 'node:fs';
+import { readFileSync, readdirSync, existsSync } from './helpers/sourceTree';
 import { resolve as resolvePath } from 'node:path';
 import { signShare, pagePaths, SHARE_BUCKET, type Deps } from '../../supabase/functions/plan-share/handler';
 

@@ -8,7 +8,7 @@
 import { describe, it, expect, vi } from 'vitest';
 import { render, screen } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
-import { readFileSync, readdirSync, statSync } from 'node:fs';
+import { readFileSync, readdirSync, statSync } from './helpers/sourceTree';
 import { resolve, join, relative } from 'node:path';
 
 const SRC = resolve(__dirname, '..');

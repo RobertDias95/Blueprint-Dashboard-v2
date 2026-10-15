@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { readFileSync, readdirSync } from 'node:fs';
+import { readFileSync, readdirSync } from './helpers/sourceTree';
 import { resolve } from 'node:path';
 import {
   TARGET_APPROVAL_DRIVER_LABEL,

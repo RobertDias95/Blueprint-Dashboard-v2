@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { renderHook, act } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import type { ReactNode } from 'react';
-import { readFileSync, readdirSync } from 'node:fs';
+import { readFileSync, readdirSync } from './helpers/sourceTree';
 import { resolve } from 'node:path';
 import { occToken, isOCCConflict } from '../lib/occ';
 import { useAuthStore } from '../stores/authStore';

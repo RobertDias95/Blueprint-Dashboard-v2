@@ -12,6 +12,7 @@ import { activeMemberNamesOf } from '../hooks/useTeamMembers';
 import { isAssignableMember, isCurrentMember, rosterFullName } from '../lib/roster';
 import { initialsOf } from '../lib/projectChat';
 import type { TeamMember, TeamRole } from '../lib/database.types';
+import { rawSources } from './helpers/sourceTree';
 
 // ===========================================================================
 // fix-343 — the app shows people database keys instead of job titles
@@ -303,12 +304,9 @@ describe('fix-343: viewers are not selectable in assignment dropdowns', () => {
 // component to reach for `member.role` in JSX fails here instead of shipping a
 // database key to a person's name plate.
 //
-// Vite `?raw` rather than node:fs — the app tsconfig has no @types/node
-// (fix-253's note, and the pattern noGuessedSleeps.test.ts already uses).
-const COMPONENT_SOURCES = import.meta.glob(
-  ['../components/**/*.tsx', '../pages/**/*.tsx'],
-  { query: '?raw', import: 'default', eager: true },
-) as Record<string, string>;
+// Vite's glob picks the files; ★ fix-677: their text comes from this run's
+// source snapshot (helpers/sourceTree) instead of one `?raw` module each.
+const COMPONENT_SOURCES = rawSources(import.meta.glob(['../components/**/*.tsx', '../pages/**/*.tsx']));
 
 /** Strip line comments so prose about the banned shape is not the shape. */
 function executable(src: string): string {

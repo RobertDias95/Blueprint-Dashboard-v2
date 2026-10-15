@@ -8,7 +8,7 @@
 // in `ConsultantDuplicateDisciplineFix592.test.tsx`.
 
 import { describe, it, expect } from 'vitest';
-import { readFileSync, readdirSync, statSync } from 'node:fs';
+import { readFileSync, readdirSync, statSync } from './helpers/sourceTree';
 import { join } from 'node:path';
 import {
   queryFailureContext,

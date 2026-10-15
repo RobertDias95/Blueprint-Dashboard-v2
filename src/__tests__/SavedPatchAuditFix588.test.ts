@@ -13,7 +13,7 @@
 //     would otherwise have been shouted at about.
 
 import { describe, it, expect } from 'vitest';
-import { readFileSync, readdirSync } from 'node:fs';
+import { readFileSync, readdirSync } from './helpers/sourceTree';
 import { join } from 'node:path';
 import {
   droppedPatchKeys,

@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs';
+import { existsSync, readFileSync, readdirSync, statSync } from './helpers/sourceTree';
 import { join, resolve } from 'node:path';
 import type { PermitTask, TaskTemplate, WaitingOnTaskRow } from '../lib/database.types';
 import { groupByDisciplineThenFirm } from '../hooks/useWaitingOnTasks';

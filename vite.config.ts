@@ -43,6 +43,9 @@ export default defineConfig({
     globals: true,
     environment: 'jsdom',
     setupFiles: ['./src/test/setup.ts'],
+    // ★★★ fix-677 (P-356): capture src/ + migrations/ ONCE per run for the
+    //     tests that scan them as text — src/test/sourceSnapshot.ts.
+    globalSetup: ['./src/test/globalSetup.ts'],
     include: ['src/**/*.{test,spec}.{ts,tsx}'],
     css: false,
   },

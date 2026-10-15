@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { readFileSync, readdirSync, existsSync } from 'node:fs';
+import { readFileSync, readdirSync, existsSync } from './helpers/sourceTree';
 import { resolve } from 'node:path';
 
 // ===========================================================================

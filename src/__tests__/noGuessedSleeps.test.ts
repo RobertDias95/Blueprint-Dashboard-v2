@@ -1,4 +1,5 @@
 import { describe, it, expect } from 'vitest';
+import { rawSources } from './helpers/sourceTree';
 
 // fix-300b: no test may wait by guessing a duration.
 //
@@ -26,11 +27,7 @@ import { describe, it, expect } from 'vitest';
 //
 // Vite `?raw` rather than node:fs: the app tsconfig has no @types/node, and
 // Render runs a stricter `tsc -b` than vitest does (see phaseDurationsReadOnly).
-const SOURCES = import.meta.glob('./*.test.{ts,tsx}', {
-  query: '?raw',
-  import: 'default',
-  eager: true,
-}) as Record<string, string>;
+const SOURCES = rawSources(import.meta.glob('./*.test.{ts,tsx}'));
 
 /** Strip line comments so prose describing the banned pattern (including this
  *  file's own header) is not mistaken for the pattern itself. */

@@ -42,7 +42,7 @@
 // getting it wrong silently is how 83 anonymous rows happened in the first
 // place. A mutation that writes nothing is listed, with a reason, by a person.
 import { describe, it, expect } from 'vitest';
-import { readFileSync, readdirSync, statSync } from 'node:fs';
+import { readFileSync, readdirSync, statSync } from './helpers/sourceTree';
 import { resolve, join, relative } from 'node:path';
 
 const SRC = resolve(__dirname, '..');

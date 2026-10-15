@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { render, screen } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import type { ReactNode } from 'react';
-import { readFileSync, readdirSync, statSync } from 'node:fs';
+import { readFileSync, readdirSync, statSync } from './helpers/sourceTree';
 import { resolve, join } from 'node:path';
 import schemaSql from '../../migrations/fix_487_construction_admin.sql?raw';
 import rosterSql from '../../migrations/fix_487_roster_person_details.sql?raw';

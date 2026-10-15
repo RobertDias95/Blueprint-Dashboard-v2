@@ -36,6 +36,7 @@ const FIX_364_REASONS = [
   'superseded_number_present',
 ] as const;
 import badgeSrc from '../components/shared/AutoClosedBadge.tsx?raw';
+import { rawSources } from './helpers/sourceTree';
 
 // ===========================================================================
 // fix-364 — three places a task describes itself badly
@@ -56,11 +57,7 @@ describe('fix-364 §1: one concept, one term', () => {
     // which excluded a DIFFERENT rule: one that would have closed tasks whose
     // own job IS intake_accepted (measured then: 0 of 17). Two things,
     // near-identical names, side by side in one feed.
-    const modules = import.meta.glob('../**/*.{ts,tsx}', {
-      query: '?raw',
-      import: 'default',
-      eager: true,
-    }) as Record<string, string>;
+    const modules = rawSources(import.meta.glob('../**/*.{ts,tsx}'));
 
     // ★ Comments are stripped first, both forms. Two files name the old value
     // in PROSE — "renamed from superseded_intake_accepted" — and that
@@ -411,11 +408,7 @@ describe('fix-364 §3: the list moves to app_config', () => {
     // firm directory with a "City" entry is nonsense: we do not hire the city.
     // So the lists split here rather than one growing a value the other cannot
     // use.
-    const modules = import.meta.glob('../lib/database.types.ts', {
-      query: '?raw',
-      import: 'default',
-      eager: true,
-    }) as Record<string, string>;
+    const modules = rawSources(import.meta.glob('../lib/database.types.ts'));
     const types = Object.values(modules)[0];
     const block = types.slice(
       types.indexOf('export const WAITING_ON_OPTIONS = ['),

@@ -109,6 +109,7 @@ import ProjectDetailHeader, {
   CONNECT_URL,
 } from '../components/ProjectDetail/ProjectDetailHeader';
 import { renderProjectData } from '../test/renderProjectData';
+import { rawSources } from './helpers/sourceTree';
 
 function projectFixture(over: Partial<Project> = {}): Project {
   return {
@@ -607,11 +608,7 @@ describe('fix-335 §8 → fix-506 §C: Connect is a real link now', () => {
     // ★★★ fix-335 §8's test asserted its placeholder was the ONLY one. The
     //     honest successor is that there are now none — the same whole-tree
     //     question, with the answer the rule always wanted.
-    const modules = import.meta.glob('../**/*.{ts,tsx}', {
-      query: '?raw',
-      import: 'default',
-      eager: true,
-    }) as Record<string, string>;
+    const modules = rawSources(import.meta.glob('../**/*.{ts,tsx}'));
     const offenders = Object.entries(modules)
       .filter(([path]) => !/\.test\.tsx?$/.test(path))
       .filter(([, src]) => /data-placeholder(="true"|': 'true')/.test(src))

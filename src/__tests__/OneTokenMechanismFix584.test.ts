@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, vi, afterEach } from 'vitest';
-import { readFileSync, readdirSync } from 'node:fs';
+import { readFileSync, readdirSync } from './helpers/sourceTree';
 import { resolve } from 'node:path';
 import {
   occCall,

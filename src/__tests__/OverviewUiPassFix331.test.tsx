@@ -153,6 +153,7 @@ vi.mock('../hooks/useProjectConsultants', () => ({
 
 
 import ProjectDetailHeader from '../components/ProjectDetail/ProjectDetailHeader';
+import { rawSources } from './helpers/sourceTree';
 
 function projectFixture(over: Partial<Project> = {}): Project {
   return {
@@ -633,11 +634,7 @@ describe('fix-331 §5: no "coming soon" survives anywhere', () => {
   // the one file it was last seen in — the same guard fix-330 added for
   // "coming later", now covering both.
   it('★ nothing in src/ renders "coming soon" or "coming later"', () => {
-    const modules = import.meta.glob('../**/*.{ts,tsx}', {
-      query: '?raw',
-      import: 'default',
-      eager: true,
-    }) as Record<string, string>;
+    const modules = rawSources(import.meta.glob('../**/*.{ts,tsx}'));
     const offenders = Object.entries(modules)
       // The tests themselves may NAME the string they are hunting.
       .filter(([path]) => !/\.test\.tsx?$/.test(path))
