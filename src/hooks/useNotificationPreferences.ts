@@ -13,9 +13,11 @@ import {
 // ★★★ fix-634 (P-323) — YOUR EMAIL-NOTIFICATION OPT-OUTS
 // ===========================================================================
 //
-// ⚖️ Bobby, 2026-09-16: on by default, with a per-person opt-out. So the table
-//    holds only the exceptions — ABSENCE MEANS ON — and a person who never opens
-//    this panel gets every email.
+// ⚖️ Bobby, 2026-09-16: on by default, with a per-person opt-out.
+// ⚖️ fix-648 (Bobby, 2026-10-15): Mentions and Task assignments are OFF unless a
+//    person turns them on — no row means off for those two, on for the Weekly
+//    Update and Resubmit-by. The upsert below always writes an explicit
+//    `enabled`, so ticking a box writes `enabled = true`.
 //
 // ★★ RLS lets a user read and write only their own rows, so the queries below
 //    filter by user id for clarity, not for safety.

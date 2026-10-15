@@ -399,14 +399,15 @@ describe('fix-634 — the drain and the outbox', () => {
 });
 
 describe('fix-634 — the Settings panel is registered', () => {
-  it('★★ an "Email notifications" block on My account, and absence means ON', () => {
+  // ★ fix-648 SUPERSEDES "absence means ON" for mention + assignment (opt-in now).
+  it('★★ an "Email notifications" block on My account', () => {
     const block = SETTINGS_BLOCKS.find((b) => b.id === 'email-notifications');
     expect(block?.category).toBe('account');
     expect(block?.title).toBe('Email notifications');
-    expect(preferencesFromRows([])).toEqual({ mention: true, assignment: true, weekly: true, resubmit: true });
-    expect(preferencesFromRows([{ category: 'mention', enabled: false }]))
-      .toEqual({ mention: false, assignment: true, weekly: true, resubmit: true });
-    expect(preferencesFromRows([{ category: 'bogus', enabled: false }]))
-      .toEqual({ mention: true, assignment: true, weekly: true, resubmit: true });
+    expect(preferencesFromRows([])).toEqual({ mention: false, assignment: false, weekly: true, resubmit: true });
+    expect(preferencesFromRows([{ category: 'mention', enabled: true }]))
+      .toEqual({ mention: true, assignment: false, weekly: true, resubmit: true });
+    expect(preferencesFromRows([{ category: 'bogus', enabled: true }]))
+      .toEqual({ mention: false, assignment: false, weekly: true, resubmit: true });
   });
 });
