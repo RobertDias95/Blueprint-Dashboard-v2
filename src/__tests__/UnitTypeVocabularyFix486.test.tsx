@@ -532,12 +532,16 @@ describe('fix-486: no source file carries the old type literals', () => {
     //     own target-submit anchor. A sweep that "finished the job" by deleting
     //     the `case 'Condo':` arms in targetSubmitPolicy/Learner would have
     //     silently re-anchored a live permit type onto the default mirror.
-    for (const rel of ['src/lib/targetSubmitPolicy.ts', 'src/lib/targetSubmitLearner.ts']) {
-      const body = stripComments(readFileSync(resolve(process.cwd(), rel), 'utf8'));
-      expect(body, rel).toContain("'Condo'");
-      // ★ It sits beside the other PERMIT types, which is what identifies it.
-      expect(body, rel).toContain("'Demolition'");
-    }
+    // ★ fix-680: those arms are gone on purpose — every permit type's anchor
+    //   is the permit_types.ts_anchor column now. Condo's is set by that
+    //   migration's backfill, beside the other PERMIT types, to the anchor its
+    //   old arm counted from (BP issue), so it was NOT re-anchored.
+    const mig = readFileSync(
+      resolve(process.cwd(), 'migrations/fix_680_target_submit_learns.sql'),
+      'utf8',
+    );
+    expect(mig).toMatch(/WHEN 'Condo'\s+THEN 'bp_actual_issue'/);
+    expect(mig).toMatch(/WHEN 'Demolition'\s+THEN 'bp_c0_intake'/);
   });
 
   it('★★ `SFR+ADU` survives ONLY as the mapping rule that explains it', () => {

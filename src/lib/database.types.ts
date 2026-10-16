@@ -1444,9 +1444,10 @@ export interface TaskTemplateSubtask {
 // fix-154 — per-type × per-jurisdiction target_submit offset overrides.
 
 /** One row from bp_list_target_submit_formulas. `jurisdiction` NULL is the
- *  "Base" row for the type (applies when no per-juris override exists). The
- *  offset is added to the type's in-code anchor (see anchorFor in
- *  targetSubmitLearner.ts) when the data learner has no samples. May be
+ *  "Base" row for the type (applies when no per-juris override exists).
+ *  ★ fix-680: this is the STARTING NUMBER — added to the type's anchor
+ *  (permit_types.ts_anchor) only until the type has its own history in that
+ *  city; then the median of the 5 most recent submittals takes over. May be
  *  negative (team submits before the anchor). */
 export interface TargetSubmitFormula {
   type: string;
@@ -1719,6 +1720,11 @@ export interface PermitType {
   name: string;
   is_builtin: boolean | null;
   notes: string | null;
+  /** ★ fix-680: the date this type's Target Submit counts from (CHECK-listed
+   *  in `permit_types_ts_anchor_check`; default 'go_date'). Optional only so
+   *  a row read before the column existed still types — parse it with
+   *  `parseTargetSubmitAnchor`. */
+  ts_anchor?: string | null;
 }
 
 /** fix-25-feat-Z: tenant-scoped per-type default overrides for the

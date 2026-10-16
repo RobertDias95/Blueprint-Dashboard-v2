@@ -160,9 +160,11 @@ vi.mock('../hooks/useProjects', () => ({
 vi.mock('../hooks/usePermitTypes', () => ({
   usePermitTypes: () => ({
     data: [
-      { name: 'Building Permit', is_builtin: true, notes: null },
-      { name: 'Demolition', is_builtin: true, notes: null },
-      { name: 'Grading / Clearing', is_builtin: true, notes: null },
+      // ★ fix-680: each row carries its Target Submit anchor (ts_anchor).
+      { name: 'Building Permit', is_builtin: true, notes: null, ts_anchor: 'dd_end' },
+      { name: 'Demolition', is_builtin: true, notes: null, ts_anchor: 'bp_c0_intake' },
+      { name: 'Grading / Clearing', is_builtin: true, notes: null, ts_anchor: 'mirror_bp' },
+      { name: 'Brand New Type', is_builtin: false, notes: null, ts_anchor: 'go_date' },
     ],
     isLoading: false,
     error: null,
@@ -300,43 +302,36 @@ describe('Trends — fix-25-feat-V submit→intake surface', () => {
     expect(screen.getByTestId('tr-chart-goes')).toBeInTheDocument();
   });
 
-  it('Target Submit section renders one row per (juris × type) with non-mirror anchor', () => {
+  it('Target Submit section renders one row per (juris × type) the learner measures from', () => {
     renderTrends();
-    // Demolition is in the catalog but has no Demo permits with the
-    // required anchor (BP c0 intake) populated — still shown with
-    // hardcoded fallback / source=default.
-    const bpRow = screen.getByTestId('trends-ts-row-Seattle-Building Permit');
-    expect(bpRow).toBeInTheDocument();
-    const demoRow = screen.getByTestId('trends-ts-row-Seattle-Demolition');
-    expect(demoRow).toBeInTheDocument();
+    expect(screen.getByTestId('trends-ts-row-Seattle-Building Permit')).toBeInTheDocument();
+    expect(screen.getByTestId('trends-ts-row-Seattle-Demolition')).toBeInTheDocument();
+    // ★ fix-680: a type the code never named gets a row (census: it used to drop).
+    expect(screen.getByTestId('trends-ts-row-Seattle-Brand New Type')).toBeInTheDocument();
     // Mirror types (Grading / Clearing) are excluded.
-    expect(
-      screen.queryByTestId('trends-ts-row-Seattle-Grading / Clearing'),
-    ).toBeNull();
+    expect(screen.queryByTestId('trends-ts-row-Seattle-Grading / Clearing')).toBeNull();
   });
 
-  it('Target Submit row for Demolition (no samples) shows the "default" tier badge', () => {
+  it('★★ fix-680: no history and no starting number → no number, and it says so', () => {
+    formulas615.rows = [];
     renderTrends();
-    const demoRow = screen.getByTestId('trends-ts-row-Seattle-Demolition');
-    // The tier badge has data-testid="tier-{source}"; default tier =
-    // hardcoded fallback fired.
-    const tierBadge = demoRow.querySelector('[data-testid="tier-default"]');
-    expect(tierBadge).toBeTruthy();
-    // Source column reads "hardcoded fallback" for default tier.
-    expect(demoRow.textContent).toMatch(/hardcoded fallback/i);
+    expect(screen.getByTestId('trends-ts-target-Seattle-Demolition').textContent).toBe('—');
+    expect(screen.getByTestId('trends-ts-target-source-Seattle-Demolition').textContent).toBe(
+      'no history and no starting number',
+    );
   });
 
-  it('★★★ fix-615 §B.3: the TARGET is the Settings formula — policy first, as the server does', () => {
+  it('★★★ fix-680: with no history yet, the Settings number is the starting number', () => {
     formulas615.rows = [
       { type: 'Demolition', jurisdiction: null, offset_days: 5, updated_at: '2026-01-01T00:00:00Z' },
     ];
     renderTrends();
     expect(screen.getByTestId('trends-ts-target-Seattle-Demolition').textContent).toBe('5d');
-    expect(screen.getByTestId('trends-ts-target-source-Seattle-Demolition').textContent).toMatch(/Settings/);
+    expect(screen.getByTestId('trends-ts-target-source-Seattle-Demolition').textContent).toMatch(/starting number/);
     formulas615.rows = [];
   });
 
-  it('★★★ fix-615 §B.3: a city formula beats Base, exactly as bp_target_submit_offset resolves', () => {
+  it('★★★ a city starting number beats Base, exactly as bp_target_submit_offset resolves', () => {
     formulas615.rows = [
       { type: 'Building Permit', jurisdiction: null, offset_days: 21, updated_at: '2026-01-01T00:00:00Z' },
       { type: 'Building Permit', jurisdiction: 'Seattle', offset_days: 30, updated_at: '2026-01-01T00:00:00Z' },
@@ -344,12 +339,6 @@ describe('Trends — fix-25-feat-V submit→intake surface', () => {
     renderTrends();
     expect(screen.getByTestId('trends-ts-target-Seattle-Building Permit').textContent).toBe('30d');
     formulas615.rows = [];
-  });
-
-  it('★★ fix-615 §B.3: with no formula the built-in number is the target — and says so', () => {
-    formulas615.rows = [];
-    renderTrends();
-    expect(screen.getByTestId('trends-ts-target-source-Seattle-Demolition').textContent).toBe('hardcoded fallback');
   });
 
   it('Variance section paragraph quotes the submit→intake weighted avg + target hit rate', () => {

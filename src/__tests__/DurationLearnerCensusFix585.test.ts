@@ -39,8 +39,8 @@ const READS_THE_LEARNER = /\bbp_duration_stats\b|\bbp_learned_durations\b|from '
 
 const GRANDFATHERED_SQL: Record<string, string> = {
   bp_learn_target_submit_days:
-    'anchor → our-submittal lag (dd_end / go_date / BP milestones). A different quantity from the review clocks; out of the brief\'s scope and left as fix-249 set it.',
-  bp_target_submit_benchmark: 'fix-249 display-only benchmark of the lag above.',
+    'anchor → our-submittal lag (dd_end / go_date / BP milestones / created). A different quantity from the review clocks; fix-680 made it the median of the 5 most recent submittals.',
+  bp_target_submit_benchmark: 'fix-680: reports the lag above (learned / starting / none) from the same observation list.',
   bp_phase_durations: 'fix-253 per-cycle display. Same clocks as bp_duration_stats — the client-rewire ticket repoints it.',
   bp_phase_duration_grid: 'fix-253 per-cycle display grid. the client-rewire ticket repoints it.',
   bp_notification_delivery_report:
@@ -106,7 +106,6 @@ const GRANDFATHERED_TS: Record<string, string> = {
   'src/lib/scheduleBenchmarks.ts': 'the client ladder. Brief: leave it alone here; the client-rewire ticket points it at bp_learned_durations.',
   'src/components/Reports/ScheduleBenchmarks.tsx': 'renders scheduleBenchmarks; goes with it in the client rewire.',
   'src/lib/targetSubmitLearner.ts': 'client twin of bp_learn_target_submit_days (the lag, not the review clocks).',
-  'src/lib/targetSubmitPolicy.ts': 'TS twin of bp_target_submit_benchmark (fix-249 display, the lag).',
   'src/lib/phaseDurations.ts': 'TS twin of bp_phase_durations (fix-253 display); client-rewire ticket.',
   'src/hooks/usePhaseDurationGrid.ts': 'fix-253 display RPC hook; client-rewire ticket.',
   'src/hooks/useTargetSubmitBenchmark.ts': 'fix-249 display RPC hook for the lag benchmark.',

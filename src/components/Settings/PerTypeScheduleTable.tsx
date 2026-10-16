@@ -16,11 +16,12 @@ import { SkeletonRows } from '../Skeleton';
 import QueryError from '../QueryError';
 import BufferedNumberInput from '../shared/BufferedNumberInput';
 import RowHistoryPanel from '../shared/RowHistoryPanel';
-import { anchorFor } from '../../lib/targetSubmitLearner';
+import { isLearnableAnchor } from '../../lib/targetSubmitLearner';
+import { useTargetSubmitAnchors } from '../../hooks/useTargetSubmitAnchors';
 import {
   anchorShortLabel,
   anchorWords,
-  MIN_BENCHMARK_SAMPLES,
+  STARTING_NUMBER_LABEL,
 } from '../../lib/targetSubmitPolicy';
 import type { TargetSubmitFormula } from '../../lib/database.types';
 
@@ -51,6 +52,13 @@ import type { TargetSubmitFormula } from '../../lib/database.types';
 //
 // ★★ A TYPE WITH NO ROW shows "—" and "Set". Nothing is created until someone
 //    types a number and leaves the box.
+//
+// ★★★ fix-680: the Target submit number is the STARTING NUMBER now — used
+//    until the type has its own history in a city, then the median of that
+//    city's 5 most recent submittals takes over. Its box shows for EVERY type
+//    whose anchor (permit_types.ts_anchor) the learner measures from, so a type
+//    added in Settings gets one. Mirror types (copy the Building Permit's
+//    date) and `none` types never read it, so they show none.
 
 const OFFSET_MIN = -365;
 const OFFSET_MAX = 730;
@@ -71,6 +79,7 @@ export default function PerTypeScheduleTable({ readOnly = false }: Props) {
   const removeFormula = useDeleteTargetSubmitFormula();
   const upsertDefault = useUpsertPermitTypeDefault();
   const tenantId = useAuthStore((s) => s.activeTenantId) ?? '';
+  const { anchorOf } = useTargetSubmitAnchors();
   const [open, setOpen] = useState<string | null>(null);
   const [historyFor, setHistoryFor] = useState<string | null>(null);
 
@@ -154,17 +163,25 @@ export default function PerTypeScheduleTable({ readOnly = false }: Props) {
   return (
     <div className="space-y-2" data-testid="per-type-schedule-table">
       <p className="text-[11px] text-muted">
-        One row per permit type, most-used first. <b>Target submit</b> is days
-        from the type's anchor (shown under the number); it is the standard and
-        always wins. <b>Intake → approval</b> is the estimator's no-history
-        number. <b>C1 resubmit</b> left blank means a third of intake →
-        approval. A city override changes Target submit for one city.
+        One row per permit type, most-used first. <b>Target submit</b> learns
+        from our own history: the median of the 5 most recent submittals for
+        that type in that city, counted from the type's anchor (shown under the
+        number). The number here is only the <b>starting number</b>, used until
+        a type has its own history in a city. <b>Intake → approval</b> is the
+        estimator's no-history number. <b>C1 resubmit</b> left blank means a
+        third of intake → approval. A city override changes the starting number
+        for one city.
       </p>
       <table className="w-full text-xs">
         <thead>
           <tr className="text-[10px] uppercase tracking-wide text-dim border-b border-border">
             <th className="text-left py-1.5 font-display font-bold">Type</th>
-            <th className="text-left py-1.5 font-display font-bold">Target submit</th>
+            <th className="text-left py-1.5 font-display font-bold" data-testid="pts-target-header">
+              Target submit
+              <div className="text-[9px] normal-case tracking-normal font-normal text-dim">
+                {STARTING_NUMBER_LABEL}
+              </div>
+            </th>
             <th className="text-right py-1.5 font-display font-bold pr-2">Intake → approval</th>
             <th className="text-right py-1.5 font-display font-bold pr-2">C1 resubmit</th>
             <th className="text-left py-1.5 font-display font-bold pl-3">City overrides</th>
@@ -179,8 +196,8 @@ export default function PerTypeScheduleTable({ readOnly = false }: Props) {
             </tr>
           )}
           {rows.map(({ type, permits }) => {
-            const anchor = anchorFor(type);
-            const hasOffset = anchor !== 'mirror_bp' && anchor !== 'none';
+            const anchor = anchorOf(type);
+            const hasOffset = isLearnableAnchor(anchor);
             const base = formulasQ.byScope.get(formulaScopeKey(type, null));
             const intake = defaultsQ.byType.get(type) ?? null;
             const c1 = defaultsQ.c1OffsetByType.get(type) ?? null;
@@ -434,7 +451,7 @@ function CityOverrides(props: {
     >
       {props.overrides.length === 0 && (
         <div className="text-[10.5px] text-dim italic">
-          Every city uses the Target submit above{props.baseOffset !== null ? ` (${props.baseOffset} days)` : ''}.
+          Every city starts from the number above{props.baseOffset !== null ? ` (${props.baseOffset} days)` : ''} until it has its own history.
         </div>
       )}
       {props.overrides.map((o) => (
@@ -453,7 +470,7 @@ function CityOverrides(props: {
             <button
               type="button"
               className="text-dim hover:text-co text-sm leading-none"
-              title="Remove this city's override (it goes back to the Target submit above)"
+              title="Remove this city's override (it goes back to the starting number above)"
               onClick={() => props.onRemoveOverride(o.jurisdiction as string)}
               data-testid={`pts-override-remove-${type}-${o.jurisdiction}`}
             >
@@ -498,20 +515,20 @@ function CityOverrides(props: {
   );
 }
 
-/** fix-249's evidence, kept: what this city's history says, display only. */
+/** ★ fix-680: what this city actually uses — its learned number once it has
+ *  history (which then outranks the box beside it), else the box. */
 function CityHistory({ type, juris, anchorShort }: { type: string; juris: string; anchorShort: string }) {
   const b = useTargetSubmitBenchmarks([type], juris).byType.get(type);
-  if (!b || b.medianDays == null || b.n == null) {
-    const total = b?.totalSamples ?? 0;
+  if (!b || b.windowLabel !== 'learned' || b.medianDays == null || !b.n) {
     return (
-      <span className="text-[10px] text-dim italic">
-        {total > 0 ? `history: not enough (n=${total}, need ${MIN_BENCHMARK_SAMPLES})` : 'history: none yet'}
+      <span className="text-[10px] text-dim italic" data-testid={`pts-city-history-${type}-${juris}`}>
+        no history yet — this number is used
       </span>
     );
   }
   return (
-    <span className="text-[10px] text-dim">
-      history: {anchorShort}+{b.medianDays}d · n={b.n}
+    <span className="text-[10px] text-dim" data-testid={`pts-city-history-${type}-${juris}`}>
+      learned: {anchorShort}+{b.medianDays}d · median of last {b.n} (used instead)
     </span>
   );
 }

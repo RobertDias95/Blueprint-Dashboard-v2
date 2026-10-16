@@ -1,22 +1,25 @@
 import type { PermitWithCycles, Project, ProjectHold } from './database.types';
-import {
-  WINDOW_TIERS_DAYS,
-  MIN_SAMPLES_FOR_LEARNER,
-  OUTLIER_HARD_CAP_DAYS,
-  recencyWeight,
-  type RecencyTier,
-} from './scheduleBenchmarks';
-import { intervalOverlapsHold, holdsForPermit } from './holdOverlap';
+import { OUTLIER_HARD_CAP_DAYS } from './scheduleBenchmarks';
+import { heldOverlapDays, holdsForPermit } from './holdOverlap';
+import { pacificToday } from './intakeWarning';
 
-// fix-25-feat-AA: target_submit learner. Replaces fix-25-feat-J's
-// hardcoded offsets (BP=+21d, Demo=+37d, ECA=+10d, etc.) with an
-// average of the team's actual anchor→submitted clock for each
-// (type, juris) cohort. Cascade mirrors the intake→approval learner:
-// (type, juris) 90d → 180d → 365d → all-time, then hardcoded default.
+// fix-25-feat-AA: target_submit learner — the team's actual anchor→submitted
+// clock for each (type, juris) cohort.
 //
-// fix-37: the (type, *) cross-juris tier is removed — jurisdictions
-// without own data fall straight to the hardcoded per-type offset
-// rather than borrowing another jurisdiction's timeline.
+// fix-37: no cross-juris borrowing — a jurisdiction without its own data never
+// takes another jurisdiction's timeline.
+//
+// ★★★ fix-680 (P-318 #7): THE MEDIAN OF THE 5 MOST RECENT SUBMITTALS.
+//   Bobby, 2026-10-15: "lets make it smart, lets see what our average is ...
+//   using a rolling average i.e only take the data within the last quarter or
+//   the 5 most recent data points or whatever we have". Shown that most types
+//   have 0–1 submittals a quarter and one odd project swings an average, he
+//   chose the median of the last 5 (fewer if that is all there is). The
+//   Settings number is only the STARTING NUMBER, used until a type has its own
+//   history in that city. This reverses fix-249 ("policy beats learner") and
+//   retires the 90/180/365-day windows and recency weights here.
+//   This module is the TS twin of bp_learn_target_submit_days /
+//   bp_target_submit_observations — keep them in lockstep.
 //
 // "Open sample gate" — any permit with both anchor dates contributes,
 // regardless of approval status. Negative samples (team submitted
@@ -27,7 +30,13 @@ const DAY_MS = 24 * 60 * 60 * 1000;
 
 /** Which anchor a permit type's target_submit is computed against.
  *  `mirror_bp` is the inert case (G&C / LSM mirror BP.target_submit
- *  directly — no learner involved). */
+ *  directly — no learner involved).
+ *
+ *  ★★★ fix-680: this is a COLUMN now — `permit_types.ts_anchor` — read by
+ *  `bp_recompute_target_submits` and by every screen through
+ *  `anchorForType()`. The old type switch (a copy of the server's hard-coded
+ *  CASE) is gone, so a type added in Settings gets an anchor (GO date by
+ *  default) without a code change. */
 export type TargetSubmitAnchor =
   | 'dd_end'
   | 'go_date'
@@ -35,60 +44,79 @@ export type TargetSubmitAnchor =
   | 'bp_c1_resub'
   | 'bp_actual_issue'
   | 'mirror_bp'
-  /** ★ fix-615 (gap 6): a type the server gives NO automatic target to —
-   *  `bp_recompute_target_submits`' CASE ends `ELSE NULL`. Before this it was
-   *  reported as `mirror_bp`, which claimed a date the server never writes. */
+  /** ★ fix-680: the day the permit row was created in the Bridge. */
+  | 'created'
+  /** ★ fix-615 (gap 6): a type the server gives NO automatic target to. */
   | 'none';
 
-/** fix-25-feat-J's offset table — surfaces as tier-5 fallback when no
- *  cohort signal exists at any window or jurisdiction scope. Mirrors
- *  the WHEN branches in bp_recompute_target_submits pre-feat-AA. */
-export const HARDCODED_TARGET_SUBMIT_OFFSETS: Record<string, number> = {
-  'Building Permit': 21,
-  Demolition: 37,
-  'ECA Waiver': 10,
-  IPR: 7,
-  ULS: 7,
-  LBA: 37,
-  'Short Plat': 37,
-  SIP: 37,
-  'PAR/Pre-Sub': 10,
-  'SDOT Tree': 10,
-  TRAO: 10,
-  // Condo's hardcoded was "BP actual_issue + 4mo + 7d" — encoded as
-  // approximate days (4 months ≈ 122 days, +7d = 129d). The engine
-  // formerly used INTERVAL '4 months' but for the learner default a
-  // day-count is fine since the anchor is bp_actual_issue.
-  Condo: 129,
-};
+/** Every value `permit_types_ts_anchor_check` allows, in the SQL's order. */
+export const TARGET_SUBMIT_ANCHORS: readonly TargetSubmitAnchor[] = [
+  'dd_end',
+  'go_date',
+  'bp_c0_intake',
+  'bp_c1_resub',
+  'bp_actual_issue',
+  'mirror_bp',
+  'created',
+  'none',
+];
 
-export function anchorFor(type: string | null | undefined): TargetSubmitAnchor {
-  switch (type) {
-    case 'Building Permit':
-      return 'dd_end';
-    case 'Demolition':
-      return 'bp_c0_intake';
-    case 'IPR':
-    case 'ULS':
-      return 'bp_c1_resub';
-    case 'Condo':
-      return 'bp_actual_issue';
-    case 'ECA Waiver':
-    case 'PAR/Pre-Sub':
-    case 'SDOT Tree':
-    case 'TRAO':
-    case 'LBA':
-    case 'Short Plat':
-    case 'SIP':
-      return 'go_date';
-    case 'Grading / Clearing':
-    case 'LSM':
-      return 'mirror_bp';
-    default:
-      // ★ fix-615 (gap 6): PPR, Vault, WAC, STFI and any new catalogue type.
-      //   The server's CASE has no branch for them → no automatic target.
-      return 'none';
-  }
+/** The anchors the learner measures from (everything but mirror_bp / none).
+ *  Mirrors the `p_anchor NOT IN (...)` guard in bp_learn_target_submit_days. */
+export function isLearnableAnchor(anchor: TargetSubmitAnchor): boolean {
+  return anchor !== 'mirror_bp' && anchor !== 'none';
+}
+
+/** A stored ts_anchor, checked. Anything unknown (or a row read before the
+ *  column existed) is `none` — no automatic target, never a guess. */
+export function parseTargetSubmitAnchor(raw: unknown): TargetSubmitAnchor {
+  return typeof raw === 'string' &&
+    (TARGET_SUBMIT_ANCHORS as readonly string[]).includes(raw)
+    ? (raw as TargetSubmitAnchor)
+    : 'none';
+}
+
+/** ★ fix-680: a type's anchor, read from the catalogue rows
+ *  (`usePermitTypes().data`). A type with no catalogue row gets `none`, as
+ *  the server's `COALESCE(pt.ts_anchor, 'none')` does. */
+export function anchorForType(
+  type: string | null | undefined,
+  permitTypes:
+    | ReadonlyArray<{ name: string; ts_anchor?: string | null }>
+    | undefined,
+): TargetSubmitAnchor {
+  if (!type) return 'none';
+  const row = (permitTypes ?? []).find((t) => t.name === type);
+  return parseTargetSubmitAnchor(row?.ts_anchor);
+}
+
+/** ★ fix-680: Bobby's ruling — the median of the 5 MOST RECENT submittals
+ *  (fewer if that is all there is). Mirrors `LIMIT 5` in the SQL. */
+export const LEARNER_RECENT_COUNT = 5;
+
+/** Postgres round(numeric) rounds half AWAY FROM ZERO; JS Math.round rounds
+ *  half toward +Infinity. They disagree on exactly the case that matters here
+ *  — an even-sized sample whose median lands on .5 — and they disagree in
+ *  opposite directions for negative values. The TRAO cohort
+ *  [8,23,70,75,122,167,191,196] has median 98.5: Postgres gives 99, and
+ *  round(double precision) (which uses rint / banker's rounding) gives 98.
+ *  The SQL casts to numeric for this reason; this function is the TS twin. */
+export function roundHalfAwayFromZero(n: number): number {
+  return n < 0 ? -Math.round(-n) : Math.round(n);
+}
+
+/** Median of a sample set, rounded to whole days. MEDIAN, not average — a
+ *  couple of slow permits shouldn't drag the number the way an average does.
+ *  The SQL's `round(percentile_cont(0.5) ... ::numeric)`. */
+export function medianDays(values: number[]): number | null {
+  if (values.length === 0) return null;
+  const sorted = [...values].sort((a, b) => a - b);
+  const mid = Math.floor(sorted.length / 2);
+  const raw =
+    sorted.length % 2 === 1
+      ? sorted[mid]
+      : (sorted[mid - 1] + sorted[mid]) / 2;
+  return roundHalfAwayFromZero(raw);
 }
 
 export interface TargetSubmitSample {
@@ -99,32 +127,29 @@ export interface TargetSubmitSample {
   anchorDate: string;
   submittedAt: string;
   daysAnchorToSubmit: number;
-  /** Used for windowing — equals submittedAt by spec. Kept separate so
+  /** Used for ordering — equals submittedAt by spec. Kept separate so
    *  callers don't have to remember the convention. */
   recencyDate: string;
 }
 
-export interface CascadeResult {
-  /** Average days from anchor → c0.submitted, or null when every tier
-   *  was empty (caller falls back to hardcoded default). */
+/** Where a target-submit number came from (fix-680). */
+export type TargetSubmitLearnSource = 'learned' | 'starting' | 'none';
+
+export interface LearnResult {
+  /** Days from the anchor, or null when there is no history and no
+   *  starting number (no automatic target). */
   value: number | null;
-  source: RecencyTier;
+  source: TargetSubmitLearnSource;
+  /** Submittals the median was taken over (<= LEARNER_RECENT_COUNT). */
   sampleCount: number;
-  /** True if the winning tier was the cross-juris (type, *) scope. */
-  isCrossJuris: boolean;
+  /** Every usable submittal on record for the cohort. */
+  totalSamples: number;
 }
 
 function daysBetween(a: string, b: string): number {
   const aMs = new Date(`${a}T12:00:00Z`).getTime();
   const bMs = new Date(`${b}T12:00:00Z`).getTime();
   return Math.round((bMs - aMs) / DAY_MS);
-}
-
-function tierLabelFor(windowDays: number | null): RecencyTier {
-  if (windowDays === 90) return 'last_90d';
-  if (windowDays === 180) return 'last_180d';
-  if (windowDays === 365) return 'last_365d';
-  return 'all_time';
 }
 
 /** Pull the relevant anchor date for one permit, given its project +
@@ -155,6 +180,11 @@ function getAnchorDate(
       );
     case 'bp_actual_issue':
       return bpSibling?.actual_issue ?? null;
+    case 'created':
+      // The SQL's `(created_at AT TIME ZONE 'America/Los_Angeles')::date`.
+      return permit.created_at
+        ? pacificToday(new Date(permit.created_at))
+        : null;
     case 'mirror_bp':
     case 'none':
       return null;
@@ -167,26 +197,33 @@ export function extractTargetSubmitSample(
   permit: PermitWithCycles,
   project: Project | undefined,
   bpSibling: PermitWithCycles | undefined,
-  // fix-171 (effect E for target_submit): the project's holds. A sample whose
-  // anchor→submit span overlapped a hold is dropped so a parked clock doesn't
-  // skew the learned offset (mirrors filterHeldLearningSamples). Omitted / no
-  // holds → kept, so the common case is unchanged.
+  /** fix-680: the type's anchor (anchorForType) — no longer derived here. */
+  anchor: TargetSubmitAnchor,
+  // fix-171 / ★ fix-680: the permit's hold windows (project + permit holds).
+  // The held days inside the anchor→submit span are SUBTRACTED — fix-668's
+  // "hold time never counts", exactly as the SQL's bp_held_days term does.
+  // (fix-171 used to DROP the whole sample; the server has subtracted since
+  // fix-668, so the two disagreed.) Omitted / no holds → unchanged.
   holds?: ReadonlyArray<Pick<ProjectHold, 'hold_start' | 'hold_end'>>,
 ): TargetSubmitSample | null {
   if (!permit.type) return null;
-  const anchor = anchorFor(permit.type);
-  if (anchor === 'mirror_bp' || anchor === 'none') return null;
+  if (!isLearnableAnchor(anchor)) return null;
   const anchorDate = getAnchorDate(permit, project, bpSibling, anchor);
   if (!anchorDate) return null;
   const c0 = (permit.permit_cycles ?? []).find((c) => c.cycle_index === 0);
   const submittedAt = c0?.submitted ?? null;
   if (!submittedAt) return null;
-  if (intervalOverlapsHold(holds, anchorDate, submittedAt)) return null;
-  const days = daysBetween(anchorDate, submittedAt);
+  const rawDays = daysBetween(anchorDate, submittedAt);
   // Symmetric hard cap — drop extreme outliers (data errors) on both
   // sides. Negative values within the cap are real signal (team
   // submitted before the anchor, e.g., PAR/Pre-Sub before go_date).
-  if (Math.abs(days) > OUTLIER_HARD_CAP_DAYS) return null;
+  // Applied to the RAW span, as the SQL's ABS(sub_on - anchor_on) is.
+  if (Math.abs(rawDays) > OUTLIER_HARD_CAP_DAYS) return null;
+  // ★ fix-680: for `created`, a permit submitted BEFORE its row existed was
+  //   entered after the fact (a backfill) — its gap says nothing about lead
+  //   time. Mirrors `(p_anchor <> 'created' OR s.sub_on >= s.anchor_on)`.
+  if (anchor === 'created' && rawDays < 0) return null;
+  const days = rawDays - heldOverlapDays(holds, anchorDate, submittedAt);
   return {
     permitId: permit.id,
     type: permit.type,
@@ -199,40 +236,39 @@ export function extractTargetSubmitSample(
   };
 }
 
-interface CohortFilter {
-  type: string;
-  juris: string | null;
-}
-
-/** Build all available samples for the (type, juris | *) cohort by
- *  walking every permit; pairs each candidate with its same-project
- *  BP sibling (needed for the BP-anchored learners). */
-function collectSamples(
+/** The BP that anchors a project's BP-derived anchors. ORDER BY id ASC
+ *  matches the engine's "first BP wins" tiebreak. ANCHOR-ONLY: the Building
+ *  Permit is the project's anchor permit here, not a per-type rule. */
+function firstBpByProject(
   permits: PermitWithCycles[],
-  projects: Map<string, Project>,
-  filter: CohortFilter,
-  holdsByProjectId?: Map<string, ProjectHold[]>,
-): TargetSubmitSample[] {
-  // Index BPs by project_id once for the bp_c0_intake / bp_c1_resub /
-  // bp_actual_issue anchors. ORDER BY id ASC matches the engine's
-  // "first BP wins" tiebreak.
+): Map<string, PermitWithCycles> {
   const bpByProject = new Map<string, PermitWithCycles>();
   for (const p of permits) {
     if (p.type !== 'Building Permit') continue;
     const existing = bpByProject.get(p.project_id);
     if (!existing || p.id < existing.id) bpByProject.set(p.project_id, p);
   }
+  return bpByProject;
+}
 
+/** Every usable sample for the (type, juris) cohort. */
+export function collectTargetSubmitSamples(
+  permits: PermitWithCycles[],
+  projects: Map<string, Project>,
+  filter: { type: string; juris: string; anchor: TargetSubmitAnchor },
+  holdsByProjectId?: Map<string, ProjectHold[]>,
+): TargetSubmitSample[] {
+  const bpByProject = firstBpByProject(permits);
   const out: TargetSubmitSample[] = [];
   for (const p of permits) {
     if (p.type !== filter.type) continue;
     const project = projects.get(p.project_id);
-    if (filter.juris !== null && (project?.juris ?? '') !== filter.juris) continue;
-    const bp = bpByProject.get(p.project_id);
+    if ((project?.juris ?? '') !== filter.juris) continue;
     const sample = extractTargetSubmitSample(
       p,
       project,
-      bp,
+      bpByProject.get(p.project_id),
+      filter.anchor,
       holdsForPermit(holdsByProjectId, p),
     );
     if (sample) out.push(sample);
@@ -240,97 +276,73 @@ function collectSamples(
   return out;
 }
 
-/** Run a single cohort through the 4-tier window cascade + all-time
- *  pool. Returns the first tier with N ≥ gate. */
-function cascadeForCohort(
-  samples: TargetSubmitSample[],
-  isCrossJuris: boolean,
-  today: Date,
-): CascadeResult | null {
-  if (samples.length === 0) return null;
+/** ★ fix-680: the n most recent samples, newest first — by submitted date,
+ *  ties by permit id (the SQL's `ORDER BY submitted DESC, permit_id DESC`). */
+export function mostRecentSamples<
+  T extends { recencyDate: string; permitId: number },
+>(samples: readonly T[], n: number = LEARNER_RECENT_COUNT): T[] {
+  return [...samples]
+    .sort((a, b) => {
+      if (a.recencyDate !== b.recencyDate) {
+        return a.recencyDate < b.recencyDate ? 1 : -1;
+      }
+      return b.permitId - a.permitId;
+    })
+    .slice(0, n);
+}
 
-  for (const windowDays of WINDOW_TIERS_DAYS) {
-    const cutoff = today.getTime() - windowDays * DAY_MS;
-    const window = samples.filter(
-      (s) =>
-        new Date(`${s.recencyDate}T12:00:00Z`).getTime() >= cutoff,
-    );
-    if (window.length >= MIN_SAMPLES_FOR_LEARNER) {
-      return {
-        value: weightedMean(window, today),
-        source: tierLabelFor(windowDays),
-        sampleCount: window.length,
-        isCrossJuris,
-      };
-    }
-  }
-  // All-time fallback within the same cohort.
-  if (samples.length >= MIN_SAMPLES_FOR_LEARNER) {
+/** The learner over samples already collected: median of the 5 most recent,
+ *  else the starting number, else null. */
+export function learnFromSamples(
+  samples: readonly TargetSubmitSample[],
+  startingDays: number | null | undefined,
+): LearnResult {
+  const recent = mostRecentSamples(samples);
+  const learned = medianDays(recent.map((s) => s.daysAnchorToSubmit));
+  if (learned !== null) {
     return {
-      value: weightedMean(samples, today),
-      source: 'all_time',
-      sampleCount: samples.length,
-      isCrossJuris,
+      value: learned,
+      source: 'learned',
+      sampleCount: recent.length,
+      totalSamples: samples.length,
     };
   }
-  return null;
+  const starting = startingDays ?? null;
+  return {
+    value: starting,
+    source: starting === null ? 'none' : 'starting',
+    sampleCount: 0,
+    totalSamples: 0,
+  };
 }
 
-/** Weighted mean over a sample set. Each sample's weight comes from
- *  the existing recencyWeight() (half-life 18mo, floor 0.05) keyed
- *  on submittedAt. Within a 90d window the weights are near-uniform;
- *  in wider/all-time windows recency still wins on the margin. */
-function weightedMean(samples: TargetSubmitSample[], now: Date): number {
-  let sumWV = 0;
-  let sumW = 0;
-  for (const s of samples) {
-    const w = recencyWeight(s.recencyDate, now);
-    sumWV += s.daysAnchorToSubmit * w;
-    sumW += w;
-  }
-  return sumW > 0 ? Math.round(sumWV / sumW) : 0;
-}
-
-/** Top-level entry point: target_submit days for (type, juris).
- *  Walks the (type, juris) cascade, then returns the hardcoded per-type
- *  offset + 'default' source when it misses.
- *
- *  fix-37: the (type, *) cross-juris tier is removed. A jurisdiction with
- *  no own learned anchor→submit signal now falls straight through to the
- *  hardcoded per-type offset, never borrowing another jurisdiction's
- *  timeline. isCrossJuris is always false now (retained for minimal churn).
- *
- *  Mirror types (G&C, LSM) return null with source='default' — the
- *  engine handles those via direct copy of BP.target_submit; the
- *  learner isn't a meaningful path for them. */
+/** Top-level entry point: target_submit days for (type, juris). The TS twin
+ *  of `bp_learn_target_submit_days` (fix-680):
+ *    1. history → the MEDIAN of the 5 most recent submittals;
+ *    2. none → the starting number from Settings (the caller resolves it:
+ *       city row, then the type row — `resolveTargetSubmitOffset`);
+ *    3. neither → null (no automatic target).
+ *  Mirror / none anchors have no learner and return source 'none'. */
 export function computeLearnedTargetSubmit(
   permits: PermitWithCycles[],
   projects: Map<string, Project>,
-  filter: { type: string; juris: string },
-  today: Date = new Date(),
-  // fix-171: per-project holds — held samples are dropped from the offset
-  // average. Omitted → unchanged.
+  filter: {
+    type: string;
+    juris: string;
+    anchor: TargetSubmitAnchor;
+    startingDays?: number | null;
+  },
+  // fix-171: per-project holds — held samples are dropped. Omitted → unchanged.
   holdsByProjectId?: Map<string, ProjectHold[]>,
-): CascadeResult {
-  const anchor = anchorFor(filter.type);
-  if (anchor === 'mirror_bp' || anchor === 'none') {
-    return { value: null, source: 'default', sampleCount: 0, isCrossJuris: false };
+): LearnResult {
+  if (!isLearnableAnchor(filter.anchor)) {
+    return { value: null, source: 'none', sampleCount: 0, totalSamples: 0 };
   }
-  // (type, juris) only.
-  const scoped = collectSamples(
+  const samples = collectTargetSubmitSamples(
     permits,
     projects,
-    { type: filter.type, juris: filter.juris },
+    { type: filter.type, juris: filter.juris, anchor: filter.anchor },
     holdsByProjectId,
   );
-  const scopedResult = cascadeForCohort(scoped, false, today);
-  if (scopedResult) return scopedResult;
-  // Hardcoded per-type default — no cross-juris borrowing.
-  const fallback = HARDCODED_TARGET_SUBMIT_OFFSETS[filter.type] ?? null;
-  return {
-    value: fallback,
-    source: 'default',
-    sampleCount: 0,
-    isCrossJuris: false,
-  };
+  return learnFromSamples(samples, filter.startingDays);
 }

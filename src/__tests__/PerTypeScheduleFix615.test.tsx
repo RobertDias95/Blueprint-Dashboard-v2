@@ -14,7 +14,7 @@ const T = 'tenant-615';
 const NOW = '2026-10-01T00:00:00Z';
 
 const h = vi.hoisted(() => ({
-  types: [] as { name: string; is_builtin: boolean | null; notes: string | null }[],
+  types: [] as { name: string; is_builtin: boolean | null; notes: string | null; ts_anchor?: string }[],
   permits: [] as { id: number; type: string }[],
   formulas: [] as { type: string; jurisdiction: string | null; offset_days: number; updated_at: string }[],
   defaults: [] as { type: string; intake_to_approval_days: number; c1_resub_offset_days: number | null }[],
@@ -91,16 +91,17 @@ function renderTable(readOnly = false) {
 beforeEach(() => {
   vi.clearAllMocks();
   useAuthStore.setState({ activeTenantId: T, memberships: [{ tenant_id: T, role: 'admin' }] });
+  // ★ fix-680: the anchor is a catalogue column (permit_types.ts_anchor).
   h.types = [
-    { name: 'Building Permit', is_builtin: true, notes: null },
-    { name: 'Demolition', is_builtin: true, notes: null },
-    { name: 'Grading / Clearing', is_builtin: true, notes: null },
-    { name: 'PPR', is_builtin: false, notes: null },
+    { name: 'Building Permit', is_builtin: true, notes: null, ts_anchor: 'dd_end' },
+    { name: 'Demolition', is_builtin: true, notes: null, ts_anchor: 'bp_c0_intake' },
+    { name: 'Grading / Clearing', is_builtin: true, notes: null, ts_anchor: 'mirror_bp' },
+    { name: 'Vault', is_builtin: false, notes: null, ts_anchor: 'none' },
   ];
   h.permits = [
     { id: 1, type: 'Building Permit' }, { id: 2, type: 'Building Permit' }, { id: 3, type: 'Building Permit' },
     { id: 4, type: 'Demolition' }, { id: 5, type: 'Demolition' },
-    { id: 6, type: 'PPR' },
+    { id: 6, type: 'Vault' },
   ];
   h.formulas = [
     { type: 'Building Permit', jurisdiction: null, offset_days: 21, updated_at: NOW },
@@ -119,11 +120,11 @@ const rowOrder = () =>
 describe('fix-615 §A — rows are the catalogue', () => {
   it('★★★ one row per permit type, most permits first, then name', () => {
     renderTable();
-    expect(rowOrder()).toEqual(['Building Permit', 'Demolition', 'PPR', 'Grading / Clearing']);
+    expect(rowOrder()).toEqual(['Building Permit', 'Demolition', 'Vault', 'Grading / Clearing']);
   });
 
   it('★★★ a type added to the catalogue appears by itself (gap 5) — with no formula of its own', () => {
-    h.types = [...h.types, { name: 'Brand New Type', is_builtin: false, notes: null }];
+    h.types = [...h.types, { name: 'Brand New Type', is_builtin: false, notes: null, ts_anchor: 'go_date' }];
     renderTable();
     expect(screen.getByTestId('pts-row-Brand New Type')).toBeInTheDocument();
   });
@@ -132,13 +133,13 @@ describe('fix-615 §A — rows are the catalogue', () => {
     renderTable();
     expect(screen.getByTestId('pts-anchor-Building Permit').textContent).toBe('after design (DD) ends');
     expect(screen.getByTestId('pts-anchor-Grading / Clearing').textContent).toBe("uses the Building Permit's date");
-    expect(screen.getByTestId('pts-anchor-PPR').textContent).toBe('no anchor — no automatic target');
+    expect(screen.getByTestId('pts-anchor-Vault').textContent).toBe('no anchor — no automatic target');
   });
 
   it('★★ a type with no anchor or a mirror type has no Target submit box — the server ignores it', () => {
     renderTable();
-    expect(screen.queryByTestId('pts-target-PPR')).toBeNull();
-    expect(screen.queryByTestId('pts-target-PPR-set')).toBeNull();
+    expect(screen.queryByTestId('pts-target-Vault')).toBeNull();
+    expect(screen.queryByTestId('pts-target-Vault-set')).toBeNull();
     expect(screen.queryByTestId('pts-overrides-Grading / Clearing')).toBeNull();
   });
 });
@@ -198,29 +199,29 @@ describe('fix-615 §A — every cell saves through its RPC, buffered', () => {
 describe('fix-615 §A — a type with no row', () => {
   it('★★★ shows "—" and Set, and creates NOTHING until a number is typed', () => {
     renderTable();
-    expect(screen.getByTestId('pts-intake-PPR-empty').textContent).toBe('—');
-    fireEvent.click(screen.getByTestId('pts-intake-PPR-set'));
-    const box = screen.getByTestId('pts-intake-PPR') as HTMLInputElement;
+    expect(screen.getByTestId('pts-intake-Vault-empty').textContent).toBe('—');
+    fireEvent.click(screen.getByTestId('pts-intake-Vault-set'));
+    const box = screen.getByTestId('pts-intake-Vault') as HTMLInputElement;
     fireEvent.blur(box); // left empty
     expect(h.upsertDefault).not.toHaveBeenCalled();
-    expect(screen.getByTestId('pts-intake-PPR-empty')).toBeInTheDocument();
+    expect(screen.getByTestId('pts-intake-Vault-empty')).toBeInTheDocument();
 
-    fireEvent.click(screen.getByTestId('pts-intake-PPR-set'));
-    const again = screen.getByTestId('pts-intake-PPR') as HTMLInputElement;
+    fireEvent.click(screen.getByTestId('pts-intake-Vault-set'));
+    const again = screen.getByTestId('pts-intake-Vault') as HTMLInputElement;
     fireEvent.change(again, { target: { value: '90' } });
     fireEvent.blur(again);
     expect(h.upsertDefault).toHaveBeenCalledWith({
-      type: 'PPR', intake_to_approval_days: 90, c1_resub_offset_days: null,
+      type: 'Vault', intake_to_approval_days: 90, c1_resub_offset_days: null,
     });
   });
 
   it('★★ C1 waits for intake → approval (the RPC needs it)', () => {
     renderTable();
-    expect(screen.queryByTestId('pts-c1-PPR')).toBeNull();
+    expect(screen.queryByTestId('pts-c1-Vault')).toBeNull();
   });
 
   it('★★ a type with an anchor but no Base formula creates it with no OCC token', () => {
-    h.types = [{ name: 'TRAO', is_builtin: true, notes: null }];
+    h.types = [{ name: 'TRAO', is_builtin: true, notes: null, ts_anchor: 'go_date' }];
     renderTable();
     fireEvent.click(screen.getByTestId('pts-target-TRAO-set'));
     const box = screen.getByTestId('pts-target-TRAO');
@@ -268,7 +269,7 @@ describe('fix-615 §A — non-admins', () => {
   it('★★★ read-only: boxes disabled, no Set, no remove, no add', () => {
     renderTable(true);
     expect((screen.getByTestId('pts-target-Building Permit') as HTMLInputElement).disabled).toBe(true);
-    expect(screen.queryByTestId('pts-intake-PPR-set')).toBeNull();
+    expect(screen.queryByTestId('pts-intake-Vault-set')).toBeNull();
     fireEvent.click(screen.getByTestId('pts-overrides-Building Permit'));
     expect(screen.queryByTestId('pts-override-remove-Building Permit-Seattle')).toBeNull();
     expect(screen.queryByTestId('pts-override-add-juris-Building Permit')).toBeNull();
