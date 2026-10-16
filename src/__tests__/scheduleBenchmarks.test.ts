@@ -19,10 +19,8 @@ import {
   type LearnedEstimate,
 } from '../lib/scheduleBenchmarks';
 import {
-  anchorFor,
   computeLearnedTargetSubmit,
   extractTargetSubmitSample,
-  HARDCODED_TARGET_SUBMIT_OFFSETS,
 } from '../lib/targetSubmitLearner';
 import { enrichPermits } from '../lib/reportMetrics';
 import type {
@@ -1230,41 +1228,16 @@ describe('computeLearnedSchedule recency cascade (fix-25-feat-AA)', () => {
 });
 
 // ============================================================
-// fix-25-feat-AA: target_submit learner
+// fix-25-feat-AA → fix-680: target_submit learner
 // ============================================================
-describe('target_submit learner anchorFor (fix-25-feat-AA)', () => {
-  it('maps each permit type to the correct anchor', () => {
-    expect(anchorFor('Building Permit')).toBe('dd_end');
-    expect(anchorFor('Demolition')).toBe('bp_c0_intake');
-    expect(anchorFor('IPR')).toBe('bp_c1_resub');
-    expect(anchorFor('ULS')).toBe('bp_c1_resub');
-    expect(anchorFor('Condo')).toBe('bp_actual_issue');
-    expect(anchorFor('ECA Waiver')).toBe('go_date');
-    expect(anchorFor('PAR/Pre-Sub')).toBe('go_date');
-    expect(anchorFor('SDOT Tree')).toBe('go_date');
-    expect(anchorFor('TRAO')).toBe('go_date');
-    expect(anchorFor('LBA')).toBe('go_date');
-    expect(anchorFor('Short Plat')).toBe('go_date');
-    expect(anchorFor('SIP')).toBe('go_date');
-    expect(anchorFor('Grading / Clearing')).toBe('mirror_bp');
-    expect(anchorFor('LSM')).toBe('mirror_bp');
-    // ★ fix-615 §B.4 (gap 6): an unknown type has NO anchor — the server's
-    //   CASE ends ELSE NULL. It used to claim it mirrored the BP.
-    expect(anchorFor(null)).toBe('none');
-    expect(anchorFor('Unknown Type')).toBe('none');
-    expect(anchorFor('PPR')).toBe('none');
-  });
-});
-
-describe('extractTargetSubmitSample (fix-25-feat-AA)', () => {
-  it('returns null when permit type has no anchor (mirror_bp)', () => {
+describe('extractTargetSubmitSample (fix-25-feat-AA, anchor passed in by fix-680)', () => {
+  it('returns null for an anchor the learner does not measure from (mirror_bp / none)', () => {
     const permit = makePermit({
       type: 'Grading / Clearing',
       permit_cycles: [makeCycle({ cycle_index: 0, submitted: '2026-04-01' })],
     });
-    expect(
-      extractTargetSubmitSample(permit, makeProject(), undefined),
-    ).toBeNull();
+    expect(extractTargetSubmitSample(permit, makeProject(), undefined, 'mirror_bp')).toBeNull();
+    expect(extractTargetSubmitSample(permit, makeProject(), undefined, 'none')).toBeNull();
   });
 
   it('returns null when c0.submitted is missing', () => {
@@ -1273,9 +1246,7 @@ describe('extractTargetSubmitSample (fix-25-feat-AA)', () => {
       dd_end: '2026-03-15',
       permit_cycles: [makeCycle({ cycle_index: 0, submitted: null })],
     });
-    expect(
-      extractTargetSubmitSample(permit, makeProject(), undefined),
-    ).toBeNull();
+    expect(extractTargetSubmitSample(permit, makeProject(), undefined, 'dd_end')).toBeNull();
   });
 
   it('returns null when anchor date is missing (BP without dd_end)', () => {
@@ -1284,9 +1255,7 @@ describe('extractTargetSubmitSample (fix-25-feat-AA)', () => {
       dd_end: null,
       permit_cycles: [makeCycle({ cycle_index: 0, submitted: '2026-04-01' })],
     });
-    expect(
-      extractTargetSubmitSample(permit, makeProject(), undefined),
-    ).toBeNull();
+    expect(extractTargetSubmitSample(permit, makeProject(), undefined, 'dd_end')).toBeNull();
   });
 
   it('BP: returns days between dd_end and c0.submitted', () => {
@@ -1295,26 +1264,26 @@ describe('extractTargetSubmitSample (fix-25-feat-AA)', () => {
       dd_end: '2026-03-15',
       permit_cycles: [makeCycle({ cycle_index: 0, submitted: '2026-04-05' })],
     });
-    const s = extractTargetSubmitSample(permit, makeProject(), undefined);
+    const s = extractTargetSubmitSample(permit, makeProject(), undefined, 'dd_end');
     expect(s).not.toBeNull();
     expect(s?.anchor).toBe('dd_end');
     expect(s?.daysAnchorToSubmit).toBe(21);
     expect(s?.recencyDate).toBe('2026-04-05');
   });
 
-  it('go-anchored: PAR/Pre-Sub uses project.go_date and accepts negative values', () => {
+  it('go-anchored: uses project.go_date and accepts negative values', () => {
     const permit = makePermit({
       id: 7,
       type: 'PAR/Pre-Sub',
       permit_cycles: [makeCycle({ cycle_index: 0, submitted: '2026-02-01' })],
     });
     const project = makeProject({ go_date: '2026-03-01' });
-    const s = extractTargetSubmitSample(permit, project, undefined);
+    const s = extractTargetSubmitSample(permit, project, undefined, 'go_date');
     expect(s?.anchor).toBe('go_date');
     expect(s?.daysAnchorToSubmit).toBe(-28); // submitted before go-date
   });
 
-  it('Demo: anchors to sibling BP c0.intake_accepted', () => {
+  it('bp_c0_intake: anchors to the sibling BP c0.intake_accepted', () => {
     const demo = makePermit({
       id: 2,
       type: 'Demolition',
@@ -1323,11 +1292,9 @@ describe('extractTargetSubmitSample (fix-25-feat-AA)', () => {
     const bp = makePermit({
       id: 1,
       type: 'Building Permit',
-      permit_cycles: [
-        makeCycle({ cycle_index: 0, intake_accepted: '2026-03-09' }),
-      ],
+      permit_cycles: [makeCycle({ cycle_index: 0, intake_accepted: '2026-03-09' })],
     });
-    const s = extractTargetSubmitSample(demo, makeProject(), bp);
+    const s = extractTargetSubmitSample(demo, makeProject(), bp, 'bp_c0_intake');
     expect(s?.anchor).toBe('bp_c0_intake');
     expect(s?.daysAnchorToSubmit).toBe(37);
   });
@@ -1339,15 +1306,11 @@ describe('extractTargetSubmitSample (fix-25-feat-AA)', () => {
       permit_cycles: [makeCycle({ cycle_index: 0, submitted: '2026-04-01' })],
     });
     // ~6 years between → exceeds OUTLIER_HARD_CAP_DAYS (730).
-    expect(
-      extractTargetSubmitSample(permit, makeProject(), undefined),
-    ).toBeNull();
+    expect(extractTargetSubmitSample(permit, makeProject(), undefined, 'dd_end')).toBeNull();
   });
 });
 
-describe('computeLearnedTargetSubmit (fix-25-feat-AA)', () => {
-  const TODAY = new Date(2026, 4, 15);
-
+describe('computeLearnedTargetSubmit — fix-680 median of the last 5', () => {
   function bpSample(
     id: number,
     projectId: string,
@@ -1362,85 +1325,75 @@ describe('computeLearnedTargetSubmit (fix-25-feat-AA)', () => {
       permit_cycles: [makeCycle({ permit_id: id, cycle_index: 0, submitted })],
     });
   }
+  const BP = { type: 'Building Permit', juris: 'Seattle', anchor: 'dd_end' as const };
 
-  it('cohort empty → returns hardcoded fallback with source=default', () => {
-    const result = computeLearnedTargetSubmit(
-      [],
-      new Map<string, Project>(),
-      { type: 'Building Permit', juris: 'Seattle' },
-      TODAY,
-    );
-    expect(result.source).toBe('default');
-    expect(result.value).toBe(HARDCODED_TARGET_SUBMIT_OFFSETS['Building Permit']);
-    expect(result.sampleCount).toBe(0);
+  it('cohort empty → the starting number, source=starting', () => {
+    const result = computeLearnedTargetSubmit([], new Map<string, Project>(), {
+      ...BP,
+      startingDays: 21,
+    });
+    expect(result).toEqual({ value: 21, source: 'starting', sampleCount: 0, totalSamples: 0 });
   });
 
-  it('one BP sample within 90d → tier last_90d with learned value', () => {
-    const permits = [bpSample(1, 'p1', '2026-04-01', '2026-03-10')]; // +22d
+  it('cohort empty and no starting number → null, source=none (no automatic target)', () => {
+    const result = computeLearnedTargetSubmit([], new Map<string, Project>(), BP);
+    expect(result.value).toBeNull();
+    expect(result.source).toBe('none');
+  });
+
+  it('one sample → that sample, even when it is old (no recency window any more)', () => {
+    const permits = [bpSample(1, 'p1', '2024-01-30', '2024-01-08')]; // +22d
     const projects = new Map([['p1', makeProject({ id: 'p1', juris: 'Seattle' })]]);
-    const result = computeLearnedTargetSubmit(
-      permits,
-      projects,
-      { type: 'Building Permit', juris: 'Seattle' },
-      TODAY,
-    );
-    expect(result.source).toBe('last_90d');
+    const result = computeLearnedTargetSubmit(permits, projects, { ...BP, startingDays: 21 });
+    expect(result.source).toBe('learned');
     expect(result.value).toBe(22);
     expect(result.sampleCount).toBe(1);
-    expect(result.isCrossJuris).toBe(false);
   });
 
-  it('fix-37: scoped (type, juris) has no sample → hardcoded default, no cross-juris borrow', () => {
-    // 0 Seattle samples, 1 Bellevue sample. Pre-fix-37 the Bellevue sample
-    // fired as a cross-juris value (22). fix-37 removes that tier — Seattle
-    // falls straight to the hardcoded per-type offset.
+  it('fix-37: another jurisdiction\'s history is never borrowed', () => {
     const permits = [bpSample(1, 'pBV1', '2026-04-01', '2026-03-10')];
     const projects = new Map([['pBV1', makeProject({ id: 'pBV1', juris: 'Bellevue' })]]);
-    const result = computeLearnedTargetSubmit(
-      permits,
-      projects,
-      { type: 'Building Permit', juris: 'Seattle' },
-      TODAY,
-    );
-    expect(result.isCrossJuris).toBe(false);
-    expect(result.source).toBe('default');
-    expect(result.value).toBe(HARDCODED_TARGET_SUBMIT_OFFSETS['Building Permit']);
-    expect(result.sampleCount).toBe(0);
+    const result = computeLearnedTargetSubmit(permits, projects, { ...BP, startingDays: 21 });
+    expect(result.source).toBe('starting');
+    expect(result.value).toBe(21);
   });
 
-  it('mirror_bp types short-circuit to default with null value', () => {
-    const result = computeLearnedTargetSubmit(
-      [],
-      new Map(),
-      { type: 'Grading / Clearing', juris: 'Seattle' },
-      TODAY,
-    );
-    expect(result.value).toBeNull();
-    expect(result.source).toBe('default');
+  it('mirror_bp / none anchors short-circuit to null', () => {
+    const r1 = computeLearnedTargetSubmit([], new Map(), {
+      type: 'Grading / Clearing',
+      juris: 'Seattle',
+      anchor: 'mirror_bp',
+      startingDays: 21,
+    });
+    expect(r1.value).toBeNull();
+    expect(r1.source).toBe('none');
   });
 
-  it('walks cascade past empty 90d tier when older samples exist', () => {
-    const permits = [
-      bpSample(1, 'p1', '2025-09-01', '2025-08-05'), // 365d tier (27d)
-      bpSample(2, 'p2', '2025-09-15', '2025-08-20'), // 365d tier (26d)
-    ];
-    const projects = new Map([
-      ['p1', makeProject({ id: 'p1', juris: 'Seattle' })],
-      ['p2', makeProject({ id: 'p2', juris: 'Seattle' })],
-    ]);
-    const result = computeLearnedTargetSubmit(
-      permits,
-      projects,
-      { type: 'Building Permit', juris: 'Seattle' },
-      TODAY,
+  it('takes ONLY the 5 most recent: an old slow project cannot swing it', () => {
+    const days = [10, 12, 14, 16, 18]; // the 5 newest
+    const permits = days.map((d, i) => {
+      const sub = `2026-0${i + 3}-28`;
+      const end = new Date(Date.parse(`${sub}T12:00:00Z`) - d * 86400000).toISOString().slice(0, 10);
+      return bpSample(i + 10, `p${i}`, sub, end);
+    });
+    // Two OLD, very slow submittals — outside the last 5.
+    permits.push(bpSample(1, 'pOld1', '2025-01-30', '2024-08-01'));
+    permits.push(bpSample(2, 'pOld2', '2025-02-28', '2024-09-01'));
+    const projects = new Map(
+      [...days.map((_, i) => `p${i}`), 'pOld1', 'pOld2'].map((id) => [
+        id,
+        makeProject({ id, juris: 'Seattle' }),
+      ]),
     );
-    expect(result.source).toBe('last_365d');
-    expect(result.value).toBeGreaterThan(20);
-    expect(result.value).toBeLessThan(30);
+    const result = computeLearnedTargetSubmit(permits, projects, BP);
+    expect(result.value).toBe(14);
+    expect(result.sampleCount).toBe(5);
+    expect(result.totalSamples).toBe(7);
   });
 });
 
-// fix-171 (effect E for target_submit): held samples are dropped from the learner.
+// fix-171 → ★ fix-680: held days are SUBTRACTED (fix-668's rule, as the SQL's
+// bp_held_days term does) instead of the whole sample being dropped.
 import type { ProjectHold } from '../lib/database.types';
 function tsHold(start: string, end: string | null): ProjectHold {
   return {
@@ -1448,7 +1401,7 @@ function tsHold(start: string, end: string | null): ProjectHold {
     hold_start: start, hold_end: end, created_by: null, created_at: '', updated_at: '',
   };
 }
-describe('fix-171 extractTargetSubmitSample — held-sample exclusion', () => {
+describe('fix-680 extractTargetSubmitSample — held days are subtracted, not the sample', () => {
   function bp() {
     return makePermit({
       type: 'Building Permit',
@@ -1456,19 +1409,22 @@ describe('fix-171 extractTargetSubmitSample — held-sample exclusion', () => {
       permit_cycles: [makeCycle({ cycle_index: 0, submitted: '2026-04-05' })],
     });
   }
-  it('keeps the sample when there are no holds (common case)', () => {
-    expect(extractTargetSubmitSample(bp(), makeProject(), undefined)).not.toBeNull();
-    expect(extractTargetSubmitSample(bp(), makeProject(), undefined, [])).not.toBeNull();
+  it('no holds → the full span (common case)', () => {
+    expect(extractTargetSubmitSample(bp(), makeProject(), undefined, 'dd_end')?.daysAnchorToSubmit).toBe(21);
+    expect(extractTargetSubmitSample(bp(), makeProject(), undefined, 'dd_end', [])?.daysAnchorToSubmit).toBe(21);
   });
-  it('drops the sample when a hold overlapped the anchor→submit span', () => {
-    // span 2026-03-15 .. 2026-04-05; hold 2026-03-20..2026-03-25 overlaps
-    expect(
-      extractTargetSubmitSample(bp(), makeProject(), undefined, [tsHold('2026-03-20', '2026-03-25')]),
-    ).toBeNull();
+  it('a hold inside the anchor→submit span takes its days off', () => {
+    // span 2026-03-15 .. 2026-04-05 (21d); hold 2026-03-20..2026-03-25 (5d)
+    const s = extractTargetSubmitSample(bp(), makeProject(), undefined, 'dd_end', [
+      tsHold('2026-03-20', '2026-03-25'),
+    ]);
+    expect(s).not.toBeNull();
+    expect(s?.daysAnchorToSubmit).toBe(16);
   });
-  it('keeps the sample when the hold did not overlap the span', () => {
+  it('a hold outside the span changes nothing', () => {
     expect(
-      extractTargetSubmitSample(bp(), makeProject(), undefined, [tsHold('2026-01-01', '2026-02-01')]),
-    ).not.toBeNull();
+      extractTargetSubmitSample(bp(), makeProject(), undefined, 'dd_end', [tsHold('2026-01-01', '2026-02-01')])
+        ?.daysAnchorToSubmit,
+    ).toBe(21);
   });
 });

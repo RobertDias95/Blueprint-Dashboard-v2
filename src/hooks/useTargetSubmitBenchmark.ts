@@ -2,18 +2,18 @@ import { useQueries, useQuery } from '@tanstack/react-query';
 import { supabase } from '../lib/supabase';
 import { queryKeys } from '../lib/queryKeys';
 import { useAuthStore } from '../stores/authStore';
-import { anchorFor } from '../lib/targetSubmitLearner';
+import { isLearnableAnchor } from '../lib/targetSubmitLearner';
+import { useTargetSubmitAnchors } from './useTargetSubmitAnchors';
 import type { TargetSubmitBenchmark } from '../lib/targetSubmitPolicy';
 
-// fix-249: read the DISPLAY-ONLY history benchmark for a (type, jurisdiction)
-// cohort. This never influences a date — bp_recompute_target_submits drives
-// target_submit purely from the configured policy offset now. The benchmark
-// exists so the standard can be set next to the evidence, and so a permit
-// shows how its configured target compares with what the team actually did.
+// fix-249 → ★ fix-680: read what a (type, jurisdiction) cohort's Target
+// Submit number IS and where it came from. bp_target_submit_benchmark reads
+// the same observation list as bp_learn_target_submit_days, so this is the
+// number the engine uses, not a separate figure.
 //
-// bp_target_submit_benchmark returns exactly one row: median_days / n /
-// min_days / max_days over the first recency window with n >= 3, or all-NULLs
-// with window_label='insufficient' when no window reached the gate.
+// It returns one row: window_label 'learned' (median_days = median of the n
+// <= 5 most recent submittals), 'starting' (no history: median_days = the
+// Settings starting number, n = 0) or 'none'.
 
 interface BenchmarkRow {
   median_days: number | null;
@@ -29,7 +29,7 @@ const EMPTY: TargetSubmitBenchmark = {
   n: null,
   minDays: null,
   maxDays: null,
-  windowLabel: 'insufficient',
+  windowLabel: 'none',
   totalSamples: 0,
 };
 
@@ -41,7 +41,7 @@ function toBenchmark(row: BenchmarkRow | undefined): TargetSubmitBenchmark {
     minDays: row.min_days,
     maxDays: row.max_days,
     windowLabel: (row.window_label ??
-      'insufficient') as TargetSubmitBenchmark['windowLabel'],
+      'none') as TargetSubmitBenchmark['windowLabel'],
     totalSamples: row.total_samples ?? 0,
   };
 }
@@ -60,17 +60,17 @@ async function fetchBenchmark(
   return toBenchmark((data as BenchmarkRow[] | null)?.[0]);
 }
 
-/** One cohort's benchmark. Anchor is derived from the type (anchors are fixed
- *  per type in code — fix-249 explicitly does NOT change them). Mirror types
- *  (G&C / LSM) have no learner cohort, so the query stays disabled. */
+/** One cohort's benchmark. ★ fix-680: the anchor is the type's
+ *  `permit_types.ts_anchor`. Mirror / none types have no learner cohort, so
+ *  the query stays disabled. */
 export function useTargetSubmitBenchmark(
   type: string | null | undefined,
   juris: string | null | undefined,
 ) {
   const tenantId = useAuthStore((s) => s.activeTenantId) ?? '';
-  const anchor = type ? anchorFor(type) : 'mirror_bp';
-  const enabled =
-    !!tenantId && !!type && !!juris && anchor !== 'mirror_bp' && anchor !== 'none';
+  const { anchorOf } = useTargetSubmitAnchors();
+  const anchor = anchorOf(type);
+  const enabled = !!tenantId && !!type && !!juris && isLearnableAnchor(anchor);
 
   return useQuery<TargetSubmitBenchmark>({
     queryKey: queryKeys.targetSubmitBenchmark(
@@ -82,29 +82,27 @@ export function useTargetSubmitBenchmark(
     enabled,
     // History moves slowly; this is a comparison aid, not a live figure.
     staleTime: 5 * 60 * 1000,
-    // The client ships ahead of the migration (the backfill is gated on
-    // Bobby's review of the Phase 0 report). Until bp_target_submit_benchmark
-    // exists the RPC 404s — degrade to "no note" quietly instead of a retry
-    // storm. The date itself never depended on this call.
+    // Degrade to "no note" quietly on an error instead of a retry storm.
+    // The date itself never depends on this call.
     retry: false,
     queryFn: () => fetchBenchmark(type as string, juris as string, anchor),
   });
 }
 
 /** Benchmarks for many types at one jurisdiction — the Settings editor shows
- *  the evidence beside every configured offset. Types whose anchor is
- *  mirror_bp resolve to the empty benchmark without a round-trip. */
+ *  the learned number beside every starting number. Types whose anchor is
+ *  mirror_bp / none resolve to the empty benchmark without a round-trip. */
 export function useTargetSubmitBenchmarks(
   types: string[],
   juris: string | null | undefined,
 ) {
   const tenantId = useAuthStore((s) => s.activeTenantId) ?? '';
+  const { anchorOf } = useTargetSubmitAnchors();
 
   const results = useQueries({
     queries: types.map((type) => {
-      const anchor = anchorFor(type);
-      const enabled =
-        !!tenantId && !!juris && anchor !== 'mirror_bp' && anchor !== 'none';
+      const anchor = anchorOf(type);
+      const enabled = !!tenantId && !!juris && isLearnableAnchor(anchor);
       return {
         queryKey: queryKeys.targetSubmitBenchmark(
           tenantId,
